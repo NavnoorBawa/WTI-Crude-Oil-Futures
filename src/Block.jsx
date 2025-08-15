@@ -130,7 +130,7 @@ export default function Block() {
     try {
       // Multiple endpoint strategy for enterprise reliability
       // Use environment variable or fallback to production URL
-      const API_BASE_URL = import.meta.env.VITE_API_URL || "https://YOUR_BACKEND_APP_NAME.onrender.com";
+      const API_BASE_URL = import.meta.env.VITE_API_URL || "https://wti-crude-oil-futures.onrender.com";
       const endpoints = [
         `${API_BASE_URL}/data`,
         "http://127.0.0.1:9000/data",  // Local fallback
@@ -237,7 +237,7 @@ export default function Block() {
 
   const checkMLSystemHealth = async () => {
     try {
-      const API_BASE_URL = import.meta.env.VITE_API_URL || "https://YOUR_BACKEND_APP_NAME.onrender.com";
+      const API_BASE_URL = import.meta.env.VITE_API_URL || "https://wti-crude-oil-futures.onrender.com";
       const mlResponse = await fetch(`${API_BASE_URL}/ml-status`, {
         signal: AbortSignal.timeout(10000)
       });
