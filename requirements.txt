@@ -1,4 +1,39 @@
+# Core Flask web server dependencies
 Flask==3.0.0
 Flask-CORS==4.0.0
-numpy==1.26.4
 gunicorn==21.2.0
+
+# Core data processing
+numpy==1.26.4
+
+# ML and data analysis (production optimized versions)
+pandas==2.2.0
+scikit-learn==1.4.0
+scipy==1.12.0
+
+# Financial data sources
+yfinance==0.2.18
+requests==2.31.0
+
+# Additional dependencies for oil.py ML module (if used)
+xgboost==2.0.3
+lightgbm==4.3.0
+
+# System monitoring and production utilities
+psutil==5.9.8
+
+# Date/time handling
+python-dateutil==2.8.2
+
+# Robust HTTP client
+urllib3==2.2.0
+
+# Error handling and logging enhancements
+packaging==25.0
+
+# Performance optimizations
+numba==0.59.0
+
+# Optional: For advanced features
+beautifulsoup4==4.12.3
+lxml==5.1.0

@@ -128,13 +128,17 @@ export default function Block() {
 
   const fetchEnterpriseData = async () => {
     try {
-      // Multiple endpoint strategy for enterprise reliability
-      // Use environment variable or fallback to production URL
+      // Production-optimized endpoint strategy
       const API_BASE_URL = import.meta.env.VITE_API_URL || "https://wti-crude-oil-futures.onrender.com";
+      
+      // Primary endpoint with robust fallbacks
       const endpoints = [
         `${API_BASE_URL}/data`,
-        "http://127.0.0.1:9000/data",  // Local fallback
-        "http://localhost:9000/data"   // Local fallback
+        // Only add local fallbacks in development
+        ...(import.meta.env.DEV ? [
+          "http://127.0.0.1:9000/data",
+          "http://localhost:9000/data"
+        ] : [])
       ];
       
       let response = null;
@@ -148,7 +152,7 @@ export default function Block() {
               'Accept': 'application/json',
               'Content-Type': 'application/json',
             },
-            signal: AbortSignal.timeout(30000) // Extended timeout for complex ML
+            signal: AbortSignal.timeout(15000) // Production-optimized timeout
           });
           
           if (res.ok) {
