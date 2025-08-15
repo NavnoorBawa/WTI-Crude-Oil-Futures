@@ -41,29 +41,17 @@ function App() {
   // Loading screen
   if (loading) {
     return (
-      <div style={{
-        minHeight: '100vh',
-        backgroundColor: '#000000',
-        color: '#F39F41',
-        fontFamily: 'monospace',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexDirection: 'column'
-      }}>
-        <div style={{
-          backgroundColor: '#F39F41',
-          color: '#000000',
-          padding: '10px 20px',
-          marginBottom: '20px',
-          fontWeight: 'bold'
-        }}>
+      <div className="min-h-screen bg-black text-bloomberg-amber font-bloomberg flex items-center justify-center" style={{ flexDirection: 'column' }}>
+        <div className="bloomberg-badge mb-4 text-lg px-6 py-3">
           BLOOMBERG TERMINAL
         </div>
-        <div style={{ fontSize: '1.2em', marginBottom: '10px' }}>
-          Loading market data...
+        <div className="text-xl mb-3 tracking-wide">
+          INITIALIZING MARKET DATA SYSTEMS...
         </div>
-        <div style={{ color: '#22c55e' }}>●●●</div>
+        <div className="bloomberg-status-dot bg-bloomberg-green"></div>
+        <div className="text-xs text-gray-500 mt-4 uppercase tracking-wider">
+          Connecting to Real-Time Data Feeds
+        </div>
       </div>
     );
   }
@@ -71,30 +59,19 @@ function App() {
   // Error screen
   if (error) {
     return (
-      <div style={{
-        minHeight: '100vh',
-        backgroundColor: '#000000',
-        color: '#F39F41',
-        fontFamily: 'monospace',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexDirection: 'column'
-      }}>
-        <div style={{
-          backgroundColor: '#ef4444',
-          color: '#ffffff',
-          padding: '10px 20px',
-          marginBottom: '20px',
-          fontWeight: 'bold'
-        }}>
-          CONNECTION ERROR
+      <div className="min-h-screen bg-black text-bloomberg-amber font-bloomberg flex items-center justify-center" style={{ flexDirection: 'column' }}>
+        <div className="bg-bloomberg-red text-white px-6 py-3 mb-4 font-bold text-sm uppercase tracking-wider">
+          ⚠ MARKET DATA CONNECTION FAILURE
         </div>
-        <div style={{ fontSize: '1.2em', marginBottom: '10px', color: '#ef4444' }}>
-          Failed to connect to server
+        <div className="text-xl mb-3 text-bloomberg-red">
+          REAL-TIME FEED INTERRUPTED
         </div>
-        <div style={{ color: '#9ca3af', fontSize: '0.9em' }}>
-          Error: {error}
+        <div className="text-gray-400 text-sm bloomberg-dense">
+          ERROR: {error}
+        </div>
+        <div className="bloomberg-status-dot bg-bloomberg-red mt-4"></div>
+        <div className="text-xs text-gray-500 mt-2 uppercase tracking-wider">
+          Attempting Reconnection...
         </div>
       </div>
     );
@@ -107,85 +84,60 @@ function App() {
     currentPrice - data.actual[data.actual.length - 2] : 0;
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      backgroundColor: '#000000',
-      color: '#F39F41',
-      fontFamily: 'monospace',
-      padding: '0'
-    }}>
-      {/* Professional Quantitative Research Header */}
-      <div style={{
-        backgroundColor: '#1a1a1a',
-        color: '#ffffff',
-        padding: '8px 20px',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderBottom: '2px solid #0066cc',
-        fontFamily: 'Consolas, Monaco, monospace'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-          <div style={{ fontWeight: 'bold', fontSize: '1.1em', color: '#0066cc' }}>
-            QUANTITATIVE RESEARCH TERMINAL
+    <div className="min-h-screen bg-black text-bloomberg-amber font-bloomberg p-0">
+      {/* BLOOMBERG TERMINAL HEADER - ICONIC $24K LOOK */}
+      <div className="bg-gray-900 text-white p-2 flex justify-between items-center border-b-2 border-bloomberg-blue">
+        <div className="flex items-center gap-6">
+          <div className="bloomberg-badge">
+            BLOOMBERG TERMINAL
           </div>
-          <div style={{ fontSize: '0.9em', color: '#888' }}>
-            {data?.contract?.symbol || 'CLQ25'} | WTI Crude Oil Futures
+          <div className="font-bold text-lg text-bloomberg-blue uppercase tracking-wider">
+            QUANTITATIVE RESEARCH
+          </div>
+          <div className="text-xs text-gray-400 bloomberg-dense">
+            {data?.contract?.symbol || 'CLQ25'} | WTI CRUDE OIL FUTURES | NYMEX
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', fontSize: '0.85em' }}>
-          <div style={{ color: '#00ff00' }}>
-            ● LIVE DATA
+        <div className="flex items-center gap-4 text-xs bloomberg-ultra-dense">
+          <div className="text-status-live">
+            <span className="bloomberg-status-dot bg-bloomberg-green"></span>
+            LIVE FEED
           </div>
-          <div style={{ color: '#ccc' }}>
-            {new Date().toLocaleTimeString()} UTC
+          <div className="text-gray-300">
+            {new Date().toLocaleTimeString()} EST
           </div>
-          <div style={{ color: '#888' }}>
-            Session: {new Date().toLocaleDateString()}
+          <div className="text-gray-400">
+            {new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}
+          </div>
+          <div className="text-bloomberg-yellow-warm">
+            USER: PROFESSIONAL
           </div>
         </div>
       </div>
 
-      {/* Professional Quantitative Data Dashboard */}
-      <div style={{
-        padding: '12px 20px',
-        borderBottom: '1px solid #333',
-        backgroundColor: '#111',
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr 1fr',
-        gap: '20px',
-        fontFamily: 'Consolas, Monaco, monospace'
-      }}>
+      {/* BLOOMBERG TERMINAL DATA DASHBOARD - ULTRA HIGH INFORMATION DENSITY */}
+      <div className="p-3 border-b border-gray-700 bg-gray-950 grid grid-cols-3 gap-4 bloomberg-grid">
         {/* Market Data Section */}
-        <div style={{ 
-          padding: '10px', 
-          backgroundColor: '#1a1a1a', 
-          border: '1px solid #333',
-          borderRadius: '4px'
-        }}>
-          <div style={{ fontSize: '0.7em', color: '#888', marginBottom: '6px', textTransform: 'uppercase' }}>
-            MARKET DATA
+        <div className="bloomberg-panel p-2">
+          <div className="bloomberg-panel-header">
+            📊 MARKET DATA - REAL TIME
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: '0.65em', color: '#888' }}>SPOT PRICE</div>
-              <div style={{ fontSize: '1.4em', fontWeight: 'bold', color: '#ffffff' }}>
+          <div className="grid grid-cols-3 gap-2 pt-2">
+            <div className="text-center">
+              <div className="text-xxs text-gray-500 uppercase">SPOT</div>
+              <div className="text-2xl font-bold text-white bloomberg-highlight">
                 ${currentPrice.toFixed(2)}
               </div>
             </div>
-            <div>
-              <div style={{ fontSize: '0.65em', color: '#888' }}>24H CHANGE</div>
-              <div style={{ 
-                fontSize: '1.1em', 
-                fontWeight: 'bold',
-                color: priceChange >= 0 ? '#00ff88' : '#ff4444' 
-              }}>
+            <div className="text-center">
+              <div className="text-xxs text-gray-500 uppercase">24H CHG</div>
+              <div className={`text-xl font-bold ${priceChange >= 0 ? 'text-bloomberg-green' : 'text-bloomberg-red'}`}>
                 {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(3)}
               </div>
             </div>
-            <div>
-              <div style={{ fontSize: '0.65em', color: '#888' }}>ML FORECAST</div>
-              <div style={{ fontSize: '1.1em', fontWeight: 'bold', color: '#0099ff' }}>
+            <div className="text-center">
+              <div className="text-xxs text-gray-500 uppercase">ML PRED</div>
+              <div className="text-xl font-bold text-bloomberg-blue">
                 ${currentPrediction.toFixed(2)}
               </div>
             </div>
@@ -193,31 +145,26 @@ function App() {
         </div>
 
         {/* Model Performance Section */}
-        <div style={{ 
-          padding: '10px', 
-          backgroundColor: '#1a1a1a', 
-          border: '1px solid #333',
-          borderRadius: '4px'
-        }}>
-          <div style={{ fontSize: '0.7em', color: '#888', marginBottom: '6px', textTransform: 'uppercase' }}>
-            MODEL PERFORMANCE
+        <div className="bloomberg-panel p-2">
+          <div className="bloomberg-panel-header">
+            🤖 AI MODEL PERFORMANCE
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '0.6em', color: '#888' }}>ACCURACY</div>
-              <div style={{ fontSize: '1.1em', fontWeight: 'bold', color: '#00ff88' }}>
+          <div className="grid grid-cols-3 gap-2 pt-2">
+            <div className="text-center">
+              <div className="text-xxs text-gray-500 uppercase">ACCURACY</div>
+              <div className="text-lg font-bold text-bloomberg-green">
                 {data?.performance_metrics?.direction_accuracy || 67}%
               </div>
             </div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '0.6em', color: '#888' }}>CORRELATION</div>
-              <div style={{ fontSize: '1.1em', fontWeight: 'bold', color: '#00ff88' }}>
+            <div className="text-center">
+              <div className="text-xxs text-gray-500 uppercase">CORREL</div>
+              <div className="text-lg font-bold text-bloomberg-green">
                 {data?.performance_metrics?.correlation || 75}%
               </div>
             </div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '0.6em', color: '#888' }}>MAE</div>
-              <div style={{ fontSize: '1.1em', fontWeight: 'bold', color: '#ffaa00' }}>
+            <div className="text-center">
+              <div className="text-xxs text-gray-500 uppercase">MAE</div>
+              <div className="text-lg font-bold text-bloomberg-yellow-warm">
                 ${data?.performance_metrics?.mae || 1.15}
               </div>
             </div>
@@ -225,27 +172,18 @@ function App() {
         </div>
 
         {/* Risk & Analytics Section */}
-        <div style={{ 
-          padding: '10px', 
-          backgroundColor: '#1a1a1a', 
-          border: '1px solid #333',
-          borderRadius: '4px'
-        }}>
-          <div style={{ fontSize: '0.7em', color: '#888', marginBottom: '6px', textTransform: 'uppercase' }}>
-            RISK ANALYTICS
+        <div className="bloomberg-panel p-2">
+          <div className="bloomberg-panel-header">
+            ⚡ RISK ANALYTICS - MULTI HORIZON
           </div>
           {data?.multi_horizon_predictions && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', fontSize: '0.7em' }}>
+            <div className="grid grid-cols-4 gap-1 pt-2 bloomberg-ultra-dense">
               {Object.entries(data.multi_horizon_predictions.predictions || {}).map(([horizon, price]) => {
                 const change = ((price - currentPrice) / currentPrice * 100);
                 return (
-                  <div key={horizon} style={{ textAlign: 'center' }}>
-                    <div style={{ color: '#888', fontSize: '0.6em' }}>{horizon.toUpperCase()}</div>
-                    <div style={{ 
-                      color: change >= 0 ? '#00ff88' : '#ff4444', 
-                      fontWeight: 'bold',
-                      fontSize: '0.9em'
-                    }}>
+                  <div key={horizon} className="text-center">
+                    <div className="text-xxs text-gray-500 uppercase">{horizon}</div>
+                    <div className={`font-bold text-sm ${change >= 0 ? 'text-bloomberg-green' : 'text-bloomberg-red'}`}>
                       {change >= 0 ? '+' : ''}{change.toFixed(1)}%
                     </div>
                   </div>
@@ -253,23 +191,23 @@ function App() {
               })}
             </div>
           )}
-          <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', fontSize: '0.65em' }}>
+          <div className="mt-2 flex justify-between text-xxs">
             <div>
-              <span style={{ color: '#888' }}>DATA: </span>
-              <span style={{ color: '#00ff88' }}>{data?.enterprise_metrics?.data_points || 0} pts</span>
+              <span className="text-gray-500">DATA: </span>
+              <span className="text-bloomberg-green">{data?.enterprise_metrics?.data_points || 0} PTS</span>
             </div>
             <div>
-              <span style={{ color: '#888' }}>STATUS: </span>
-              <span style={{ color: '#00ff88' }}>{data?.ml_status?.status?.toUpperCase() || 'ACTIVE'}</span>
+              <span className="text-gray-500">STATUS: </span>
+              <span className="text-status-live">{data?.ml_status?.status?.toUpperCase() || 'ACTIVE'}</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* MASSIVE CHART SECTION - TAKES ALMOST ENTIRE SCREEN */}
-      <div style={{
-        height: 'calc(100vh - 120px)', // Almost full screen minus tiny header
-        borderTop: '1px solid #F39F41'
+      {/* BLOOMBERG TERMINAL MAIN CHART - DOMINATES SCREEN LIKE $24K TERMINAL */}
+      <div className="bloomberg-border-glow" style={{
+        height: 'calc(100vh - 140px)', // Almost full screen real estate
+        borderTop: '2px solid var(--bloomberg-amber)'
       }}>
         <Chart 
           actualArray={data?.actual || []}
