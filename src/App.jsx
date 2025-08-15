@@ -22,7 +22,7 @@ function App() {
     // Fetch data function
     const fetchData = async () => {
       try {
-        const response = await fetch('https://wti-crude-oil-backend.onrender.com/data');
+        const response = await fetch('http://127.0.0.1:9000/data');
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
