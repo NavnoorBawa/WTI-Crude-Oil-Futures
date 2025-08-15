@@ -411,7 +411,7 @@ def home():
             
             response_data = {
                 'service': 'WTI Crude Oil Futures Prediction API',
-                'version': '2.1.0',
+                'version': '2.1.1',
                 'status': 'operational',
                 'environment': 'production',
                 'uptime_seconds': int((datetime.now() - app_state['startup_time']).total_seconds()),
@@ -435,6 +435,7 @@ def home():
                     'current_price': data_storage['wti_prices']['current_price']
                 },
                 'timestamp': datetime.now().isoformat(),
+                'deployment_id': f"render_deploy_{int(time.time())}",
                 'request_id': f"req_{int(time.time())}_{app_state['request_count']}"
             }
             
@@ -606,7 +607,7 @@ def health_check():
                 'uptime_seconds': uptime_seconds,
                 'uptime_human': f"{uptime_seconds // 3600}h {(uptime_seconds % 3600) // 60}m {uptime_seconds % 60}s",
                 'system_time': datetime.now().isoformat(),
-                'version': '2.1.0',
+                'version': '2.1.1',
                 'environment': 'production',
                 'checks': {
                     'api_responsive': True,
@@ -698,7 +699,7 @@ def system_metrics():
                     'startup_time': app_state['startup_time'].isoformat(),
                     'current_time': datetime.now().isoformat(),
                     'health_status': app_state['health_status'],
-                    'version': '2.1.0',
+                    'version': '2.1.1',
                     'environment': 'production'
                 },
                 'api': {
@@ -858,7 +859,7 @@ if __name__ == '__main__':
     try:
         # Use production WSGI server if in production
         if os.environ.get('RENDER_SERVICE_ID'):
-            logger.info("🚀 Running on Render with production settings")
+            logger.info("🚀 Running on Render with production settings - v2.1.1")
             app.run(
                 host=host, 
                 port=port, 
