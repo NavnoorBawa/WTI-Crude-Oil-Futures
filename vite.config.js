@@ -13,8 +13,7 @@ export default defineConfig({
     port: process.env.PORT || 4173,
     allowedHosts: [
       'localhost',
-      '.onrender.com',
-      'wti-crude-oil-frontend.onrender.com'
+      '.onrender.com'
     ]
   },
   build: {

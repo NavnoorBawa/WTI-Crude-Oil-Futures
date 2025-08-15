@@ -129,7 +129,7 @@ export default function Block() {
   const fetchEnterpriseData = async () => {
     try {
       // Production-optimized endpoint strategy with debugging
-      const API_BASE_URL = import.meta.env.VITE_API_URL || "https://wti-crude-oil-futures.onrender.com";
+      const API_BASE_URL = import.meta.env.VITE_API_URL || "https://wti-crude-oil-backend.onrender.com";
       console.log("🔧 Environment:", import.meta.env.MODE);
       console.log("🔧 VITE_API_URL:", import.meta.env.VITE_API_URL);
       console.log("🔧 Using API_BASE_URL:", API_BASE_URL);
@@ -269,7 +269,7 @@ export default function Block() {
 
   const checkMLSystemHealth = async () => {
     try {
-      const API_BASE_URL = import.meta.env.VITE_API_URL || "https://wti-crude-oil-futures.onrender.com";
+      const API_BASE_URL = import.meta.env.VITE_API_URL || "https://wti-crude-oil-backend.onrender.com";
       const mlResponse = await fetch(`${API_BASE_URL}/ml-status`, {
         signal: AbortSignal.timeout(10000)
       });
