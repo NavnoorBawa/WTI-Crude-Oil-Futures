@@ -254,6 +254,19 @@ def get_data():
             }
         }), 500
 
+@app.route('/')
+def home():
+    """Root endpoint"""
+    return jsonify({
+        'message': 'WTI Crude Oil Futures API',
+        'status': 'running',
+        'endpoints': {
+            'data': '/data',
+            'health': '/health'
+        },
+        'version': '1.0.0'
+    })
+
 @app.route('/health')
 def health():
     """Health check"""
