@@ -1,5 +1,5 @@
 /* BLOOMBERG TERMINAL PROFESSIONAL CSS - $24,000 AESTHETIC */
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&family=Courier+Prime:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&family=Courier+Prime:wght@400;700&family=Source+Code+Pro:wght@300;400;500;600;700&display=swap');
 
 /* Global Reset */
 * {
@@ -9,11 +9,11 @@
 }
 
 html, body {
-  font-family: 'JetBrains Mono', 'IBM Plex Mono', 'SF Mono', 'Monaco', 'Consolas', 'Courier New', monospace;
+  font-family: 'Source Code Pro', 'JetBrains Mono', 'IBM Plex Mono', 'SF Mono', 'Monaco', 'Consolas', 'Courier New', monospace;
   background-color: #000000;
   color: #FF8C00; /* Classic Bloomberg amber/orange */
-  line-height: 1.2;
-  font-size: 13px;
+  line-height: 1.1;
+  font-size: 12px;
   font-weight: 400;
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
@@ -22,7 +22,7 @@ html, body {
   overflow-x: hidden;
   width: 100%;
   height: 100%;
-  letter-spacing: 0.025em;
+  letter-spacing: 0.015em;
 }
 
 #root {
@@ -172,6 +172,8 @@ html, body {
 .ml-4 { margin-left: 16px; }
 
 /* Gaps and Spacing */
+.gap-1 { gap: 4px; }
+.gap-2 { gap: 8px; }
 .gap-3 { gap: 12px; }
 .gap-4 { gap: 16px; }
 .gap-6 { gap: 24px; }
@@ -185,8 +187,13 @@ html, body {
 .space-x-6 > * + * { margin-left: 24px; }
 .space-x-8 > * + * { margin-left: 32px; }
 
+.space-y-0\.5 > * + * { margin-top: 2px; }
 .space-y-1 > * + * { margin-top: 4px; }
 .space-y-2 > * + * { margin-top: 8px; }
+
+/* Bloomberg Spacing Utilities */
+.mx-8 { margin-left: 32px; margin-right: 32px; }
+.space-x-8 > * + * { margin-left: 32px; }
 
 /* BLOOMBERG TERMINAL TYPOGRAPHY - PROFESSIONAL MONOSPACE */
 .font-mono { 
@@ -196,10 +203,11 @@ html, body {
 }
 
 .font-bloomberg {
-  font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace !important;
+  font-family: 'Source Code Pro', 'JetBrains Mono', 'IBM Plex Mono', monospace !important;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.015em;
   font-feature-settings: "tnum" 1;
+  font-weight: 500;
 }
 
 /* Bloomberg Terminal Font Sizes - Information Dense */
@@ -399,5 +407,137 @@ canvas {
 * { -ms-overflow-style: none; scrollbar-width: none; }
 
 /* Selection */
-::selection { background: #F39F41; color: #000000; }
-::-moz-selection { background: #F39F41; color: #000000; }
+::selection { background: #FF8C00; color: #000000; }
+::-moz-selection { background: #FF8C00; color: #000000; }
+
+/* Bloomberg Terminal Authentic Elements */
+.bloomberg-ticker {
+  background: linear-gradient(90deg, var(--bloomberg-gray-900) 0%, var(--bloomberg-gray-800) 100%);
+  border-top: 1px solid var(--bloomberg-amber);
+  border-bottom: 1px solid var(--bloomberg-amber);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.bloomberg-ticker-content {
+  display: inline-block;
+  animation: bloomberg-scroll 60s linear infinite;
+  padding-left: 100%;
+}
+
+@keyframes bloomberg-scroll {
+  from { transform: translateX(0%); }
+  to { transform: translateX(-100%); }
+}
+
+.bloomberg-terminal-beep {
+  position: fixed;
+  top: -100px;
+  left: -100px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+/* Bloomberg Terminal Window Chrome */
+.bloomberg-window {
+  border: 2px solid var(--bloomberg-amber);
+  box-shadow: 
+    0 0 10px rgba(255, 140, 0, 0.3),
+    inset 0 0 20px rgba(255, 140, 0, 0.05);
+  background: var(--bloomberg-black);
+}
+
+.bloomberg-titlebar {
+  background: linear-gradient(180deg, var(--bloomberg-amber) 0%, var(--bloomberg-orange-dim) 100%);
+  color: var(--bloomberg-black);
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* Bloomberg Function Key Styles */
+.bloomberg-function-key {
+  background: var(--bloomberg-gray-800);
+  border: 1px solid var(--bloomberg-gray-600);
+  color: var(--bloomberg-amber);
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.bloomberg-function-key:hover {
+  background: var(--bloomberg-gray-700);
+  border-color: var(--bloomberg-amber);
+  box-shadow: 0 0 4px rgba(255, 140, 0, 0.3);
+}
+
+.bloomberg-function-key:active {
+  background: var(--bloomberg-amber);
+  color: var(--bloomberg-black);
+}
+
+/* Bloomberg Data Table Styles */
+.bloomberg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  line-height: 1.0;
+}
+
+.bloomberg-table th {
+  background: var(--bloomberg-gray-800);
+  border: 1px solid var(--bloomberg-gray-600);
+  padding: 4px 6px;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 9px;
+  letter-spacing: 0.05em;
+}
+
+.bloomberg-table td {
+  border: 1px solid var(--bloomberg-gray-700);
+  padding: 3px 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bloomberg-table tr:nth-child(even) {
+  background: rgba(255, 140, 0, 0.02);
+}
+
+.bloomberg-table tr:hover {
+  background: rgba(255, 140, 0, 0.1);
+}
+
+/* Bloomberg Loading Screen */
+.bloomberg-boot-sequence {
+  font-family: 'Courier New', monospace;
+  color: var(--bloomberg-green);
+  background: var(--bloomberg-black);
+  padding: 20px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre;
+  text-transform: uppercase;
+}
+
+/* Bloomberg Terminal Cursor */
+.bloomberg-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 14px;
+  background: var(--bloomberg-amber);
+  animation: bloomberg-cursor-blink 1s infinite;
+  margin-left: 2px;
+}
+
+@keyframes bloomberg-cursor-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
