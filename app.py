@@ -414,7 +414,7 @@ def home():
             
             response_data = {
                 'service': 'WTI Crude Oil Futures Prediction API',
-                'version': '2.1.2',
+                'version': '2.1.3',
                 'status': 'operational',
                 'environment': 'production',
                 'uptime_seconds': int((datetime.now() - app_state['startup_time']).total_seconds()),
@@ -458,6 +458,13 @@ def get_data():
     try:
         with app_state_lock:
             app_state['request_count'] += 1
+            
+            # Ensure we have data (generate if empty)
+            if len(data_storage['wti_prices']['actual']) == 0:
+                logger.info("📊 No data found, generating initial data...")
+                for i in range(50):
+                    update_data_storage()
+                logger.info(f"✅ Generated {len(data_storage['wti_prices']['actual'])} data points")
             
             # Try to get fresh ML prediction occasionally
             ml_prediction = None
@@ -610,7 +617,7 @@ def health_check():
                 'uptime_seconds': uptime_seconds,
                 'uptime_human': f"{uptime_seconds // 3600}h {(uptime_seconds % 3600) // 60}m {uptime_seconds % 60}s",
                 'system_time': datetime.now().isoformat(),
-                'version': '2.1.2',
+                'version': '2.1.3',
                 'environment': 'production',
                 'checks': {
                     'api_responsive': True,
@@ -702,7 +709,7 @@ def system_metrics():
                     'startup_time': app_state['startup_time'].isoformat(),
                     'current_time': datetime.now().isoformat(),
                     'health_status': app_state['health_status'],
-                    'version': '2.1.2',
+                    'version': '2.1.3',
                     'environment': 'production'
                 },
                 'api': {
