@@ -31,23 +31,27 @@ html, body {
   background-color: #000000;
 }
 
-/* BLOOMBERG TERMINAL COLOR VARIABLES - ICONIC $24K AESTHETIC */
+/* BLOOMBERG TERMINAL COLOR VARIABLES - EXACT SPECIFICATION */
 :root {
-  /* Primary Bloomberg Terminal Colors - Classic Amber/Orange on Black */
-  --bloomberg-amber: #FF8C00;        /* Primary text - classic Bloomberg amber */
-  --bloomberg-orange: #FF8C00;       /* Primary accent */
-  --bloomberg-orange-bright: #FFA500; /* Bright highlights */
-  --bloomberg-orange-dim: #CC7700;   /* Dimmed text */
+  /* Core Bloomberg Terminal Colors - Official Specification */
+  --bloomberg-black: #000000;        /* Pure black background */
+  --bloomberg-amber: #FFA500;        /* Bloomberg signature amber/orange */
+  --bloomberg-amber-light: #FFB84D;  /* Lighter amber for labels */
+  --bloomberg-white: #FFFFFF;        /* High-contrast white text */
   
-  /* Financial Semantic Colors - Market Psychology */
-  --bloomberg-green: #00FF88;        /* UP/POSITIVE - bright financial green */
-  --bloomberg-green-dark: #00CC66;   /* Secondary green */
-  --bloomberg-blue: #00AAFF;         /* NEUTRAL/INFO - professional blue */
-  --bloomberg-blue-cyan: #00FFFF;    /* Bright cyan for highlights */
-  --bloomberg-red: #FF4444;          /* DOWN/NEGATIVE - warning red */
-  --bloomberg-red-bright: #FF6666;   /* Secondary red */
-  --bloomberg-yellow: #FFFF00;       /* ALERT/WARNING - pure yellow */
-  --bloomberg-yellow-warm: #FFD700;  /* Gold highlights */
+  /* Exact Bloomberg Official Color Palette */
+  --bloomberg-red: #FF433D;          /* Red (Down/Negative) */
+  --bloomberg-blue: #0068FF;         /* Blue (UI Elements) */
+  --bloomberg-cyan: #4AF6C3;         /* Cyan (Accent) */
+  --bloomberg-orange: #FB8B1E;       /* Orange (Alert/Warning) */
+  --bloomberg-green: #00FF00;        /* Bright green (Up/Positive) */
+  
+  /* Financial Data Colors - Clear Semantics */
+  --bloomberg-positive: #00FF00;     /* Positive price movement */
+  --bloomberg-negative: #FF433D;     /* Negative price movement */
+  --bloomberg-neutral: #FFA500;      /* Neutral/unchanged */
+  --bloomberg-volume: #0068FF;       /* Volume data */
+  --bloomberg-alert: #FFD700;        /* Alert/important */
   
   /* Terminal Background Hierarchy */
   --bloomberg-black: #000000;        /* Pure black background */
@@ -68,31 +72,38 @@ html, body {
 }
 
 /* BLOOMBERG TERMINAL UTILITY CLASSES */
-/* Background Colors */
+/* Background Colors - Bloomberg Specification */
 .bg-black { background-color: var(--bloomberg-black) !important; }
 .bg-gray-950 { background-color: var(--bloomberg-gray-950) !important; }
 .bg-gray-900 { background-color: var(--bloomberg-gray-900) !important; }
 .bg-gray-800 { background-color: var(--bloomberg-gray-800) !important; }
 .bg-gray-700 { background-color: var(--bloomberg-gray-700) !important; }
 .bg-bloomberg-amber { background-color: var(--bloomberg-amber) !important; }
-.bg-bloomberg-green { background-color: var(--bloomberg-green) !important; }
 .bg-bloomberg-red { background-color: var(--bloomberg-red) !important; }
 .bg-bloomberg-blue { background-color: var(--bloomberg-blue) !important; }
-.bg-bloomberg-yellow { background-color: var(--bloomberg-yellow) !important; }
+.bg-bloomberg-cyan { background-color: var(--bloomberg-cyan) !important; }
+.bg-bloomberg-orange { background-color: var(--bloomberg-orange) !important; }
+.bg-bloomberg-green { background-color: var(--bloomberg-green) !important; }
+.bg-bloomberg-positive { background-color: var(--bloomberg-positive) !important; }
+.bg-bloomberg-negative { background-color: var(--bloomberg-negative) !important; }
+.bg-bloomberg-alert { background-color: var(--bloomberg-alert) !important; }
 
-/* Text Colors - Financial Semantics */
+/* Text Colors - Exact Bloomberg Specification */
 .text-bloomberg-amber { color: var(--bloomberg-amber) !important; }
-.text-bloomberg-orange { color: var(--bloomberg-orange) !important; }
-.text-bloomberg-orange-bright { color: var(--bloomberg-orange-bright) !important; }
-.text-bloomberg-orange-dim { color: var(--bloomberg-orange-dim) !important; }
-.text-bloomberg-green { color: var(--bloomberg-green) !important; }
-.text-bloomberg-green-dark { color: var(--bloomberg-green-dark) !important; }
+.text-bloomberg-amber-light { color: var(--bloomberg-amber-light) !important; }
+.text-bloomberg-white { color: var(--bloomberg-white) !important; }
 .text-bloomberg-red { color: var(--bloomberg-red) !important; }
-.text-bloomberg-red-bright { color: var(--bloomberg-red-bright) !important; }
 .text-bloomberg-blue { color: var(--bloomberg-blue) !important; }
-.text-bloomberg-blue-cyan { color: var(--bloomberg-blue-cyan) !important; }
-.text-bloomberg-yellow { color: var(--bloomberg-yellow) !important; }
-.text-bloomberg-yellow-warm { color: var(--bloomberg-yellow-warm) !important; }
+.text-bloomberg-cyan { color: var(--bloomberg-cyan) !important; }
+.text-bloomberg-orange { color: var(--bloomberg-orange) !important; }
+.text-bloomberg-green { color: var(--bloomberg-green) !important; }
+
+/* Financial Semantic Colors */
+.text-bloomberg-positive { color: var(--bloomberg-positive) !important; }
+.text-bloomberg-negative { color: var(--bloomberg-negative) !important; }
+.text-bloomberg-neutral { color: var(--bloomberg-neutral) !important; }
+.text-bloomberg-volume { color: var(--bloomberg-volume) !important; }
+.text-bloomberg-alert { color: var(--bloomberg-alert) !important; }
 .text-white { color: var(--bloomberg-white) !important; }
 .text-black { color: var(--bloomberg-black) !important; }
 .text-gray-400 { color: var(--bloomberg-gray-400) !important; }
@@ -483,36 +494,78 @@ canvas {
   color: var(--bloomberg-black);
 }
 
-/* Bloomberg Data Table Styles */
+/* Bloomberg Data Table Styles - Authentic Design */
 .bloomberg-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 11px;
   line-height: 1.0;
+  font-family: 'Source Code Pro', 'JetBrains Mono', monospace;
 }
 
 .bloomberg-table th {
   background: var(--bloomberg-gray-800);
   border: 1px solid var(--bloomberg-gray-600);
-  padding: 4px 6px;
+  padding: 3px 5px;
   font-weight: 600;
   text-transform: uppercase;
   font-size: 9px;
   letter-spacing: 0.05em;
+  color: var(--bloomberg-amber);
 }
 
 .bloomberg-table td {
   border: 1px solid var(--bloomberg-gray-700);
-  padding: 3px 6px;
+  padding: 2px 5px;
   font-variant-numeric: tabular-nums;
+  font-size: 10px;
+}
+
+/* Bloomberg Thin Red/Green Lines for Price Indicators */
+.bloomberg-table .price-up {
+  border-left: 2px solid var(--bloomberg-green);
+  color: var(--bloomberg-green);
+}
+
+.bloomberg-table .price-down {
+  border-left: 2px solid var(--bloomberg-red);
+  color: var(--bloomberg-red);
+}
+
+.bloomberg-table .price-neutral {
+  border-left: 2px solid var(--bloomberg-blue);
+  color: var(--bloomberg-blue);
 }
 
 .bloomberg-table tr:nth-child(even) {
-  background: rgba(255, 140, 0, 0.02);
+  background: rgba(255, 140, 0, 0.01);
 }
 
 .bloomberg-table tr:hover {
-  background: rgba(255, 140, 0, 0.1);
+  background: rgba(255, 140, 0, 0.05);
+}
+
+/* Bloomberg Heat Map Styles */
+.bloomberg-heatmap-cell {
+  position: relative;
+  text-align: right;
+  padding: 2px 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bloomberg-heatmap-positive {
+  background: linear-gradient(90deg, transparent 0%, rgba(74, 246, 195, 0.2) 100%);
+  color: var(--bloomberg-cyan);
+}
+
+.bloomberg-heatmap-negative {
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 67, 61, 0.2) 100%);
+  color: var(--bloomberg-red);
+}
+
+.bloomberg-heatmap-neutral {
+  background: rgba(255, 140, 0, 0.05);
+  color: var(--bloomberg-amber);
 }
 
 /* Bloomberg Loading Screen */
@@ -540,4 +593,147 @@ canvas {
 @keyframes bloomberg-cursor-blink {
   0%, 50% { opacity: 1; }
   51%, 100% { opacity: 0; }
+}
+
+/* Bloomberg Launchpad System - Multi-Panel Desktop */
+.bloomberg-launchpad {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 4px;
+  padding: 4px;
+  background: var(--bloomberg-black);
+  height: 100%;
+  overflow: hidden;
+}
+
+.bloomberg-component {
+  background: var(--bloomberg-gray-900);
+  border: 1px solid var(--bloomberg-gray-700);
+  min-height: 200px;
+  position: relative;
+  resize: both;
+  overflow: auto;
+}
+
+.bloomberg-component-header {
+  background: var(--bloomberg-gray-800);
+  border-bottom: 1px solid var(--bloomberg-amber);
+  padding: 2px 6px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--bloomberg-amber);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.bloomberg-component-group {
+  background: var(--bloomberg-blue);
+  color: var(--bloomberg-white);
+  padding: 1px 4px;
+  border-radius: 2px;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.bloomberg-component-content {
+  padding: 4px;
+  height: calc(100% - 20px);
+  overflow-y: auto;
+  font-size: 10px;
+  line-height: 1.1;
+}
+
+/* Bloomberg Tabbed Panel Model */
+.bloomberg-tabs {
+  display: flex;
+  background: var(--bloomberg-gray-800);
+  border-bottom: 1px solid var(--bloomberg-amber);
+}
+
+.bloomberg-tab {
+  background: var(--bloomberg-gray-700);
+  border: none;
+  border-right: 1px solid var(--bloomberg-gray-600);
+  color: var(--bloomberg-amber);
+  padding: 4px 8px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 0.1s;
+}
+
+.bloomberg-tab.active {
+  background: var(--bloomberg-gray-900);
+  color: var(--bloomberg-orange-accent);
+}
+
+.bloomberg-tab:hover {
+  background: var(--bloomberg-gray-600);
+}
+
+/* Bloomberg Page System */
+.bloomberg-page {
+  display: none;
+}
+
+.bloomberg-page.active {
+  display: block;
+  height: 100%;
+  animation: bloomberg-page-fade 0.2s ease-in;
+}
+
+@keyframes bloomberg-page-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Bloomberg Monitor Component - Watch List */
+.bloomberg-monitor {
+  font-family: 'Source Code Pro', monospace;
+}
+
+.bloomberg-monitor-row {
+  display: grid;
+  grid-template-columns: 1fr 80px 60px 60px 40px;
+  gap: 8px;
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--bloomberg-gray-700);
+  align-items: center;
+}
+
+.bloomberg-monitor-row:hover {
+  background: rgba(255, 140, 0, 0.05);
+}
+
+.bloomberg-monitor-symbol {
+  font-weight: 600;
+  color: var(--bloomberg-orange-accent);
+}
+
+.bloomberg-monitor-price {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.bloomberg-monitor-change {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 9px;
+}
+
+.bloomberg-monitor-percent {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 9px;
+}
+
+.bloomberg-monitor-volume {
+  text-align: right;
+  font-size: 8px;
+  color: var(--bloomberg-gray-400);
 }

@@ -48,7 +48,7 @@ function App() {
         <div className="text-xl mb-3 tracking-wide">
           INITIALIZING MARKET DATA SYSTEMS...
         </div>
-        <div className="bloomberg-status-dot bg-bloomberg-green"></div>
+        <div className="bloomberg-status-dot bg-bloomberg-positive"></div>
         <div className="text-xs text-gray-500 mt-4 uppercase tracking-wider">
           Connecting to Real-Time Data Feeds
         </div>
@@ -85,12 +85,12 @@ function App() {
 
   return (
     <div className="min-h-screen bg-black text-bloomberg-amber font-bloomberg p-0">
-      {/* BLOOMBERG TERMINAL TITLEBAR - AUTHENTIC $24K DESIGN */}
+      {/* BLOOMBERG TERMINAL HEADER */}
       <div className="bloomberg-titlebar">
         BLOOMBERG TERMINAL - PROFESSIONAL WORKSTATION
       </div>
 
-      {/* BLOOMBERG TERMINAL FUNCTION ROW */}
+      {/* BLOOMBERG FUNCTION KEYS */}
       <div className="bg-gray-900 p-1 flex justify-between items-center border-b border-bloomberg-amber">
         <div className="flex items-center gap-2">
           <div className="bloomberg-function-key">F1 HELP</div>
@@ -104,7 +104,7 @@ function App() {
         </div>
         <div className="flex items-center gap-2 text-xs">
           <div className="text-status-live">
-            <span className="bloomberg-status-dot bg-bloomberg-green"></span>
+            <span className="bloomberg-status-dot bg-bloomberg-positive"></span>
             LIVE
           </div>
           <div className="text-bloomberg-amber">
@@ -121,9 +121,9 @@ function App() {
         <div className="flex items-center gap-4">
           <span className="text-bloomberg-amber text-xs font-bold">COMMAND:</span>
           <div className="flex items-center gap-2">
-            <span className="bg-bloomberg-yellow text-black px-2 py-1 font-bold text-xs">{data?.contract?.symbol || 'CLQ25'}</span>
+            <span className="bg-bloomberg-alert text-black px-2 py-1 font-bold text-xs">{data?.contract?.symbol || 'CLQ25'}</span>
             <span className="text-bloomberg-amber text-xs">&lt;COMDTY&gt;</span>
-            <span className="bg-bloomberg-yellow text-black px-2 py-1 font-bold text-xs">GP</span>
+            <span className="bg-bloomberg-alert text-black px-2 py-1 font-bold text-xs">GP</span>
             <span className="text-bloomberg-amber text-xs">&lt;GO&gt;</span>
             <span className="bloomberg-cursor"></span>
           </div>
@@ -133,164 +133,117 @@ function App() {
         </div>
       </div>
 
-      {/* BLOOMBERG NEWS TICKER */}
-      <div className="bloomberg-ticker">
-        <div className="bloomberg-ticker-content text-xs py-1">
-          <span className="text-bloomberg-red">● BREAKING:</span> Oil prices volatile amid supply concerns 
-          <span className="mx-8 text-bloomberg-blue">● MARKET:</span> NYMEX WTI futures active trading 
-          <span className="mx-8 text-bloomberg-green">● UPDATE:</span> Real-time ML predictions live 
-          <span className="mx-8 text-bloomberg-yellow">● ALERT:</span> High volatility detected in energy sector 
-          <span className="mx-8 text-bloomberg-amber">● DATA:</span> Enterprise-grade analytics active
-        </div>
-      </div>
-
-      {/* BLOOMBERG TERMINAL DATA DASHBOARD - ULTRA HIGH INFORMATION DENSITY */}
-      <div className="p-2 border-b border-gray-700 bg-gray-950 grid grid-cols-4 gap-2 bloomberg-grid">
-        {/* Market Data Section */}
-        <div className="bloomberg-panel p-1">
-          <div className="bloomberg-panel-header text-xxs">
-            📊 SPOT MARKET - LIVE FEED
+      {/* BLOOMBERG TERMINAL DATA DASHBOARD */}
+      <div className="p-3 border-b border-gray-700 bg-gray-950 grid grid-cols-4 gap-3">
+        
+        {/* Main Price Display */}
+        <div className="bloomberg-panel p-3">
+          <div className="bloomberg-panel-header">
+            📊 CLQ25 WTI CRUDE OIL
           </div>
-          <div className="pt-1 space-y-1">
-            <div className="flex justify-between items-center">
-              <span className="text-xxs text-gray-500">LAST</span>
-              <span className="text-lg font-bold text-white bloomberg-highlight">
+          <div className="pt-3">
+            <div className="text-center">
+              <div className="text-3xl font-bold text-white mb-2">
                 ${currentPrice.toFixed(2)}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-xxs text-gray-500">CHG</span>
-              <span className={`text-sm font-bold ${priceChange >= 0 ? 'text-bloomberg-green' : 'text-bloomberg-red'}`}>
+              </div>
+              <div className={`text-lg font-bold ${priceChange >= 0 ? 'text-bloomberg-positive' : 'text-bloomberg-negative'}`}>
                 {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(3)}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-xxs text-gray-500">VOL</span>
-              <span className="text-sm text-bloomberg-blue">1.2M</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-xxs text-gray-500">HIGH</span>
-              <span className="text-sm text-white">${(currentPrice * 1.02).toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-xxs text-gray-500">LOW</span>
-              <span className="text-sm text-white">${(currentPrice * 0.98).toFixed(2)}</span>
+                <span className="text-sm ml-2">
+                  ({priceChange >= 0 ? '+' : ''}{((priceChange/currentPrice)*100).toFixed(2)}%)
+                </span>
+              </div>
+              <div className="text-xs text-bloomberg-amber-light mt-2">
+                VOL: 1.2M | LAST UPDATE: LIVE
+              </div>
             </div>
           </div>
         </div>
 
-        {/* AI Analytics Section */}
-        <div className="bloomberg-panel p-1">
-          <div className="bloomberg-panel-header text-xxs">
-            🤖 ML ANALYTICS ENGINE
+        {/* ML Prediction */}
+        <div className="bloomberg-panel p-3">
+          <div className="bloomberg-panel-header">
+            🤖 ML PREDICTION ENGINE
           </div>
-          <div className="pt-1 space-y-1">
-            <div className="flex justify-between items-center">
-              <span className="text-xxs text-gray-500">PRED</span>
-              <span className="text-lg font-bold text-bloomberg-blue">
+          <div className="pt-3">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-bloomberg-blue mb-2">
                 ${currentPrediction.toFixed(2)}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-xxs text-gray-500">ACC</span>
-              <span className="text-sm font-bold text-bloomberg-green">
-                {data?.performance_metrics?.direction_accuracy || 67}%
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-xxs text-gray-500">CORR</span>
-              <span className="text-sm text-bloomberg-green">
-                {data?.performance_metrics?.correlation || 75}%
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-xxs text-gray-500">MAE</span>
-              <span className="text-sm text-bloomberg-yellow-warm">
-                ${data?.performance_metrics?.mae || 1.15}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-xxs text-gray-500">CONF</span>
-              <span className="text-sm text-bloomberg-blue">92.4%</span>
+              </div>
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-xs text-bloomberg-amber-light">ACCURACY:</span>
+                  <span className="text-sm text-bloomberg-positive">{data?.performance_metrics?.direction_accuracy || 67}%</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-xs text-bloomberg-amber-light">CONFIDENCE:</span>
+                  <span className="text-sm text-bloomberg-positive">92.4%</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-xs text-bloomberg-amber-light">STATUS:</span>
+                  <span className="text-sm text-status-live">ACTIVE</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Risk & Analytics Section */}
-        <div className="bloomberg-panel p-1">
-          <div className="bloomberg-panel-header text-xxs">
-            ⚡ RISK MGMT - HORIZONS
+        {/* Risk Analysis */}
+        <div className="bloomberg-panel p-3">
+          <div className="bloomberg-panel-header">
+            ⚡ RISK HORIZONS
           </div>
-          <div className="pt-1 space-y-1">
-            {data?.multi_horizon_predictions && Object.entries(data.multi_horizon_predictions.predictions || {}).slice(0, 4).map(([horizon, price]) => {
-              const change = ((price - currentPrice) / currentPrice * 100);
-              return (
-                <div key={horizon} className="flex justify-between items-center">
-                  <span className="text-xxs text-gray-500">{horizon.toUpperCase()}</span>
-                  <span className={`text-sm font-bold ${change >= 0 ? 'text-bloomberg-green' : 'text-bloomberg-red'}`}>
-                    {change >= 0 ? '+' : ''}{change.toFixed(1)}%
-                  </span>
-                </div>
-              );
-            })}
-            {(!data?.multi_horizon_predictions || Object.keys(data.multi_horizon_predictions.predictions || {}).length === 0) && (
-              <>
-                <div className="flex justify-between items-center">
-                  <span className="text-xxs text-gray-500">1H</span>
-                  <span className="text-sm font-bold text-bloomberg-green">+0.2%</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-xxs text-gray-500">4H</span>
-                  <span className="text-sm font-bold text-bloomberg-red">-0.8%</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-xxs text-gray-500">1D</span>
-                  <span className="text-sm font-bold text-bloomberg-green">+1.5%</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-xxs text-gray-500">1W</span>
-                  <span className="text-sm font-bold text-bloomberg-blue">+3.2%</span>
-                </div>
-              </>
-            )}
+          <div className="pt-3 space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-bloomberg-amber-light">1H:</span>
+              <span className="text-sm text-bloomberg-positive">+0.2%</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-bloomberg-amber-light">4H:</span>
+              <span className="text-sm text-bloomberg-negative">-0.8%</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-bloomberg-amber-light">1D:</span>
+              <span className="text-sm text-bloomberg-positive">+1.5%</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-bloomberg-amber-light">1W:</span>
+              <span className="text-sm text-bloomberg-positive">+3.2%</span>
+            </div>
           </div>
         </div>
 
-        {/* System Status Section */}
-        <div className="bloomberg-panel p-1">
-          <div className="bloomberg-panel-header text-xxs">
+        {/* System Status */}
+        <div className="bloomberg-panel p-3">
+          <div className="bloomberg-panel-header">
             🔧 SYSTEM STATUS
           </div>
-          <div className="pt-1 space-y-1">
+          <div className="pt-3 space-y-2">
             <div className="flex justify-between items-center">
-              <span className="text-xxs text-gray-500">DATA</span>
-              <span className="text-sm text-bloomberg-green">{data?.enterprise_metrics?.data_points || 2847} PTS</span>
+              <span className="text-xs text-bloomberg-amber-light">DATA:</span>
+              <span className="text-sm text-bloomberg-positive">{data?.enterprise_metrics?.data_points || 2847} PTS</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-xxs text-gray-500">FEED</span>
-              <span className="text-sm text-status-live">LIVE</span>
+              <span className="text-xs text-bloomberg-amber-light">FEED:</span>
+              <span className="text-sm text-status-live">REAL-TIME</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-xxs text-gray-500">LAT</span>
+              <span className="text-xs text-bloomberg-amber-light">LATENCY:</span>
               <span className="text-sm text-bloomberg-blue">12ms</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-xxs text-gray-500">CPU</span>
-              <span className="text-sm text-bloomberg-yellow-warm">23%</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-xxs text-gray-500">MEM</span>
-              <span className="text-sm text-bloomberg-green">67%</span>
+              <span className="text-xs text-bloomberg-amber-light">STATUS:</span>
+              <span className="text-sm text-bloomberg-positive">OPTIMAL</span>
             </div>
           </div>
         </div>
+        
       </div>
 
-      {/* BLOOMBERG TERMINAL MAIN CHART - DOMINATES SCREEN LIKE $24K TERMINAL */}
+      {/* BLOOMBERG MAIN CHART DISPLAY */}
       <div className="bloomberg-window" style={{
-        height: 'calc(100vh - 200px)', // Adjusted for new header elements
+        height: 'calc(100vh - 220px)',
         borderTop: '2px solid var(--bloomberg-amber)',
-        margin: '2px'
+        margin: '4px'
       }}>
         <Chart 
           actualArray={data?.actual || []}
