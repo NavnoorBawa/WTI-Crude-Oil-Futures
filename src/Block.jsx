@@ -128,8 +128,11 @@ export default function Block() {
 
   const fetchEnterpriseData = async () => {
     try {
-      // Production-optimized endpoint strategy
+      // Production-optimized endpoint strategy with debugging
       const API_BASE_URL = import.meta.env.VITE_API_URL || "https://wti-crude-oil-futures.onrender.com";
+      console.log("🔧 Environment:", import.meta.env.MODE);
+      console.log("🔧 VITE_API_URL:", import.meta.env.VITE_API_URL);
+      console.log("🔧 Using API_BASE_URL:", API_BASE_URL);
       
       // Primary endpoint with robust fallbacks
       const endpoints = [
@@ -146,22 +149,36 @@ export default function Block() {
       
       for (const endpoint of endpoints) {
         try {
+          console.log(`🔄 Trying endpoint: ${endpoint}`);
           const res = await fetch(endpoint, {
             method: 'GET',
             headers: {
               'Accept': 'application/json',
               'Content-Type': 'application/json',
             },
-            signal: AbortSignal.timeout(15000) // Production-optimized timeout
+            mode: 'cors',
+            credentials: 'omit',
+            signal: AbortSignal.timeout(15000)
           });
           
+          console.log(`📡 Response status: ${res.status} from ${endpoint}`);
+          
           if (res.ok) {
-            response = res;
-            break;
+            // Check if response is actually JSON
+            const contentType = res.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+              response = res;
+              break;
+            } else {
+              console.warn(`⚠️ Non-JSON response from ${endpoint}:`, contentType);
+              throw new Error(`Expected JSON, got ${contentType}`);
+            }
+          } else {
+            console.warn(`⚠️ HTTP ${res.status} from ${endpoint}`);
           }
         } catch (err) {
           lastError = err;
-          console.log(`Failed to connect to ${endpoint}:`, err.message);
+          console.log(`❌ Failed to connect to ${endpoint}:`, err.message);
         }
       }
       
@@ -169,7 +186,18 @@ export default function Block() {
         throw lastError || new Error('All endpoints failed');
       }
 
-      const data = await response.json();
+      const responseText = await response.text();
+      console.log("📄 Raw response:", responseText.substring(0, 200) + "...");
+      
+      let data;
+      try {
+        data = JSON.parse(responseText);
+        console.log("✅ Successfully parsed JSON data");
+      } catch (parseError) {
+        console.error("❌ JSON Parse Error:", parseError);
+        console.error("📄 Response was:", responseText.substring(0, 500));
+        throw new Error(`Invalid JSON response: ${parseError.message}`);
+      }
       
       // Update connection status - RESET ERROR COUNT ON SUCCESS
       setConnectionStatus('connected');
