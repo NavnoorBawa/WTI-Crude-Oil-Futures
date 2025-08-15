@@ -38,7 +38,7 @@ except ImportError as e:
     logger.error(f"❌ Critical Flask import error: {e}")
     sys.exit(1)
 
-# Try to import ML module
+# Try to import ML module (gracefully handle missing dependencies)
 ML_AVAILABLE = False
 try:
     from oil import get_working_wti_prediction, get_multi_horizon_wti_predictions
@@ -46,6 +46,9 @@ try:
     logger.info("✅ Advanced ML module imported successfully")
 except ImportError as e:
     logger.warning(f"⚠️ ML module not available: {e}")
+    logger.info("📊 Will use built-in data generation (ML dependencies not installed)")
+except Exception as e:
+    logger.warning(f"⚠️ ML module failed to load: {e}")
     logger.info("📊 Will use built-in data generation")
 
 # Production Flask app with comprehensive configuration
@@ -411,7 +414,7 @@ def home():
             
             response_data = {
                 'service': 'WTI Crude Oil Futures Prediction API',
-                'version': '2.1.1',
+                'version': '2.1.2',
                 'status': 'operational',
                 'environment': 'production',
                 'uptime_seconds': int((datetime.now() - app_state['startup_time']).total_seconds()),
@@ -607,7 +610,7 @@ def health_check():
                 'uptime_seconds': uptime_seconds,
                 'uptime_human': f"{uptime_seconds // 3600}h {(uptime_seconds % 3600) // 60}m {uptime_seconds % 60}s",
                 'system_time': datetime.now().isoformat(),
-                'version': '2.1.1',
+                'version': '2.1.2',
                 'environment': 'production',
                 'checks': {
                     'api_responsive': True,
@@ -699,7 +702,7 @@ def system_metrics():
                     'startup_time': app_state['startup_time'].isoformat(),
                     'current_time': datetime.now().isoformat(),
                     'health_status': app_state['health_status'],
-                    'version': '2.1.1',
+                    'version': '2.1.2',
                     'environment': 'production'
                 },
                 'api': {
