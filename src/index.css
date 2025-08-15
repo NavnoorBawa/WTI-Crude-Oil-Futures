@@ -12,8 +12,8 @@ html, body {
   font-family: 'Source Code Pro', 'JetBrains Mono', 'IBM Plex Mono', 'SF Mono', 'Monaco', 'Consolas', 'Courier New', monospace;
   background-color: #000000;
   color: #FF8C00; /* Classic Bloomberg amber/orange */
-  line-height: 1.1;
-  font-size: 12px;
+  line-height: 1.2;
+  font-size: 14px;
   font-weight: 400;
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
@@ -221,15 +221,15 @@ html, body {
   font-weight: 500;
 }
 
-/* Bloomberg Terminal Font Sizes - Information Dense */
-.text-xxs { font-size: 10px; line-height: 12px; } /* Ultra dense info */
-.text-xs { font-size: 11px; line-height: 14px; }  /* Secondary labels */
-.text-sm { font-size: 12px; line-height: 16px; }  /* Default text */
-.text-base { font-size: 13px; line-height: 18px; } /* Primary text */
-.text-lg { font-size: 14px; line-height: 20px; }   /* Headers */
-.text-xl { font-size: 16px; line-height: 22px; }   /* Large values */
-.text-2xl { font-size: 18px; line-height: 24px; }  /* Major displays */
-.text-3xl { font-size: 22px; line-height: 28px; }  /* Price displays */
+/* Bloomberg Terminal Font Sizes - Readable */
+.text-xxs { font-size: 12px; line-height: 14px; } /* Ultra dense info */
+.text-xs { font-size: 13px; line-height: 16px; }  /* Secondary labels */
+.text-sm { font-size: 14px; line-height: 18px; }  /* Default text */
+.text-base { font-size: 15px; line-height: 20px; } /* Primary text */
+.text-lg { font-size: 16px; line-height: 22px; }   /* Headers */
+.text-xl { font-size: 18px; line-height: 24px; }   /* Large values */
+.text-2xl { font-size: 20px; line-height: 26px; }  /* Major displays */
+.text-3xl { font-size: 24px; line-height: 30px; }  /* Price displays */
 
 /* Bloomberg Weight System */
 .font-light { font-weight: 300; }     /* Dimmed data */
@@ -286,39 +286,13 @@ html, body {
 .rounded { border-radius: 4px; }
 .rounded-full { border-radius: 50%; }
 
-/* BLOOMBERG TERMINAL SPECIAL EFFECTS & UI ELEMENTS */
-.animate-pulse {
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-/* Bloomberg Live Data Blink Effect */
-.bloomberg-blink {
-  animation: bloomberg-blink 0.8s ease-in-out infinite;
-}
-
-@keyframes bloomberg-blink {
-  0%, 50% { opacity: 1; }
-  25%, 75% { opacity: 0.3; }
-}
-
 /* Bloomberg Status Indicators */
 .bloomberg-status-dot {
   display: inline-block;
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  margin-right: 6px;
-  animation: bloomberg-status-pulse 2s ease-in-out infinite;
-}
-
-@keyframes bloomberg-status-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.7; transform: scale(1.1); }
+  margin-right: 4px;
 }
 
 /* Bloomberg Data Grid Effect */
@@ -506,19 +480,19 @@ canvas {
 .bloomberg-table th {
   background: var(--bloomberg-gray-800);
   border: 1px solid var(--bloomberg-gray-600);
-  padding: 3px 5px;
+  padding: 4px 6px;
   font-weight: 600;
   text-transform: uppercase;
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0.05em;
   color: var(--bloomberg-amber);
 }
 
 .bloomberg-table td {
   border: 1px solid var(--bloomberg-gray-700);
-  padding: 2px 5px;
+  padding: 4px 6px;
   font-variant-numeric: tabular-nums;
-  font-size: 10px;
+  font-size: 14px;
 }
 
 /* Bloomberg Thin Red/Green Lines for Price Indicators */
@@ -586,13 +560,7 @@ canvas {
   width: 8px;
   height: 14px;
   background: var(--bloomberg-amber);
-  animation: bloomberg-cursor-blink 1s infinite;
   margin-left: 2px;
-}
-
-@keyframes bloomberg-cursor-blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0; }
 }
 
 /* Bloomberg Launchpad System - Multi-Panel Desktop */

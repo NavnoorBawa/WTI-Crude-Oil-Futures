@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useRef } from "react";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -11,6 +11,7 @@ import {
   Filler,
   TimeScale,
 } from "chart.js";
+import zoomPlugin from "chartjs-plugin-zoom";
 import "chartjs-adapter-date-fns";
 import { Line } from "react-chartjs-2";
 
@@ -23,17 +24,21 @@ ChartJS.register(
   Tooltip,
   Legend,
   Filler,
-  TimeScale
+  TimeScale,
+  zoomPlugin
 );
 
 export default function Chart({ 
   actualArray = [], 
   predictedArray = [], 
-  performanceMetrics = null, 
   unifiedData = null,
-  showFuture = true 
+  showFuture = true,
+  currentPrice = 0
 }) {
-  // Process data with CRYSTAL CLEAR separation of actual, historical predictions, and future predictions
+  const [showHistorical, setShowHistorical] = useState(true);
+  const chartRef = useRef();
+
+  // Process data with clear separation of actual, historical predictions, and future predictions
   const chartData = useMemo(() => {
     console.log("Processing chart data...", { unifiedData, actualArray, predictedArray });
     
@@ -55,7 +60,7 @@ export default function Chart({
       future: predictedData.future?.values?.length || 0
     });
     
-    // Create timeline labels - simple and clear
+    // Create timeline labels
     const timeLabels = [];
     const actualPrices = [];
     const historicalPredictions = [];
@@ -101,7 +106,7 @@ export default function Chart({
         momentum = changes.reduce((sum, change) => sum + change, 0) / changes.length;
       }
       
-      // Create 4 future predictions with clear time labels
+      // Create 4 future predictions
       const futurePoints = [
         { hours: 1, label: '+1h' },
         { hours: 4, label: '+4h' },
@@ -110,7 +115,7 @@ export default function Chart({
       ];
       
       futurePoints.forEach((point, i) => {
-        const volatility = 0.01 + (i * 0.005); // Increasing uncertainty
+        const volatility = 0.01 + (i * 0.005);
         const randomChange = (Math.random() - 0.5) * lastPrice * volatility;
         const trendChange = momentum * (i + 1) * 0.1;
         const futurePrice = Math.max(20, Math.min(150, lastPrice + randomChange + trendChange));
@@ -140,105 +145,71 @@ export default function Chart({
     };
   }, [actualArray, predictedArray, unifiedData, showFuture]);
 
-  // Calculate simple performance metrics
-  const metrics = useMemo(() => {
-    if (performanceMetrics && typeof performanceMetrics === 'object') {
-      return {
-        correlation: performanceMetrics.correlation?.toString() || '0.0',
-        directionAccuracy: performanceMetrics.direction_accuracy?.toString() || '0.0',
-        mae: performanceMetrics.mae?.toString() || '0.00',
-        sampleSize: performanceMetrics.total_predictions || 0
-      };
+  // Reset zoom function
+  const resetZoom = () => {
+    if (chartRef.current) {
+      chartRef.current.resetZoom();
     }
-    
-    // Calculate from data if no metrics provided
-    const actualValues = chartData.actualPrices?.filter(p => p !== null) || [];
-    const predValues = chartData.historicalPredictions?.filter(p => p !== null) || [];
-    
-    if (actualValues.length < 2 || predValues.length < 2) {
-      return { correlation: '0.0', directionAccuracy: '0.0', mae: '0.00', sampleSize: 0 };
-    }
-    
-    const minLength = Math.min(actualValues.length, predValues.length);
-    const actual = actualValues.slice(-minLength);
-    const predicted = predValues.slice(-minLength);
-    
-    const errors = actual.map((a, i) => Math.abs(a - predicted[i]));
-    const mae = errors.reduce((sum, err) => sum + err, 0) / errors.length;
-    
-    // Simple correlation
-    const actualMean = actual.reduce((sum, val) => sum + val, 0) / actual.length;
-    const predMean = predicted.reduce((sum, val) => sum + val, 0) / predicted.length;
-    
-    let numerator = 0, denomActual = 0, denomPred = 0;
-    for (let i = 0; i < actual.length; i++) {
-      numerator += (actual[i] - actualMean) * (predicted[i] - predMean);
-      denomActual += Math.pow(actual[i] - actualMean, 2);
-      denomPred += Math.pow(predicted[i] - predMean, 2);
-    }
-    const correlation = denomActual === 0 || denomPred === 0 ? 0 : 
-      (numerator / Math.sqrt(denomActual * denomPred)) * 100;
-    
-    return {
-      correlation: correlation.toFixed(1),
-      directionAccuracy: '65.0', // Placeholder
-      mae: mae.toFixed(2),
-      sampleSize: minLength
-    };
-  }, [chartData, performanceMetrics]);
+  };
 
-  // Chart configuration with MAXIMUM visual distinction
+  // Toggle historical data
+  const toggleHistoricalData = () => {
+    setShowHistorical(!showHistorical);
+  };
+
+  // Chart configuration with professional Bloomberg styling
   const data = {
     labels: chartData.timeLabels || [],
     datasets: [
-      // 1. ACTUAL PRICES - Thick GOLD line, very visible
+      // 1. ACTUAL PRICES - Gold line
       {
         label: 'ACTUAL PRICES',
         data: chartData.actualPrices || [],
-        borderColor: '#FFD700', // Bright gold
+        borderColor: '#FFD700',
         backgroundColor: 'transparent',
-        borderWidth: 6, // Extra thick
-        pointRadius: 4, // Larger points
-        pointHoverRadius: 10,
+        borderWidth: 3,
+        pointRadius: 2,
+        pointHoverRadius: 6,
         pointBackgroundColor: '#FFD700',
         pointBorderColor: '#000000',
-        pointBorderWidth: 2,
+        pointBorderWidth: 1,
         tension: 0.1,
         spanGaps: false,
         order: 1
       },
       
-      // 2. HISTORICAL PREDICTIONS - Dashed GREEN line, clearly different
+      // 2. HISTORICAL PREDICTIONS - Green dashed line
       {
-        label: 'PAST PREDICTIONS',
-        data: chartData.historicalPredictions || [],
-        borderColor: '#00FF00', // Bright green
+        label: 'HISTORICAL PREDICTIONS',
+        data: showHistorical ? (chartData.historicalPredictions || []) : [],
+        borderColor: '#00FF00',
         backgroundColor: 'rgba(0, 255, 0, 0.1)',
-        borderWidth: 3,
-        borderDash: [8, 4], // Clear dashed pattern
-        pointRadius: 2,
-        pointHoverRadius: 6,
+        borderWidth: 2,
+        borderDash: [5, 5],
+        pointRadius: 1,
+        pointHoverRadius: 4,
         pointBackgroundColor: '#00FF00',
         pointBorderColor: '#FFFFFF',
         pointBorderWidth: 1,
         tension: 0.1,
         spanGaps: false,
-        order: 2
+        order: 2,
+        hidden: !showHistorical
       },
       
-      // 3. FUTURE PREDICTIONS - Dotted CYAN line, very distinct
+      // 3. FUTURE PREDICTIONS - Cyan dotted line
       {
         label: 'FUTURE FORECAST',
         data: chartData.futurePredictions || [],
-        borderColor: '#00FFFF', // Bright cyan
-        backgroundColor: 'rgba(0, 255, 255, 0.2)',
-        borderWidth: 5,
-        borderDash: [4, 8], // Different dash pattern
-        pointRadius: 5, // Larger points for future
-        pointHoverRadius: 12,
-        pointBackgroundColor: '#00FFFF',
+        borderColor: '#4AF6C3',
+        backgroundColor: 'rgba(74, 246, 195, 0.1)',
+        borderWidth: 2,
+        borderDash: [3, 6],
+        pointRadius: 3,
+        pointHoverRadius: 6,
+        pointBackgroundColor: '#4AF6C3',
         pointBorderColor: '#000000',
-        pointBorderWidth: 2,
+        pointBorderWidth: 1,
         tension: 0.2,
         spanGaps: false,
         order: 3
@@ -246,7 +217,7 @@ export default function Chart({
     ]
   };
 
-  // Chart options optimized for MAXIMUM visibility
+  // Chart options optimized for Bloomberg appearance
   const options = {
     responsive: true,
     maintainAspectRatio: false,
@@ -256,43 +227,68 @@ export default function Chart({
       intersect: false,
     },
     plugins: {
+      zoom: {
+        zoom: {
+          wheel: {
+            enabled: true,
+            speed: 0.1,
+          },
+          pinch: {
+            enabled: true
+          },
+          mode: 'xy',
+          drag: {
+            enabled: true,
+            backgroundColor: 'rgba(255, 215, 0, 0.1)',
+            borderColor: '#FFD700',
+            borderWidth: 1,
+          }
+        },
+        pan: {
+          enabled: true,
+          mode: 'xy',
+          threshold: 10,
+        }
+      },
       legend: {
         display: true,
         position: 'top',
         labels: {
-          color: '#FFFFFF',
+          color: '#FFA500',
           font: {
-            family: 'Monaco, monospace',
+            family: 'monospace',
             size: 14,
-            weight: 'bold'
+            weight: 'normal'
           },
           padding: 20,
-          usePointStyle: true,
-          pointStyle: 'line'
+          usePointStyle: false,
+          boxWidth: 20,
+          boxHeight: 3
         }
       },
       tooltip: {
         enabled: true,
         mode: 'index',
         intersect: false,
-        backgroundColor: '#000000',
-        titleColor: '#FFD700',
+        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+        titleColor: '#FFA500',
         bodyColor: '#FFFFFF',
-        borderColor: '#FFD700',
-        borderWidth: 2,
-        cornerRadius: 8,
+        borderColor: '#FFA500',
+        borderWidth: 1,
+        cornerRadius: 0,
+        padding: 8,
         titleFont: {
           size: 14,
-          family: 'Monaco, monospace',
-          weight: 'bold'
+          family: 'monospace',
+          weight: 'normal'
         },
         bodyFont: {
           size: 13,
-          family: 'Monaco, monospace'
+          family: 'monospace'
         },
         callbacks: {
           title: function(tooltipItems) {
-            return `Time: ${tooltipItems[0].label}`;
+            return `TIME: ${tooltipItems[0].label}`;
           },
           label: function(context) {
             if (context.parsed.y === null) return null;
@@ -301,11 +297,11 @@ export default function Chart({
             const datasetLabel = context.dataset.label;
             
             if (datasetLabel === 'ACTUAL PRICES') {
-              return `💰 ACTUAL: $${value.toFixed(2)}/BBL`;
-            } else if (datasetLabel === 'PAST PREDICTIONS') {
-              return `📊 PAST PRED: $${value.toFixed(2)}/BBL`;
+              return `ACTUAL: $${value.toFixed(2)}`;
+            } else if (datasetLabel === 'HISTORICAL PREDICTIONS') {
+              return `HISTORICAL: $${value.toFixed(2)}`;
             } else if (datasetLabel === 'FUTURE FORECAST') {
-              return `🔮 FUTURE: $${value.toFixed(2)}/BBL`;
+              return `FORECAST: $${value.toFixed(2)}`;
             }
             
             return `$${value.toFixed(2)}`;
@@ -317,17 +313,17 @@ export default function Chart({
       x: {
         type: 'category',
         grid: {
-          color: '#444444',
+          color: '#333333',
           lineWidth: 1,
         },
         ticks: {
-          color: '#FFFFFF',
+          color: '#FFA500',
           font: {
-            family: 'Monaco, monospace',
+            family: 'monospace',
             size: 12,
-            weight: 'bold'
+            weight: 'normal'
           },
-          maxTicksLimit: 15,
+          maxTicksLimit: 12,
         },
         border: {
           color: '#666666',
@@ -335,11 +331,11 @@ export default function Chart({
         title: {
           display: true,
           text: 'TIME HORIZON',
-          color: '#FFFFFF',
+          color: '#FFA500',
           font: {
-            family: 'Monaco, monospace',
-            size: 14,
-            weight: 'bold'
+            family: 'monospace',
+            size: 13,
+            weight: 'normal'
           }
         }
       },
@@ -347,15 +343,15 @@ export default function Chart({
         type: 'linear',
         position: 'right',
         grid: {
-          color: '#444444',
+          color: '#333333',
           lineWidth: 1,
         },
         ticks: {
-          color: '#FFFFFF',
+          color: '#FFA500',
           font: {
-            family: 'Monaco, monospace',
+            family: 'monospace',
             size: 12,
-            weight: 'bold'
+            weight: 'normal'
           },
           callback: function(value) {
             return `$${value.toFixed(2)}`;
@@ -367,20 +363,13 @@ export default function Chart({
         title: {
           display: true,
           text: 'WTI CRUDE OIL (USD/BBL)',
-          color: '#FFFFFF',
+          color: '#FFA500',
           font: {
-            family: 'Monaco, monospace',
-            size: 14,
-            weight: 'bold'
+            family: 'monospace',
+            size: 13,
+            weight: 'normal'
           }
         }
-      }
-    },
-    elements: {
-      point: {
-        hoverBackgroundColor: '#FFD700',
-        hoverBorderColor: '#000000',
-        hoverBorderWidth: 3,
       }
     }
   };
@@ -390,13 +379,11 @@ export default function Chart({
     return (
       <div className="w-full h-full bg-black flex items-center justify-center">
         <div className="text-center">
-          <div className="text-yellow-400 text-2xl font-mono mb-4 animate-pulse">
-            🛢️ LOADING WTI CRUDE OIL DATA...
+          <div className="text-bloomberg-amber text-lg font-mono mb-2">
+            LOADING WTI CRUDE OIL DATA...
           </div>
-          <div className="flex justify-center space-x-1">
-            <div className="w-3 h-3 bg-yellow-400 rounded-full animate-bounce"></div>
-            <div className="w-3 h-3 bg-yellow-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
-            <div className="w-3 h-3 bg-yellow-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+          <div className="text-gray-400 text-sm">
+            Connecting to real-time feeds
           </div>
         </div>
       </div>
@@ -405,39 +392,43 @@ export default function Chart({
 
   return (
     <div className="w-full h-full bg-black text-white font-mono">
-      {/* Compact header with price and legend */}
-      <div className="bg-gray-900 border-b-2 border-yellow-500 px-4 py-2">
+      {/* Chart header */}
+      <div className="bg-black border-b border-gray-700 px-2 py-1">
         <div className="flex justify-between items-center">
-          <div className="flex items-center space-x-4">
-            <h1 className="text-xl font-bold text-yellow-400">WTI CRUDE</h1>
+          <div className="flex items-center gap-4">
+            <h1 className="text-lg font-normal text-bloomberg-amber">WTI CRUDE OIL</h1>
             <div className="text-2xl font-bold text-white">
-              ${chartData.currentPrice?.toFixed(2) || '0.00'}
+              ${currentPrice?.toFixed(2) || '0.00'}
             </div>
-            <div className="text-sm text-gray-300">USD/BBL</div>
+            <div className="text-sm text-gray-400">USD/BBL</div>
           </div>
           
-          {/* Inline legend - more compact */}
-          <div className="flex items-center space-x-6 text-xs font-bold">
-            <div className="flex items-center space-x-2">
-              <div className="w-6 h-1 bg-yellow-400"></div>
-              <span className="text-yellow-400">ACTUAL</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-6 h-1 bg-green-400 border-dashed border-t-2 border-green-400"></div>
-              <span className="text-green-400">HISTORICAL</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-6 h-1 bg-cyan-400 border-dotted border-t-2 border-cyan-400"></div>
-              <span className="text-cyan-400">FORECAST</span>
-            </div>
+          {/* Chart Controls */}
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={toggleHistoricalData}
+              className={`px-3 py-1 text-sm font-mono border transition-all ${
+                showHistorical 
+                  ? 'bg-bloomberg-amber text-black border-bloomberg-amber' 
+                  : 'bg-transparent text-bloomberg-amber border-bloomberg-amber hover:bg-bloomberg-amber hover:text-black'
+              }`}
+            >
+              HISTORICAL
+            </button>
+            <button 
+              onClick={resetZoom}
+              className="px-3 py-1 text-sm font-mono bg-transparent text-bloomberg-amber border border-bloomberg-amber hover:bg-bloomberg-amber hover:text-black transition-all"
+            >
+              RESET ZOOM
+            </button>
           </div>
         </div>
       </div>
 
-      {/* MASSIVE chart area for maximum visibility */}
-      <div className="h-full bg-black p-4">
+      {/* Chart area */}
+      <div className="h-full bg-black p-1">
         <div className="h-full w-full">
-          <Line data={data} options={options} />
+          <Line ref={chartRef} data={data} options={options} />
         </div>
       </div>
     </div>

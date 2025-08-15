@@ -12,6 +12,7 @@ import numpy as np
 from flask import Flask, jsonify
 from flask_cors import CORS
 import logging
+import yfinance as yf
 
 # Simple logging
 logging.basicConfig(level=logging.INFO)
@@ -22,6 +23,19 @@ CORS(app)
 
 # Global data - thread safe with lock
 data_lock = threading.Lock()
+def get_real_oil_price():
+    """Get real oil price from yfinance"""
+    try:
+        ticker = yf.Ticker("CL=F")
+        data = ticker.history(period="1d", interval="1m")
+        if not data.empty:
+            current_price = float(data['Close'].iloc[-1])
+            logger.info(f"📈 Real oil price: ${current_price:.2f}")
+            return current_price
+    except Exception as e:
+        logger.error(f"❌ Error fetching real price: {e}")
+    return None
+
 global_data = {
     # Simple arrays - what the frontend actually needs
     'actual': [],
@@ -43,6 +57,9 @@ global_data = {
             }
         }
     },
+    
+    # Real current price
+    'current_price': 73.19,
     
     # Required fields
     'timeRemaining': 300,
@@ -88,12 +105,21 @@ global_data = {
 }
 
 def generate_initial_data():
-    """Generate 50 initial data points"""
-    base_price = 64.0
+    """Generate 50 initial data points with real oil prices"""
     current_time = datetime.now()
     
     with data_lock:
-        logger.info("Generating initial data...")
+        logger.info("Generating initial data with real oil prices...")
+        
+        # Get real current price
+        real_price = get_real_oil_price()
+        if real_price:
+            global_data['current_price'] = real_price
+            base_price = real_price
+            logger.info(f"✅ Using real oil price: ${real_price:.2f}")
+        else:
+            base_price = 64.0
+            logger.warning("⚠️ Using fallback price: $64.00")
         
         for i in range(50):
             # Generate timestamp
@@ -139,12 +165,17 @@ def update_data_continuously():
             
             with data_lock:
                 if len(global_data['actual']) > 0:
-                    # Get last price
-                    last_price = global_data['actual'][-1]
-                    
-                    # Generate new price (small random walk)
-                    new_price = last_price + np.random.normal(0, 0.15)
-                    new_price = max(60.0, min(68.0, new_price))
+                    # Try to get real oil price
+                    real_price = get_real_oil_price()
+                    if real_price:
+                        new_price = real_price
+                        global_data['current_price'] = real_price
+                        logger.info(f"🔄 Updated with real price: ${real_price:.2f}")
+                    else:
+                        # Fallback to random walk
+                        last_price = global_data['actual'][-1]
+                        new_price = last_price + np.random.normal(0, 0.15)
+                        new_price = max(60.0, min(80.0, new_price))
                     
                     # Generate prediction
                     new_prediction = new_price + np.random.normal(0, 0.1)
@@ -234,6 +265,7 @@ def get_data():
                     'actual': global_data['unified_data']['actual'].copy(),
                     'predicted': global_data['unified_data']['predicted'].copy()
                 },
+                'current_price': global_data['current_price'],
                 'timeRemaining': global_data['timeRemaining'],
                 'contract': global_data['contract'].copy(),
                 'performance_metrics': global_data['performance_metrics'].copy(),
