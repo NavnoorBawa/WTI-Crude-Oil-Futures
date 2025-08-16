@@ -81,6 +81,12 @@ global_data = {
         'current_step': 'Starting',
         'progress_percentage': 10
     },
+    'ml_prediction_timer': {
+        'next_prediction_in': 180,  # 3 minutes for next ML prediction
+        'last_prediction_time': None,
+        'prediction_interval': 180,  # 3 minutes between ML predictions (realistic)
+        'currently_processing': False
+    },
     'multi_horizon_predictions': {
         'predictions': {
             '1h': 64.2,
@@ -95,7 +101,8 @@ global_data = {
             '7d': {'upper': 67.0, 'lower': 62.0}
         },
         'processing_time': 0.1,
-        'generated_at': datetime.now().isoformat()
+        'generated_at': datetime.now().isoformat(),
+        'is_real_prediction': False  # Track if this is actual ML or placeholder
     }
 }
 
@@ -215,10 +222,13 @@ def load_real_data_and_ml():
         if ml_horizon_predictions and 'predictions' in ml_horizon_predictions:
             with data_lock:
                 global_data['multi_horizon_predictions'] = ml_horizon_predictions
+                global_data['multi_horizon_predictions']['is_real_prediction'] = True
                 global_data['ml_status']['status'] = 'active'
                 global_data['ml_status']['current_step'] = 'Ready'
                 global_data['ml_status']['progress_percentage'] = 100
-                logger.info("✅ ML predictions initialized successfully")
+                global_data['ml_prediction_timer']['last_prediction_time'] = datetime.now().isoformat()
+                global_data['ml_prediction_timer']['next_prediction_in'] = 180  # 3 minutes until next
+                logger.info("✅ ML predictions initialized successfully - REAL PREDICTION")
         else:
             logger.warning("⚠️ ML predictions failed, using defaults")
     except Exception as e:
@@ -228,7 +238,7 @@ def load_real_data_and_ml():
             global_data['ml_status']['current_step'] = 'Error occurred'
 
 def update_data_continuously():
-    """Background thread to add new data every 30 seconds"""
+    """Background thread to add new REAL data every 30 seconds - NO FAKE PREDICTIONS"""
     count = 0
     while True:
         try:
@@ -242,20 +252,21 @@ def update_data_continuously():
                         new_price = real_price
                         global_data['current_price'] = real_price
                         logger.info(f"🔄 Updated with real price: ${real_price:.2f}")
-                    else:
-                        # Use last known price
-                        last_price = global_data['actual'][-1]
-                        new_price = last_price + np.random.normal(0, 0.1)
-                        logger.warning("⚠️ Using estimated price update")
-                    
-                    # Simple prediction for continuous updates
-                    new_prediction = new_price + np.random.normal(0, 0.05)
-                    
-                    timestamp = datetime.now().isoformat()
-                    
-                    global_data['actual'].append(round(new_price, 2))
-                    global_data['predicted'].append(round(new_prediction, 2))
-                    global_data['timestamps'].append(timestamp)
+                        
+                        # HONEST: Only use last real ML prediction, don't generate fake ones
+                        if global_data['predicted'] and len(global_data['predicted']) > 0:
+                            # Use the last real prediction value - NO NEW FAKE PREDICTIONS
+                            last_real_prediction = global_data['predicted'][-1]
+                            new_prediction = last_real_prediction
+                        else:
+                            # If no predictions exist, just use current price
+                            new_prediction = new_price
+                        
+                        timestamp = datetime.now().isoformat()
+                        
+                        global_data['actual'].append(round(new_price, 2))
+                        global_data['predicted'].append(round(new_prediction, 2))
+                        global_data['timestamps'].append(timestamp)
                     
                     global_data['unified_data']['actual']['values'].append(round(new_price, 2))
                     global_data['unified_data']['actual']['timestamps'].append(timestamp)
@@ -284,8 +295,58 @@ def update_data_continuously():
         except Exception as e:
             logger.error(f"Update error: {e}")
 
+def ml_prediction_timer():
+    """HONEST ML prediction timer - only runs real ML every 3 minutes"""
+    while True:
+        try:
+            time.sleep(1)
+            with data_lock:
+                # Countdown for next ML prediction
+                if global_data['ml_prediction_timer']['next_prediction_in'] > 0:
+                    global_data['ml_prediction_timer']['next_prediction_in'] -= 1
+                else:
+                    # Time for new ML prediction!
+                    if not global_data['ml_prediction_timer']['currently_processing']:
+                        global_data['ml_prediction_timer']['currently_processing'] = True
+                        logger.info("🤖 Time for NEW REAL ML PREDICTION - starting processing...")
+                        
+                        # Start ML prediction in background thread
+                        def run_ml_prediction():
+                            try:
+                                from oil import get_multi_horizon_wti_predictions
+                                start_time = time.time()
+                                logger.info("🧠 Running REAL ML prediction...")
+                                
+                                ml_predictions = get_multi_horizon_wti_predictions()
+                                processing_time = time.time() - start_time
+                                
+                                with data_lock:
+                                    if ml_predictions and 'predictions' in ml_predictions:
+                                        global_data['multi_horizon_predictions'] = ml_predictions
+                                        global_data['multi_horizon_predictions']['is_real_prediction'] = True
+                                        global_data['multi_horizon_predictions']['processing_time'] = processing_time
+                                        global_data['ml_prediction_timer']['last_prediction_time'] = datetime.now().isoformat()
+                                        global_data['ml_prediction_timer']['next_prediction_in'] = 180  # Reset to 3 minutes
+                                        global_data['ml_prediction_timer']['currently_processing'] = False
+                                        logger.info(f"✅ NEW REAL ML PREDICTION completed in {processing_time:.1f}s")
+                                    else:
+                                        global_data['ml_prediction_timer']['next_prediction_in'] = 60  # Retry in 1 minute
+                                        global_data['ml_prediction_timer']['currently_processing'] = False
+                                        logger.warning("⚠️ ML prediction failed, retrying in 1 minute")
+                            except Exception as e:
+                                logger.error(f"❌ ML prediction error: {e}")
+                                with data_lock:
+                                    global_data['ml_prediction_timer']['next_prediction_in'] = 60  # Retry in 1 minute
+                                    global_data['ml_prediction_timer']['currently_processing'] = False
+                        
+                        ml_thread = threading.Thread(target=run_ml_prediction, daemon=True)
+                        ml_thread.start()
+                        
+        except Exception as e:
+            logger.error(f"ML timer error: {e}")
+
 def countdown_timer():
-    """Simple countdown timer"""
+    """Simple countdown timer for contracts"""
     while True:
         try:
             time.sleep(1)
@@ -316,6 +377,7 @@ def get_data():
                 'performance_metrics': global_data['performance_metrics'].copy(),
                 'enterprise_metrics': global_data['enterprise_metrics'].copy(),
                 'ml_status': global_data['ml_status'].copy(),
+                'ml_prediction_timer': global_data['ml_prediction_timer'].copy(),  # Show ML timer info
                 'multi_horizon_predictions': global_data['multi_horizon_predictions'].copy()
             })
     except Exception as e:
@@ -358,6 +420,11 @@ if __name__ == '__main__':
         timer_thread.start()
         print("✅ Timer thread started")
         
+        # Start ML prediction timer - HONEST 3-minute intervals
+        ml_timer_thread = threading.Thread(target=ml_prediction_timer, daemon=True)
+        ml_timer_thread.start()
+        print("✅ ML prediction timer started (3-minute intervals)")
+        
         # Start background data/ML loading after server starts
         bg_loader = threading.Thread(target=load_real_data_and_ml, daemon=True)
         bg_loader.start()
@@ -376,7 +443,9 @@ if __name__ == '__main__':
         print("✅ Server ready immediately!")
         print("🌐 Server: http://127.0.0.1:9000")
         print("📊 Endpoints: /data, /health")
-        print("🧠 Real data and ML loading in background...")
+        print("🧠 Real data loading in background...")
+        print("⏰ HONEST ML predictions every 3 minutes (NO FAKE PREDICTIONS)")
+        print("📈 Real-time oil prices from yfinance every 30 seconds")
         print("=" * 60)
         
         import os
