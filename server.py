@@ -187,7 +187,8 @@ def load_real_data_and_ml():
                 for timestamp_idx, row in historical_data.iterrows():
                     timestamp = timestamp_idx.isoformat()
                     price = float(row['Close'])
-                    prediction = price * (1 + np.random.normal(0, 0.003))  # Small variation
+                    # NO FAKE PREDICTIONS - use actual price until real ML prediction is available
+                    prediction = price
                     
                     global_data['actual'].append(round(price, 2))
                     global_data['predicted'].append(round(prediction, 2))
@@ -238,11 +239,11 @@ def load_real_data_and_ml():
             global_data['ml_status']['current_step'] = 'Error occurred'
 
 def update_data_continuously():
-    """Background thread to add new REAL data every 30 seconds - NO FAKE PREDICTIONS"""
+    """Background thread to add new REAL data every 15 seconds - optimized for yfinance"""
     count = 0
     while True:
         try:
-            time.sleep(30)
+            time.sleep(15)  # 15 seconds - good balance for yfinance without hitting rate limits
             
             with data_lock:
                 if len(global_data['actual']) > 0:
@@ -448,7 +449,7 @@ if __name__ == '__main__':
         print("📊 Endpoints: /data, /health")
         print("🧠 Real data loading in background...")
         print("⏰ HONEST ML predictions every 3 minutes (NO FAKE PREDICTIONS)")
-        print("📈 Real-time oil prices from yfinance every 30 seconds")
+        print("📈 Real-time oil prices from yfinance every 15 seconds")
         print("=" * 60)
         
         import os

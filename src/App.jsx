@@ -147,12 +147,8 @@ function App() {
                 {priceChange >= 0 ? '+' : ''}{((priceChange/currentPrice)*100).toFixed(2)}%
               </td>
               <td className="text-bloomberg-blue text-sm">
-                {(() => {
-                  // Use actual volume data or calculate synthetic volume
-                  const baseVol = 1.2;
-                  const variance = (Math.sin(Date.now() / 10000) * 0.4);
-                  return (baseVol + variance).toFixed(1);
-                })()}M
+                {/* Use real volume data when available, otherwise show N/A */}
+                {data?.volume ? `${data.volume.toFixed(1)}M` : 'N/A'}
               </td>
               <td className="text-bloomberg-cyan text-sm">{currentPrediction.toFixed(2)}</td>
               <td className="text-bloomberg-positive text-sm">
@@ -179,11 +175,21 @@ function App() {
               </span>
               <span className="text-bloomberg-amber font-medium">FEED:</span>
               <span className="text-bloomberg-positive font-medium">REAL-TIME</span>
-              <span className="text-bloomberg-amber font-medium">LATENCY:</span>
+              <span className="text-bloomberg-amber font-medium">NEXT ML:</span>
               <span className="text-bloomberg-blue font-medium">
-                {data?.multi_horizon_predictions?.processing_time ? 
-                  `${Math.floor(data.multi_horizon_predictions.processing_time * 1000)}ms` : 
-                  '12ms'}
+                {data?.ml_prediction_timer?.next_prediction_in ? 
+                  `${Math.floor(data.ml_prediction_timer.next_prediction_in / 60)}:${String(data.ml_prediction_timer.next_prediction_in % 60).padStart(2, '0')}` : 
+                  '3:00'}
+              </span>
+              <span className="text-bloomberg-amber font-medium">STATUS:</span>
+              <span className={`font-medium ${
+                data?.ml_prediction_timer?.currently_processing ? 'text-bloomberg-alert animate-pulse' :
+                data?.multi_horizon_predictions?.is_real_prediction ? 'text-bloomberg-positive' : 
+                'text-gray-400'
+              }`}>
+                {data?.ml_prediction_timer?.currently_processing ? 'PROCESSING' :
+                 data?.multi_horizon_predictions?.is_real_prediction ? 'REAL ML' : 
+                 'PLACEHOLDER'}
               </span>
             </div>
             <div className="flex gap-6">

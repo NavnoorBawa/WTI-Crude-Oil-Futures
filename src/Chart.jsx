@@ -114,17 +114,9 @@ export default function Chart({
         { hours: 168, label: '+7d' }
       ];
       
-      futurePoints.forEach((point, i) => {
-        const volatility = 0.01 + (i * 0.005);
-        const randomChange = (Math.random() - 0.5) * lastPrice * volatility;
-        const trendChange = momentum * (i + 1) * 0.1;
-        const futurePrice = Math.max(20, Math.min(150, lastPrice + randomChange + trendChange));
-        
-        timeLabels.push(point.label);
-        actualPrices.push(null);
-        historicalPredictions.push(null);
-        futurePredictions.push(Number(futurePrice.toFixed(2)));
-      });
+      // NO FAKE PREDICTIONS - Only show real ML predictions from backend
+      // Remove this fake future prediction generation completely
+      // Future predictions should only come from real ML model via API
     }
     
     console.log("Final data arrays:", {
