@@ -59,16 +59,25 @@ MAPE: ${data?.performance_metrics?.mape || 1.9}%
 Total Predictions: ${data?.performance_metrics?.total_predictions || 42}`;
     }
 
-    // Multi-horizon predictions
-    if (queryLower.includes('forecast') || queryLower.includes('horizon') || queryLower.includes('future')) {
+    // Multi-horizon predictions with ML timer info
+    if (queryLower.includes('forecast') || queryLower.includes('horizon') || queryLower.includes('future') || queryLower.includes('ml') || queryLower.includes('timer')) {
       const horizons = data?.multi_horizon_predictions?.predictions || {};
-      return `Multi-Horizon Forecasts:
+      const timer = data?.ml_prediction_timer;
+      const isReal = data?.multi_horizon_predictions?.is_real_prediction;
+      
+      return `Multi-Horizon ML Forecasts:
 1 Hour: $${horizons['1h']?.toFixed(2) || 'N/A'}
 4 Hours: $${horizons['4h']?.toFixed(2) || 'N/A'}
 1 Day: $${horizons['1d']?.toFixed(2) || 'N/A'}
 7 Days: $${horizons['7d']?.toFixed(2) || 'N/A'}
 
-Confidence bands include 68% and 95% intervals based on historical volatility.`;
+⏰ ML PREDICTION STATUS:
+Next Real ML: ${timer?.next_prediction_in ? `${Math.floor(timer.next_prediction_in / 60)}:${String(timer.next_prediction_in % 60).padStart(2, '0')}` : 'N/A'}
+Currently Processing: ${timer?.currently_processing ? 'YES' : 'NO'}
+Predictions Are: ${isReal ? 'REAL ML' : 'PLACEHOLDER'}
+Processing Time: ${data?.multi_horizon_predictions?.processing_time ? `${data.multi_horizon_predictions.processing_time.toFixed(1)}s` : 'N/A'}
+
+Real ML predictions run every 3 minutes (180 seconds) for authenticity.`;
     }
 
     // Risk and volatility
@@ -97,17 +106,19 @@ Data freshness: Real-time with 30-second updates`;
 
     // Help queries
     if (queryLower.includes('help') || queryLower.includes('commands') || queryLower.includes('?')) {
-      return `Available Commands:
+      return `📊 Bloomberg Market Analyst Commands:
 • "price" - Current oil price and prediction
 • "technical" - Technical analysis summary  
 • "performance" - Model accuracy metrics
-• "forecast" - Multi-horizon predictions
+• "forecast" or "ml" - Multi-horizon predictions & ML timer
+• "timer" - Next ML prediction countdown
 • "risk" - Volatility and risk assessment
 • "sentiment" - Market sentiment analysis
 • "data" - Data quality and sources
 • "help" - This command list
 
-Ask specific questions about WTI crude oil futures, ML predictions, or technical indicators.`;
+🤖 Ask about: WTI crude oil futures, ML predictions, technical indicators, or processing status.
+💡 Try: "When is the next ML prediction?" or "Are these real predictions?"`;
     }
 
     // Data queries
@@ -182,22 +193,39 @@ Type "help" for available commands.`;
     return (
       <button
         onClick={onToggle}
-        className="fixed bottom-6 right-6 bg-yellow-500 hover:bg-yellow-600 text-black p-4 rounded-full shadow-lg transition-all duration-300 z-50 font-mono font-bold"
+        className="fixed bottom-6 right-6 bg-bloomberg-amber hover:bg-bloomberg-orange text-black p-4 rounded-full shadow-lg transition-all duration-300 z-[9999] font-mono font-bold border-2 border-black animate-pulse"
         title="Open Bloomberg Analysis Chat"
+        style={{ 
+          position: 'fixed',
+          bottom: '24px',
+          right: '24px',
+          zIndex: 9999,
+          fontSize: '14px',
+          minWidth: '120px',
+          minHeight: '60px'
+        }}
       >
-        💬 ANALYST
+        💬 CHAT<br/>ANALYST
       </button>
     );
   }
 
   return (
-    <div className="fixed bottom-6 right-6 w-96 h-[500px] bg-black border-2 border-yellow-500 rounded-lg shadow-2xl z-50 flex flex-col font-mono">
+    <div 
+      className="fixed bottom-6 right-6 w-96 h-[500px] bg-black border-2 border-bloomberg-amber rounded-lg shadow-2xl flex flex-col font-mono"
+      style={{ 
+        zIndex: 9999,
+        position: 'fixed',
+        bottom: '24px',
+        right: '24px'
+      }}
+    >
       {/* Header */}
-      <div className="bg-yellow-500 text-black p-3 rounded-t-lg flex justify-between items-center">
-        <div className="font-bold">BLOOMBERG ANALYST</div>
+      <div className="bg-bloomberg-amber text-black p-3 rounded-t-lg flex justify-between items-center">
+        <div className="font-bold text-sm">📊 BLOOMBERG MARKET ANALYST</div>
         <button
           onClick={onToggle}
-          className="text-black hover:text-gray-700 font-bold text-lg"
+          className="text-black hover:text-gray-700 font-bold text-lg px-2 py-1 hover:bg-bloomberg-orange rounded"
         >
           ✕
         </button>
