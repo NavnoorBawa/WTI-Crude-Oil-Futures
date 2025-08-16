@@ -267,13 +267,16 @@ def update_data_continuously():
                         global_data['actual'].append(round(new_price, 2))
                         global_data['predicted'].append(round(new_prediction, 2))
                         global_data['timestamps'].append(timestamp)
-                    
-                    global_data['unified_data']['actual']['values'].append(round(new_price, 2))
-                    global_data['unified_data']['actual']['timestamps'].append(timestamp)
-                    global_data['unified_data']['predicted']['historical']['values'].append(round(new_prediction, 2))
-                    global_data['unified_data']['predicted']['historical']['timestamps'].append(timestamp)
-                    global_data['unified_data']['predicted']['historical']['upper_bound'].append(round(new_prediction + 0.3, 2))
-                    global_data['unified_data']['predicted']['historical']['lower_bound'].append(round(new_prediction - 0.3, 2))
+                        
+                        # FIXED: Move unified_data updates INSIDE the if block
+                        global_data['unified_data']['actual']['values'].append(round(new_price, 2))
+                        global_data['unified_data']['actual']['timestamps'].append(timestamp)
+                        global_data['unified_data']['predicted']['historical']['values'].append(round(new_prediction, 2))
+                        global_data['unified_data']['predicted']['historical']['timestamps'].append(timestamp)
+                        global_data['unified_data']['predicted']['historical']['upper_bound'].append(round(new_prediction + 0.3, 2))
+                        global_data['unified_data']['predicted']['historical']['lower_bound'].append(round(new_prediction - 0.3, 2))
+                    else:
+                        logger.warning("⚠️ Could not fetch real oil price, skipping update")
                     
                     # Keep only last 100 points
                     if len(global_data['actual']) > 100:
