@@ -13,6 +13,7 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 import logging
 import yfinance as yf
+from oil import get_working_wti_prediction, get_multi_horizon_wti_predictions
 
 # Simple logging
 logging.basicConfig(level=logging.INFO)
@@ -121,21 +122,62 @@ def generate_initial_data():
             base_price = 64.0
             logger.warning("⚠️ Using fallback price: $64.00")
         
-        for i in range(50):
-            # Generate timestamp
-            timestamp = (current_time - timedelta(minutes=50-i)).isoformat()
+        # Get real historical data from yfinance
+        try:
+            ticker = yf.Ticker("CL=F")
+            historical_data = ticker.history(period="1d", interval="1m")
             
-            # Generate realistic price
-            if i == 0:
-                price = base_price
+            if not historical_data.empty and len(historical_data) >= 50:
+                # Use last 50 data points from real historical data
+                historical_data = historical_data.tail(50)
+                
+                for i, (timestamp_idx, row) in enumerate(historical_data.iterrows()):
+                    timestamp = timestamp_idx.isoformat()
+                    price = float(row['Close'])
+                    
+                    # Store real historical price
+                    global_data['actual'].append(round(price, 2))
+                    global_data['timestamps'].append(timestamp)
+                    
+                    # Generate real ML prediction for historical point
+                    try:
+                        prediction = get_working_wti_prediction()
+                        if not prediction or prediction <= 0:
+                            prediction = price
+                    except Exception as e:
+                        logger.warning(f"ML prediction failed for historical data: {e}")
+                        prediction = price
+                    
+                    global_data['predicted'].append(round(prediction, 2))
+                    
+                    # Add to unified format
+                    global_data['unified_data']['actual']['values'].append(round(price, 2))
+                    global_data['unified_data']['actual']['timestamps'].append(timestamp)
+                    global_data['unified_data']['predicted']['historical']['values'].append(round(prediction, 2))
+                    global_data['unified_data']['predicted']['historical']['timestamps'].append(timestamp)
+                    global_data['unified_data']['predicted']['historical']['upper_bound'].append(round(prediction + 0.4, 2))
+                    global_data['unified_data']['predicted']['historical']['lower_bound'].append(round(prediction - 0.4, 2))
+                
+                logger.info(f"✅ Loaded {len(historical_data)} real historical data points")
+                
             else:
-                last_price = global_data['actual'][-1]
-                price = last_price + np.random.normal(0, 0.3)
-                price = max(60.0, min(68.0, price))  # Keep in reasonable range
+                logger.warning("⚠️ Could not load historical data, using fallback")
+                raise Exception("No historical data available")
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to load real historical data: {e}")
+            # Fallback: Use only current real price
+            timestamp = current_time.isoformat()
+            price = base_price
             
-            # Generate prediction (slightly correlated)
-            prediction = price + np.random.normal(0, 0.2)
-            prediction = max(60.0, min(68.0, prediction))
+            # Generate real ML prediction
+            try:
+                prediction = get_working_wti_prediction()
+                if not prediction or prediction <= 0:
+                    prediction = price  # Use actual price as fallback
+            except Exception as e:
+                logger.warning(f"ML prediction failed: {e}, using actual price")
+                prediction = price
             
             # Store in both formats
             global_data['actual'].append(round(price, 2))
@@ -153,6 +195,17 @@ def generate_initial_data():
         # Update counters
         global_data['enterprise_metrics']['data_points'] = len(global_data['actual'])
         global_data['enterprise_metrics']['prediction_points'] = len(global_data['predicted'])
+        
+        # Initialize real ML multi-horizon predictions
+        try:
+            ml_horizon_predictions = get_multi_horizon_wti_predictions()
+            if ml_horizon_predictions and 'predictions' in ml_horizon_predictions:
+                global_data['multi_horizon_predictions'] = ml_horizon_predictions
+                logger.info("✅ Initialized with real ML multi-horizon predictions")
+            else:
+                logger.warning("⚠️ Initial ML multi-horizon predictions failed")
+        except Exception as e:
+            logger.error(f"❌ Initial multi-horizon prediction error: {e}")
         
         logger.info(f"Generated {len(global_data['actual'])} data points")
 
@@ -172,14 +225,19 @@ def update_data_continuously():
                         global_data['current_price'] = real_price
                         logger.info(f"🔄 Updated with real price: ${real_price:.2f}")
                     else:
-                        # Fallback to random walk
+                        # Fallback: keep last known price when real data fails
                         last_price = global_data['actual'][-1]
-                        new_price = last_price + np.random.normal(0, 0.15)
-                        new_price = max(60.0, min(80.0, new_price))
+                        new_price = last_price
+                        logger.warning("⚠️ No real price available, using last known price")
                     
-                    # Generate prediction
-                    new_prediction = new_price + np.random.normal(0, 0.1)
-                    new_prediction = max(60.0, min(68.0, new_prediction))
+                    # Generate real ML prediction
+                    try:
+                        new_prediction = get_working_wti_prediction()
+                        if not new_prediction or new_prediction <= 0:
+                            new_prediction = new_price  # Use actual price as fallback
+                    except Exception as e:
+                        logger.warning(f"ML prediction failed: {e}, using actual price")
+                        new_prediction = new_price
                     
                     # Add timestamp
                     timestamp = datetime.now().isoformat()
@@ -213,21 +271,38 @@ def update_data_continuously():
                     global_data['enterprise_metrics']['data_points'] = len(global_data['actual'])
                     global_data['enterprise_metrics']['prediction_points'] = len(global_data['predicted'])
                     
-                    # Update multi-horizon predictions with confidence bands
-                    current_price = new_price
-                    global_data['multi_horizon_predictions']['predictions'] = {
-                        '1h': round(current_price + np.random.normal(0.1, 0.1), 2),
-                        '4h': round(current_price + np.random.normal(0.2, 0.2), 2),
-                        '1d': round(current_price + np.random.normal(0.3, 0.3), 2),
-                        '7d': round(current_price + np.random.normal(0.5, 0.5), 2)
-                    }
-                    
-                    # Update confidence bands for multi-horizon
-                    for horizon, pred in global_data['multi_horizon_predictions']['predictions'].items():
-                        base_range = 0.3 if horizon == '1h' else 0.5 if horizon == '4h' else 0.8 if horizon == '1d' else 1.2
-                        global_data['multi_horizon_predictions']['confidence_bands'][horizon] = {
-                            'upper': round(pred + base_range, 2),
-                            'lower': round(pred - base_range, 2)
+                    # Update multi-horizon predictions with real ML predictions
+                    try:
+                        ml_horizon_predictions = get_multi_horizon_wti_predictions()
+                        if ml_horizon_predictions and 'predictions' in ml_horizon_predictions:
+                            global_data['multi_horizon_predictions'] = ml_horizon_predictions
+                            logger.info("✅ Updated with real ML multi-horizon predictions")
+                        else:
+                            logger.warning("⚠️ ML multi-horizon predictions failed, using fallback")
+                            # Fallback: use current prediction for all horizons
+                            current_prediction = new_prediction
+                            global_data['multi_horizon_predictions']['predictions'] = {
+                                '1h': current_prediction,
+                                '4h': current_prediction,
+                                '1d': current_prediction,
+                                '7d': current_prediction
+                            }
+                            # Update confidence bands
+                            for horizon in ['1h', '4h', '1d', '7d']:
+                                base_range = 0.3 if horizon == '1h' else 0.5 if horizon == '4h' else 0.8 if horizon == '1d' else 1.2
+                                global_data['multi_horizon_predictions']['confidence_bands'][horizon] = {
+                                    'upper': round(current_prediction + base_range, 2),
+                                    'lower': round(current_prediction - base_range, 2)
+                                }
+                    except Exception as e:
+                        logger.error(f"❌ Multi-horizon prediction error: {e}")
+                        # Emergency fallback
+                        current_prediction = new_prediction
+                        global_data['multi_horizon_predictions']['predictions'] = {
+                            '1h': current_prediction,
+                            '4h': current_prediction,
+                            '1d': current_prediction,
+                            '7d': current_prediction
                         }
                     
                     global_data['multi_horizon_predictions']['generated_at'] = datetime.now().isoformat()
