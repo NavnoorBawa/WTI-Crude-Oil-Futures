@@ -30,7 +30,7 @@ try:
         get_multi_horizon_wti_predictions,
         get_prediction_accuracy_metrics,
         store_actual_price_update,
-        WorkingFreeTierWTIPredictor,
+        PremiumWTIPredictor,
         main as oil_main
     )
     oil_available = True
@@ -116,7 +116,7 @@ class WTISystemOrchestrator:
         
         # Test predictions
         try:
-            predictor = WorkingFreeTierWTIPredictor()
+            predictor = PremiumWTIPredictor()
             logger.info("✅ Prediction engine initialized")
         except Exception as e:
             raise Exception(f"Prediction engine failed: {e}")

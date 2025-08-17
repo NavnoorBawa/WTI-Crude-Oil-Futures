@@ -386,8 +386,12 @@ def startup_initialization():
 startup_thread = threading.Thread(target=startup_initialization, daemon=True)
 startup_thread.start()
 
+def run_server(host='0.0.0.0', port=9000, debug=False):
+    """Run the Flask server - for use by run_complete_system.py"""
+    app.run(host=host, port=port, debug=debug)
+
 logger.info("🚀 WTI Server starting - REAL DATA ONLY MODE")
 logger.info("📊 Foundation: oil.py ML engine")
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=9000, debug=False)
+    run_server()
