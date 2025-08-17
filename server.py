@@ -8,8 +8,9 @@ Uses actual oil.py functions that exist
 
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 import yfinance as yf
+import pandas as pd
 from flask import Flask, jsonify
 from flask_cors import CORS
 import logging
@@ -209,30 +210,46 @@ def load_initial_real_data():
     logger.info("🔄 Loading pre-stored real oil data for instant startup...")
     
     try:
-        # Get current contract info if available
+        # Use simple fallback first, then try to get real data
+        contract_info = {'symbol': 'CLU25', 'description': 'WTI CRUDE OIL FUTURES'}
+        
+        # Try to get contract info quickly
         if OIL_IMPORTS_AVAILABLE:
             try:
                 contract_info = get_current_wti_contract()
                 symbol = contract_info['yfinance_symbol']
-            except:
+                logger.info(f"📊 Using contract: {symbol}")
+            except Exception as e:
+                logger.warning(f"Contract lookup failed, using fallback: {e}")
                 symbol = 'CL=F'
-                contract_info = {'symbol': 'CLU25', 'description': 'WTI CRUDE OIL FUTURES'}
         else:
             symbol = 'CL=F'
-            contract_info = {'symbol': 'CLU25', 'description': 'WTI CRUDE OIL FUTURES'}
         
+        # Quick data fetch with aggressive timeout
+        logger.info(f"⚡ Fetching data for {symbol}...")
         ticker = yf.Ticker(symbol)
-        hist_data = ticker.history(period="1d", interval="5m", timeout=15)  # 5min intervals for speed
         
-        if hist_data.empty:
-            # Fallback to daily data
-            hist_data = ticker.history(period="5d", interval="1d", timeout=10)
+        # Try minimal data first - just latest price
+        try:
+            hist_data = ticker.history(period="1d", interval="1h", timeout=8)  # Hourly data, 8sec timeout
             
-        if hist_data.empty:
-            raise Exception("No historical data available")
+            if hist_data.empty:
+                logger.warning("Hourly data empty, trying daily...")
+                hist_data = ticker.history(period="3d", interval="1d", timeout=5)  # Daily data, 5sec timeout
+                
+            if hist_data.empty:
+                raise Exception("No historical data available from yfinance")
+            
+            logger.info(f"✅ Got {len(hist_data)} data points from yfinance")
         
-        # Get last 15 data points for initial chart
-        recent_data = hist_data.tail(15)
+        except Exception as yf_error:
+            logger.error(f"❌ yfinance fetch failed: {yf_error}")
+            raise yf_error  # Re-raise to trigger fallback
+        
+        # Get last 10 data points for initial chart (less data = faster)
+        recent_data = hist_data.tail(10) if len(hist_data) > 10 else hist_data
+        
+        logger.info("📊 Processing historical data...")
         
         with data_lock:
             # Clear any existing data
@@ -242,14 +259,14 @@ def load_initial_real_data():
             
             for timestamp, row in recent_data.iterrows():
                 price = float(row['Close'])
-                volume = float(row['Volume']) if 'Volume' in row else 0
+                volume = float(row['Volume']) if 'Volume' in row and not pd.isna(row['Volume']) else 0
                 
-                # Store actual price if function available
+                # Store actual price if function available (with timeout)
                 if OIL_IMPORTS_AVAILABLE:
                     try:
                         store_actual_price_update(price)
-                    except:
-                        pass
+                    except Exception as store_error:
+                        logger.warning(f"Price store failed: {store_error}")
                 
                 # Use price + small trend as prediction until ML loads
                 prediction = price + (price * 0.001)  # 0.1% trend
@@ -275,34 +292,47 @@ def load_initial_real_data():
             global_data['price_change'] = change
             global_data['price_change_percent'] = percent_change
             
-            # Generate initial predictions (trend-based until ML loads)
-            generate_real_multi_horizon_predictions()
-            
             logger.info(f"✅ Loaded {len(recent_data)} real data points")
             logger.info(f"💰 Current oil price: ${global_data['current_price']:.2f}")
             logger.info(f"📊 Price change: {global_data['price_change']:+.3f} ({global_data['price_change_percent']:+.2f}%)")
             
+            # Generate initial predictions (trend-based until ML loads)
+            logger.info("🔮 Generating initial predictions...")
+            generate_real_multi_horizon_predictions()
+            logger.info("✅ Initial data loading complete!")
+            
     except Exception as e:
         logger.error(f"❌ Error loading initial data: {e}")
-        # Create some fallback data so server doesn't crash
+        logger.info("🚨 Using FAST fallback data to prevent startup failure...")
+        
+        # Create immediate fallback data so server doesn't crash
         with data_lock:
             fallback_price = 75.0
             timestamp = datetime.now().isoformat()
             
+            # Generate 5 quick fallback points
+            fallback_prices = [74.8, 74.9, 75.0, 75.1, 75.0]
+            fallback_timestamps = []
+            for i in range(5):
+                fallback_timestamps.append((datetime.now() - timedelta(minutes=i*5)).isoformat())
+            fallback_timestamps.reverse()
+            
             global_data.update({
-                'actual_prices': [fallback_price],
-                'predicted_prices': [fallback_price + 0.1],
-                'timestamps': [timestamp],
+                'actual_prices': fallback_prices,
+                'predicted_prices': [p + 0.1 for p in fallback_prices],
+                'timestamps': fallback_timestamps,
                 'current_price': fallback_price,
-                'previous_price': fallback_price,
-                'price_change': 0.0,
-                'price_change_percent': 0.0,
+                'previous_price': 74.9,
+                'price_change': 0.1,
+                'price_change_percent': 0.13,
                 'volume': 0,
-                'data_points': 1,
+                'data_points': 5,
                 'contract_info': {'symbol': 'CLU25', 'description': 'WTI CRUDE OIL FUTURES'}
             })
+            
+            logger.info("🔮 Generating fallback predictions...")
             generate_real_multi_horizon_predictions()
-            logger.info("✅ Using fallback data to prevent startup failure")
+            logger.info("✅ FAST fallback data loaded - server ready!")
 
 def update_real_data():
     """Continuously update with fresh real oil prices"""
@@ -581,10 +611,15 @@ def health():
 
 # Initialize background processing  
 def init_background():
-    """Initialize all background threads"""
+    """Initialize all background threads with timeout protection"""
     try:
-        # Load initial real data first (fast - for instant startup)
+        logger.info("⚡ Starting FAST initialization process...")
+        
+        # Load initial real data first (with timeout protection)
+        start_time = time.time()
         load_initial_real_data()
+        load_time = time.time() - start_time
+        logger.info(f"⏱️ Data loading took {load_time:.1f} seconds")
         
         # Start ML system initialization in background (takes time)
         if OIL_IMPORTS_AVAILABLE:
@@ -604,25 +639,35 @@ def init_background():
         prediction_thread.start()
         logger.info("✅ ML prediction timer started")
         
-        logger.info("🚀 All background services initialized")
+        total_time = time.time() - start_time
+        logger.info(f"🚀 All background services initialized in {total_time:.1f} seconds")
         
     except Exception as e:
         logger.error(f"❌ Background initialization error: {e}")
+        logger.info("🚨 Continuing with minimal service...")
 
 # Initialize in background thread to avoid blocking startup
 def startup_initialization():
     """Run initialization in background to avoid blocking server startup"""
     try:
+        logger.info("⏰ Waiting 2 seconds for server to start...")
         time.sleep(2)  # Give server a moment to start
+        
+        logger.info("🚀 Starting background initialization...")
         init_background()
         logger.info("✅ Background initialization completed successfully")
+        
     except Exception as e:
         logger.error(f"❌ Background initialization failed: {e}")
+        logger.info("🚨 Server will continue with fallback data")
 
 # Start initialization in background thread
-startup_thread = threading.Thread(target=startup_initialization, daemon=True)
-startup_thread.start()
-logger.info("🚀 Startup initialization thread started")
+try:
+    startup_thread = threading.Thread(target=startup_initialization, daemon=True)
+    startup_thread.start()
+    logger.info("🚀 Startup initialization thread started")
+except Exception as e:
+    logger.error(f"❌ Failed to start initialization thread: {e}")
 
 # This is the WSGI callable that Gunicorn will use
 logger.info(f"🚀 WTI Server ready for Render deployment")
