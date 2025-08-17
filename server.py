@@ -418,14 +418,29 @@ background_processor = BackgroundProcessor()
 def root():
     """API information and status"""
     try:
-        contract_info = get_current_wti_contract() if ML_AVAILABLE else {'symbol': 'UNKNOWN'}
+        # Simplified contract info fetching with error handling
+        contract_symbol = 'UNKNOWN'
+        if ML_AVAILABLE:
+            try:
+                contract_info = get_current_wti_contract()
+                contract_symbol = contract_info.get('symbol', 'UNKNOWN')
+            except Exception as e:
+                logger.warning(f"Could not get contract info: {e}")
+        
+        # Safe model info retrieval
+        try:
+            model_info = model_manager.get_model_info()
+        except Exception as e:
+            logger.warning(f"Could not get model info: {e}")
+            model_info = {'status': 'error', 'error': str(e)}
         
         return jsonify({
             'service': 'WTI Oil Price Prediction API',
             'status': 'active' if state.is_healthy else 'degraded',
             'version': '2.0.0',
             'description': 'Production Flask server with advanced ML model management',
-            'contract': contract_info['symbol'],
+            'contract': contract_symbol,
+            'ml_available': ML_AVAILABLE,
             'features': [
                 'Advanced ML model caching',
                 'Rate limiting and error handling',
@@ -441,8 +456,9 @@ def root():
                 '/model/reload': 'Reload ML model (POST)',
                 '/cache/clear': 'Clear prediction cache (POST)'
             },
-            'model_info': model_manager.get_model_info(),
+            'model_info': model_info,
             'startup_complete': state.startup_complete,
+            'initialization_attempted': _initialization_attempted,
             'server_time': datetime.now().isoformat()
         })
         
@@ -452,6 +468,7 @@ def root():
             'service': 'WTI Oil Price Prediction API',
             'status': 'error',
             'error': str(e),
+            'ml_available': ML_AVAILABLE,
             'server_time': datetime.now().isoformat()
         }), 500
 
@@ -735,13 +752,20 @@ def initialize_application():
     init_thread = threading.Thread(target=init_async, daemon=True)
     init_thread.start()
 
-# Initialize on first request
+# Track if we've attempted initialization
+_initialization_attempted = False
+
 @app.before_request
 def ensure_initialized():
     """Ensure application is initialized before handling requests"""
-    if not state.startup_complete and not hasattr(g, 'initializing'):
-        g.initializing = True
-        initialize_application()
+    global _initialization_attempted
+    try:
+        if not _initialization_attempted:
+            _initialization_attempted = True
+            initialize_application()
+    except Exception as e:
+        logger.error(f"Initialization error: {e}")
+        # Don't block requests if initialization fails
 
 def run_server(host='0.0.0.0', port=9000, debug=False):
     """Run the production Flask server"""
