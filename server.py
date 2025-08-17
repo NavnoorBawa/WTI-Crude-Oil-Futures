@@ -44,6 +44,46 @@ last_prediction_time = 0
 cached_data = None
 prediction_lock = threading.Lock()
 
+@app.route('/', methods=['GET'])
+def root():
+    """Root endpoint - API status and available endpoints"""
+    try:
+        contract_info = get_current_wti_contract()
+        
+        return jsonify({
+            'service': 'WTI Oil Price Prediction API',
+            'status': 'active',
+            'version': '1.0.0',
+            'description': 'Production Flask server serving real WTI crude oil price predictions',
+            'contract': contract_info['symbol'],
+            'endpoints': {
+                '/': 'API status and information',
+                '/data': 'Real-time WTI price data with ML predictions',
+                '/health': 'Health check endpoint',
+                '/ml-status': 'ML system status',
+                '/force-update': 'Force prediction update (POST)'
+            },
+            'features': [
+                'Real-time WTI crude oil price data',
+                'Multi-horizon ML predictions (1h, 1d, 1w)',
+                'No fallback data - real values only',
+                'Automatic contract rollover',
+                'Performance tracking'
+            ],
+            'data_policy': 'REAL DATA ONLY - NO PLACEHOLDER VALUES',
+            'server_time': datetime.now().isoformat(),
+            'cache_age_seconds': time.time() - last_prediction_time if last_prediction_time > 0 else -1
+        })
+        
+    except Exception as e:
+        logger.error(f"Root endpoint error: {e}")
+        return jsonify({
+            'service': 'WTI Oil Price Prediction API',
+            'status': 'error',
+            'error': str(e),
+            'server_time': datetime.now().isoformat()
+        }), 500
+
 def calculate_market_reopen_time(timezone):
     """Calculate when the WTI futures market will reopen"""
     try:
