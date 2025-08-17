@@ -1,22 +1,17 @@
 #!/usr/bin/env python3
 """
-WTI Oil Prediction Server - Render Production
+WTI Oil Prediction Server - REAL DATA ONLY
 ===========================================
-Pre-stored real data + Background ML training
-Uses actual oil.py functions that exist
+Pure oil.py foundation - NO FALLBACKS, NO PLACEHOLDERS
+Serves only real ML predictions and stored data
 """
 
 import time
 import threading
-from datetime import datetime, timedelta
-import yfinance as yf
-import pandas as pd
+from datetime import datetime
+import logging
 from flask import Flask, jsonify
 from flask_cors import CORS
-import logging
-import warnings
-
-warnings.filterwarnings('ignore')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -25,12 +20,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app, origins=["*"])
 
-# Global ML state
-ML_AVAILABLE = False
-ml_initialization_complete = False
-ml_initialization_error = None
-
-# Import oil.py functions - ACTUAL ONES THAT EXIST
+# Import oil.py functions - CRITICAL DEPENDENCY
 try:
     from oil import (
         get_current_wti_contract,
@@ -42,546 +32,292 @@ try:
     logger.info("✅ Successfully imported oil.py functions")
     OIL_IMPORTS_AVAILABLE = True
 except Exception as e:
-    logger.error(f"❌ Failed to import oil.py functions: {e}")
+    logger.critical(f"❌ CRITICAL: Cannot import oil.py functions: {e}")
     OIL_IMPORTS_AVAILABLE = False
 
-def initialize_ml_system():
-    """Initialize the ML system in background thread"""
-    global ML_AVAILABLE, ml_initialization_complete, ml_initialization_error
-    
-    try:
-        if not OIL_IMPORTS_AVAILABLE:
-            raise Exception("oil.py imports not available")
-            
-        logger.info("🤖 Starting ML system initialization in background...")
-        
-        # Initialize the predictor - use actual class name
-        logger.info("🔧 Initializing PremiumWTIPredictor...")
-        predictor = PremiumWTIPredictor()
-        
-        logger.info("✅ ML system initialization complete!")
-        ML_AVAILABLE = True
-        ml_initialization_complete = True
-        
-        # Load real ML predictions once ready
-        generate_real_multi_horizon_predictions()
-        
-    except Exception as e:
-        logger.error(f"❌ ML system initialization failed: {e}")
-        ml_initialization_error = str(e)
-        ML_AVAILABLE = False
-        ml_initialization_complete = True
-
-# Thread-safe data storage
-data_lock = threading.Lock()
-global_data = {
-    'actual_prices': [],
-    'predicted_prices': [],
-    'timestamps': [],
-    'current_price': 0.0,
-    'previous_price': 0.0,
-    'price_change': 0.0,
-    'price_change_percent': 0.0,
-    'volume': 0.0,
-    'data_points': 0,
-    'contract_info': {},
-    'ml_timer': {
-        'next_prediction_in': 180,  # 3 minutes
-        'currently_processing': False
-    },
-    'multi_horizon_predictions': {
-        '1h': 0.0,
-        '1d': 0.0,
-        '7d': 0.0,
-        'is_real': False,  # Start as false, becomes true after ML loads
-        'last_update': None
-    },
-    'accuracy_metrics': {
-        'direction_accuracy': 72.0,  # Start with reasonable defaults
-        'confidence': 78.0,
-        'total_predictions': 0
-    }
+# Global state - REAL DATA ONLY
+system_state = {
+    'initialized': False,
+    'ml_ready': False,
+    'last_prediction_time': 0,
+    'last_price_update_time': 0,
+    'error_count': 0,
+    'predictor_instance': None
 }
 
-def get_real_oil_price():
-    """Fetch real WTI Crude Oil price from yfinance"""
-    try:
-        if OIL_IMPORTS_AVAILABLE:
-            # Get current active contract
-            contract_info = get_current_wti_contract()
-            symbol = contract_info['yfinance_symbol']
-        else:
-            # Fallback to default symbol
-            symbol = 'CL=F'
-            contract_info = {'symbol': 'CLU25', 'description': 'WTI CRUDE OIL FUTURES'}
-        
-        ticker = yf.Ticker(symbol)
-        data = ticker.history(period="1d", interval="1m", timeout=10)
-        if not data.empty:
-            price = float(data['Close'].iloc[-1])
-            volume = float(data['Volume'].iloc[-1]) if 'Volume' in data.columns else 0
-            
-            # Store the actual price update if function available
-            if OIL_IMPORTS_AVAILABLE:
-                store_actual_price_update(price)
-            
-            logger.info(f"📈 Real oil price ({symbol}): ${price:.2f}")
-            return {
-                'price': price,
-                'volume': volume,
-                'contract': contract_info,
-                'timestamp': datetime.now().isoformat()
-            }
-    except Exception as e:
-        logger.error(f"❌ Error fetching real price: {e}")
-        # Return fallback data instead of failing
-        return {
-            'price': 75.0,  # Safe fallback
-            'volume': 0,
-            'contract': {'symbol': 'CLU25', 'description': 'WTI CRUDE OIL FUTURES'},
-            'timestamp': datetime.now().isoformat()
-        }
-
-def generate_real_multi_horizon_predictions():
-    """Generate real multi-horizon predictions - only when ML is ready"""
-    try:
-        if ML_AVAILABLE and ml_initialization_complete and OIL_IMPORTS_AVAILABLE:
-            # Get REAL ML predictions
-            ml_horizons = get_multi_horizon_wti_predictions()
-            
-            if ml_horizons and isinstance(ml_horizons, dict):
-                predictions = ml_horizons.get('predictions', {})
-                with data_lock:
-                    global_data['multi_horizon_predictions'].update({
-                        '1h': round(predictions.get('prediction_1h', global_data['current_price']), 2),
-                        '1d': round(predictions.get('prediction_1d', global_data['current_price']), 2),
-                        '7d': round(predictions.get('prediction_1w', global_data['current_price']), 2),
-                        'is_real': True,  # Now using real ML
-                        'last_update': datetime.now().isoformat()
-                    })
-                logger.info("🤖 Generated REAL ML multi-horizon predictions")
-                return
-        
-        # Use trend-based predictions while ML loads or if not available
-        current = global_data['current_price']
-        with data_lock:
-            global_data['multi_horizon_predictions'].update({
-                '1h': round(current + (current * 0.002), 2),
-                '1d': round(current + (current * 0.005), 2), 
-                '7d': round(current + (current * 0.010), 2),
-                'is_real': False,  # Still using fallback
-                'last_update': datetime.now().isoformat()
-            })
-        logger.info("📊 Using trend-based predictions while ML initializes")
-                
-    except Exception as e:
-        logger.error(f"❌ Multi-horizon prediction error: {e}")
-        # Use fallback predictions
-        current = global_data.get('current_price', 75.0)
-        with data_lock:
-            global_data['multi_horizon_predictions'].update({
-                '1h': round(current + (current * 0.002), 2),
-                '1d': round(current + (current * 0.005), 2), 
-                '7d': round(current + (current * 0.010), 2),
-                'is_real': False,
-                'last_update': datetime.now().isoformat()
-            })
-
-def update_accuracy_metrics():
-    """Update accuracy metrics from stored data"""
-    try:
-        if ML_AVAILABLE and ml_initialization_complete and OIL_IMPORTS_AVAILABLE:
-            accuracy_data = get_prediction_accuracy_metrics()
-            
-            if accuracy_data and 'overall' in accuracy_data:
-                with data_lock:
-                    global_data['accuracy_metrics'].update({
-                        'direction_accuracy': round(accuracy_data['overall'].get('direction_accuracy', 72.0), 1),
-                        'confidence': round(min(95, max(50, accuracy_data['overall'].get('direction_accuracy', 72.0) + 6)), 1),
-                        'total_predictions': accuracy_data['overall'].get('total_predictions', 0)
-                    })
-                logger.info(f"📊 Updated real accuracy: {global_data['accuracy_metrics']['direction_accuracy']}%")
-        
-    except Exception as e:
-        logger.warning(f"Could not update accuracy metrics: {e}")
-
-def load_initial_real_data():
-    """Load recent real historical data from yfinance - FAST startup"""
-    logger.info("🔄 Loading pre-stored real oil data for instant startup...")
+def initialize_oil_system():
+    """Initialize the oil prediction system - REAL DATA ONLY"""
+    global system_state
+    
+    if not OIL_IMPORTS_AVAILABLE:
+        raise Exception("CRITICAL: oil.py imports not available - cannot start server")
     
     try:
-        # Use simple fallback first, then try to get real data
-        contract_info = {'symbol': 'CLU25', 'description': 'WTI CRUDE OIL FUTURES'}
+        logger.info("🔧 Initializing oil prediction system...")
         
-        # Try to get contract info quickly
-        if OIL_IMPORTS_AVAILABLE:
-            try:
-                contract_info = get_current_wti_contract()
-                symbol = contract_info['yfinance_symbol']
-                logger.info(f"📊 Using contract: {symbol}")
-            except Exception as e:
-                logger.warning(f"Contract lookup failed, using fallback: {e}")
-                symbol = 'CL=F'
-        else:
-            symbol = 'CL=F'
+        # Test contract detection
+        contract_info = get_current_wti_contract()
+        logger.info(f"✅ Active contract: {contract_info['symbol']} @ ${contract_info['current_price']:.2f}")
         
-        # Quick data fetch with aggressive timeout
-        logger.info(f"⚡ Fetching data for {symbol}...")
-        ticker = yf.Ticker(symbol)
+        # Initialize predictor
+        predictor = PremiumWTIPredictor()
+        system_state['predictor_instance'] = predictor
+        logger.info("✅ Premium WTI Predictor initialized")
         
-        # Try minimal data first - just latest price
-        try:
-            hist_data = ticker.history(period="1d", interval="1h", timeout=8)  # Hourly data, 8sec timeout
-            
-            if hist_data.empty:
-                logger.warning("Hourly data empty, trying daily...")
-                hist_data = ticker.history(period="3d", interval="1d", timeout=5)  # Daily data, 5sec timeout
-                
-            if hist_data.empty:
-                raise Exception("No historical data available from yfinance")
-            
-            logger.info(f"✅ Got {len(hist_data)} data points from yfinance")
+        # Run initial prediction to verify system
+        predictions = get_multi_horizon_wti_predictions()
+        if not predictions.get('is_real_prediction'):
+            raise Exception("CRITICAL: System not generating real predictions")
         
-        except Exception as yf_error:
-            logger.error(f"❌ yfinance fetch failed: {yf_error}")
-            raise yf_error  # Re-raise to trigger fallback
+        logger.info(f"✅ Initial predictions generated:")
+        logger.info(f"   1H: ${predictions['prediction_1h']:.2f}")
+        logger.info(f"   1D: ${predictions['prediction_1d']:.2f}")
+        logger.info(f"   1W: ${predictions['prediction_1w']:.2f}")
         
-        # Get last 10 data points for initial chart (less data = faster)
-        recent_data = hist_data.tail(10) if len(hist_data) > 10 else hist_data
+        system_state['initialized'] = True
+        system_state['ml_ready'] = True
+        system_state['last_prediction_time'] = time.time()
         
-        logger.info("📊 Processing historical data...")
+        logger.info("🚀 Oil prediction system ready - REAL DATA ONLY")
+        return True
         
-        with data_lock:
-            # Clear any existing data
-            global_data['actual_prices'].clear()
-            global_data['predicted_prices'].clear()
-            global_data['timestamps'].clear()
-            
-            for timestamp, row in recent_data.iterrows():
-                price = float(row['Close'])
-                volume = float(row['Volume']) if 'Volume' in row and not pd.isna(row['Volume']) else 0
-                
-                # Store actual price if function available (with timeout)
-                if OIL_IMPORTS_AVAILABLE:
-                    try:
-                        store_actual_price_update(price)
-                    except Exception as store_error:
-                        logger.warning(f"Price store failed: {store_error}")
-                
-                # Use price + small trend as prediction until ML loads
-                prediction = price + (price * 0.001)  # 0.1% trend
-                
-                global_data['actual_prices'].append(round(price, 2))
-                global_data['predicted_prices'].append(round(prediction, 2))
-                global_data['timestamps'].append(timestamp.isoformat())
-            
-            global_data['current_price'] = global_data['actual_prices'][-1]
-            global_data['previous_price'] = global_data['actual_prices'][-2] if len(global_data['actual_prices']) > 1 else global_data['current_price']
-            global_data['volume'] = volume
-            global_data['contract_info'] = contract_info
-            global_data['data_points'] = len(global_data['actual_prices'])
-            
-            # Calculate price change
-            if global_data['previous_price'] > 0:
-                change = global_data['current_price'] - global_data['previous_price']
-                percent_change = (change / global_data['previous_price']) * 100
-            else:
-                change = 0.0
-                percent_change = 0.0
-                
-            global_data['price_change'] = change
-            global_data['price_change_percent'] = percent_change
-            
-            logger.info(f"✅ Loaded {len(recent_data)} real data points")
-            logger.info(f"💰 Current oil price: ${global_data['current_price']:.2f}")
-            logger.info(f"📊 Price change: {global_data['price_change']:+.3f} ({global_data['price_change_percent']:+.2f}%)")
-            
-            # Generate initial predictions (trend-based until ML loads)
-            logger.info("🔮 Generating initial predictions...")
-            generate_real_multi_horizon_predictions()
-            logger.info("✅ Initial data loading complete!")
-            
     except Exception as e:
-        logger.error(f"❌ Error loading initial data: {e}")
-        logger.info("🚨 Using FAST fallback data to prevent startup failure...")
-        
-        # Create immediate fallback data so server doesn't crash
-        with data_lock:
-            fallback_price = 75.0
-            timestamp = datetime.now().isoformat()
-            
-            # Generate 5 quick fallback points
-            fallback_prices = [74.8, 74.9, 75.0, 75.1, 75.0]
-            fallback_timestamps = []
-            for i in range(5):
-                fallback_timestamps.append((datetime.now() - timedelta(minutes=i*5)).isoformat())
-            fallback_timestamps.reverse()
-            
-            global_data.update({
-                'actual_prices': fallback_prices,
-                'predicted_prices': [p + 0.1 for p in fallback_prices],
-                'timestamps': fallback_timestamps,
-                'current_price': fallback_price,
-                'previous_price': 74.9,
-                'price_change': 0.1,
-                'price_change_percent': 0.13,
-                'volume': 0,
-                'data_points': 5,
-                'contract_info': {'symbol': 'CLU25', 'description': 'WTI CRUDE OIL FUTURES'}
-            })
-            
-            logger.info("🔮 Generating fallback predictions...")
-            generate_real_multi_horizon_predictions()
-            logger.info("✅ FAST fallback data loaded - server ready!")
+        logger.error(f"❌ Oil system initialization failed: {e}")
+        raise Exception(f"Cannot initialize oil system: {e}")
 
-def update_real_data():
-    """Continuously update with fresh real oil prices"""
+def update_predictions():
+    """Update predictions every 3 minutes"""
+    global system_state
+    
     while True:
         try:
-            time.sleep(30)  # Update every 30 seconds
+            time.sleep(30)  # Check every 30 seconds
             
-            real_price_data = get_real_oil_price()
-            if not real_price_data:
-                logger.warning("Failed to get real price data - retrying...")
+            current_time = time.time()
+            if current_time - system_state['last_prediction_time'] >= 180:  # 3 minutes
+                
+                if not system_state['ml_ready']:
+                    logger.warning("⚠️ ML system not ready - skipping prediction update")
+                    continue
+                
+                logger.info("🔄 Updating predictions...")
+                
+                # Get fresh predictions from oil.py
+                predictions = get_multi_horizon_wti_predictions()
+                
+                if not predictions.get('is_real_prediction'):
+                    raise Exception("Received non-real predictions from oil.py")
+                
+                system_state['last_prediction_time'] = current_time
+                system_state['error_count'] = 0
+                
+                logger.info(f"✅ Predictions updated - 1H: ${predictions['prediction_1h']:.2f}")
+                
+        except Exception as e:
+            system_state['error_count'] += 1
+            logger.error(f"❌ Prediction update failed (error {system_state['error_count']}): {e}")
+            
+            if system_state['error_count'] >= 5:
+                logger.critical("🚨 Too many prediction errors - ML system may be failing")
+                system_state['ml_ready'] = False
+            
+            time.sleep(60)  # Wait longer on error
+
+def update_price_data():
+    """Update current price data every 30 seconds"""
+    global system_state
+    
+    while True:
+        try:
+            time.sleep(30)
+            
+            if not system_state['initialized']:
                 continue
-                
-            real_price = real_price_data['price']
-            volume = real_price_data.get('volume', 0)
-            contract_info = real_price_data.get('contract', {})
-                
-            with data_lock:
-                # Store previous price for change calculation
-                global_data['previous_price'] = global_data['current_price']
-                
-                # Get prediction (small trend for now)
-                prediction = real_price + (real_price * 0.001)
-                
-                timestamp = datetime.now().isoformat()
-                
-                global_data['actual_prices'].append(round(real_price, 2))
-                global_data['predicted_prices'].append(round(prediction, 2))
-                global_data['timestamps'].append(timestamp)
-                global_data['current_price'] = real_price
-                global_data['volume'] = volume
-                global_data['contract_info'] = contract_info
-                
-                # Calculate price change
-                if global_data['previous_price'] > 0:
-                    change = global_data['current_price'] - global_data['previous_price']
-                    percent_change = (change / global_data['previous_price']) * 100
-                else:
-                    change = 0.0
-                    percent_change = 0.0
-                    
-                global_data['price_change'] = change
-                global_data['price_change_percent'] = percent_change
-                
-                # Keep only last 50 points for performance
-                if len(global_data['actual_prices']) > 50:
-                    global_data['actual_prices'] = global_data['actual_prices'][-50:]
-                    global_data['predicted_prices'] = global_data['predicted_prices'][-50:]
-                    global_data['timestamps'] = global_data['timestamps'][-50:]
-                
-                global_data['data_points'] = len(global_data['actual_prices'])
-                
-                ml_status = "REAL ML" if ML_AVAILABLE else "TREND"
-                logger.info(f"🔄 Updated: ${real_price:.2f} (Δ{change:+.3f}, {percent_change:+.2f}%) | {ml_status}")
-                
-        except Exception as e:
-            logger.error(f"❌ Update error: {e}")
-            time.sleep(10)  # Wait before retrying
-
-def run_ml_predictions():
-    """Generate ML predictions every 3 minutes"""
-    while True:
-        try:
-            time.sleep(1)
             
-            with data_lock:
-                if global_data['ml_timer']['next_prediction_in'] > 0:
-                    global_data['ml_timer']['next_prediction_in'] -= 1
-                else:
-                    # Time for new ML prediction
-                    if not global_data['ml_timer']['currently_processing']:
-                        global_data['ml_timer']['currently_processing'] = True
-                        
-                        try:
-                            # Generate multi-horizon predictions
-                            generate_real_multi_horizon_predictions()
-                            
-                            # Update accuracy metrics
-                            update_accuracy_metrics()
-                            
-                            status = "REAL ML" if ML_AVAILABLE else "TREND-BASED"
-                            logger.info(f"🤖 {status} predictions updated successfully")
-                            
-                        except Exception as e:
-                            logger.error(f"❌ ML prediction generation failed: {e}")
-                        finally:
-                            global_data['ml_timer']['currently_processing'] = False
-                            global_data['ml_timer']['next_prediction_in'] = 180  # Reset to 3 minutes
-                        
+            # Get current contract and price
+            contract_info = get_current_wti_contract()
+            current_price = contract_info['current_price']
+            
+            # Store the price update
+            store_actual_price_update(current_price)
+            
+            system_state['last_price_update_time'] = time.time()
+            
+            logger.debug(f"📊 Price updated: ${current_price:.2f}")
+            
         except Exception as e:
-            logger.error(f"❌ ML prediction timer error: {e}")
-            time.sleep(5)
+            logger.error(f"❌ Price update failed: {e}")
+            time.sleep(60)
 
 @app.route('/')
 def root():
     """Root endpoint - server status"""
-    try:
+    if not OIL_IMPORTS_AVAILABLE:
         return jsonify({
             'service': 'WTI Oil Price Prediction API',
-            'status': 'active',
-            'version': '3.2.0-render-fixed',
-            'ml_available': ML_AVAILABLE,
-            'ml_initialization_complete': ml_initialization_complete,
-            'ml_initialization_error': ml_initialization_error,
-            'oil_imports_available': OIL_IMPORTS_AVAILABLE,
-            'current_price': global_data.get('current_price', 0),
-            'data_points': global_data.get('data_points', 0),
+            'status': 'CRITICAL_ERROR',
+            'error': 'oil.py imports not available',
+            'message': 'Server cannot function without oil.py',
+            'server_time': datetime.now().isoformat()
+        }), 503
+    
+    if not system_state['initialized']:
+        return jsonify({
+            'service': 'WTI Oil Price Prediction API',
+            'status': 'INITIALIZING',
+            'message': 'System initializing - oil.py engine starting...',
+            'server_time': datetime.now().isoformat()
+        }), 503
+    
+    try:
+        # Get current system status from oil.py
+        contract_info = get_current_wti_contract()
+        
+        return jsonify({
+            'service': 'WTI Oil Price Prediction API',
+            'status': 'ACTIVE',
+            'version': '4.0.0-real-data-only',
+            'ml_ready': system_state['ml_ready'],
+            'contract': contract_info['symbol'],
+            'current_price': contract_info['current_price'],
+            'data_source': 'oil.py REAL DATA ONLY',
+            'last_prediction_time': system_state['last_prediction_time'],
+            'error_count': system_state['error_count'],
             'endpoints': {
                 '/': 'Server status',
-                '/data': 'WTI data with ML predictions',
+                '/data': 'Real WTI data and ML predictions',
                 '/health': 'Health check'
             },
-            'server_time': datetime.now().isoformat(),
-            'render_deployment': True
+            'server_time': datetime.now().isoformat()
         })
+        
     except Exception as e:
         return jsonify({
             'service': 'WTI Oil Price Prediction API',
-            'status': 'error',
+            'status': 'ERROR',
             'error': str(e),
+            'message': 'Cannot access oil.py functions',
             'server_time': datetime.now().isoformat()
         }), 500
 
 @app.route('/data')
 def get_data():
-    """Main data endpoint - returns real data with ML when available"""
+    """Main data endpoint - REAL DATA ONLY from oil.py"""
+    if not OIL_IMPORTS_AVAILABLE:
+        return jsonify({
+            'error': 'CRITICAL_ERROR',
+            'message': 'oil.py imports not available - cannot serve data',
+            'server_time': datetime.now().isoformat()
+        }), 503
+    
+    if not system_state['initialized']:
+        return jsonify({
+            'error': 'SYSTEM_INITIALIZING',
+            'message': 'System still initializing - please wait for oil.py to be ready',
+            'server_time': datetime.now().isoformat()
+        }), 503
+    
     try:
-        # Check if data is available yet
-        if global_data.get('data_points', 0) == 0:
-            # Return basic response while initializing
-            return jsonify({
-                'status': 'INITIALIZING',
-                'message': 'System is still loading initial data. Please wait...',
-                'current_price': 75.0,  # Placeholder
-                'actual': [],
-                'predicted': [],
-                'timestamps': [],
-                'multi_horizon_predictions': {
-                    'predictions': {'1h': 75.0, '1d': 75.0, '7d': 75.0},
-                    'is_real_prediction': False
-                },
-                'enterprise_metrics': {
-                    'data_points': 0,
-                    'data_quality': 0,
-                    'complex_ml_enabled': False,
-                    'ml_initialization_complete': False
-                },
-                'contract': {'symbol': 'CLU25', 'description': 'WTI CRUDE OIL FUTURES'},
-                'last_update': datetime.now().isoformat()
-            })
+        # Get REAL data from oil.py - NO FALLBACKS
+        contract_info = get_current_wti_contract()
+        predictions = get_multi_horizon_wti_predictions()
+        accuracy_metrics = get_prediction_accuracy_metrics()
         
-        with data_lock:
-            # Get contract info
-            contract_info = global_data.get('contract_info', {})
-            if not contract_info:
-                contract_info = {'symbol': 'CLU25', 'description': 'WTI CRUDE OIL FUTURES'}
+        # Verify data is real
+        if not predictions.get('is_real_prediction'):
+            raise Exception("CRITICAL: oil.py returned non-real predictions")
+        
+        # Calculate all values from REAL data
+        current_price = contract_info['current_price']
+        previous_price = predictions.get('current_price', current_price)
+        price_change = current_price - previous_price
+        price_change_percent = (price_change / previous_price * 100) if previous_price > 0 else 0.0
+        
+        # Calculate next ML prediction time
+        time_since_last = int(time.time() - system_state['last_prediction_time'])
+        next_prediction_in = max(0, 180 - time_since_last)
+        
+        # Calculate percentage changes for horizons
+        pred_1h = predictions['prediction_1h']
+        pred_1d = predictions['prediction_1d']
+        pred_1w = predictions['prediction_1w']
+        
+        return jsonify({
+            # Core price data - REAL ONLY
+            'current_price': round(current_price, 2),
+            'price_change': round(price_change, 3),
+            'price_change_percent': round(price_change_percent, 2),
+            'volume': contract_info.get('volume', 0),
             
-            contract_symbol = contract_info.get('symbol', 'CLU25')
-            contract_desc = contract_info.get('description', 'WTI CRUDE OIL FUTURES')
+            # Multi-horizon predictions - REAL ML ONLY
+            'multi_horizon_predictions': {
+                'predictions': {
+                    '1h': round(pred_1h, 2),
+                    '1d': round(pred_1d, 2),
+                    '7d': round(pred_1w, 2)
+                },
+                'percentage_changes': {
+                    '1h': round((pred_1h - current_price) / current_price * 100, 1),
+                    '1d': round((pred_1d - current_price) / current_price * 100, 1),
+                    '7d': round((pred_1w - current_price) / current_price * 100, 1)
+                },
+                'is_real_prediction': True,
+                'processing_time': predictions.get('processing_time', 0),
+                'feature_count': predictions.get('feature_count', 0),
+                'last_update': predictions.get('timestamp', datetime.now().isoformat())
+            },
             
-            # Calculate real price changes
-            current_price = global_data.get('current_price', 0)
-            price_change = global_data.get('price_change', 0)
-            price_change_percent = global_data.get('price_change_percent', 0)
+            # ML system status
+            'ml_prediction_timer': {
+                'next_prediction_in': next_prediction_in,
+                'minutes_remaining': next_prediction_in // 60,
+                'seconds_remaining': next_prediction_in % 60,
+                'currently_processing': False
+            },
             
-            # Format volume display
-            volume = global_data.get('volume', 0)
-            if volume >= 1000000:
-                volume_display = f"{volume/1000000:.1f}M"
-            elif volume >= 1000:
-                volume_display = f"{volume/1000:.1f}K"
-            else:
-                volume_display = f"{volume:.0f}" if volume > 0 else "N/A"
+            # Performance metrics - REAL ONLY
+            'performance_metrics': {
+                'direction_accuracy': round(accuracy_metrics.get('overall', {}).get('direction_accuracy', 0), 1),
+                'confidence': round(min(95, max(50, accuracy_metrics.get('overall', {}).get('direction_accuracy', 0) + 10)), 1),
+                'total_predictions': accuracy_metrics.get('overall', {}).get('total_predictions', 0)
+            },
             
-            return jsonify({
-                # Core price data
-                'actual': global_data.get('actual_prices', []),
-                'predicted': global_data.get('predicted_prices', []),
-                'timestamps': global_data.get('timestamps', []),
-                'current_price': round(current_price, 2),
-                'price_change': round(price_change, 3),
-                'price_change_percent': round(price_change_percent, 2),
-                'volume': volume,
-                'volume_display': volume_display,
-                
-                # Multi-horizon predictions
-                'multi_horizon_predictions': {
-                    'predictions': {
-                        '1h': round(global_data['multi_horizon_predictions']['1h'], 2),
-                        '1d': round(global_data['multi_horizon_predictions']['1d'], 2), 
-                        '7d': round(global_data['multi_horizon_predictions']['7d'], 2)
-                    },
-                    'is_real_prediction': global_data['multi_horizon_predictions']['is_real'],
-                    'last_update': global_data['multi_horizon_predictions']['last_update'],
-                    'percentage_changes': {
-                        '1h': round(((global_data['multi_horizon_predictions']['1h'] - current_price) / current_price * 100), 1) if current_price > 0 else 0.0,
-                        '1d': round(((global_data['multi_horizon_predictions']['1d'] - current_price) / current_price * 100), 1) if current_price > 0 else 0.0,
-                        '7d': round(((global_data['multi_horizon_predictions']['7d'] - current_price) / current_price * 100), 1) if current_price > 0 else 0.0
-                    }
-                },
-                
-                # ML system status and timer
-                'ml_prediction_timer': {
-                    'next_prediction_in': global_data['ml_timer']['next_prediction_in'],
-                    'currently_processing': global_data['ml_timer']['currently_processing'],
-                    'minutes_remaining': global_data['ml_timer']['next_prediction_in'] // 60,
-                    'seconds_remaining': global_data['ml_timer']['next_prediction_in'] % 60
-                },
-                
-                # Performance metrics
-                'performance_metrics': {
-                    'direction_accuracy': round(global_data['accuracy_metrics']['direction_accuracy'], 1),
-                    'confidence': round(global_data['accuracy_metrics']['confidence'], 1), 
-                    'total_predictions': global_data['accuracy_metrics']['total_predictions']
-                },
-                
-                # Enterprise metrics
-                'enterprise_metrics': {
-                    'data_points': global_data.get('data_points', 0),
-                    'data_quality': 100 if global_data['multi_horizon_predictions']['is_real'] else 85,
-                    'complex_ml_enabled': ML_AVAILABLE,
-                    'ml_initialization_complete': ml_initialization_complete,
-                    'real_data_preloaded': True
-                },
-                
-                # Contract information
-                'contract': {
-                    'symbol': contract_symbol,
-                    'description': contract_desc,
-                    'security_name': f"{contract_symbol} WTI CRUDE"
-                },
-                
-                # Status information
-                'feed_status': 'REAL-TIME',
-                'status': 'ACTIVE',
-                'last_update': datetime.now().isoformat(),
-                
-                # Legacy fields for compatibility
-                'last_price': round(current_price, 2),
-                'ml_prediction': round(global_data['multi_horizon_predictions']['1d'], 2),
-                'accuracy': f"{round(global_data['accuracy_metrics']['direction_accuracy'])}%",
-                'confidence': f"{round(global_data['accuracy_metrics']['confidence'])}%",
-                'timestamp': datetime.now().isoformat()
-            })
+            # Contract information - REAL ONLY
+            'contract': {
+                'symbol': contract_info['symbol'],
+                'description': contract_info['description'],
+                'expiry_date': contract_info.get('expiry_date'),
+                'days_to_expiry': contract_info.get('days_to_expiry'),
+                'security_name': f"{contract_info['symbol']} WTI CRUDE"
+            },
             
+            # System status
+            'enterprise_metrics': {
+                'data_quality': 100,  # Always 100 if we reach here
+                'complex_ml_enabled': True,
+                'real_data_only': True,
+                'ml_ready': system_state['ml_ready'],
+                'error_count': system_state['error_count']
+            },
+            
+            'feed_status': 'REAL-TIME',
+            'status': 'ACTIVE',
+            'data_source': 'oil.py ML ENGINE',
+            'last_update': datetime.now().isoformat(),
+            
+            # Legacy compatibility fields
+            'last_price': round(current_price, 2),
+            'ml_prediction': round(pred_1d, 2),
+            'accuracy': f"{round(accuracy_metrics.get('overall', {}).get('direction_accuracy', 0))}%",
+            'confidence': f"{round(min(95, max(50, accuracy_metrics.get('overall', {}).get('direction_accuracy', 0) + 10)))}%",
+            'timestamp': datetime.now().isoformat()
+        })
+        
     except Exception as e:
         logger.error(f"❌ Data endpoint error: {e}")
         return jsonify({
-            'error': 'SERVER_ERROR',
-            'message': str(e),
+            'error': 'DATA_UNAVAILABLE',
+            'message': f'Cannot get real data from oil.py: {str(e)}',
             'server_time': datetime.now().isoformat()
         }), 500
 
@@ -589,86 +325,69 @@ def get_data():
 def health():
     """Health check endpoint"""
     try:
-        is_healthy = global_data.get('data_points', 0) > 0
+        if not OIL_IMPORTS_AVAILABLE:
+            return jsonify({
+                'status': 'CRITICAL',
+                'message': 'oil.py imports not available',
+                'timestamp': datetime.now().isoformat()
+            }), 503
+        
+        if not system_state['initialized']:
+            return jsonify({
+                'status': 'INITIALIZING',
+                'message': 'System initializing',
+                'timestamp': datetime.now().isoformat()
+            }), 503
+        
+        # Test oil.py functions
+        contract_info = get_current_wti_contract()
         
         return jsonify({
-            'status': 'healthy' if is_healthy else 'starting',
-            'data_points': global_data.get('data_points', 0),
-            'current_price': global_data.get('current_price', 0),
-            'ml_available': ML_AVAILABLE,
-            'ml_initialization_complete': ml_initialization_complete,
-            'oil_imports_available': OIL_IMPORTS_AVAILABLE,
-            'timestamp': datetime.now().isoformat(),
-            'version': 'RENDER_PRODUCTION_FIXED'
-        }), 200 if is_healthy else 503
+            'status': 'HEALTHY',
+            'ml_ready': system_state['ml_ready'],
+            'contract': contract_info['symbol'],
+            'current_price': contract_info['current_price'],
+            'error_count': system_state['error_count'],
+            'data_source': 'oil.py REAL DATA',
+            'timestamp': datetime.now().isoformat()
+        }), 200
         
     except Exception as e:
         return jsonify({
-            'status': 'unhealthy',
+            'status': 'UNHEALTHY',
             'error': str(e),
             'timestamp': datetime.now().isoformat()
         }), 503
 
-# Initialize background processing  
-def init_background():
-    """Initialize all background threads with timeout protection"""
-    try:
-        logger.info("⚡ Starting FAST initialization process...")
-        
-        # Load initial real data first (with timeout protection)
-        start_time = time.time()
-        load_initial_real_data()
-        load_time = time.time() - start_time
-        logger.info(f"⏱️ Data loading took {load_time:.1f} seconds")
-        
-        # Start ML system initialization in background (takes time)
-        if OIL_IMPORTS_AVAILABLE:
-            ml_thread = threading.Thread(target=initialize_ml_system, daemon=True)
-            ml_thread.start()
-            logger.info("🤖 ML system initialization started in background...")
-        else:
-            logger.warning("⚠️ oil.py imports not available - running without ML")
-        
-        # Start background data updater
-        update_thread = threading.Thread(target=update_real_data, daemon=True)
-        update_thread.start()
-        logger.info("✅ Real-time data updater started")
-        
-        # Start ML prediction timer
-        prediction_thread = threading.Thread(target=run_ml_predictions, daemon=True)
-        prediction_thread.start()
-        logger.info("✅ ML prediction timer started")
-        
-        total_time = time.time() - start_time
-        logger.info(f"🚀 All background services initialized in {total_time:.1f} seconds")
-        
-    except Exception as e:
-        logger.error(f"❌ Background initialization error: {e}")
-        logger.info("🚨 Continuing with minimal service...")
-
-# Initialize in background thread to avoid blocking startup
+# Initialize system on startup
 def startup_initialization():
-    """Run initialization in background to avoid blocking server startup"""
+    """Initialize system in background"""
     try:
-        logger.info("⏰ Waiting 2 seconds for server to start...")
-        time.sleep(2)  # Give server a moment to start
+        logger.info("🚀 Starting oil.py system initialization...")
+        time.sleep(2)  # Let server start
         
-        logger.info("🚀 Starting background initialization...")
-        init_background()
-        logger.info("✅ Background initialization completed successfully")
+        initialize_oil_system()
+        
+        # Start background workers
+        prediction_thread = threading.Thread(target=update_predictions, daemon=True)
+        price_thread = threading.Thread(target=update_price_data, daemon=True)
+        
+        prediction_thread.start()
+        price_thread.start()
+        
+        logger.info("✅ All background workers started")
         
     except Exception as e:
-        logger.error(f"❌ Background initialization failed: {e}")
-        logger.info("🚨 Server will continue with fallback data")
+        logger.critical(f"❌ System initialization FAILED: {e}")
+        system_state['initialized'] = False
+        system_state['ml_ready'] = False
 
-# Start initialization in background thread
-try:
-    startup_thread = threading.Thread(target=startup_initialization, daemon=True)
-    startup_thread.start()
-    logger.info("🚀 Startup initialization thread started")
-except Exception as e:
-    logger.error(f"❌ Failed to start initialization thread: {e}")
+# Start initialization
+startup_thread = threading.Thread(target=startup_initialization, daemon=True)
+startup_thread.start()
 
-# This is the WSGI callable that Gunicorn will use
-logger.info(f"🚀 WTI Server ready for Render deployment")
-logger.info("📊 Using actual oil.py functions that exist")
+logger.info("🚀 WTI Server starting - REAL DATA ONLY MODE")
+logger.info("📊 Foundation: oil.py ML engine")
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=9000, debug=False)
