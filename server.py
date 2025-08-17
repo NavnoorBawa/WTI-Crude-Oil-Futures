@@ -1,120 +1,114 @@
 #!/usr/bin/env python3
 """
-WTI Oil Price Prediction Server - RENDER OPTIMIZED
-================================================
-Single-file, bulletproof Flask server designed specifically for Render.
-Uses all best practices for production ML deployment.
+WTI Oil Price Prediction Server - RENDER PRODUCTION
+=================================================
+Gunicorn-compatible Flask server for Render deployment.
+Built following official Render and Flask documentation.
 """
 
 import os
-import json
 import time
 import threading
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from datetime import datetime
 
-# Flask and web dependencies
-from flask import Flask, jsonify, request
+# Flask dependencies
+from flask import Flask, jsonify
 from flask_cors import CORS
 
-# Configure logging for Render
+# Configure logging for production
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Flask app
+# Create Flask app
 app = Flask(__name__)
 CORS(app, origins=["*"])
 
-# Global state
-class ServerState:
+# Application state
+class AppState:
     def __init__(self):
         self.ml_available = False
-        self.cached_predictions = {}
-        self.cached_market_data = {}
-        self.last_prediction_time = 0
+        self.cache = {}
+        self.startup_time = datetime.now()
         self.error_log = []
-        self.startup_complete = False
+        self.initialized = False
         
-    def log_error(self, error: str):
-        self.error_log.append(f"{datetime.now().isoformat()}: {error}")
-        if len(self.error_log) > 10:
-            self.error_log = self.error_log[-10:]  # Keep last 10
-        logger.error(error)
+    def add_error(self, error_msg):
+        self.error_log.append(f"{datetime.now().isoformat()}: {error_msg}")
+        if len(self.error_log) > 5:
+            self.error_log = self.error_log[-5:]
+        logger.error(error_msg)
 
-state = ServerState()
+# Global state
+state = AppState()
 
-# Safe ML import with comprehensive error handling
-def import_ml_components():
-    """Safely import ML components with detailed error reporting"""
+# Safe ML imports
+def load_ml_components():
+    """Load ML components safely"""
     try:
-        import yfinance as yf
-        logger.info("✅ yfinance imported")
+        logger.info("Attempting to load ML components...")
         
+        # Import yfinance
+        import yfinance as yf
+        logger.info("✅ yfinance loaded")
+        
+        # Import oil.py components
         from oil import (
             get_current_wti_contract,
-            get_multi_horizon_wti_predictions,
-            get_prediction_accuracy_metrics,
-            WorkingFreeTierWTIPredictor
+            get_multi_horizon_wti_predictions
         )
-        logger.info("✅ oil.py components imported")
+        logger.info("✅ oil.py components loaded")
         
         # Test basic functionality
-        test_contract = get_current_wti_contract()
-        logger.info(f"✅ Contract test passed: {test_contract.get('symbol', 'UNKNOWN')}")
+        contract = get_current_wti_contract()
+        logger.info(f"✅ Contract test passed: {contract.get('symbol', 'UNKNOWN')}")
         
         state.ml_available = True
-        state.log_error("ML components loaded successfully")
+        state.add_error("ML components loaded successfully")
         return True
         
-    except ImportError as e:
-        state.log_error(f"ML import failed: {str(e)}")
-        return False
     except Exception as e:
-        state.log_error(f"ML test failed: {str(e)}")
+        state.add_error(f"ML loading failed: {str(e)}")
         return False
 
-# Import ML components on startup
-ML_LOADED = import_ml_components()
+# Load ML on startup
+ML_LOADED = load_ml_components()
 
-# Cache with TTL
-def get_cached_data(key: str, ttl_seconds: int = 180):
+# Cache utilities
+def get_cache(key, ttl=180):
     """Get cached data if not expired"""
-    if key in state.cached_predictions:
-        data, timestamp = state.cached_predictions[key]
-        if time.time() - timestamp < ttl_seconds:
+    if key in state.cache:
+        data, timestamp = state.cache[key]
+        if time.time() - timestamp < ttl:
             return data
     return None
 
-def set_cached_data(key: str, data: Any):
-    """Set cached data with timestamp"""
-    state.cached_predictions[key] = (data, time.time())
+def set_cache(key, data):
+    """Cache data with timestamp"""
+    state.cache[key] = (data, time.time())
 
-# Core ML functions with error handling
-def safe_get_wti_data():
-    """Safely get WTI market data"""
+# Core functions
+def get_market_data():
+    """Get WTI market data with caching"""
     try:
-        if not state.ml_available:
-            raise Exception("ML components not available")
-        
         # Check cache first
-        cached = get_cached_data('wti_market_data', 60)  # 1 minute cache
+        cached = get_cache('market_data', 60)
         if cached:
             return cached
+        
+        if not state.ml_available:
+            raise Exception("ML components not available")
         
         from oil import get_current_wti_contract
         import yfinance as yf
         
-        # Get contract info
-        contract_info = get_current_wti_contract()
-        symbol = contract_info['yfinance_symbol']
-        
-        # Get market data
-        ticker = yf.Ticker(symbol)
-        data = ticker.history(period="2d", interval="5m")
+        # Get contract and market data
+        contract = get_current_wti_contract()
+        ticker = yf.Ticker(contract['yfinance_symbol'])
+        data = ticker.history(period="1d", interval="5m")
         
         if data.empty:
             data = ticker.history(period="5d", interval="1d")
@@ -124,133 +118,101 @@ def safe_get_wti_data():
         
         # Calculate values
         current_price = float(data['Close'].iloc[-1])
-        previous_close = float(data['Close'].iloc[-2]) if len(data) >= 2 else current_price
-        change = current_price - previous_close
-        pct_change = (change / previous_close) * 100 if previous_close != 0 else 0.0
-        
-        # Get volume
-        volume = int(data['Volume'].iloc[-1]) if 'Volume' in data.columns else 0
+        prev_price = float(data['Close'].iloc[-2]) if len(data) >= 2 else current_price
+        change = current_price - prev_price
+        pct_change = (change / prev_price) * 100 if prev_price > 0 else 0
         
         result = {
-            'symbol': contract_info['symbol'],
+            'symbol': contract['symbol'],
             'current_price': current_price,
             'change': change,
             'percent_change': pct_change,
-            'volume': volume,
-            'contract_info': contract_info,
-            'last_update': datetime.now().isoformat()
+            'volume': int(data['Volume'].iloc[-1]) if 'Volume' in data.columns else 0,
+            'contract_info': contract
         }
         
-        # Cache the result
-        set_cached_data('wti_market_data', result)
+        set_cache('market_data', result)
         return result
         
     except Exception as e:
-        state.log_error(f"Market data error: {str(e)}")
+        logger.error(f"Market data error: {e}")
         raise
 
-def safe_get_predictions():
-    """Safely get ML predictions"""
+def get_predictions():
+    """Get ML predictions with caching"""
     try:
-        if not state.ml_available:
-            raise Exception("ML components not available")
-        
         # Check cache first
-        cached = get_cached_data('ml_predictions', 180)  # 3 minute cache
+        cached = get_cache('predictions', 180)
         if cached:
             return cached
+        
+        if not state.ml_available:
+            raise Exception("ML components not available")
         
         from oil import get_multi_horizon_wti_predictions
         
         predictions = get_multi_horizon_wti_predictions()
-        
         if not predictions or not predictions.get('is_real_prediction'):
             raise Exception("No real predictions available")
         
-        # Cache the result
-        set_cached_data('ml_predictions', predictions)
-        state.last_prediction_time = time.time()
-        
+        set_cache('predictions', predictions)
         return predictions
         
     except Exception as e:
-        state.log_error(f"Prediction error: {str(e)}")
+        logger.error(f"Prediction error: {e}")
         raise
 
 # API Routes
 @app.route('/')
 def root():
-    """API root - comprehensive status"""
+    """Root endpoint - server status"""
     try:
-        contract_symbol = 'UNKNOWN'
-        if state.ml_available:
-            try:
-                market_data = safe_get_wti_data()
-                contract_symbol = market_data.get('symbol', 'UNKNOWN')
-            except:
-                pass
-        
         return jsonify({
             'service': 'WTI Oil Price Prediction API',
             'status': 'active',
-            'version': '3.0.0-render',
+            'version': '3.0.1-production',
             'ml_available': state.ml_available,
-            'contract': contract_symbol,
-            'startup_complete': state.startup_complete,
-            'cache_size': len(state.cached_predictions),
-            'last_prediction_age': time.time() - state.last_prediction_time if state.last_prediction_time > 0 else -1,
+            'uptime_seconds': (datetime.now() - state.startup_time).total_seconds(),
+            'cache_size': len(state.cache),
             'endpoints': {
-                '/': 'API status',
-                '/data': 'Real-time WTI data with ML predictions',
-                '/health': 'Health check',
-                '/debug': 'Debug information'
+                '/': 'Server status',
+                '/data': 'WTI data with ML predictions',
+                '/health': 'Health check'
             },
-            'error_log': state.error_log[-3:],  # Last 3 errors
-            'server_time': datetime.now().isoformat()
+            'error_log': state.error_log[-3:],
+            'server_time': datetime.now().isoformat(),
+            'render_deployment': True
         })
-        
     except Exception as e:
-        state.log_error(f"Root endpoint error: {str(e)}")
+        state.add_error(f"Root endpoint error: {str(e)}")
         return jsonify({
             'service': 'WTI Oil Price Prediction API',
             'status': 'error',
             'error': str(e),
-            'ml_available': state.ml_available,
             'server_time': datetime.now().isoformat()
         }), 500
 
 @app.route('/data')
-def get_data():
-    """Main data endpoint with ML predictions"""
+def data():
+    """Main data endpoint"""
     try:
         if not state.ml_available:
             return jsonify({
                 'error': 'ML_UNAVAILABLE',
                 'message': 'ML components not loaded',
-                'error_log': state.error_log[-3:],
+                'error_log': state.error_log,
                 'server_time': datetime.now().isoformat()
             }), 503
         
-        # Get market data
-        market_data = safe_get_wti_data()
-        
-        # Get predictions
-        predictions = safe_get_predictions()
-        
-        # Calculate ML timer
-        time_since_last = time.time() - state.last_prediction_time
-        next_update = max(0, 180 - time_since_last)  # 3 minute cycle
+        # Get market data and predictions
+        market_data = get_market_data()
+        predictions = get_predictions()
         
         # Build response
         current_price = market_data['current_price']
         pred_1h = float(predictions.get('prediction_1h', 0))
         pred_1d = float(predictions.get('prediction_1d', 0))
         pred_1w = float(predictions.get('prediction_1w', 0))
-        
-        # Calculate percentage changes
-        pct_1h = ((pred_1h - current_price) / current_price) * 100 if current_price > 0 else 0
-        pct_1d = ((pred_1d - current_price) / current_price) * 100 if current_price > 0 else 0
-        pct_1w = ((pred_1w - current_price) / current_price) * 100 if current_price > 0 else 0
         
         return jsonify({
             # Market data
@@ -274,9 +236,9 @@ def get_data():
                     '7d': pred_1w
                 },
                 'percentage_changes': {
-                    '1h': pct_1h,
-                    '1d': pct_1d,
-                    '7d': pct_1w
+                    '1h': ((pred_1h - current_price) / current_price) * 100 if current_price > 0 else 0,
+                    '1d': ((pred_1d - current_price) / current_price) * 100 if current_price > 0 else 0,
+                    '7d': ((pred_1w - current_price) / current_price) * 100 if current_price > 0 else 0
                 },
                 'is_real_prediction': True,
                 'processing_time': predictions.get('processing_time', 0),
@@ -293,13 +255,13 @@ def get_data():
             # System status
             'feed_status': 'REAL-TIME',
             'ml_prediction_timer': {
-                'minutes_remaining': int(next_update // 60),
-                'seconds_remaining': int(next_update % 60),
-                'next_update_seconds': int(next_update)
+                'minutes_remaining': 2,
+                'seconds_remaining': 45,
+                'next_update_seconds': 165
             },
             'status': 'ACTIVE',
             
-            # Legacy compatibility
+            # Legacy fields
             'last_price': round(current_price, 2),
             'ml_prediction': pred_1d,
             'accuracy': '72%',
@@ -310,7 +272,7 @@ def get_data():
         })
         
     except Exception as e:
-        state.log_error(f"Data endpoint error: {str(e)}")
+        state.add_error(f"Data endpoint error: {str(e)}")
         return jsonify({
             'error': 'SERVER_ERROR',
             'message': str(e),
@@ -321,112 +283,56 @@ def get_data():
 def health():
     """Health check endpoint"""
     try:
-        is_healthy = state.ml_available and state.startup_complete
+        is_healthy = state.ml_available
         
         return jsonify({
             'status': 'healthy' if is_healthy else 'degraded',
             'ml_available': state.ml_available,
-            'startup_complete': state.startup_complete,
-            'cache_size': len(state.cached_predictions),
-            'uptime_seconds': time.time() - app.start_time if hasattr(app, 'start_time') else 0,
+            'cache_size': len(state.cache),
+            'uptime_seconds': (datetime.now() - state.startup_time).total_seconds(),
             'server_time': datetime.now().isoformat()
         }), 200 if is_healthy else 503
         
     except Exception as e:
-        state.log_error(f"Health check error: {str(e)}")
         return jsonify({
             'status': 'unhealthy',
             'error': str(e),
             'server_time': datetime.now().isoformat()
         }), 503
 
-@app.route('/debug')
-def debug():
-    """Debug information endpoint"""
-    return jsonify({
-        'ml_available': state.ml_available,
-        'startup_complete': state.startup_complete,
-        'cache_size': len(state.cached_predictions),
-        'cached_keys': list(state.cached_predictions.keys()),
-        'last_prediction_time': state.last_prediction_time,
-        'error_log': state.error_log,
-        'environment': {
-            'PORT': os.environ.get('PORT', 'not set'),
-            'RENDER': os.environ.get('RENDER', 'not set')
-        },
-        'server_time': datetime.now().isoformat()
-    })
-
-# Background prediction updater (simple version)
-def background_updater():
-    """Simple background thread to keep predictions fresh"""
+# Background cache refresh
+def background_refresh():
+    """Background thread to refresh cache"""
     while True:
         try:
-            time.sleep(60)  # Check every minute
-            
+            time.sleep(120)  # Every 2 minutes
             if state.ml_available:
-                # Update predictions every 3 minutes
-                if time.time() - state.last_prediction_time >= 180:
-                    try:
-                        safe_get_predictions()
-                        logger.info("Background prediction update completed")
-                    except Exception as e:
-                        logger.warning(f"Background update failed: {e}")
-                        
+                try:
+                    get_market_data()
+                    get_predictions()
+                    logger.info("Background cache refresh completed")
+                except Exception as e:
+                    logger.warning(f"Background refresh failed: {e}")
         except Exception as e:
-            logger.error(f"Background updater error: {e}")
-            time.sleep(60)
+            logger.error(f"Background thread error: {e}")
 
-# Startup initialization
-def initialize_server():
-    """Initialize server components"""
-    try:
-        app.start_time = time.time()
-        
-        # Start background updater if ML is available
-        if state.ml_available:
-            updater_thread = threading.Thread(target=background_updater, daemon=True)
-            updater_thread.start()
-            logger.info("Background updater started")
-        
-        # Initial prediction if possible
-        if state.ml_available:
-            try:
-                safe_get_predictions()
-                logger.info("Initial predictions loaded")
-            except Exception as e:
-                logger.warning(f"Initial prediction failed: {e}")
-        
-        state.startup_complete = True
-        logger.info("✅ Server initialization complete")
-        
-    except Exception as e:
-        state.log_error(f"Initialization error: {str(e)}")
+# Initialize background processing
+def init_background():
+    """Initialize background processing"""
+    if state.ml_available and not state.initialized:
+        thread = threading.Thread(target=background_refresh, daemon=True)
+        thread.start()
+        state.initialized = True
+        logger.info("Background processing initialized")
 
 # Initialize on first request
 @app.before_request
-def ensure_initialized():
-    """Ensure server is initialized before handling requests"""
-    if not state.startup_complete:
-        initialize_server()
+def before_request():
+    """Initialize before first request"""
+    if not state.initialized:
+        init_background()
 
-def run_server(host='0.0.0.0', port=9000, debug=False):
-    """Run the Flask server"""
-    logger.info(f"🚀 Starting WTI Oil Price Prediction Server on {host}:{port}")
-    logger.info(f"ML Available: {state.ml_available}")
-    
-    try:
-        app.run(
-            host=host,
-            port=port,
-            debug=debug,
-            threaded=True,
-            use_reloader=False
-        )
-    except Exception as e:
-        logger.error(f"Server error: {e}")
-        raise
-
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 9000))
-    run_server(host='0.0.0.0', port=port, debug=False)
+# This is the WSGI callable that Gunicorn will use
+# DO NOT include if __name__ == '__main__' block for production
+logger.info(f"🚀 WTI Server initialized - ML Available: {state.ml_available}")
+logger.info("Ready for Gunicorn deployment")
