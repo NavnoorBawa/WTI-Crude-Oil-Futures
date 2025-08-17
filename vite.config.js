@@ -5,20 +5,10 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
-    host: '0.0.0.0',
-    port: 4000
-  },
-  preview: {
-    host: '0.0.0.0', 
-    port: process.env.PORT || 4173,
-    allowedHosts: [
-      'localhost',
-      '.onrender.com'
-    ]
+    port: 3000,
+    host: true
   },
   build: {
-    outDir: 'dist',
-    sourcemap: false,
-    minify: 'esbuild'
+    outDir: 'dist'
   }
 })

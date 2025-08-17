@@ -60,27 +60,52 @@ function App() {
     );
   }
 
-  // Error screen
+  // Error screen - System designed to fail rather than show placeholder data
   if (error) {
     return (
       <div className="min-h-screen bg-black text-bloomberg-amber font-mono flex items-center justify-center">
         <div className="text-center">
           <div className="bg-bloomberg-red text-white px-6 py-3 mb-4 text-base">
-            MARKET DATA CONNECTION FAILURE
+            REAL DATA CONNECTION FAILURE
           </div>
-          <div className="text-xl mb-4 text-bloomberg-red">REAL-TIME FEED INTERRUPTED</div>
+          <div className="text-xl mb-4 text-bloomberg-red">SYSTEM CANNOT OPERATE WITHOUT REAL DATA</div>
           <div className="text-gray-400 text-base">ERROR: {error}</div>
-          <div className="text-sm text-gray-500 mt-3">Attempting Reconnection...</div>
+          <div className="text-sm text-gray-500 mt-3">
+            System is configured to fail rather than use placeholder data
+          </div>
+          <div className="text-sm text-gray-400 mt-2">
+            ❌ NO FALLBACK DATA | ✅ REAL DATA ONLY
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  // Check if data indicates system error
+  if (data?.error) {
+    return (
+      <div className="min-h-screen bg-black text-bloomberg-amber font-mono flex items-center justify-center">
+        <div className="text-center">
+          <div className="bg-bloomberg-red text-white px-6 py-3 mb-4 text-base">
+            SYSTEM ERROR - REAL DATA UNAVAILABLE
+          </div>
+          <div className="text-xl mb-4 text-bloomberg-red">NO PLACEHOLDER DATA ALLOWED</div>
+          <div className="text-gray-400 text-base">ERROR: {data.error}</div>
+          <div className="text-sm text-gray-500 mt-3">{data.message}</div>
+          <div className="text-sm text-gray-400 mt-2">
+            System Status: {data.system_status || 'ERROR'}
+          </div>
         </div>
       </div>
     );
   }
 
-  // Main interface - USE REAL API DATA
-  const currentPrice = data?.current_price || (data?.actual && data.actual.length > 0 ? data.actual[data.actual.length - 1] : 73.19);
-  const currentPrediction = data?.predicted && data.predicted.length > 0 ? data.predicted[data.predicted.length - 1] : 72.53;
-  const priceChange = data?.actual && data.actual.length > 1 ? 
-    currentPrice - data.actual[data.actual.length - 2] : 0.120;
+  // Main interface - USE REAL API DATA ONLY
+  const currentPrice = data?.current_price || 0;
+  const currentPrediction = data?.predicted && data.predicted.length > 0 ? data.predicted[data.predicted.length - 1] : 0;
+  const priceChange = data?.price_change || 0;
+  const priceChangePercent = data?.price_change_percent || 0;
+  const contractInfo = data?.contract || { symbol: 'CLZ25', description: 'WTI CRUDE OIL FUTURES' };
 
   return (
     <div className="min-h-screen bg-black text-bloomberg-amber font-mono">
@@ -94,7 +119,10 @@ function App() {
         <div className="flex items-center gap-6 text-sm">
           <div className="text-bloomberg-amber">LIVE</div>
           <div className="text-white">
-            {currentTime.toLocaleTimeString('en-US', { hour12: false })} EST
+            {currentTime.toLocaleTimeString('en-US', { 
+              hour12: false, 
+              timeZone: 'America/Chicago' 
+            })} CT (CME)
           </div>
           <div className="text-gray-400">
             UPDATED {Math.floor((currentTime - lastUpdate) / 1000)}s
@@ -109,18 +137,18 @@ function App() {
       <div className="bg-black border-b border-bloomberg-amber p-2">
         <div className="flex items-center gap-4 text-sm">
           <span className="text-bloomberg-amber">COMMAND:</span>
-          <span className="bg-bloomberg-alert text-black px-2 py-1 font-bold">{data?.contract?.symbol || 'CLQ25'}</span>
+          <span className="bg-bloomberg-alert text-black px-2 py-1 font-bold">{contractInfo.symbol || 'CLQ25'}</span>
           <span className="text-bloomberg-amber">&lt;COMDTY&gt;</span>
           <span className="bg-bloomberg-alert text-black px-2 py-1 font-bold">GP</span>
           <span className="text-bloomberg-amber">&lt;GO&gt;</span>
           <span className="bloomberg-cursor"></span>
-          <span className="text-gray-400 ml-4">WTI CRUDE OIL FUTURES NYMEX</span>
+          <span className="text-gray-400 ml-4">{contractInfo.description || 'WTI CRUDE OIL FUTURES NYMEX'}</span>
         </div>
       </div>
 
       {/* BLOOMBERG TERMINAL DATA DASHBOARD */}
       <div className="bg-black border-b border-gray-700 p-2">
-        {/* BLOOMBERG DATA TABLE */}
+        {/* BLOOMBERG DATA TABLE - ALL REAL VALUES */}
         <table className="bloomberg-table w-full text-sm">
           <thead>
             <tr>
@@ -136,72 +164,84 @@ function App() {
           </thead>
           <tbody>
             <tr className="price-row">
-              <td className="text-bloomberg-amber text-left text-sm">CLQ25 WTI CRUDE</td>
-              <td className="text-white font-bold text-lg">{currentPrice.toFixed(2)}</td>
-              <td className={`text-sm ${priceChange >= 0 ? 'price-up' : 'price-down'}`}>
-                {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(3)}
+              <td className="text-bloomberg-amber text-left text-sm">
+                {contractInfo.security_name || `${contractInfo.symbol} WTI CRUDE`}
+              </td>
+              <td className="text-white font-bold text-lg">
+                {currentPrice > 0 ? currentPrice.toFixed(2) : '--'}
               </td>
               <td className={`text-sm ${priceChange >= 0 ? 'price-up' : 'price-down'}`}>
-                {priceChange >= 0 ? '+' : ''}{((priceChange/currentPrice)*100).toFixed(2)}%
+                {currentPrice > 0 ? `${priceChange >= 0 ? '+' : ''}${priceChange.toFixed(3)}` : '--'}
+              </td>
+              <td className={`text-sm ${priceChange >= 0 ? 'price-up' : 'price-down'}`}>
+                {currentPrice > 0 ? `${priceChangePercent >= 0 ? '+' : ''}${priceChangePercent.toFixed(2)}%` : '--'}
               </td>
               <td className="text-bloomberg-blue text-sm">
-                {/* Use real volume data when available, otherwise show N/A */}
-                {data?.volume ? `${data.volume.toFixed(1)}M` : 'N/A'}
+                {data?.volume_display || 'N/A'}
               </td>
-              <td className="text-bloomberg-cyan text-sm">{currentPrediction.toFixed(2)}</td>
+              <td className="text-bloomberg-cyan text-sm">
+                {currentPrediction > 0 ? currentPrediction.toFixed(2) : '--'}
+              </td>
               <td className="text-bloomberg-positive text-sm">
                 {data?.performance_metrics?.direction_accuracy ? 
-                  `${Math.floor(data.performance_metrics.direction_accuracy)}%` : 
-                  '72%'}
+                  `${Math.round(data.performance_metrics.direction_accuracy)}%` : 
+                  '--'}
               </td>
               <td className="text-bloomberg-positive text-sm">
-                {data?.performance_metrics?.correlation ? 
-                  `${Math.floor(data.performance_metrics.correlation * 100)}%` : 
-                  '89%'}
+                {data?.performance_metrics?.confidence ? 
+                  `${Math.round(data.performance_metrics.confidence)}%` : 
+                  '--'}
               </td>
             </tr>
           </tbody>
         </table>
 
-        {/* SYSTEM STATUS BAR */}
+        {/* SYSTEM STATUS BAR - ALL REAL VALUES */}
         <div className="bg-black p-2 mt-2">
           <div className="flex justify-between items-center text-sm">
             <div className="flex gap-6">
               <span className="text-bloomberg-amber font-medium">DATA POINTS:</span>
               <span className="text-white font-medium">
-                {data?.enterprise_metrics?.data_points || 2847}
+                {data?.enterprise_metrics?.data_points || '--'}
               </span>
               <span className="text-bloomberg-amber font-medium">FEED:</span>
-              <span className="text-bloomberg-positive font-medium">REAL-TIME</span>
+              <span className={`font-medium ${
+                data?.feed_status === 'REAL-TIME' ? 'text-bloomberg-positive' : 'text-bloomberg-red'
+              }`}>
+                {data?.feed_status || 'UNKNOWN'}
+              </span>
               <span className="text-bloomberg-amber font-medium">NEXT ML:</span>
               <span className="text-bloomberg-blue font-medium">
-                {data?.ml_prediction_timer?.next_prediction_in ? 
-                  `${Math.floor(data.ml_prediction_timer.next_prediction_in / 60)}:${String(data.ml_prediction_timer.next_prediction_in % 60).padStart(2, '0')}` : 
-                  '3:00'}
+                {data?.ml_prediction_timer?.minutes_remaining !== undefined && data?.ml_prediction_timer?.seconds_remaining !== undefined ? 
+                  `${data.ml_prediction_timer.minutes_remaining}:${String(data.ml_prediction_timer.seconds_remaining).padStart(2, '0')}` : 
+                  '--:--'}
               </span>
               <span className="text-bloomberg-amber font-medium">STATUS:</span>
               <span className={`font-medium ${
                 data?.ml_prediction_timer?.currently_processing ? 'text-bloomberg-alert animate-pulse' :
                 data?.multi_horizon_predictions?.is_real_prediction ? 'text-bloomberg-positive' : 
-                'text-gray-400'
+                'text-bloomberg-red'
               }`}>
                 {data?.ml_prediction_timer?.currently_processing ? 'PROCESSING' :
                  data?.multi_horizon_predictions?.is_real_prediction ? 'REAL ML' : 
-                 'PLACEHOLDER'}
+                 'NO REAL DATA'}
               </span>
             </div>
             <div className="flex gap-6">
               {(() => {
                 const predictions = data?.multi_horizon_predictions?.predictions;
-                if (!predictions) {
+                const percentChanges = data?.multi_horizon_predictions?.percentage_changes;
+                
+                // Only show real calculated values, no fallback
+                if (!predictions || !percentChanges || !data?.multi_horizon_predictions?.is_real_prediction) {
                   return [
-                    { period: '1H', risk: '+0.8' },
-                    { period: '1D', risk: '+1.8' },
-                    { period: '1W', risk: '+2.5' }
-                  ].map(({ period, risk }) => (
+                    { period: '1H', value: '--' },
+                    { period: '1D', value: '--' },
+                    { period: '1W', value: '--' }
+                  ].map(({ period, value }) => (
                     <span key={period}>
                       <span className="text-bloomberg-amber font-medium">{period}:</span>
-                      <span className="text-bloomberg-positive font-medium">{risk}%</span>
+                      <span className="text-gray-400 font-medium">{value}%</span>
                     </span>
                   ));
                 }
@@ -210,8 +250,8 @@ function App() {
                 const labels = ['1H', '1D', '1W'];
                 
                 return horizons.map((horizon, i) => {
-                  if (predictions[horizon] && currentPrice) {
-                    const change = ((predictions[horizon] - currentPrice) / currentPrice * 100);
+                  const change = percentChanges[horizon];
+                  if (change !== undefined && change !== null) {
                     const isPositive = change >= 0;
                     const colorClass = isPositive ? 'text-bloomberg-positive' : 'text-bloomberg-negative';
                     return (
@@ -223,8 +263,13 @@ function App() {
                       </span>
                     );
                   }
-                  return null;
-                }).filter(Boolean);
+                  return (
+                    <span key={horizon}>
+                      <span className="text-bloomberg-amber font-medium">{labels[i]}:</span>
+                      <span className="text-gray-400 font-medium">--%</span>
+                    </span>
+                  );
+                });
               })()}
             </div>
           </div>

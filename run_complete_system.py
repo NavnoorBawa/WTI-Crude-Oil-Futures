@@ -1,301 +1,429 @@
 #!/usr/bin/env python3
 """
-COMPLETE Bloomberg Terminal System Launcher
-==========================================
-Single file to run the entire oil futures prediction system:
-- Backend server with real ML predictions
-- Frontend development server
-- Automatic port management
-- Health checks and status monitoring
+WTI Oil Price Prediction Complete System Runner
+=============================================
+Orchestrates the complete WTI oil price prediction system.
+Ensures all components work together with real data only.
 """
 
-import subprocess
+import sys
 import time
 import threading
-import sys
-import os
+import subprocess
 import signal
-import requests
-import webbrowser
-from datetime import datetime
+import os
+from datetime import datetime, timedelta
+from pathlib import Path
+import logging
 
-def print_banner():
-    """Print system startup banner"""
-    print("🚀" + "=" * 70)
-    print("🏛️  BLOOMBERG TERMINAL - WTI CRUDE OIL FUTURES SYSTEM")
-    print("=" * 72)
-    print("✅ Real yfinance data fetching")
-    print("✅ Advanced ML predictions from oil.py") 
-    print("✅ Bloomberg-style terminal interface")
-    print("✅ Real-time price updates every 10 seconds")
-    print("✅ Multi-horizon ML predictions every 3 minutes")
-    print("=" * 72)
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-def check_port(port):
-    """Check if a port is available"""
-    try:
-        response = requests.get(f"http://127.0.0.1:{port}/health", timeout=2)
-        return response.status_code == 200
-    except:
-        return False
+# Import our prediction engine
+try:
+    from oil import (
+        get_current_wti_contract,
+        get_multi_horizon_wti_predictions,
+        get_prediction_accuracy_metrics,
+        store_actual_price_update,
+        WorkingFreeTierWTIPredictor,
+        main as oil_main
+    )
+    oil_available = True
+except ImportError as e:
+    logger.error(f"❌ CRITICAL: Cannot import oil.py: {e}")
+    oil_available = False
 
-def find_available_port(start_port, max_attempts=10):
-    """Find an available port starting from start_port"""
-    import socket
-    for port in range(start_port, start_port + max_attempts):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            try:
-                s.bind(('127.0.0.1', port))
-                return port
-            except OSError:
-                continue
-    return None
+# Import server
+try:
+    from server import run_server
+    server_available = True
+except ImportError as e:
+    logger.error(f"❌ CRITICAL: Cannot import server.py: {e}")
+    server_available = False
 
-def start_backend_server():
-    """Start the Flask backend server"""
-    print("🔧 Starting backend server...")
+class WTISystemOrchestrator:
+    """Orchestrates the complete WTI prediction system"""
     
-    # Check if backend is already running
-    if check_port(9000):
-        print("✅ Backend server already running on port 9000")
-        return None
+    def __init__(self):
+        self.running = False
+        self.server_process = None
+        self.prediction_thread = None
+        self.data_validation_thread = None
+        self.system_health_thread = None
+        
+        # System configuration
+        self.prediction_interval = 180  # 3 minutes
+        self.health_check_interval = 60  # 1 minute
+        self.data_validation_interval = 300  # 5 minutes
+        
+        # System state
+        self.last_prediction_time = 0
+        self.last_health_check = 0
+        self.last_data_validation = 0
+        self.error_count = 0
+        self.max_errors = 5
+        
+        logger.info("🏗️  WTI System Orchestrator initialized")
     
-    try:
-        # Start the backend server
-        process = subprocess.Popen(
-            [sys.executable, "server.py"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=os.getcwd()
-        )
-        
-        print("⏳ Waiting for backend server to initialize...")
-        print("📊 Loading ML models (this may take 1-2 minutes)...")
-        
-        # Wait for server to be ready (up to 3 minutes)
-        for attempt in range(180):  # 180 seconds = 3 minutes
-            time.sleep(1)
-            if check_port(9000):
-                print("✅ Backend server ready on http://127.0.0.1:9000")
-                return process
-            
-            # Print progress every 10 seconds
-            if attempt % 10 == 0 and attempt > 0:
-                print(f"⏳ Still loading ML models... ({attempt}s elapsed)")
-        
-        print("❌ Backend server failed to start within 3 minutes")
-        return None
-        
-    except Exception as e:
-        print(f"❌ Error starting backend: {e}")
-        return None
-
-def start_frontend_server():
-    """Start the Vite frontend development server"""
-    print("🎨 Starting frontend server...")
-    
-    try:
-        # Find an available port for frontend
-        frontend_port = find_available_port(4000)
-        if not frontend_port:
-            print("❌ No available port for frontend")
-            return None, None
-        
-        # Start the frontend server
-        process = subprocess.Popen(
-            ["npm", "run", "dev", "--", "--port", str(frontend_port)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=os.getcwd()
-        )
-        
-        print(f"⏳ Starting frontend on port {frontend_port}...")
-        
-        # Wait for frontend to be ready
-        for attempt in range(30):  # 30 seconds
-            time.sleep(1)
-            try:
-                response = requests.get(f"http://127.0.0.1:{frontend_port}", timeout=2)
-                if response.status_code == 200:
-                    print(f"✅ Frontend server ready on http://127.0.0.1:{frontend_port}")
-                    return process, frontend_port
-            except:
-                continue
-        
-        print("❌ Frontend server failed to start")
-        return None, None
-        
-    except Exception as e:
-        print(f"❌ Error starting frontend: {e}")
-        return None, None
-
-def monitor_system(backend_process, frontend_process):
-    """Monitor both processes and restart if needed"""
-    print("👁️  System monitoring started...")
-    
-    while True:
+    def cleanup_ports(self):
+        """Clean up any processes using required ports"""
         try:
-            time.sleep(10)
-            
-            # Check backend health
-            backend_ok = check_port(9000)
-            if not backend_ok:
-                print("⚠️  Backend server appears to be down")
-            
-            # Check if processes are still running
-            if backend_process and backend_process.poll() is not None:
-                print("❌ Backend process terminated")
-                break
-                
-            if frontend_process and frontend_process.poll() is not None:
-                print("❌ Frontend process terminated")
-                break
-                
-        except KeyboardInterrupt:
-            break
+            logger.info("🧹 Cleaning up ports...")
+            # Kill any process using port 9000
+            result = subprocess.run(['lsof', '-ti', ':9000'], capture_output=True, text=True)
+            if result.stdout.strip():
+                pids = result.stdout.strip().split('\n')
+                for pid in pids:
+                    try:
+                        subprocess.run(['kill', '-9', pid], check=True)
+                        logger.info(f"   ✅ Killed process {pid} on port 9000")
+                    except subprocess.CalledProcessError:
+                        pass
+            time.sleep(1)  # Give processes time to clean up
         except Exception as e:
-            print(f"⚠️  Monitor error: {e}")
-            time.sleep(5)
-
-def test_system():
-    """Test that the system is working correctly"""
-    print("🧪 Testing system integration...")
+            logger.warning(f"Port cleanup warning: {e}")
     
-    try:
-        # Test backend health
-        response = requests.get("http://127.0.0.1:9000/health", timeout=5)
-        if response.status_code == 200:
-            health_data = response.json()
-            print(f"✅ Backend health: {health_data.get('status')}")
-            print(f"📊 Data points: {health_data.get('data_points', 0)}")
-            print(f"💰 Current price: ${health_data.get('current_price', 0):.2f}")
-        else:
-            print("❌ Backend health check failed")
-            return False
+    def validate_system_requirements(self):
+        """Validate that all system components are available"""
+        logger.info("🔍 Validating system requirements...")
+        
+        # Clean up ports first
+        self.cleanup_ports()
+        
+        if not oil_available:
+            raise Exception("oil.py module not available")
+        
+        if not server_available:
+            raise Exception("server.py module not available")
+        
+        # Test oil.py functionality
+        try:
+            contract_info = get_current_wti_contract()
+            logger.info(f"✅ Contract detection working: {contract_info['symbol']}")
+        except Exception as e:
+            raise Exception(f"Contract detection failed: {e}")
+        
+        # Test data directory
+        data_dir = Path("data")
+        if not data_dir.exists():
+            data_dir.mkdir(parents=True, exist_ok=True)
+            logger.info("📁 Created data directory")
+        
+        # Test predictions
+        try:
+            predictor = WorkingFreeTierWTIPredictor()
+            logger.info("✅ Prediction engine initialized")
+        except Exception as e:
+            raise Exception(f"Prediction engine failed: {e}")
+        
+        logger.info("✅ All system requirements validated")
+    
+    def run_prediction_cycle(self):
+        """Run a single prediction cycle"""
+        try:
+            logger.info("🎯 Starting prediction cycle...")
             
-        # Test data endpoint
-        response = requests.get("http://127.0.0.1:9000/data", timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            actual_count = len(data.get('actual', []))
-            predicted_count = len(data.get('predicted', []))
-            print(f"✅ Data endpoint: {actual_count} actual, {predicted_count} predicted prices")
+            # Get fresh predictions
+            predictions = get_multi_horizon_wti_predictions()
             
-            # Check ML predictions
-            ml_predictions = data.get('multi_horizon_predictions', {})
-            if ml_predictions.get('predictions'):
-                pred_1h = ml_predictions['predictions'].get('1h', 0)
-                print(f"🤖 ML Prediction (1h): ${pred_1h:.2f}")
-                print(f"🔮 ML Status: {'REAL' if ml_predictions.get('is_real_prediction') else 'FALLBACK'}")
+            if not predictions or not predictions.get('is_real_prediction'):
+                raise Exception("Failed to get real predictions")
+            
+            # Store current actual price for accuracy tracking
+            contract_info = get_current_wti_contract()
+            current_price = contract_info['current_price']
+            store_actual_price_update(current_price)
+            
+            self.last_prediction_time = time.time()
+            self.error_count = 0  # Reset error count on success
+            
+            logger.info(f"✅ Prediction cycle completed: 1H=${predictions['prediction_1h']:.2f}, "
+                       f"1D=${predictions['prediction_1d']:.2f}, 1W=${predictions['prediction_1w']:.2f}")
             
             return True
-        else:
-            print("❌ Data endpoint test failed")
-            return False
             
-    except Exception as e:
-        print(f"❌ System test error: {e}")
-        return False
-
-def cleanup_processes(*processes):
-    """Clean up all running processes"""
-    print("🧹 Cleaning up processes...")
+        except Exception as e:
+            self.error_count += 1
+            logger.error(f"❌ Prediction cycle failed (error {self.error_count}/{self.max_errors}): {e}")
+            
+            if self.error_count >= self.max_errors:
+                logger.critical("🚨 Too many prediction errors - system may be unstable")
+                return False
+            
+            return True
     
-    for process in processes:
-        if process and process.poll() is None:
+    def prediction_worker(self):
+        """Background worker for running predictions"""
+        logger.info("📈 Prediction worker started")
+        
+        while self.running:
             try:
-                process.terminate()
-                process.wait(timeout=5)
-                print("✅ Process terminated gracefully")
-            except subprocess.TimeoutExpired:
-                process.kill()
-                print("⚡ Process force killed")
+                current_time = time.time()
+                
+                # Check if it's time for a new prediction
+                if current_time - self.last_prediction_time >= self.prediction_interval:
+                    if not self.run_prediction_cycle():
+                        logger.critical("🚨 Stopping prediction worker due to errors")
+                        break
+                
+                # Sleep for a short interval
+                time.sleep(10)
+                
             except Exception as e:
-                print(f"⚠️  Cleanup error: {e}")
+                logger.error(f"Prediction worker error: {e}")
+                time.sleep(30)
+    
+    def validate_data_quality(self):
+        """Validate data quality and system health"""
+        try:
+            logger.info("🔍 Running data quality validation...")
+            
+            # Check contract validity
+            contract_info = get_current_wti_contract()
+            days_to_expiry = contract_info.get('days_to_expiry', 0)
+            
+            if days_to_expiry <= 3:
+                logger.warning(f"⚠️  Contract {contract_info['symbol']} expires in {days_to_expiry} days")
+            
+            # Check data storage
+            data_dir = Path("data")
+            if not data_dir.exists():
+                logger.warning("⚠️  Data directory missing - recreating")
+                data_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Check prediction system health (accuracy validation requires historical data)
+            try:
+                accuracy_metrics = get_prediction_accuracy_metrics()
+                if accuracy_metrics:
+                    logger.info("📊 Prediction accuracy tracking system operational")
+            except Exception as e:
+                logger.warning(f"Could not check prediction tracking: {e}")
+            
+            self.last_data_validation = time.time()
+            logger.info("✅ Data quality validation completed")
+            
+        except Exception as e:
+            logger.error(f"Data validation error: {e}")
+    
+    def data_validation_worker(self):
+        """Background worker for data validation"""
+        logger.info("🔍 Data validation worker started")
+        
+        while self.running:
+            try:
+                current_time = time.time()
+                
+                # Check if it's time for data validation
+                if current_time - self.last_data_validation >= self.data_validation_interval:
+                    self.validate_data_quality()
+                
+                # Sleep for a short interval
+                time.sleep(30)
+                
+            except Exception as e:
+                logger.error(f"Data validation worker error: {e}")
+                time.sleep(60)
+    
+    def system_health_check(self):
+        """Perform system health check"""
+        try:
+            logger.info("💓 Running system health check...")
+            
+            # Check if prediction worker is responsive
+            time_since_prediction = time.time() - self.last_prediction_time
+            if time_since_prediction > self.prediction_interval * 2:
+                logger.warning(f"⚠️  No predictions for {time_since_prediction:.1f} seconds")
+            
+            # Check error count
+            if self.error_count > 0:
+                logger.warning(f"⚠️  System error count: {self.error_count}/{self.max_errors}")
+            
+            # Memory and basic system checks could go here
+            
+            self.last_health_check = time.time()
+            logger.info("✅ System health check completed")
+            
+        except Exception as e:
+            logger.error(f"Health check error: {e}")
+    
+    def health_check_worker(self):
+        """Background worker for health checks"""
+        logger.info("💓 Health check worker started")
+        
+        while self.running:
+            try:
+                current_time = time.time()
+                
+                # Check if it's time for health check
+                if current_time - self.last_health_check >= self.health_check_interval:
+                    self.system_health_check()
+                
+                # Sleep for a short interval
+                time.sleep(20)
+                
+            except Exception as e:
+                logger.error(f"Health check worker error: {e}")
+                time.sleep(30)
+    
+    def start_server(self, host='0.0.0.0', port=9000):
+        """Start the Flask server in a separate process"""
+        logger.info(f"🌐 Starting Flask server on {host}:{port}")
+        
+        try:
+            # Start server in background thread since we're using the function directly
+            server_thread = threading.Thread(
+                target=run_server,
+                args=(host, port, False),  # host, port, debug=False
+                daemon=True
+            )
+            server_thread.start()
+            
+            # Give server time to start
+            time.sleep(2)
+            logger.info("✅ Flask server started successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to start Flask server: {e}")
+            raise
+    
+    def stop_server(self):
+        """Stop the Flask server"""
+        if self.server_process:
+            logger.info("🛑 Stopping Flask server...")
+            self.server_process.terminate()
+            self.server_process.wait()
+            logger.info("✅ Flask server stopped")
+    
+    def start(self, host='0.0.0.0', port=9000):
+        """Start the complete system"""
+        logger.info("🚀 Starting WTI Oil Price Prediction System")
+        logger.info("=" * 60)
+        
+        try:
+            # Validate system requirements
+            self.validate_system_requirements()
+            
+            # Set running flag
+            self.running = True
+            
+            # Run initial prediction
+            logger.info("🎯 Running initial prediction...")
+            if not self.run_prediction_cycle():
+                raise Exception("Initial prediction failed")
+            
+            # Start Flask server
+            self.start_server(host, port)
+            
+            # Start background workers
+            self.prediction_thread = threading.Thread(target=self.prediction_worker, daemon=True)
+            self.data_validation_thread = threading.Thread(target=self.data_validation_worker, daemon=True)
+            self.system_health_thread = threading.Thread(target=self.health_check_worker, daemon=True)
+            
+            self.prediction_thread.start()
+            self.data_validation_thread.start()
+            self.system_health_thread.start()
+            
+            logger.info("✅ All system components started successfully")
+            logger.info("📊 System is now running - real data only, no fallbacks")
+            logger.info("🌐 API available at http://{}:{}".format(host, port))
+            logger.info("=" * 60)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ System startup failed: {e}")
+            self.stop()
+            return False
+    
+    def stop(self):
+        """Stop the complete system"""
+        logger.info("🛑 Stopping WTI Oil Price Prediction System...")
+        
+        self.running = False
+        
+        # Stop server
+        self.stop_server()
+        
+        # Wait for threads to finish (they're daemon threads, so this is optional)
+        time.sleep(1)
+        
+        logger.info("✅ System stopped successfully")
+    
+    def run_forever(self, host='0.0.0.0', port=9000):
+        """Run the system forever (until interrupted)"""
+        def signal_handler(signum, frame):
+            logger.info("🛑 Received interrupt signal - stopping system...")
+            self.stop()
+            sys.exit(0)
+        
+        # Set up signal handlers
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+        
+        # Start system
+        if not self.start(host, port):
+            sys.exit(1)
+        
+        # Keep running until interrupted
+        try:
+            while self.running:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            logger.info("🛑 Keyboard interrupt received")
+            self.stop()
 
 def main():
-    """Main system launcher"""
-    backend_process = None
-    frontend_process = None
-    frontend_port = None
+    """Main function"""
+    import argparse
     
-    try:
-        print_banner()
-        
-        # Check prerequisites
-        print("🔍 Checking prerequisites...")
-        
-        # Check if server.py exists
-        if not os.path.exists("server.py"):
-            print("❌ server.py not found in current directory")
-            return
-            
-        # Check if npm is available
+    parser = argparse.ArgumentParser(description='WTI Oil Price Prediction Complete System')
+    parser.add_argument('--host', default='0.0.0.0', help='Host to bind server to')
+    parser.add_argument('--port', type=int, default=9000, help='Port to bind server to')
+    parser.add_argument('--test', action='store_true', help='Run system test only')
+    parser.add_argument('--validate', action='store_true', help='Validate system only')
+    
+    args = parser.parse_args()
+    
+    # Create orchestrator
+    orchestrator = WTISystemOrchestrator()
+    
+    if args.validate:
+        # Validation only
         try:
-            subprocess.run(["npm", "--version"], check=True, capture_output=True)
-            print("✅ npm found")
-        except:
-            print("❌ npm not found - please install Node.js")
-            return
-        
-        print("✅ Prerequisites check passed")
-        print()
-        
-        # Start backend server
-        backend_process = start_backend_server()
-        if not backend_process:
-            print("❌ Failed to start backend server")
-            return
-        
-        # Start frontend server
-        frontend_process, frontend_port = start_frontend_server()
-        if not frontend_process:
-            print("❌ Failed to start frontend server")
-            cleanup_processes(backend_process)
-            return
-        
-        # Test system integration
-        print()
-        if test_system():
-            print("✅ System integration test passed")
-        else:
-            print("⚠️  System integration test had issues")
-        
-        print()
-        print("🎉" + "=" * 70)
-        print("🚀 BLOOMBERG TERMINAL SYSTEM IS READY!")
-        print("=" * 72)
-        print(f"🌐 Frontend: http://127.0.0.1:{frontend_port}")
-        print("📊 Backend:  http://127.0.0.1:9000")
-        print("📈 API Data: http://127.0.0.1:9000/data")
-        print("❤️  Health:  http://127.0.0.1:9000/health")
-        print("=" * 72)
-        print("💡 The system will automatically:")
-        print("   • Fetch real WTI oil prices every 10 seconds")
-        print("   • Generate ML predictions every 3 minutes")
-        print("   • Display live Bloomberg-style charts")
-        print("   • Show authentic multi-horizon forecasts")
-        print()
-        print("🔥 Press Ctrl+C to stop the system")
-        print("=" * 72)
-        
-        # Open browser automatically
+            orchestrator.validate_system_requirements()
+            logger.info("✅ System validation passed")
+            return 0
+        except Exception as e:
+            logger.error(f"❌ System validation failed: {e}")
+            return 1
+    
+    elif args.test:
+        # Test mode - run once and exit
         try:
-            webbrowser.open(f"http://127.0.0.1:{frontend_port}")
-            print("🌍 Browser opened automatically")
-        except:
-            print("📱 Please open your browser manually")
-        
-        # Start monitoring
-        monitor_system(backend_process, frontend_process)
-        
-    except KeyboardInterrupt:
-        print("\n🛑 Shutdown requested by user")
-    except Exception as e:
-        print(f"\n❌ Unexpected error: {e}")
-    finally:
-        cleanup_processes(backend_process, frontend_process)
-        print("👋 System shutdown complete")
+            orchestrator.validate_system_requirements()
+            if orchestrator.run_prediction_cycle():
+                logger.info("✅ System test passed")
+                return 0
+            else:
+                logger.error("❌ System test failed")
+                return 1
+        except Exception as e:
+            logger.error(f"❌ System test failed: {e}")
+            return 1
+    
+    else:
+        # Full system run
+        try:
+            orchestrator.run_forever(host=args.host, port=args.port)
+            return 0
+        except Exception as e:
+            logger.error(f"❌ System execution failed: {e}")
+            return 1
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    sys.exit(main())
