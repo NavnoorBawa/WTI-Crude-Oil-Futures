@@ -255,18 +255,40 @@ def get_data():
         # Get ML predictions if ready, otherwise use basic data
         ml_ready = system_state.get('ml_ready', False)
         
-        if ml_ready:
+        # Get cached predictions from predictor instance, don't trigger new ML training
+        if ml_ready and system_state.get('predictor_instance'):
             try:
-                predictions = get_multi_horizon_wti_predictions()
-                accuracy_metrics = get_prediction_accuracy_metrics()
-                logger.debug("✅ Using real ML predictions")
+                predictor = system_state['predictor_instance']
+                
+                # Get cached predictions instead of triggering new training
+                if hasattr(predictor, 'stored_predictions') and predictor.stored_predictions:
+                    # Use most recent cached prediction
+                    latest_pred = list(predictor.stored_predictions.values())[-1]
+                    predictions = {
+                        'prediction_1h': latest_pred['predictions']['1h'],
+                        'prediction_1d': latest_pred['predictions']['1d'],
+                        'prediction_1w': latest_pred['predictions']['1w'],
+                        'current_price': contract_info['current_price'],
+                        'is_real_prediction': True,
+                        'timestamp': latest_pred['timestamp'],
+                        'processing_time': 0,
+                        'feature_count': 20
+                    }
+                    logger.debug("✅ Using cached ML predictions")
+                else:
+                    logger.info("🔄 No cached predictions available yet")
+                    predictions = None
+                
+                # Get accuracy metrics from stored data
+                accuracy_metrics = predictor.calculate_and_store_accuracy()
+                
             except Exception as ml_error:
-                logger.warning(f"⚠️ ML predictions failed: {ml_error}")
+                logger.warning(f"⚠️ Cached predictions failed: {ml_error}")
                 ml_ready = False
                 predictions = None
                 accuracy_metrics = None
         else:
-            logger.info("🔄 ML system still initializing - using basic data")
+            logger.info("🔄 ML system not ready - using basic data")
             predictions = None
             accuracy_metrics = None
         
