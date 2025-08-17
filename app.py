@@ -6,15 +6,7 @@ Optimized for Render deployment
 
 import os
 import sys
-
-# Use minimal server first to ensure deployment works
-try:
-    from server_minimal import app, run_server
-    print("Using minimal server for reliable deployment")
-except ImportError:
-    # Fallback to full server
-    from server import app, run_server
-    print("Using full production server")
+from server import app, run_server
 
 # Configure for production deployment
 if __name__ == "__main__":
