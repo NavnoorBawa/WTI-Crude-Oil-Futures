@@ -223,6 +223,21 @@ def get_data():
         predictions = get_multi_horizon_wti_predictions()
         accuracy_metrics = get_prediction_accuracy_metrics()
         
+        # Get chart data from predictor instance
+        chart_data = {'actual': [], 'predicted': [], 'timestamps': []}
+        if system_state['predictor_instance']:
+            predictor = system_state['predictor_instance']
+            # Get last 50 stored prices for chart
+            stored_prices = list(predictor.stored_actual_prices.values())[-50:]
+            stored_predictions = list(predictor.stored_predictions.values())[-50:]
+            
+            if stored_prices:
+                chart_data['actual'] = [p['price'] for p in stored_prices]
+                chart_data['timestamps'] = [p['timestamp'] for p in stored_prices]
+                
+            if stored_predictions:
+                chart_data['predicted'] = [p['predictions']['1d'] for p in stored_predictions[-len(chart_data['actual']):]]
+        
         # Verify data is real
         if not predictions.get('is_real_prediction'):
             raise Exception("CRITICAL: oil.py returned non-real predictions")
@@ -242,12 +257,27 @@ def get_data():
         pred_1d = predictions['prediction_1d']
         pred_1w = predictions['prediction_1w']
         
+        # Format volume for display
+        volume = contract_info.get('volume', 0)
+        if volume >= 1000000:
+            volume_display = f"{volume/1000000:.1f}M"
+        elif volume >= 1000:
+            volume_display = f"{volume/1000:.1f}K"
+        else:
+            volume_display = f"{volume:.0f}" if volume > 0 else "N/A"
+        
         return jsonify({
             # Core price data - REAL ONLY
             'current_price': round(current_price, 2),
             'price_change': round(price_change, 3),
             'price_change_percent': round(price_change_percent, 2),
-            'volume': contract_info.get('volume', 0),
+            'volume': volume,
+            'volume_display': volume_display,
+            
+            # Chart data - REAL ONLY
+            'actual': chart_data['actual'],
+            'predicted': chart_data['predicted'],
+            'timestamps': chart_data['timestamps'],
             
             # Multi-horizon predictions - REAL ML ONLY
             'multi_horizon_predictions': {

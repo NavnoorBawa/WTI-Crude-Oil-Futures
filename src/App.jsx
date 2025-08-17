@@ -115,7 +115,7 @@ function App() {
 
   // Main interface - USE REAL API DATA ONLY
   const currentPrice = data?.current_price || 0;
-  const currentPrediction = data?.predicted && data.predicted.length > 0 ? data.predicted[data.predicted.length - 1] : 0;
+  const currentPrediction = data?.multi_horizon_predictions?.predictions?.['1d'] || 0;  // Use 1D ML prediction
   const priceChange = data?.price_change || 0;
   const priceChangePercent = data?.price_change_percent || 0;
   const contractInfo = data?.contract || { symbol: 'CLZ25', description: 'WTI CRUDE OIL FUTURES' };
