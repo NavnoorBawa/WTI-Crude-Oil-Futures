@@ -169,14 +169,11 @@ def get_current_wti_contract():
     return {
         'symbol': contract_symbol,
         'yfinance_symbol': working_symbol,
-            'description': f'WTI CRUDE OIL FUTURES {contract_symbol}',
-            'expiry_date': expiry_date.isoformat(),
-            'days_to_expiry': days_to_expiry,
-            'current_price': current_price
-        }
-        
-    except Exception as e:
-        raise Exception(f"Failed to validate WTI contract {active_symbol}: {e}")
+        'description': f'WTI CRUDE OIL FUTURES {contract_symbol}',
+        'expiry_date': expiry_date.isoformat(),
+        'days_to_expiry': days_to_expiry,
+        'current_price': current_price
+    }
 
 class PremiumWTIPredictor:
     """Premium WTI predictor with logical multi-source data integration"""
