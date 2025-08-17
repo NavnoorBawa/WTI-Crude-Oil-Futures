@@ -252,57 +252,64 @@ def get_data():
         # Get REAL data from oil.py - NO FALLBACKS
         contract_info = get_current_wti_contract()
         
-        # Try to get ML predictions, but don't block if they're not ready yet
-        predictions = None
-        accuracy_metrics = None
+        # Get ML predictions if ready, otherwise use basic data
+        ml_ready = system_state.get('ml_ready', False)
         
-        try:
-            # Quick check if ML system is ready (don't wait for full initialization)
-            if system_state.get('ml_ready', False):
+        if ml_ready:
+            try:
                 predictions = get_multi_horizon_wti_predictions()
                 accuracy_metrics = get_prediction_accuracy_metrics()
-            else:
-                logger.info("🔄 ML system still initializing - serving basic data without predictions")
-        except Exception as ml_error:
-            logger.warning(f"⚠️ ML predictions not ready yet: {ml_error}")
-            # Continue with basic data
+                logger.debug("✅ Using real ML predictions")
+            except Exception as ml_error:
+                logger.warning(f"⚠️ ML predictions failed: {ml_error}")
+                ml_ready = False
+                predictions = None
+                accuracy_metrics = None
+        else:
+            logger.info("🔄 ML system still initializing - using basic data")
+            predictions = None
+            accuracy_metrics = None
         
-        # Get chart data from predictor instance
+        # Get chart data from predictor instance (if available)
         chart_data = {'actual': [], 'predicted': [], 'timestamps': []}
-        if system_state['predictor_instance']:
-            predictor = system_state['predictor_instance']
-            # Get last 50 stored prices for chart
-            stored_prices = list(predictor.stored_actual_prices.values())[-50:]
-            stored_predictions = list(predictor.stored_predictions.values())[-50:]
-            
-            if stored_prices:
-                chart_data['actual'] = [p['price'] for p in stored_prices]
-                chart_data['timestamps'] = [p['timestamp'] for p in stored_prices]
+        try:
+            if system_state.get('predictor_instance'):
+                predictor = system_state['predictor_instance']
+                # Get last 50 stored prices for chart
+                stored_prices = list(predictor.stored_actual_prices.values())[-50:]
+                stored_predictions = list(predictor.stored_predictions.values())[-50:]
                 
-            if stored_predictions:
-                chart_data['predicted'] = [p['predictions']['1d'] for p in stored_predictions[-len(chart_data['actual']):]]
+                if stored_prices:
+                    chart_data['actual'] = [p['price'] for p in stored_prices]
+                    chart_data['timestamps'] = [p['timestamp'] for p in stored_prices]
+                    
+                if stored_predictions:
+                    chart_data['predicted'] = [p['predictions']['1d'] for p in stored_predictions[-len(chart_data['actual']):]]
+        except Exception as chart_error:
+            logger.debug(f"Chart data not available yet: {chart_error}")
+            # Continue with empty chart data
         
         # Calculate all values from REAL data
         current_price = contract_info['current_price']
         
-        # Handle predictions being None (ML still initializing)
-        if predictions:
+        # Set prediction values based on ML readiness
+        if ml_ready and predictions:
             # Verify data is real
             if not predictions.get('is_real_prediction'):
-                raise Exception("CRITICAL: oil.py returned non-real predictions")
+                logger.error("CRITICAL: oil.py returned non-real predictions")
+                ml_ready = False
             
+        if ml_ready and predictions:
             previous_price = predictions.get('current_price', current_price)
             pred_1h = predictions['prediction_1h']
             pred_1d = predictions['prediction_1d']
             pred_1w = predictions['prediction_1w']
-            ml_ready = True
         else:
-            # ML still initializing - use current price as baseline
+            # ML not ready - use current price as safe baseline
             previous_price = current_price
-            pred_1h = current_price  # Placeholder until ML ready
-            pred_1d = current_price  # Placeholder until ML ready
-            pred_1w = current_price  # Placeholder until ML ready
-            ml_ready = False
+            pred_1h = current_price
+            pred_1d = current_price
+            pred_1w = current_price
         
         price_change = current_price - previous_price
         price_change_percent = (price_change / previous_price * 100) if previous_price > 0 else 0.0
