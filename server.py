@@ -162,13 +162,27 @@ def root():
             'server_time': datetime.now().isoformat()
         }), 503
     
-    if not system_state['initialized']:
-        logger.info(f"🔧 DEBUG: System not initialized. State: {system_state}")
+    # Alternative check: Test oil.py functions directly instead of relying on system_state
+    try:
+        # Quick test to see if oil.py is ready
+        test_contract = get_current_wti_contract()
+        if not test_contract or not test_contract.get('current_price'):
+            raise Exception("Contract detection not ready")
+        
+        # If we get here, oil.py is working - update system state if needed
+        if not system_state['initialized']:
+            logger.info("🔧 Oil.py is ready but system_state not updated - fixing state")
+            system_state['initialized'] = True
+            system_state['ml_ready'] = True
+            
+    except Exception as e:
+        logger.info(f"🔧 DEBUG: Oil.py not ready yet: {e}. State: {system_state}")
         return jsonify({
             'service': 'WTI Oil Price Prediction API',
             'status': 'INITIALIZING',
             'message': 'System initializing - oil.py engine starting...',
             'debug_state': system_state,
+            'oil_test_error': str(e),
             'server_time': datetime.now().isoformat()
         }), 503
     
@@ -213,10 +227,24 @@ def get_data():
             'server_time': datetime.now().isoformat()
         }), 503
     
-    if not system_state['initialized']:
+    # Test oil.py readiness directly instead of relying on system_state
+    try:
+        # Quick test to see if oil.py is ready
+        test_contract = get_current_wti_contract()
+        if not test_contract or not test_contract.get('current_price'):
+            raise Exception("Contract detection not ready")
+        
+        # Update system state if needed
+        if not system_state['initialized']:
+            logger.info("🔧 Oil.py ready for /data endpoint - updating state")
+            system_state['initialized'] = True
+            system_state['ml_ready'] = True
+            
+    except Exception as e:
         return jsonify({
             'error': 'SYSTEM_INITIALIZING',
             'message': 'System still initializing - please wait for oil.py to be ready',
+            'oil_test_error': str(e),
             'server_time': datetime.now().isoformat()
         }), 503
     
