@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from "react";
 import Chart from "./Chart";
-import ChatInterface from "./ChatInterface";
 
 function App() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [isChatVisible, setIsChatVisible] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -198,7 +196,6 @@ function App() {
                 if (!predictions) {
                   return [
                     { period: '1H', risk: '+0.8' },
-                    { period: '4H', risk: '+1.2' },
                     { period: '1D', risk: '+1.8' },
                     { period: '1W', risk: '+2.5' }
                   ].map(({ period, risk }) => (
@@ -209,8 +206,8 @@ function App() {
                   ));
                 }
                 
-                const horizons = ['1h', '4h', '1d', '7d'];
-                const labels = ['1H', '4H', '1D', '1W'];
+                const horizons = ['1h', '1d', '7d'];
+                const labels = ['1H', '1D', '1W'];
                 
                 return horizons.map((horizon, i) => {
                   if (predictions[horizon] && currentPrice) {
@@ -250,12 +247,6 @@ function App() {
         />
       </div>
 
-      {/* Chat Interface */}
-      <ChatInterface 
-        data={data}
-        isVisible={isChatVisible}
-        onToggle={() => setIsChatVisible(!isChatVisible)}
-      />
     </div>
   );
 }

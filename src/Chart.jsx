@@ -32,6 +32,7 @@ export default function Chart({
   actualArray = [], 
   predictedArray = [], 
   unifiedData = null,
+  multiHorizonPredictions = null,
   showFuture = true,
   currentPrice = 0
 }) {
@@ -40,7 +41,6 @@ export default function Chart({
 
   // Process data with clear separation of actual, historical predictions, and future predictions
   const chartData = useMemo(() => {
-    console.log("Processing chart data...", { unifiedData, actualArray, predictedArray });
     
     // Get actual data
     const actualData = unifiedData?.actual || { values: actualArray || [], timestamps: [] };
@@ -48,6 +48,7 @@ export default function Chart({
       historical: { values: predictedArray || [], timestamps: [], upper_bound: [], lower_bound: [] },
       future: { values: [], timestamps: [], upper_bound: [], lower_bound: [] }
     };
+    
     
     if (!actualData.values || actualData.values.length === 0) {
       console.log("No actual data available");
@@ -85,46 +86,35 @@ export default function Chart({
     
     // Process historical predictions (align with actual data)
     if (predictedData.historical?.values && predictedData.historical.values.length > 0) {
-      const startIndex = Math.max(0, actualPrices.length - predictedData.historical.values.length);
+      // Fill historical predictions array with prediction values
       predictedData.historical.values.forEach((pred, i) => {
-        const index = startIndex + i;
-        if (index < historicalPredictions.length && pred && !isNaN(pred)) {
-          historicalPredictions[index] = Number(pred.toFixed(2));
+        if (i < historicalPredictions.length && pred && !isNaN(pred)) {
+          historicalPredictions[i] = Number(pred.toFixed(2));
         }
       });
     }
     
-    // Generate future predictions if needed
-    if (showFuture && actualPrices.length > 0) {
-      const lastPrice = actualPrices[actualPrices.length - 1];
-      
-      // Calculate simple momentum from last 5 prices
-      let momentum = 0;
-      if (actualPrices.length >= 5) {
-        const recent = actualPrices.slice(-5);
-        const changes = recent.slice(1).map((price, i) => price - recent[i]);
-        momentum = changes.reduce((sum, change) => sum + change, 0) / changes.length;
-      }
-      
-      // Create 4 future predictions
+    // Add future predictions from multiHorizonPredictions prop
+    if (showFuture && actualPrices.length > 0 && multiHorizonPredictions?.predictions) {
+      const predictions = multiHorizonPredictions.predictions;
       const futurePoints = [
-        { hours: 1, label: '+1h' },
-        { hours: 4, label: '+4h' },
-        { hours: 24, label: '+1d' },
-        { hours: 168, label: '+7d' }
+        { key: '1h', label: '+1H', value: predictions['1h'] },
+        { key: '1d', label: '+1D', value: predictions['1d'] },
+        { key: '7d', label: '+1W', value: predictions['7d'] }
       ];
       
-      // NO FAKE PREDICTIONS - Only show real ML predictions from backend
-      // Remove this fake future prediction generation completely
-      // Future predictions should only come from real ML model via API
+      // Add future prediction points to the timeline
+      futurePoints.forEach(point => {
+        if (point.value && !isNaN(point.value)) {
+          timeLabels.push(point.label);
+          actualPrices.push(null);
+          historicalPredictions.push(null);
+          futurePredictions.push(Number(point.value.toFixed(2)));
+        }
+      });
     }
     
-    console.log("Final data arrays:", {
-      timeLabels: timeLabels.length,
-      actualPrices: actualPrices.filter(p => p !== null).length,
-      historicalPredictions: historicalPredictions.filter(p => p !== null).length,
-      futurePredictions: futurePredictions.filter(p => p !== null).length
-    });
+    
     
     return {
       isEmpty: false,
@@ -135,7 +125,7 @@ export default function Chart({
       currentPrice: actualPrices.filter(p => p !== null).pop() || 0,
       totalPoints: actualPrices.filter(p => p !== null).length
     };
-  }, [actualArray, predictedArray, unifiedData, showFuture]);
+  }, [actualArray, predictedArray, unifiedData, multiHorizonPredictions, showFuture]);
 
   // Reset zoom function
   const resetZoom = () => {
@@ -148,6 +138,28 @@ export default function Chart({
   const toggleHistoricalData = () => {
     setShowHistorical(!showHistorical);
   };
+
+  // Calculate Y-axis bounds for optimal oil price visualization
+  const calculateYAxisBounds = () => {
+    const actualPrices = chartData.actualPrices?.filter(p => p !== null && !isNaN(p)) || [];
+    const historicalPrices = chartData.historicalPredictions?.filter(p => p !== null && !isNaN(p)) || [];
+    const futurePrices = chartData.futurePredictions?.filter(p => p !== null && !isNaN(p)) || [];
+    
+    const allPrices = [...actualPrices, ...historicalPrices, ...futurePrices];
+    if (allPrices.length === 0) return { min: 60, max: 70 };
+    
+    const minPrice = Math.min(...allPrices);
+    const maxPrice = Math.max(...allPrices);
+    const range = maxPrice - minPrice;
+    const padding = Math.max(0.5, range * 0.15); // At least $0.50 padding or 15% of range
+    
+    return {
+      min: Math.max(0, minPrice - padding),
+      max: maxPrice + padding
+    };
+  };
+  
+  const yAxisBounds = calculateYAxisBounds();
 
   // Chart configuration with professional Bloomberg styling
   const data = {
@@ -174,14 +186,14 @@ export default function Chart({
       {
         label: 'HISTORICAL PREDICTIONS',
         data: showHistorical ? (chartData.historicalPredictions || []) : [],
-        borderColor: '#00FF00',
-        backgroundColor: 'rgba(0, 255, 0, 0.1)',
-        borderWidth: 2,
-        borderDash: [5, 5],
-        pointRadius: 1,
-        pointHoverRadius: 4,
-        pointBackgroundColor: '#00FF00',
-        pointBorderColor: '#FFFFFF',
+        borderColor: '#00FF88',
+        backgroundColor: 'rgba(0, 255, 136, 0.1)',
+        borderWidth: 3,
+        borderDash: [8, 4],
+        pointRadius: 2,
+        pointHoverRadius: 5,
+        pointBackgroundColor: '#00FF88',
+        pointBorderColor: '#000000',
         pointBorderWidth: 1,
         tension: 0.1,
         spanGaps: false,
@@ -195,13 +207,13 @@ export default function Chart({
         data: chartData.futurePredictions || [],
         borderColor: '#4AF6C3',
         backgroundColor: 'rgba(74, 246, 195, 0.1)',
-        borderWidth: 2,
-        borderDash: [3, 6],
-        pointRadius: 3,
-        pointHoverRadius: 6,
+        borderWidth: 3,
+        borderDash: [4, 8],
+        pointRadius: 4,
+        pointHoverRadius: 7,
         pointBackgroundColor: '#4AF6C3',
         pointBorderColor: '#000000',
-        pointBorderWidth: 1,
+        pointBorderWidth: 2,
         tension: 0.2,
         spanGaps: false,
         order: 3
@@ -334,6 +346,9 @@ export default function Chart({
       y: {
         type: 'linear',
         position: 'right',
+        beginAtZero: false,
+        min: yAxisBounds.min,
+        max: yAxisBounds.max,
         grid: {
           color: '#333333',
           lineWidth: 1,

@@ -1,9 +1,0 @@
-{
-  "prediction": 63.69,
-  "upper_bound": 65.6007,
-  "lower_bound": 61.7793,
-  "confidence": 0.88,
-  "timestamp": 1755200703.200237,
-  "processing_time": 32.080970287323,
-  "method": "complex_ml"
-}
