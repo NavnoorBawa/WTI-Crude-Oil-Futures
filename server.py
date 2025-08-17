@@ -45,36 +45,34 @@ class AppState:
 # Global state
 state = AppState()
 
-# Safe ML imports
+# Safe ML imports - LAZY LOADING to avoid timeout
 def load_ml_components():
-    """Load ML components safely"""
+    """Load ML components safely - imports only, no heavy operations"""
     try:
-        logger.info("Attempting to load ML components...")
+        logger.info("Loading ML imports only...")
         
         # Import yfinance
         import yfinance as yf
-        logger.info("✅ yfinance loaded")
+        logger.info("✅ yfinance imported")
         
-        # Import oil.py components
+        # Import oil.py components  
         from oil import (
             get_current_wti_contract,
             get_multi_horizon_wti_predictions
         )
-        logger.info("✅ oil.py components loaded")
+        logger.info("✅ oil.py components imported")
         
-        # Test basic functionality
-        contract = get_current_wti_contract()
-        logger.info(f"✅ Contract test passed: {contract.get('symbol', 'UNKNOWN')}")
-        
+        # DO NOT test contract here - causes timeout
+        # Just mark as available for lazy loading
         state.ml_available = True
-        state.add_error("ML components loaded successfully")
+        state.add_error("ML imports loaded - lazy initialization enabled")
         return True
         
     except Exception as e:
-        state.add_error(f"ML loading failed: {str(e)}")
+        state.add_error(f"ML import failed: {str(e)}")
         return False
 
-# Load ML on startup
+# Load ML imports on startup (fast)
 ML_LOADED = load_ml_components()
 
 # Cache utilities
@@ -139,7 +137,7 @@ def get_market_data():
         raise
 
 def get_predictions():
-    """Get ML predictions with caching"""
+    """Get ML predictions with timeout protection and fallback"""
     try:
         # Check cache first
         cached = get_cache('predictions', 180)
@@ -149,14 +147,55 @@ def get_predictions():
         if not state.ml_available:
             raise Exception("ML components not available")
         
-        from oil import get_multi_horizon_wti_predictions
+        # Try to get quick market data for fallback predictions
+        try:
+            market_data = get_market_data()
+            current_price = market_data['current_price']
+        except:
+            current_price = 75.0  # Safe fallback
         
-        predictions = get_multi_horizon_wti_predictions()
-        if not predictions or not predictions.get('is_real_prediction'):
-            raise Exception("No real predictions available")
-        
-        set_cache('predictions', predictions)
-        return predictions
+        # Try ML predictions with timeout protection
+        try:
+            from oil import get_multi_horizon_wti_predictions
+            
+            # Start background prediction (don't wait for result on first request)
+            predictions = None
+            cached_bg = get_cache('background_predictions', 300)  # 5 min cache
+            
+            if cached_bg:
+                predictions = cached_bg
+                logger.info("Using background cached predictions")
+            else:
+                # Quick fallback - use simple trend analysis
+                logger.warning("ML training in progress - using trend-based predictions")
+                predictions = {
+                    'prediction_1h': current_price + (current_price * 0.002),  # Small trend
+                    'prediction_1d': current_price + (current_price * 0.005),  
+                    'prediction_1w': current_price + (current_price * 0.010),
+                    'is_real_prediction': False,  # Mark as fallback
+                    'processing_time': 0.1,
+                    'data_quality_score': 60.0,
+                    'fallback_reason': 'ML training timeout protection'
+                }
+            
+            if predictions and predictions.get('is_real_prediction', False):
+                set_cache('predictions', predictions)
+            
+            return predictions
+            
+        except Exception as ml_error:
+            logger.warning(f"ML prediction failed: {ml_error}, using trend fallback")
+            # Fallback predictions based on current price
+            predictions = {
+                'prediction_1h': current_price + (current_price * 0.002),
+                'prediction_1d': current_price + (current_price * 0.005),  
+                'prediction_1w': current_price + (current_price * 0.010),
+                'is_real_prediction': False,
+                'processing_time': 0.1,
+                'data_quality_score': 60.0,
+                'fallback_reason': str(ml_error)
+            }
+            return predictions
         
     except Exception as e:
         logger.error(f"Prediction error: {e}")
@@ -300,30 +339,70 @@ def health():
             'server_time': datetime.now().isoformat()
         }), 503
 
-# Background cache refresh
-def background_refresh():
-    """Background thread to refresh cache"""
+# Background ML worker
+def background_ml_worker():
+    """Background worker for ML training and predictions"""
+    logger.info("🤖 Background ML worker started")
+    
+    # Wait a bit before first ML attempt
+    time.sleep(30)
+    
     while True:
         try:
-            time.sleep(120)  # Every 2 minutes
             if state.ml_available:
                 try:
-                    get_market_data()
-                    get_predictions()
-                    logger.info("Background cache refresh completed")
+                    logger.info("🧠 Attempting background ML prediction...")
+                    from oil import get_multi_horizon_wti_predictions
+                    
+                    # Try to get real ML predictions
+                    predictions = get_multi_horizon_wti_predictions()
+                    
+                    if predictions and predictions.get('is_real_prediction'):
+                        # Cache successful predictions
+                        set_cache('background_predictions', predictions)
+                        logger.info("✅ Background ML predictions cached successfully")
+                    else:
+                        logger.warning("⚠️ Background ML returned no real predictions")
+                        
                 except Exception as e:
-                    logger.warning(f"Background refresh failed: {e}")
+                    logger.warning(f"❌ Background ML failed: {e}")
+            
+            # Wait 5 minutes before next attempt
+            time.sleep(300)
+            
         except Exception as e:
-            logger.error(f"Background thread error: {e}")
+            logger.error(f"Background ML worker error: {e}")
+            time.sleep(120)  # Wait 2 minutes on error
+
+# Background cache refresh (lighter operations)
+def background_refresh():
+    """Background thread to refresh market data cache"""
+    while True:
+        try:
+            time.sleep(60)  # Every minute for market data
+            if state.ml_available:
+                try:
+                    get_market_data()  # Just market data, not ML
+                    logger.info("Background market data refresh completed")
+                except Exception as e:
+                    logger.warning(f"Background market refresh failed: {e}")
+        except Exception as e:
+            logger.error(f"Background refresh error: {e}")
 
 # Initialize background processing
 def init_background():
     """Initialize background processing"""
     if state.ml_available and not state.initialized:
-        thread = threading.Thread(target=background_refresh, daemon=True)
-        thread.start()
+        # Start market data refresh worker
+        refresh_thread = threading.Thread(target=background_refresh, daemon=True)
+        refresh_thread.start()
+        
+        # Start ML worker (separate thread for heavy operations)
+        ml_thread = threading.Thread(target=background_ml_worker, daemon=True)
+        ml_thread.start()
+        
         state.initialized = True
-        logger.info("Background processing initialized")
+        logger.info("Background processing initialized: market refresh + ML worker")
 
 # Initialize on first request
 @app.before_request
