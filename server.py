@@ -707,10 +707,12 @@ def clear_cache():
             'timestamp': datetime.now().isoformat()
         }), 500
 
-# Startup and Shutdown
-@app.before_first_request
-def startup():
+# Startup initialization function
+def initialize_application():
     """Application startup initialization"""
+    if state.startup_complete:
+        return  # Already initialized
+        
     logger.info("🚀 Starting WTI Production Server...")
     
     # Initialize ML model in background
@@ -732,6 +734,14 @@ def startup():
     # Run initialization in background thread
     init_thread = threading.Thread(target=init_async, daemon=True)
     init_thread.start()
+
+# Initialize on first request
+@app.before_request
+def ensure_initialized():
+    """Ensure application is initialized before handling requests"""
+    if not state.startup_complete and not hasattr(g, 'initializing'):
+        g.initializing = True
+        initialize_application()
 
 def run_server(host='0.0.0.0', port=9000, debug=False):
     """Run the production Flask server"""
