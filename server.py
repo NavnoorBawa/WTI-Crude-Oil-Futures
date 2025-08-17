@@ -684,13 +684,19 @@ def run_server(host='0.0.0.0', port=9000, debug=False):
         update_thread.start()
         logger.info("📈 Background prediction updater started")
     
-    # Initialize with fresh data
-    try:
-        with prediction_lock:
-            get_fresh_prediction_data()
-        logger.info("✅ Initial prediction data loaded")
-    except Exception as e:
-        logger.error(f"⚠️  Failed to load initial data: {e}")
+    # Initialize with fresh data (but don't fail startup if it takes too long)
+    def init_data_async():
+        try:
+            time.sleep(5)  # Wait for server to fully start
+            with prediction_lock:
+                get_fresh_prediction_data()
+            logger.info("✅ Initial prediction data loaded")
+        except Exception as e:
+            logger.error(f"⚠️  Failed to load initial data: {e}")
+    
+    # Start data initialization in background
+    init_thread = threading.Thread(target=init_data_async, daemon=True)
+    init_thread.start()
     
     # Run Flask server
     app.run(host=host, port=port, debug=debug, threaded=True)
