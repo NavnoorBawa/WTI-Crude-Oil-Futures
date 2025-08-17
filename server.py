@@ -115,7 +115,7 @@ def get_real_oil_price():
             contract_info = {'symbol': 'CLU25', 'description': 'WTI CRUDE OIL FUTURES'}
         
         ticker = yf.Ticker(symbol)
-        data = ticker.history(period="1d", interval="1m")
+        data = ticker.history(period="1d", interval="1m", timeout=10)
         if not data.empty:
             price = float(data['Close'].iloc[-1])
             volume = float(data['Volume'].iloc[-1]) if 'Volume' in data.columns else 0
@@ -222,11 +222,11 @@ def load_initial_real_data():
             contract_info = {'symbol': 'CLU25', 'description': 'WTI CRUDE OIL FUTURES'}
         
         ticker = yf.Ticker(symbol)
-        hist_data = ticker.history(period="1d", interval="5m")  # 5min intervals for speed
+        hist_data = ticker.history(period="1d", interval="5m", timeout=15)  # 5min intervals for speed
         
         if hist_data.empty:
             # Fallback to daily data
-            hist_data = ticker.history(period="5d", interval="1d")
+            hist_data = ticker.history(period="5d", interval="1d", timeout=10)
             
         if hist_data.empty:
             raise Exception("No historical data available")
@@ -429,6 +429,30 @@ def root():
 def get_data():
     """Main data endpoint - returns real data with ML when available"""
     try:
+        # Check if data is available yet
+        if global_data.get('data_points', 0) == 0:
+            # Return basic response while initializing
+            return jsonify({
+                'status': 'INITIALIZING',
+                'message': 'System is still loading initial data. Please wait...',
+                'current_price': 75.0,  # Placeholder
+                'actual': [],
+                'predicted': [],
+                'timestamps': [],
+                'multi_horizon_predictions': {
+                    'predictions': {'1h': 75.0, '1d': 75.0, '7d': 75.0},
+                    'is_real_prediction': False
+                },
+                'enterprise_metrics': {
+                    'data_points': 0,
+                    'data_quality': 0,
+                    'complex_ml_enabled': False,
+                    'ml_initialization_complete': False
+                },
+                'contract': {'symbol': 'CLU25', 'description': 'WTI CRUDE OIL FUTURES'},
+                'last_update': datetime.now().isoformat()
+            })
+        
         with data_lock:
             # Get contract info
             contract_info = global_data.get('contract_info', {})
@@ -585,13 +609,20 @@ def init_background():
     except Exception as e:
         logger.error(f"❌ Background initialization error: {e}")
 
-# Initialize on first request
-@app.before_request
-def before_request():
-    """Initialize before first request"""
-    if not hasattr(app, 'initialized'):
+# Initialize in background thread to avoid blocking startup
+def startup_initialization():
+    """Run initialization in background to avoid blocking server startup"""
+    try:
+        time.sleep(2)  # Give server a moment to start
         init_background()
-        app.initialized = True
+        logger.info("✅ Background initialization completed successfully")
+    except Exception as e:
+        logger.error(f"❌ Background initialization failed: {e}")
+
+# Start initialization in background thread
+startup_thread = threading.Thread(target=startup_initialization, daemon=True)
+startup_thread.start()
+logger.info("🚀 Startup initialization thread started")
 
 # This is the WSGI callable that Gunicorn will use
 logger.info(f"🚀 WTI Server ready for Render deployment")
