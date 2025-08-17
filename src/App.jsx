@@ -20,9 +20,16 @@ function App() {
     // Fetch data function
     const fetchData = async () => {
       try {
-        // Use Render backend URL
+        // Use Render backend URL with timeout
         const apiUrl = 'https://wti-crude-oil-backend.onrender.com';
-        const response = await fetch(`${apiUrl}/data`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+        
+        const response = await fetch(`${apiUrl}/data`, {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
@@ -32,7 +39,11 @@ function App() {
         setLoading(false);
         setError(null);
       } catch (err) {
-        setError(err.message);
+        if (err.name === 'AbortError') {
+          setError('Server timeout - Please wait and refresh');
+        } else {
+          setError(err.message);
+        }
         setLoading(false);
       }
     };
