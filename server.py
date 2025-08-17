@@ -79,6 +79,7 @@ def initialize_oil_system():
         system_state['last_prediction_time'] = time.time()
         
         logger.info("🚀 Oil prediction system ready - REAL DATA ONLY")
+        logger.info(f"🔧 System state: initialized={system_state['initialized']}, ml_ready={system_state['ml_ready']}")
         return True
         
     except Exception as e:
@@ -162,10 +163,12 @@ def root():
         }), 503
     
     if not system_state['initialized']:
+        logger.info(f"🔧 DEBUG: System not initialized. State: {system_state}")
         return jsonify({
             'service': 'WTI Oil Price Prediction API',
             'status': 'INITIALIZING',
             'message': 'System initializing - oil.py engine starting...',
+            'debug_state': system_state,
             'server_time': datetime.now().isoformat()
         }), 503
     
@@ -411,6 +414,7 @@ def startup_initialization():
         logger.critical(f"❌ System initialization FAILED: {e}")
         system_state['initialized'] = False
         system_state['ml_ready'] = False
+        logger.critical(f"🔧 System state after failure: initialized={system_state['initialized']}, ml_ready={system_state['ml_ready']}")
 
 # Start initialization
 startup_thread = threading.Thread(target=startup_initialization, daemon=True)
