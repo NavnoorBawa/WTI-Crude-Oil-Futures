@@ -195,6 +195,81 @@ def get_real_wti_price_data():
         logger.error(f"Error fetching real WTI price data: {e}")
         raise Exception(f"Failed to fetch real WTI price data: {e}")
 
+def get_real_historical_wti_data():
+    """Get REAL historical WTI data from yfinance - NO FAKE DATA"""
+    try:
+        from oil import get_current_wti_contract
+        import yfinance as yf
+        from datetime import datetime, timedelta
+        
+        # Get current contract info
+        contract_info = get_current_wti_contract()
+        symbol = contract_info['yfinance_symbol']
+        
+        # Get REAL historical WTI data from yfinance
+        ticker = yf.Ticker(symbol)
+        
+        # Get last 30 days of real historical data
+        hist_data = ticker.history(period="30d", interval="1h")
+        
+        if hist_data.empty:
+            raise Exception("No historical data available from yfinance")
+        
+        # Extract real prices
+        real_historical_prices = hist_data['Close'].tolist()
+        real_timestamps = hist_data.index.tolist()
+        
+        logger.info(f"Loaded {len(real_historical_prices)} REAL historical WTI prices from yfinance")
+        
+        return real_historical_prices, real_timestamps
+        
+    except Exception as e:
+        logger.error(f"Error getting real historical data: {e}")
+        return [], []
+
+def get_real_predictions_only():
+    """Get ONLY the real predictions we have actually made - NO FAKE DATA"""
+    try:
+        from oil import get_current_wti_contract
+        
+        # Get current contract info
+        contract_info = get_current_wti_contract()
+        contract_symbol = contract_info['symbol']
+        
+        data_dir = Path("data")
+        predictions_file = data_dir / f"{contract_symbol}_predictions.json"
+        
+        real_predictions = []
+        prediction_timestamps = []
+        
+        if predictions_file.exists():
+            try:
+                with open(predictions_file, 'r') as f:
+                    pred_data = json.load(f)
+                    
+                # Get ALL real predictions we've made
+                for timestamp, item in pred_data.items():
+                    if 'predictions' in item:
+                        real_predictions.append({
+                            'timestamp': timestamp,
+                            '1h': float(item['predictions']['1h']),
+                            '1d': float(item['predictions']['1d']),
+                            '1w': float(item['predictions']['1w']),
+                            'actual_at_prediction': float(item.get('actual_price_at_prediction', 0))
+                        })
+                        
+                logger.info(f"Loaded {len(real_predictions)} REAL prediction entries")
+                return real_predictions
+                
+            except Exception as e:
+                logger.warning(f"Could not load real predictions: {e}")
+        
+        return []
+        
+    except Exception as e:
+        logger.error(f"Error loading real predictions: {e}")
+        return []
+
 def calculate_accuracy_and_confidence(predictions_data: Dict) -> Dict:
     """Calculate realistic accuracy and confidence - try real data first, fallback to model estimates"""
     try:
@@ -324,10 +399,11 @@ def get_fresh_prediction_data():
         pct_change_1d = ((prediction_1d - current_price) / current_price) * 100 if current_price > 0 else 0
         pct_change_1w = ((prediction_1w - current_price) / current_price) * 100 if current_price > 0 else 0
 
-        # Create historical data arrays for chart (simplified for now - real implementation would fetch historical data)
-        # For now, create a simple actual price array with current price
-        actual_prices = [current_price - 0.5, current_price - 0.3, current_price - 0.1, current_price]
-        predicted_prices = [prediction_1h - 0.4, prediction_1h - 0.2, prediction_1h, prediction_1h]
+        # Get REAL historical WTI data from yfinance - NO FAKE DATA
+        real_historical_prices, real_timestamps = get_real_historical_wti_data()
+        
+        # Get ONLY real predictions we've actually made - NO FAKE DATA  
+        real_predictions = get_real_predictions_only()
         
         # Build complete data structure compatible with frontend expectations
         fresh_data = {
@@ -337,28 +413,30 @@ def get_fresh_prediction_data():
             'price_change_percent': round(price_data['percent_change'], 2),
             'volume_display': f"{price_data['volume']:,}" if price_data['volume'] > 0 else 'N/A',
             
-            # Chart data arrays that frontend expects
-            'actual': actual_prices,
-            'predicted': predicted_prices,
+            # Chart data arrays that frontend expects - USE REAL DATA ONLY
+            'actual': real_historical_prices[-50:] if real_historical_prices else [],  # Last 50 real prices
+            'predicted': [pred.get('1d', 0) for pred in real_predictions[-50:]] if real_predictions else [],  # Last 50 real 1d predictions
             
-            # Unified data structure for Chart component
+            # Unified data structure for Chart component - REAL DATA ONLY
             'unified_data': {
                 'actual': {
-                    'values': actual_prices,
-                    'timestamps': ['T-3', 'T-2', 'T-1', 'NOW']
+                    'values': real_historical_prices[-50:] if real_historical_prices else [],
+                    'timestamps': [ts.isoformat() if hasattr(ts, 'isoformat') else str(ts) 
+                                 for ts in real_timestamps[-50:]] if real_timestamps else []
                 },
                 'predicted': {
                     'historical': {
-                        'values': predicted_prices,
-                        'timestamps': ['T-3', 'T-2', 'T-1', 'NOW'],
-                        'upper_bound': [p + 0.2 for p in predicted_prices],
-                        'lower_bound': [p - 0.2 for p in predicted_prices]
+                        'values': [pred.get('1d', 0) for pred in real_predictions[-50:]] if real_predictions else [],
+                        'timestamps': [f"T-{len(real_predictions)-i}" if i < len(real_predictions)-1 else "NOW" 
+                                     for i in range(min(50, len(real_predictions)))] if real_predictions else [],
+                        'upper_bound': [],  # No fake bounds
+                        'lower_bound': []   # No fake bounds
                     },
                     'future': {
                         'values': [prediction_1h, prediction_1d, prediction_1w],
                         'timestamps': ['+1H', '+1D', '+1W'],
-                        'upper_bound': [prediction_1h + 0.3, prediction_1d + 0.5, prediction_1w + 0.8],
-                        'lower_bound': [prediction_1h - 0.3, prediction_1d - 0.5, prediction_1w - 0.8]
+                        'upper_bound': [],  # No fake bounds
+                        'lower_bound': []   # No fake bounds
                     }
                 }
             },
@@ -427,7 +505,7 @@ def get_fresh_prediction_data():
         cached_data = fresh_data
         last_prediction_time = time.time()
         
-        logger.info(f"✅ Fresh data generated: {price_data['symbol']} @ ${fresh_data['last_price']}")
+        logger.info(f"✅ Fresh data generated: {price_data['symbol']} @ {fresh_data['last_price']}")
         return fresh_data
         
     except Exception as e:

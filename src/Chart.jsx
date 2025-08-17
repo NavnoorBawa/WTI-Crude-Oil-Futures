@@ -67,17 +67,62 @@ export default function Chart({
     const historicalPredictions = [];
     const futurePredictions = [];
     
-    // Process actual historical data (past to present)
-    actualData.values.forEach((price, i) => {
+    // LIMIT HISTORICAL DATA to give 3/4 space to future predictions (like btcgpt.info)
+    // Show only last 15-20 historical points to leave room for future predictions
+    const maxHistoricalPoints = 15;
+    const startIndex = Math.max(0, actualData.values.length - maxHistoricalPoints);
+    const historicalSlice = actualData.values.slice(startIndex);
+    const timestampSlice = actualData.timestamps ? actualData.timestamps.slice(startIndex) : [];
+    
+    // Process limited actual historical data with REAL timestamps - NO FAKE TIME
+    historicalSlice.forEach((price, i) => {
       if (price && !isNaN(price) && price > 0) {
-        const minutesAgo = actualData.values.length - 1 - i;
-        if (minutesAgo === 0) {
-          timeLabels.push('NOW');
-        } else if (minutesAgo < 60) {
-          timeLabels.push(`-${minutesAgo}m`);
+        // Use real timestamps if available, otherwise create readable time labels
+        let timeLabel;
+        
+        if (timestampSlice && timestampSlice[i]) {
+          // Use actual timestamp from data - show date and time for market data
+          const timestamp = new Date(timestampSlice[i]);
+          const now = new Date();
+          const daysDiff = Math.floor((now - timestamp) / (1000 * 60 * 60 * 24));
+          
+          if (daysDiff === 0) {
+            // Same day - show time only
+            timeLabel = timestamp.toLocaleTimeString('en-US', { 
+              hour12: false, 
+              hour: '2-digit', 
+              minute: '2-digit' 
+            });
+          } else if (daysDiff <= 7) {
+            // Within a week - show day and time
+            timeLabel = timestamp.toLocaleDateString('en-US', { 
+              weekday: 'short',
+              hour: '2-digit', 
+              minute: '2-digit',
+              hour12: false
+            });
+          } else {
+            // Older - show date
+            timeLabel = timestamp.toLocaleDateString('en-US', { 
+              month: 'short', 
+              day: 'numeric'
+            });
+          }
         } else {
-          timeLabels.push(`-${Math.floor(minutesAgo / 60)}h`);
+          // Fallback: Create realistic time intervals 
+          const hoursAgo = historicalSlice.length - 1 - i;
+          if (hoursAgo === 0) {
+            timeLabel = 'NOW';
+          } else if (hoursAgo <= 24) {
+            timeLabel = `-${hoursAgo}h`;
+          } else {
+            const days = Math.floor(hoursAgo / 24);
+            const hours = hoursAgo % 24;
+            timeLabel = hours > 0 ? `-${days}d${hours}h` : `-${days}d`;
+          }
         }
+        
+        timeLabels.push(timeLabel);
         actualPrices.push(Number(price.toFixed(2)));
         historicalPredictions.push(null);
         futurePredictions.push(null);
@@ -94,17 +139,36 @@ export default function Chart({
       });
     }
     
-    // Add future predictions from multiHorizonPredictions prop
+    // Add ONLY REAL future predictions that your model actually makes - NO FAKE INTERPOLATION
     if (showFuture && actualPrices.length > 0 && multiHorizonPredictions?.predictions) {
       const predictions = multiHorizonPredictions.predictions;
-      const futurePoints = [
-        { key: '1h', label: '+1H', value: predictions['1h'] },
-        { key: '1d', label: '+1D', value: predictions['1d'] },
-        { key: '7d', label: '+1W', value: predictions['7d'] }
+      
+      // ONLY show the 3 REAL predictions your model makes - NO FAKE POINTS
+      const realFuturePoints = [
+        { label: '+1H', value: predictions['1h'] },  // Real 1H prediction
+        { label: '+1D', value: predictions['1d'] },  // Real 1D prediction  
+        { label: '+1W', value: predictions['7d'] }   // Real 1W prediction
       ];
       
-      // Add future prediction points to the timeline
-      futurePoints.forEach(point => {
+      // Add spacing points to give future predictions more chart space
+      const spacingPoints = [
+        { label: '', value: null },  // Empty spacing
+        { label: '', value: null },  // Empty spacing
+        { label: '', value: null },  // Empty spacing
+        { label: '', value: null },  // Empty spacing
+        { label: '', value: null },  // Empty spacing
+      ];
+      
+      // Add spacing first to create 3/4 chart space for future
+      spacingPoints.forEach(point => {
+        timeLabels.push(point.label);
+        actualPrices.push(null);
+        historicalPredictions.push(null);
+        futurePredictions.push(null);
+      });
+      
+      // Add ONLY the 3 REAL prediction points
+      realFuturePoints.forEach(point => {
         if (point.value && !isNaN(point.value)) {
           timeLabels.push(point.label);
           actualPrices.push(null);
@@ -327,7 +391,9 @@ export default function Chart({
             size: 12,
             weight: 'normal'
           },
-          maxTicksLimit: 12,
+          maxTicksLimit: 20,
+          maxRotation: 45,
+          minRotation: 0,
         },
         border: {
           color: '#666666',
