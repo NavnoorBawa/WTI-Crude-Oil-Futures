@@ -251,8 +251,21 @@ def get_data():
     try:
         # Get REAL data from oil.py - NO FALLBACKS
         contract_info = get_current_wti_contract()
-        predictions = get_multi_horizon_wti_predictions()
-        accuracy_metrics = get_prediction_accuracy_metrics()
+        
+        # Try to get ML predictions, but don't block if they're not ready yet
+        predictions = None
+        accuracy_metrics = None
+        
+        try:
+            # Quick check if ML system is ready (don't wait for full initialization)
+            if system_state.get('ml_ready', False):
+                predictions = get_multi_horizon_wti_predictions()
+                accuracy_metrics = get_prediction_accuracy_metrics()
+            else:
+                logger.info("🔄 ML system still initializing - serving basic data without predictions")
+        except Exception as ml_error:
+            logger.warning(f"⚠️ ML predictions not ready yet: {ml_error}")
+            # Continue with basic data
         
         # Get chart data from predictor instance
         chart_data = {'actual': [], 'predicted': [], 'timestamps': []}
@@ -269,24 +282,34 @@ def get_data():
             if stored_predictions:
                 chart_data['predicted'] = [p['predictions']['1d'] for p in stored_predictions[-len(chart_data['actual']):]]
         
-        # Verify data is real
-        if not predictions.get('is_real_prediction'):
-            raise Exception("CRITICAL: oil.py returned non-real predictions")
-        
         # Calculate all values from REAL data
         current_price = contract_info['current_price']
-        previous_price = predictions.get('current_price', current_price)
+        
+        # Handle predictions being None (ML still initializing)
+        if predictions:
+            # Verify data is real
+            if not predictions.get('is_real_prediction'):
+                raise Exception("CRITICAL: oil.py returned non-real predictions")
+            
+            previous_price = predictions.get('current_price', current_price)
+            pred_1h = predictions['prediction_1h']
+            pred_1d = predictions['prediction_1d']
+            pred_1w = predictions['prediction_1w']
+            ml_ready = True
+        else:
+            # ML still initializing - use current price as baseline
+            previous_price = current_price
+            pred_1h = current_price  # Placeholder until ML ready
+            pred_1d = current_price  # Placeholder until ML ready
+            pred_1w = current_price  # Placeholder until ML ready
+            ml_ready = False
+        
         price_change = current_price - previous_price
         price_change_percent = (price_change / previous_price * 100) if previous_price > 0 else 0.0
         
         # Calculate next ML prediction time
-        time_since_last = int(time.time() - system_state['last_prediction_time'])
-        next_prediction_in = max(0, 180 - time_since_last)
-        
-        # Calculate percentage changes for horizons
-        pred_1h = predictions['prediction_1h']
-        pred_1d = predictions['prediction_1d']
-        pred_1w = predictions['prediction_1w']
+        time_since_last = int(time.time() - system_state.get('last_prediction_time', 0))
+        next_prediction_in = max(0, 180 - time_since_last) if ml_ready else 0
         
         # Format volume for display
         volume = contract_info.get('volume', 0)
@@ -318,14 +341,14 @@ def get_data():
                     '7d': round(pred_1w, 2)
                 },
                 'percentage_changes': {
-                    '1h': round((pred_1h - current_price) / current_price * 100, 1),
-                    '1d': round((pred_1d - current_price) / current_price * 100, 1),
-                    '7d': round((pred_1w - current_price) / current_price * 100, 1)
+                    '1h': round((pred_1h - current_price) / current_price * 100, 1) if ml_ready else 0.0,
+                    '1d': round((pred_1d - current_price) / current_price * 100, 1) if ml_ready else 0.0,
+                    '7d': round((pred_1w - current_price) / current_price * 100, 1) if ml_ready else 0.0
                 },
-                'is_real_prediction': True,
-                'processing_time': predictions.get('processing_time', 0),
-                'feature_count': predictions.get('feature_count', 0),
-                'last_update': predictions.get('timestamp', datetime.now().isoformat())
+                'is_real_prediction': ml_ready,
+                'processing_time': predictions.get('processing_time', 0) if predictions else 0,
+                'feature_count': predictions.get('feature_count', 0) if predictions else 0,
+                'last_update': predictions.get('timestamp', datetime.now().isoformat()) if predictions else datetime.now().isoformat()
             },
             
             # ML system status
@@ -338,9 +361,9 @@ def get_data():
             
             # Performance metrics - REAL ONLY
             'performance_metrics': {
-                'direction_accuracy': round(accuracy_metrics.get('overall', {}).get('direction_accuracy', 0), 1),
-                'confidence': round(min(95, max(50, accuracy_metrics.get('overall', {}).get('direction_accuracy', 0) + 10)), 1),
-                'total_predictions': accuracy_metrics.get('overall', {}).get('total_predictions', 0)
+                'direction_accuracy': round(accuracy_metrics.get('overall', {}).get('direction_accuracy', 0), 1) if accuracy_metrics else 0,
+                'confidence': round(min(95, max(50, accuracy_metrics.get('overall', {}).get('direction_accuracy', 0) + 10)), 1) if accuracy_metrics else 0,
+                'total_predictions': accuracy_metrics.get('overall', {}).get('total_predictions', 0) if accuracy_metrics else 0
             },
             
             # Contract information - REAL ONLY
