@@ -421,8 +421,8 @@ def get_data():
             # Legacy compatibility fields
             'last_price': round(current_price, 2),
             'ml_prediction': round(pred_1d, 2),
-            'accuracy': f"{round(accuracy_metrics.get('overall', {}).get('direction_accuracy', 0))}%",
-            'confidence': f"{round(min(95, max(50, accuracy_metrics.get('overall', {}).get('direction_accuracy', 0) + 10)))}%",
+            'accuracy': f"{round(accuracy_metrics.get('overall', {}).get('direction_accuracy', 0)) if accuracy_metrics else 0}%",
+            'confidence': f"{round(min(95, max(50, accuracy_metrics.get('overall', {}).get('direction_accuracy', 0) + 10)) if accuracy_metrics else 50)}%",
             'timestamp': datetime.now().isoformat()
         })
         
