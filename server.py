@@ -80,6 +80,9 @@ def initialize_oil_system():
         
         logger.info("🚀 Oil prediction system ready - REAL DATA ONLY")
         logger.info(f"🔧 System state: initialized={system_state['initialized']}, ml_ready={system_state['ml_ready']}")
+        
+        # Force immediate state sync
+        logger.info("🔧 Force syncing system state globally")
         return True
         
     except Exception as e:
@@ -173,7 +176,7 @@ def root():
         if not system_state['initialized']:
             logger.info("🔧 Oil.py is ready but system_state not updated - fixing state")
             system_state['initialized'] = True
-            system_state['ml_ready'] = True
+            # Don't automatically set ml_ready here - let the ML training process control this
             
     except Exception as e:
         logger.info(f"🔧 DEBUG: Oil.py not ready yet: {e}. State: {system_state}")

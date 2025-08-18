@@ -51,7 +51,6 @@ export default function Chart({
     
     
     if (!actualData.values || actualData.values.length === 0) {
-      console.log("No actual data available");
       return { isEmpty: true };
     }
     
