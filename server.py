@@ -280,7 +280,12 @@ def get_data():
                     predictions = None
                 
                 # Get accuracy metrics from stored data
-                accuracy_metrics = predictor.calculate_and_store_accuracy()
+                try:
+                    accuracy_metrics = predictor.calculate_and_store_accuracy()
+                    logger.debug(f"✅ Got accuracy metrics: {type(accuracy_metrics)}")
+                except Exception as acc_error:
+                    logger.warning(f"⚠️ Accuracy metrics failed: {acc_error}")
+                    accuracy_metrics = None
                 
             except Exception as ml_error:
                 logger.warning(f"⚠️ Cached predictions failed: {ml_error}")
@@ -297,18 +302,21 @@ def get_data():
         try:
             if system_state.get('predictor_instance'):
                 predictor = system_state['predictor_instance']
+                logger.debug(f"📊 Getting chart data from predictor: {type(predictor)}")
                 # Get last 50 stored prices for chart
-                stored_prices = list(predictor.stored_actual_prices.values())[-50:]
-                stored_predictions = list(predictor.stored_predictions.values())[-50:]
+                stored_prices = list(predictor.stored_actual_prices.values())[-50:] if predictor.stored_actual_prices else []
+                stored_predictions = list(predictor.stored_predictions.values())[-50:] if predictor.stored_predictions else []
+                
+                logger.debug(f"📊 Found {len(stored_prices)} stored prices, {len(stored_predictions)} predictions")
                 
                 if stored_prices:
-                    chart_data['actual'] = [p['price'] for p in stored_prices]
-                    chart_data['timestamps'] = [p['timestamp'] for p in stored_prices]
+                    chart_data['actual'] = [p.get('price', 0) if p else 0 for p in stored_prices]
+                    chart_data['timestamps'] = [p.get('timestamp', '') if p else '' for p in stored_prices]
                     
                 if stored_predictions:
-                    chart_data['predicted'] = [p['predictions']['1d'] for p in stored_predictions[-len(chart_data['actual']):]]
+                    chart_data['predicted'] = [p.get('predictions', {}).get('1d', 0) if p else 0 for p in stored_predictions[-len(chart_data['actual']):]]
         except Exception as chart_error:
-            logger.debug(f"Chart data not available yet: {chart_error}")
+            logger.warning(f"📊 Chart data error: {chart_error}")
             # Continue with empty chart data
         
         # Calculate all values from REAL data
