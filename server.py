@@ -238,7 +238,19 @@ def get_data():
         if not system_state['initialized']:
             logger.info("🔧 Oil.py ready for /data endpoint - updating state")
             system_state['initialized'] = True
-            system_state['ml_ready'] = True
+            
+        # Check if we have a predictor instance with cached predictions
+        if system_state.get('predictor_instance'):
+            predictor = system_state['predictor_instance']
+            if hasattr(predictor, 'stored_predictions') and predictor.stored_predictions:
+                logger.info("🔧 Found cached predictions - ML system is ready")
+                system_state['ml_ready'] = True
+            else:
+                logger.info("🔧 No cached predictions yet - ML still training")
+                system_state['ml_ready'] = False
+        else:
+            logger.info("🔧 No predictor instance yet")
+            system_state['ml_ready'] = False
             
     except Exception as e:
         return jsonify({
@@ -366,9 +378,9 @@ def get_data():
             'volume_display': volume_display,
             
             # Chart data - REAL ONLY
-            'actual': chart_data['actual'],
-            'predicted': chart_data['predicted'],
-            'timestamps': chart_data['timestamps'],
+            'actual': chart_data.get('actual', []),
+            'predicted': chart_data.get('predicted', []),
+            'timestamps': chart_data.get('timestamps', []),
             
             # Multi-horizon predictions - REAL ML ONLY
             'multi_horizon_predictions': {
@@ -382,7 +394,7 @@ def get_data():
                     '1d': round((pred_1d - current_price) / current_price * 100, 1) if ml_ready else 0.0,
                     '7d': round((pred_1w - current_price) / current_price * 100, 1) if ml_ready else 0.0
                 },
-                'is_real_prediction': ml_ready,
+                'is_real_prediction': ml_ready and predictions is not None,
                 'processing_time': predictions.get('processing_time', 0) if predictions else 0,
                 'feature_count': predictions.get('feature_count', 0) if predictions else 0,
                 'last_update': predictions.get('timestamp', datetime.now().isoformat()) if predictions else datetime.now().isoformat()
