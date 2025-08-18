@@ -35,20 +35,94 @@ except Exception as e:
     logger.critical(f"❌ CRITICAL: Cannot import oil.py functions: {e}")
     OIL_IMPORTS_AVAILABLE = False
 
-# Global state - REAL DATA ONLY
-system_state = {
-    'initialized': False,
-    'ml_ready': False,
-    'last_prediction_time': 0,
-    'last_price_update_time': 0,
-    'error_count': 0,
-    'predictor_instance': None
-}
+# Global predictor instance - SINGLE SOURCE OF TRUTH
+predictor_instance = None
+predictor_lock = threading.Lock()
+
+def get_predictor():
+    """Get the global predictor instance safely"""
+    global predictor_instance
+    with predictor_lock:
+        return predictor_instance
+
+def set_predictor(predictor):
+    """Set the global predictor instance safely"""
+    global predictor_instance
+    with predictor_lock:
+        predictor_instance = predictor
+
+def is_ml_ready():
+    """Check if ML system is ready by testing predictor directly"""
+    predictor = get_predictor()
+    if not predictor:
+        return False
+    
+    # Check if predictor has cached predictions
+    if hasattr(predictor, 'stored_predictions') and predictor.stored_predictions:
+        return True
+    
+    return False
+
+def get_cached_predictions():
+    """Get cached predictions from predictor instance"""
+    predictor = get_predictor()
+    if not predictor or not hasattr(predictor, 'stored_predictions'):
+        return None
+    
+    if not predictor.stored_predictions:
+        return None
+    
+    # Get most recent prediction
+    latest_pred = list(predictor.stored_predictions.values())[-1]
+    return {
+        'prediction_1h': latest_pred['predictions']['1h'],
+        'prediction_1d': latest_pred['predictions']['1d'],
+        'prediction_1w': latest_pred['predictions']['1w'],
+        'is_real_prediction': True,
+        'timestamp': latest_pred['timestamp'],
+        'processing_time': 0,
+        'feature_count': 20
+    }
+
+def get_accuracy_metrics():
+    """Get accuracy metrics from predictor instance"""
+    predictor = get_predictor()
+    if not predictor:
+        return None
+    
+    try:
+        return predictor.calculate_and_store_accuracy()
+    except Exception as e:
+        logger.warning(f"⚠️ Accuracy metrics failed: {e}")
+        return None
+
+def get_chart_data():
+    """Get chart data from predictor instance"""
+    predictor = get_predictor()
+    if not predictor:
+        return {'actual': [], 'predicted': [], 'timestamps': []}
+    
+    try:
+        # Get stored data for chart
+        stored_prices = list(predictor.stored_actual_prices.values())[-50:] if hasattr(predictor, 'stored_actual_prices') and predictor.stored_actual_prices else []
+        stored_predictions = list(predictor.stored_predictions.values())[-50:] if hasattr(predictor, 'stored_predictions') and predictor.stored_predictions else []
+        
+        chart_data = {'actual': [], 'predicted': [], 'timestamps': []}
+        
+        if stored_prices:
+            chart_data['actual'] = [p.get('price', 0) for p in stored_prices]
+            chart_data['timestamps'] = [p.get('timestamp', '') for p in stored_prices]
+            
+        if stored_predictions:
+            chart_data['predicted'] = [p.get('predictions', {}).get('1d', 0) for p in stored_predictions[-len(chart_data['actual']):]]
+        
+        return chart_data
+    except Exception as e:
+        logger.debug(f"📊 Chart data error: {e}")
+        return {'actual': [], 'predicted': [], 'timestamps': []}
 
 def initialize_oil_system():
     """Initialize the oil prediction system - REAL DATA ONLY"""
-    global system_state
-    
     if not OIL_IMPORTS_AVAILABLE:
         raise Exception("CRITICAL: oil.py imports not available - cannot start server")
     
@@ -61,7 +135,7 @@ def initialize_oil_system():
         
         # Initialize predictor
         predictor = PremiumWTIPredictor()
-        system_state['predictor_instance'] = predictor
+        set_predictor(predictor)
         logger.info("✅ Premium WTI Predictor initialized")
         
         # Run initial prediction to verify system
@@ -74,15 +148,7 @@ def initialize_oil_system():
         logger.info(f"   1D: ${predictions['prediction_1d']:.2f}")
         logger.info(f"   1W: ${predictions['prediction_1w']:.2f}")
         
-        system_state['initialized'] = True
-        system_state['ml_ready'] = True
-        system_state['last_prediction_time'] = time.time()
-        
         logger.info("🚀 Oil prediction system ready - REAL DATA ONLY")
-        logger.info(f"🔧 System state: initialized={system_state['initialized']}, ml_ready={system_state['ml_ready']}")
-        
-        # Force immediate state sync
-        logger.info("🔧 Force syncing system state globally")
         return True
         
     except Exception as e:
@@ -91,16 +157,17 @@ def initialize_oil_system():
 
 def update_predictions():
     """Update predictions every 3 minutes"""
-    global system_state
+    error_count = 0
+    last_prediction_time = 0
     
     while True:
         try:
             time.sleep(30)  # Check every 30 seconds
             
             current_time = time.time()
-            if current_time - system_state['last_prediction_time'] >= 180:  # 3 minutes
+            if current_time - last_prediction_time >= 180:  # 3 minutes
                 
-                if not system_state['ml_ready']:
+                if not is_ml_ready():
                     logger.warning("⚠️ ML system not ready - skipping prediction update")
                     continue
                 
@@ -112,30 +179,28 @@ def update_predictions():
                 if not predictions.get('is_real_prediction'):
                     raise Exception("Received non-real predictions from oil.py")
                 
-                system_state['last_prediction_time'] = current_time
-                system_state['error_count'] = 0
+                last_prediction_time = current_time
+                error_count = 0
                 
                 logger.info(f"✅ Predictions updated - 1H: ${predictions['prediction_1h']:.2f}")
                 
         except Exception as e:
-            system_state['error_count'] += 1
-            logger.error(f"❌ Prediction update failed (error {system_state['error_count']}): {e}")
+            error_count += 1
+            logger.error(f"❌ Prediction update failed (error {error_count}): {e}")
             
-            if system_state['error_count'] >= 5:
+            if error_count >= 5:
                 logger.critical("🚨 Too many prediction errors - ML system may be failing")
-                system_state['ml_ready'] = False
             
             time.sleep(60)  # Wait longer on error
 
 def update_price_data():
     """Update current price data every 30 seconds"""
-    global system_state
-    
     while True:
         try:
             time.sleep(30)
             
-            if not system_state['initialized']:
+            predictor = get_predictor()
+            if not predictor:
                 continue
             
             # Get current contract and price
@@ -144,8 +209,6 @@ def update_price_data():
             
             # Store the price update
             store_actual_price_update(current_price)
-            
-            system_state['last_price_update_time'] = time.time()
             
             logger.debug(f"📊 Price updated: ${current_price:.2f}")
             
@@ -165,52 +228,23 @@ def root():
             'server_time': datetime.now().isoformat()
         }), 503
     
-    # Alternative check: Test oil.py functions directly instead of relying on system_state
     try:
-        # Quick test to see if oil.py is ready
-        test_contract = get_current_wti_contract()
-        if not test_contract or not test_contract.get('current_price'):
+        # Test contract detection
+        contract_info = get_current_wti_contract()
+        if not contract_info or not contract_info.get('current_price'):
             raise Exception("Contract detection not ready")
         
-        # If we get here, oil.py is working - update system state if needed
-        if not system_state['initialized']:
-            logger.info("🔧 Oil.py is ready but system_state not updated - fixing state")
-            system_state['initialized'] = True
-            # Don't automatically set ml_ready here - let the ML training process control this
-            
-    except Exception as e:
-        logger.info(f"🔧 DEBUG: Oil.py not ready yet: {e}. State: {system_state}")
-        return jsonify({
-            'service': 'WTI Oil Price Prediction API',
-            'status': 'INITIALIZING',
-            'message': 'System initializing - oil.py engine starting...',
-            'debug_state': system_state,
-            'oil_test_error': str(e),
-            'server_time': datetime.now().isoformat()
-        }), 503
-    
-    try:
-        # Get current system status from oil.py
-        contract_info = get_current_wti_contract()
-        
-        # Check ML readiness directly by testing predictor instance
-        actual_ml_ready = False
-        if system_state.get('predictor_instance'):
-            predictor = system_state['predictor_instance']
-            if hasattr(predictor, 'stored_predictions') and predictor.stored_predictions:
-                actual_ml_ready = True
-                system_state['ml_ready'] = True  # Force sync
+        # Check ML readiness
+        ml_ready = is_ml_ready()
         
         return jsonify({
             'service': 'WTI Oil Price Prediction API',
             'status': 'ACTIVE',
             'version': '4.0.0-real-data-only',
-            'ml_ready': actual_ml_ready,
+            'ml_ready': ml_ready,
             'contract': contract_info['symbol'],
             'current_price': contract_info['current_price'],
             'data_source': 'oil.py REAL DATA ONLY',
-            'last_prediction_time': system_state['last_prediction_time'],
-            'error_count': system_state['error_count'],
             'endpoints': {
                 '/': 'Server status',
                 '/data': 'Real WTI data and ML predictions',
@@ -222,11 +256,11 @@ def root():
     except Exception as e:
         return jsonify({
             'service': 'WTI Oil Price Prediction API',
-            'status': 'ERROR',
+            'status': 'INITIALIZING',
+            'message': 'System initializing - oil.py engine starting...',
             'error': str(e),
-            'message': 'Cannot access oil.py functions',
             'server_time': datetime.now().isoformat()
-        }), 500
+        }), 503
 
 @app.route('/data')
 def get_data():
@@ -238,120 +272,26 @@ def get_data():
             'server_time': datetime.now().isoformat()
         }), 503
     
-    # Test oil.py readiness directly instead of relying on system_state
     try:
-        # Quick test to see if oil.py is ready
-        test_contract = get_current_wti_contract()
-        if not test_contract or not test_contract.get('current_price'):
-            raise Exception("Contract detection not ready")
-        
-        # Update system state if needed
-        if not system_state['initialized']:
-            logger.info("🔧 Oil.py ready for /data endpoint - updating state")
-            system_state['initialized'] = True
-            
-        # Check if we have a predictor instance with cached predictions
-        if system_state.get('predictor_instance'):
-            predictor = system_state['predictor_instance']
-            if hasattr(predictor, 'stored_predictions') and predictor.stored_predictions:
-                logger.info("🔧 Found cached predictions - ML system is ready")
-                system_state['ml_ready'] = True
-            else:
-                logger.info("🔧 No cached predictions yet - ML still training")
-                system_state['ml_ready'] = False
-        else:
-            logger.info("🔧 No predictor instance yet")
-            system_state['ml_ready'] = False
-            
-    except Exception as e:
-        return jsonify({
-            'error': 'SYSTEM_INITIALIZING',
-            'message': 'System still initializing - please wait for oil.py to be ready',
-            'oil_test_error': str(e),
-            'server_time': datetime.now().isoformat()
-        }), 503
-    
-    try:
-        # Get REAL data from oil.py - NO FALLBACKS
+        # Test contract detection
         contract_info = get_current_wti_contract()
+        if not contract_info or not contract_info.get('current_price'):
+            return jsonify({
+                'error': 'SYSTEM_INITIALIZING',
+                'message': 'System still initializing - please wait for oil.py to be ready',
+                'server_time': datetime.now().isoformat()
+            }), 503
         
-        # Get ML predictions if ready, otherwise use basic data
-        ml_ready = system_state.get('ml_ready', False)
-        
-        # Get cached predictions from predictor instance, don't trigger new ML training
-        if ml_ready and system_state.get('predictor_instance'):
-            try:
-                predictor = system_state['predictor_instance']
-                
-                # Get cached predictions instead of triggering new training
-                if hasattr(predictor, 'stored_predictions') and predictor.stored_predictions:
-                    # Use most recent cached prediction
-                    latest_pred = list(predictor.stored_predictions.values())[-1]
-                    predictions = {
-                        'prediction_1h': latest_pred['predictions']['1h'],
-                        'prediction_1d': latest_pred['predictions']['1d'],
-                        'prediction_1w': latest_pred['predictions']['1w'],
-                        'current_price': contract_info['current_price'],
-                        'is_real_prediction': True,
-                        'timestamp': latest_pred['timestamp'],
-                        'processing_time': 0,
-                        'feature_count': 20
-                    }
-                    logger.debug("✅ Using cached ML predictions")
-                else:
-                    logger.info("🔄 No cached predictions available yet")
-                    predictions = None
-                
-                # Get accuracy metrics from stored data
-                try:
-                    accuracy_metrics = predictor.calculate_and_store_accuracy()
-                    logger.debug(f"✅ Got accuracy metrics: {type(accuracy_metrics)}")
-                except Exception as acc_error:
-                    logger.warning(f"⚠️ Accuracy metrics failed: {acc_error}")
-                    accuracy_metrics = None
-                
-            except Exception as ml_error:
-                logger.warning(f"⚠️ Cached predictions failed: {ml_error}")
-                ml_ready = False
-                predictions = None
-                accuracy_metrics = None
-        else:
-            logger.info("🔄 ML system not ready - using basic data")
-            predictions = None
-            accuracy_metrics = None
-        
-        # Get chart data from predictor instance (if available)
-        chart_data = {'actual': [], 'predicted': [], 'timestamps': []}
-        try:
-            if system_state.get('predictor_instance'):
-                predictor = system_state['predictor_instance']
-                logger.debug(f"📊 Getting chart data from predictor: {type(predictor)}")
-                # Get last 50 stored prices for chart
-                stored_prices = list(predictor.stored_actual_prices.values())[-50:] if predictor.stored_actual_prices else []
-                stored_predictions = list(predictor.stored_predictions.values())[-50:] if predictor.stored_predictions else []
-                
-                logger.debug(f"📊 Found {len(stored_prices)} stored prices, {len(stored_predictions)} predictions")
-                
-                if stored_prices:
-                    chart_data['actual'] = [p.get('price', 0) if p else 0 for p in stored_prices]
-                    chart_data['timestamps'] = [p.get('timestamp', '') if p else '' for p in stored_prices]
-                    
-                if stored_predictions:
-                    chart_data['predicted'] = [p.get('predictions', {}).get('1d', 0) if p else 0 for p in stored_predictions[-len(chart_data['actual']):]]
-        except Exception as chart_error:
-            logger.warning(f"📊 Chart data error: {chart_error}")
-            # Continue with empty chart data
+        # Check ML readiness and get predictions
+        ml_ready = is_ml_ready()
+        predictions = get_cached_predictions() if ml_ready else None
+        accuracy_metrics = get_accuracy_metrics() if ml_ready else None
+        chart_data = get_chart_data()
         
         # Calculate all values from REAL data
         current_price = contract_info['current_price']
         
         # Set prediction values based on ML readiness
-        if ml_ready and predictions:
-            # Verify data is real
-            if not predictions.get('is_real_prediction'):
-                logger.error("CRITICAL: oil.py returned non-real predictions")
-                ml_ready = False
-            
         if ml_ready and predictions:
             previous_price = predictions.get('current_price', current_price)
             pred_1h = predictions['prediction_1h']
@@ -366,10 +306,6 @@ def get_data():
         
         price_change = current_price - previous_price
         price_change_percent = (price_change / previous_price * 100) if previous_price > 0 else 0.0
-        
-        # Calculate next ML prediction time
-        time_since_last = int(time.time() - system_state.get('last_prediction_time', 0))
-        next_prediction_in = max(0, 180 - time_since_last) if ml_ready else 0
         
         # Format volume for display
         volume = contract_info.get('volume', 0)
@@ -413,9 +349,9 @@ def get_data():
             
             # ML system status
             'ml_prediction_timer': {
-                'next_prediction_in': next_prediction_in,
-                'minutes_remaining': next_prediction_in // 60,
-                'seconds_remaining': next_prediction_in % 60,
+                'next_prediction_in': 0,
+                'minutes_remaining': 0,
+                'seconds_remaining': 0,
                 'currently_processing': False
             },
             
@@ -440,8 +376,8 @@ def get_data():
                 'data_quality': 100,  # Always 100 if we reach here
                 'complex_ml_enabled': True,
                 'real_data_only': True,
-                'ml_ready': system_state['ml_ready'],
-                'error_count': system_state['error_count']
+                'ml_ready': ml_ready,
+                'error_count': 0
             },
             
             'feed_status': 'REAL-TIME',
@@ -476,30 +412,15 @@ def health():
                 'timestamp': datetime.now().isoformat()
             }), 503
         
-        if not system_state['initialized']:
-            return jsonify({
-                'status': 'INITIALIZING',
-                'message': 'System initializing',
-                'timestamp': datetime.now().isoformat()
-            }), 503
-        
         # Test oil.py functions
         contract_info = get_current_wti_contract()
-        
-        # Check ML readiness directly
-        actual_ml_ready = False
-        if system_state.get('predictor_instance'):
-            predictor = system_state['predictor_instance']
-            if hasattr(predictor, 'stored_predictions') and predictor.stored_predictions:
-                actual_ml_ready = True
-                system_state['ml_ready'] = True  # Force sync
+        ml_ready = is_ml_ready()
         
         return jsonify({
             'status': 'HEALTHY',
-            'ml_ready': actual_ml_ready,
+            'ml_ready': ml_ready,
             'contract': contract_info['symbol'],
             'current_price': contract_info['current_price'],
-            'error_count': system_state['error_count'],
             'data_source': 'oil.py REAL DATA',
             'timestamp': datetime.now().isoformat()
         }), 200
@@ -531,9 +452,6 @@ def startup_initialization():
         
     except Exception as e:
         logger.critical(f"❌ System initialization FAILED: {e}")
-        system_state['initialized'] = False
-        system_state['ml_ready'] = False
-        logger.critical(f"🔧 System state after failure: initialized={system_state['initialized']}, ml_ready={system_state['ml_ready']}")
 
 # Start initialization
 startup_thread = threading.Thread(target=startup_initialization, daemon=True)
