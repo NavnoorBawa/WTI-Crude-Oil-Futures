@@ -193,11 +193,19 @@ def root():
         # Get current system status from oil.py
         contract_info = get_current_wti_contract()
         
+        # Check ML readiness directly by testing predictor instance
+        actual_ml_ready = False
+        if system_state.get('predictor_instance'):
+            predictor = system_state['predictor_instance']
+            if hasattr(predictor, 'stored_predictions') and predictor.stored_predictions:
+                actual_ml_ready = True
+                system_state['ml_ready'] = True  # Force sync
+        
         return jsonify({
             'service': 'WTI Oil Price Prediction API',
             'status': 'ACTIVE',
             'version': '4.0.0-real-data-only',
-            'ml_ready': system_state['ml_ready'],
+            'ml_ready': actual_ml_ready,
             'contract': contract_info['symbol'],
             'current_price': contract_info['current_price'],
             'data_source': 'oil.py REAL DATA ONLY',
@@ -478,9 +486,17 @@ def health():
         # Test oil.py functions
         contract_info = get_current_wti_contract()
         
+        # Check ML readiness directly
+        actual_ml_ready = False
+        if system_state.get('predictor_instance'):
+            predictor = system_state['predictor_instance']
+            if hasattr(predictor, 'stored_predictions') and predictor.stored_predictions:
+                actual_ml_ready = True
+                system_state['ml_ready'] = True  # Force sync
+        
         return jsonify({
             'status': 'HEALTHY',
-            'ml_ready': system_state['ml_ready'],
+            'ml_ready': actual_ml_ready,
             'contract': contract_info['symbol'],
             'current_price': contract_info['current_price'],
             'error_count': system_state['error_count'],
