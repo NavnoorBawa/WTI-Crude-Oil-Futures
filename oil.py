@@ -1296,6 +1296,58 @@ def store_actual_price_update(price):
     }
     predictor._save_actual_prices()
 
+def get_historical_data(limit=50):
+    """Get historical stored data for chart display"""
+    predictor = get_premium_predictor()
+    
+    # Get stored actual prices sorted by timestamp
+    sorted_prices = sorted(
+        predictor.stored_actual_prices.items(),
+        key=lambda x: x[0]
+    )
+    
+    # Get stored predictions sorted by timestamp  
+    sorted_predictions = sorted(
+        predictor.stored_predictions.items(),
+        key=lambda x: x[0]
+    )
+    
+    # Take latest data points up to limit
+    recent_prices = sorted_prices[-limit:] if len(sorted_prices) > limit else sorted_prices
+    recent_predictions = sorted_predictions[-limit:] if len(sorted_predictions) > limit else sorted_predictions
+    
+    # Extract values and timestamps
+    actual_values = [data['price'] for _, data in recent_prices]
+    actual_timestamps = [timestamp for timestamp, _ in recent_prices]
+    
+    predicted_values = []
+    predicted_timestamps = []
+    for timestamp, pred_data in recent_predictions:
+        if isinstance(pred_data, dict) and 'prediction_1h' in pred_data:
+            predicted_values.append(pred_data['prediction_1h'])
+            predicted_timestamps.append(timestamp)
+    
+    return {
+        'actual': {
+            'values': actual_values,
+            'timestamps': actual_timestamps
+        },
+        'predicted': {
+            'historical': {
+                'values': predicted_values,
+                'timestamps': predicted_timestamps,
+                'upper_bound': [],
+                'lower_bound': []
+            },
+            'future': {
+                'values': [],
+                'timestamps': [],
+                'upper_bound': [],
+                'lower_bound': []
+            }
+        }
+    }
+
 # For compatibility with run_complete_system.py
 WorkingFreeTierWTIPredictor = PremiumWTIPredictor
 

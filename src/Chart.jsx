@@ -39,6 +39,28 @@ export default function Chart({
   const [showHistorical, setShowHistorical] = useState(true);
   const chartRef = useRef();
 
+  // Create minimal chart with current price and ML predictions
+  const createMinimalChart = (currentPrice, multiHorizonPredictions) => {
+    const timeLabels = ['Now', '1H', '1D', '1W'];
+    const actualPrices = [currentPrice, null, null, null];
+    const futurePredictions = [
+      null,
+      multiHorizonPredictions.predictions['1h'],
+      multiHorizonPredictions.predictions['1d'],
+      multiHorizonPredictions.predictions['7d'] || multiHorizonPredictions.predictions['1w']
+    ];
+
+    return {
+      isEmpty: false,
+      timeLabels: timeLabels,
+      actualPrices: actualPrices,
+      historicalPredictions: [],
+      futurePredictions: futurePredictions,
+      upperBounds: [],
+      lowerBounds: []
+    };
+  };
+
   // Process data with clear separation of actual, historical predictions, and future predictions
   const chartData = useMemo(() => {
     
@@ -50,15 +72,13 @@ export default function Chart({
     };
     
     
+    // If no historical data but we have current price and predictions, create a minimal chart
     if (!actualData.values || actualData.values.length === 0) {
+      if (currentPrice > 0 && multiHorizonPredictions?.predictions) {
+        return createMinimalChart(currentPrice, multiHorizonPredictions);
+      }
       return { isEmpty: true };
     }
-    
-    console.log("Data lengths:", {
-      actual: actualData.values.length,
-      historical: predictedData.historical?.values?.length || 0,
-      future: predictedData.future?.values?.length || 0
-    });
     
     // Create timeline labels
     const timeLabels = [];
@@ -188,7 +208,7 @@ export default function Chart({
       currentPrice: actualPrices.filter(p => p !== null).pop() || 0,
       totalPoints: actualPrices.filter(p => p !== null).length
     };
-  }, [actualArray, predictedArray, unifiedData, multiHorizonPredictions, showFuture]);
+  }, [actualArray, predictedArray, unifiedData, multiHorizonPredictions, showFuture, currentPrice]);
 
   // Reset zoom function
   const resetZoom = () => {

@@ -27,6 +27,7 @@ try:
         get_multi_horizon_wti_predictions, 
         get_prediction_accuracy_metrics,
         store_actual_price_update,
+        get_historical_data,
         PremiumWTIPredictor
     )
     logger.info("✅ Successfully imported oil.py functions")
@@ -317,10 +318,11 @@ def get_data():
             'volume': volume,
             'volume_display': volume_display,
             
-            # Chart data - REAL ONLY (empty until we have historical data)
-            'actual': [],
-            'predicted': [],
-            'timestamps': [],
+            # Chart data - Get real historical data from stored prices
+            'unified_data': get_historical_data(limit=30),  # Last 30 data points for chart
+            'actual': [],  # Legacy field - data now in unified_data
+            'predicted': [],  # Legacy field - data now in unified_data  
+            'timestamps': [],  # Legacy field - data now in unified_data
             
             # Multi-horizon predictions - REAL ML ONLY
             'multi_horizon_predictions': {
