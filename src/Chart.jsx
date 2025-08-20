@@ -119,16 +119,16 @@ export default function Chart({
     const historicalSlice = actualData.values.slice(startIndex);
     const timestampSlice = actualData.timestamps ? actualData.timestamps.slice(startIndex) : [];
     
-    // Create consistent time labels regardless of backend timestamp order
-    // Generate sequential time labels for professional display
-    const now = new Date();
+    // Create consistent chronological time sequence
+    // Use single reference time for all calculations to prevent sequence errors
+    const referenceTime = new Date();
     const historicalData = [];
     
     for (let i = 0; i < historicalSlice.length; i++) {
       if (historicalSlice[i] && !isNaN(historicalSlice[i]) && historicalSlice[i] > 0) {
-        // Create synthetic sequential time labels
+        // Create synthetic sequential time labels with guaranteed chronological order
         const minutesBack = (historicalSlice.length - 1 - i) * 15; // 15-minute intervals going back
-        const syntheticTime = new Date(now.getTime() - (minutesBack * 60 * 1000));
+        const syntheticTime = new Date(referenceTime.getTime() - (minutesBack * 60 * 1000));
         
         historicalData.push({
           price: historicalSlice[i],
@@ -165,15 +165,17 @@ export default function Chart({
       });
     }
     
-    // Add continuous future predictions with consistent time formatting
+    // Add continuous future predictions with seamless time continuation
     if (showFuture && actualPrices.length > 0 && multiHorizonPredictions?.predictions) {
       const predictions = multiHorizonPredictions.predictions;
       const currentPrice = actualPrices.filter(p => p !== null).pop() || 0;
       
-      // Create future time points continuing from current time
-      const baseTime = new Date(); // Use current time as baseline for future predictions
+      // Use same reference time to ensure chronological continuity
+      const baseTime = referenceTime; // Continue from same reference time used for historical data
+      // Create seamless transition from current price to future predictions
       const futureTimeHorizons = [
-        { minutesAhead: 15, value: currentPrice },
+        { minutesAhead: 0, value: currentPrice }, // Connect at current time
+        { minutesAhead: 15, value: null }, // Bridge point
         { minutesAhead: 30, value: null },
         { minutesAhead: 60, value: predictions['1h'] },
         { minutesAhead: 120, value: null },
@@ -186,9 +188,9 @@ export default function Chart({
         { minutesAhead: 10080, value: predictions['7d'] }
       ];
       
-      // Interpolate values between known predictions for smooth lines
+      // Enhanced interpolation with current price connection
       const knownPredictions = [
-        { minutes: 0, value: currentPrice },
+        { minutes: 0, value: currentPrice }, // Start from current actual price
         { minutes: 60, value: predictions['1h'] },
         { minutes: 1440, value: predictions['1d'] },
         { minutes: 10080, value: predictions['7d'] }
@@ -212,7 +214,7 @@ export default function Chart({
           }
         }
         
-        // Generate consistent time label continuing from current time
+        // Generate chronologically correct time labels
         const futureTime = new Date(baseTime.getTime() + (point.minutesAhead * 60 * 1000));
         const timeLabel = futureTime.toLocaleTimeString('en-US', { 
           hour12: false, 
@@ -221,9 +223,16 @@ export default function Chart({
         });
         
         timeLabels.push(timeLabel);
-        actualPrices.push(null);
+        
+        // For seamless connection, extend actual price to first future point
+        if (point.minutesAhead === 0) {
+          actualPrices.push(Number(currentPrice.toFixed(2))); // Bridge connection
+          futurePredictions.push(Number(currentPrice.toFixed(2))); // Start forecast from current
+        } else {
+          actualPrices.push(null);
+          futurePredictions.push(interpolatedValue ? Number(interpolatedValue.toFixed(2)) : null);
+        }
         historicalPredictions.push(null);
-        futurePredictions.push(interpolatedValue ? Number(interpolatedValue.toFixed(2)) : null);
       });
     }
     
