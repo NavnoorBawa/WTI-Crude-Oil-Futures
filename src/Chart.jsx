@@ -52,9 +52,16 @@ export default function Chart({
     };
   }, []);
 
-  // Create minimal chart with current price and ML predictions
+  // Create minimal chart with current price and ML predictions using consistent time format
   const createMinimalChart = (currentPrice, multiHorizonPredictions) => {
-    const timeLabels = ['Now', '1H', '1D', '1W'];
+    const now = new Date();
+    const timeLabels = [
+      now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+      new Date(now.getTime() + 60*60*1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+      new Date(now.getTime() + 24*60*60*1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+      new Date(now.getTime() + 7*24*60*60*1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+    ];
+    
     const actualPrices = [currentPrice, null, null, null];
     const futurePredictions = [
       null,
@@ -107,64 +114,56 @@ export default function Chart({
     const futurePredictions = [];
     
     // Show comprehensive historical data for continuous price stream
-    const maxHistoricalPoints = 50; // Increase for better continuity
+    const maxHistoricalPoints = 30; // Optimal for display without crowding
     const startIndex = Math.max(0, actualData.values.length - maxHistoricalPoints);
     const historicalSlice = actualData.values.slice(startIndex);
     const timestampSlice = actualData.timestamps ? actualData.timestamps.slice(startIndex) : [];
     
-    // Process actual historical data with continuous data stream
-    historicalSlice.forEach((price, i) => {
-      if (price && !isNaN(price) && price > 0) {
-        // Use real timestamps if available, otherwise create readable time labels
-        let timeLabel;
-        
-        if (timestampSlice && timestampSlice[i]) {
-          // Use actual timestamp from data - show date and time for market data
-          const timestamp = new Date(timestampSlice[i]);
-          const now = new Date();
-          const daysDiff = Math.floor((now - timestamp) / (1000 * 60 * 60 * 24));
-          
-          if (daysDiff === 0) {
-            // Same day - show time only
-            timeLabel = timestamp.toLocaleTimeString('en-US', { 
-              hour12: false, 
-              hour: '2-digit', 
-              minute: '2-digit' 
-            });
-          } else if (daysDiff <= 7) {
-            // Within a week - show day and time
-            timeLabel = timestamp.toLocaleDateString('en-US', { 
-              weekday: 'short',
-              hour: '2-digit', 
-              minute: '2-digit',
-              hour12: false
-            });
-          } else {
-            // Older - show date
-            timeLabel = timestamp.toLocaleDateString('en-US', { 
-              month: 'short', 
-              day: 'numeric'
-            });
-          }
-        } else {
-          // Fallback: Create realistic time intervals 
-          const hoursAgo = historicalSlice.length - 1 - i;
-          if (hoursAgo === 0) {
-            timeLabel = 'NOW';
-          } else if (hoursAgo <= 24) {
-            timeLabel = `-${hoursAgo}h`;
-          } else {
-            const days = Math.floor(hoursAgo / 24);
-            const hours = hoursAgo % 24;
-            timeLabel = hours > 0 ? `-${days}d${hours}h` : `-${days}d`;
-          }
-        }
-        
-        timeLabels.push(timeLabel);
-        actualPrices.push(Number(price.toFixed(2)));
-        historicalPredictions.push(null);
-        futurePredictions.push(null);
+    // Sort historical data by timestamp if available to ensure chronological order
+    const historicalData = [];
+    for (let i = 0; i < historicalSlice.length; i++) {
+      if (historicalSlice[i] && !isNaN(historicalSlice[i]) && historicalSlice[i] > 0) {
+        historicalData.push({
+          price: historicalSlice[i],
+          timestamp: timestampSlice[i] ? new Date(timestampSlice[i]) : null,
+          originalIndex: i
+        });
       }
+    }
+    
+    // Sort by timestamp to ensure chronological order
+    if (historicalData.length > 0 && historicalData[0].timestamp) {
+      historicalData.sort((a, b) => a.timestamp - b.timestamp);
+    }
+    
+    // Process sorted historical data with consistent time formatting
+    historicalData.forEach((dataPoint, i) => {
+      // Create consistent sequential time labels
+      let timeLabel;
+      
+      if (dataPoint.timestamp) {
+        // Use actual timestamp from data but format consistently
+        timeLabel = dataPoint.timestamp.toLocaleTimeString('en-US', { 
+          hour12: false, 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        });
+      } else {
+        // Fallback: Create sequential time labels going backwards from "now"
+        const now = new Date();
+        const minutesAgo = (historicalData.length - 1 - i) * 30; // 30-minute intervals
+        const pastTime = new Date(now.getTime() - (minutesAgo * 60 * 1000));
+        timeLabel = pastTime.toLocaleTimeString('en-US', { 
+          hour12: false, 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        });
+      }
+      
+      timeLabels.push(timeLabel);
+      actualPrices.push(Number(dataPoint.price.toFixed(2)));
+      historicalPredictions.push(null);
+      futurePredictions.push(null);
     });
     
     // Process historical predictions (align with actual data)
@@ -177,35 +176,36 @@ export default function Chart({
       });
     }
     
-    // Add continuous future predictions with proper interpolation
+    // Add continuous future predictions with consistent time formatting
     if (showFuture && actualPrices.length > 0 && multiHorizonPredictions?.predictions) {
       const predictions = multiHorizonPredictions.predictions;
       const currentPrice = actualPrices.filter(p => p !== null).pop() || 0;
       
-      // Create time-distributed future points for continuous visualization
+      // Create future time points with absolute time labels for consistency
+      const now = new Date();
       const futureTimeHorizons = [
-        { label: '+15min', hours: 0.25, value: currentPrice },
-        { label: '+30min', hours: 0.5, value: currentPrice },
-        { label: '+1H', hours: 1, value: predictions['1h'] },
-        { label: '+2H', hours: 2, value: null },
-        { label: '+4H', hours: 4, value: null },
-        { label: '+8H', hours: 8, value: null },
-        { label: '+12H', hours: 12, value: null },
-        { label: '+1D', hours: 24, value: predictions['1d'] },
-        { label: '+2D', hours: 48, value: null },
-        { label: '+3D', hours: 72, value: null },
-        { label: '+1W', hours: 168, value: predictions['7d'] }
+        { minutesAhead: 15, value: currentPrice },
+        { minutesAhead: 30, value: currentPrice },
+        { minutesAhead: 60, value: predictions['1h'] },
+        { minutesAhead: 120, value: null },
+        { minutesAhead: 240, value: null },
+        { minutesAhead: 480, value: null },
+        { minutesAhead: 720, value: null },
+        { minutesAhead: 1440, value: predictions['1d'] },
+        { minutesAhead: 2880, value: null },
+        { minutesAhead: 4320, value: null },
+        { minutesAhead: 10080, value: predictions['7d'] }
       ];
       
       // Interpolate values between known predictions for smooth lines
       const knownPredictions = [
-        { hours: 0, value: currentPrice },
-        { hours: 1, value: predictions['1h'] },
-        { hours: 24, value: predictions['1d'] },
-        { hours: 168, value: predictions['7d'] }
+        { minutes: 0, value: currentPrice },
+        { minutes: 60, value: predictions['1h'] },
+        { minutes: 1440, value: predictions['1d'] },
+        { minutes: 10080, value: predictions['7d'] }
       ].filter(p => p.value && !isNaN(p.value));
       
-      // Add future prediction points with interpolated values
+      // Add future prediction points with consistent time formatting
       futureTimeHorizons.forEach(point => {
         let interpolatedValue = point.value;
         
@@ -215,15 +215,23 @@ export default function Chart({
             const p1 = knownPredictions[i];
             const p2 = knownPredictions[i + 1];
             
-            if (point.hours >= p1.hours && point.hours <= p2.hours) {
-              const ratio = (point.hours - p1.hours) / (p2.hours - p1.hours);
+            if (point.minutesAhead >= p1.minutes && point.minutesAhead <= p2.minutes) {
+              const ratio = (point.minutesAhead - p1.minutes) / (p2.minutes - p1.minutes);
               interpolatedValue = p1.value + ratio * (p2.value - p1.value);
               break;
             }
           }
         }
         
-        timeLabels.push(point.label);
+        // Generate consistent time label in HH:MM format
+        const futureTime = new Date(now.getTime() + (point.minutesAhead * 60 * 1000));
+        const timeLabel = futureTime.toLocaleTimeString('en-US', { 
+          hour12: false, 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        });
+        
+        timeLabels.push(timeLabel);
         actualPrices.push(null);
         historicalPredictions.push(null);
         futurePredictions.push(interpolatedValue ? Number(interpolatedValue.toFixed(2)) : null);
@@ -537,12 +545,12 @@ export default function Chart({
             weight: 'normal'
           },
           maxTicksLimit: 15,
-          maxRotation: 30,
+          maxRotation: 45,
           minRotation: 0,
           callback: function(value, index, ticks) {
             const label = this.getLabelForValue(value);
-            // Show every other label to prevent crowding
-            return index % 2 === 0 ? label : '';
+            // Show every 3rd label for better spacing with time format
+            return index % 3 === 0 ? label : '';
           }
         },
         border: {
