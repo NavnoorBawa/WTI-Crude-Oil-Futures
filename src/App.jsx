@@ -25,8 +25,11 @@ function App() {
           setError(null);
         }
         
-        // Use network IP address for multi-device access
-        const apiUrl = 'http://172.16.221.202:9000';
+        // Dynamic API URL - use deployed backend for production, local for development
+        const isProduction = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+        const apiUrl = isProduction 
+          ? 'https://wti-crude-oil-backend.onrender.com' 
+          : 'http://172.16.221.202:9000';
         
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
