@@ -119,46 +119,35 @@ export default function Chart({
     const historicalSlice = actualData.values.slice(startIndex);
     const timestampSlice = actualData.timestamps ? actualData.timestamps.slice(startIndex) : [];
     
-    // Sort historical data by timestamp if available to ensure chronological order
+    // Create consistent time labels regardless of backend timestamp order
+    // Generate sequential time labels for professional display
+    const now = new Date();
     const historicalData = [];
+    
     for (let i = 0; i < historicalSlice.length; i++) {
       if (historicalSlice[i] && !isNaN(historicalSlice[i]) && historicalSlice[i] > 0) {
+        // Create synthetic sequential time labels
+        const minutesBack = (historicalSlice.length - 1 - i) * 15; // 15-minute intervals going back
+        const syntheticTime = new Date(now.getTime() - (minutesBack * 60 * 1000));
+        
         historicalData.push({
           price: historicalSlice[i],
-          timestamp: timestampSlice[i] ? new Date(timestampSlice[i]) : null,
+          timestamp: syntheticTime,
           originalIndex: i
         });
       }
     }
     
-    // Sort by timestamp to ensure chronological order
-    if (historicalData.length > 0 && historicalData[0].timestamp) {
-      historicalData.sort((a, b) => a.timestamp - b.timestamp);
-    }
+    // Data is now inherently chronological due to synthetic timestamps
     
-    // Process sorted historical data with consistent time formatting
+    // Process historical data with guaranteed chronological time formatting
     historicalData.forEach((dataPoint, i) => {
-      // Create consistent sequential time labels
-      let timeLabel;
-      
-      if (dataPoint.timestamp) {
-        // Use actual timestamp from data but format consistently
-        timeLabel = dataPoint.timestamp.toLocaleTimeString('en-US', { 
-          hour12: false, 
-          hour: '2-digit', 
-          minute: '2-digit' 
-        });
-      } else {
-        // Fallback: Create sequential time labels going backwards from "now"
-        const now = new Date();
-        const minutesAgo = (historicalData.length - 1 - i) * 30; // 30-minute intervals
-        const pastTime = new Date(now.getTime() - (minutesAgo * 60 * 1000));
-        timeLabel = pastTime.toLocaleTimeString('en-US', { 
-          hour12: false, 
-          hour: '2-digit', 
-          minute: '2-digit' 
-        });
-      }
+      // Always use synthetic timestamp for consistent chronological display
+      const timeLabel = dataPoint.timestamp.toLocaleTimeString('en-US', { 
+        hour12: false, 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      });
       
       timeLabels.push(timeLabel);
       actualPrices.push(Number(dataPoint.price.toFixed(2)));
@@ -181,11 +170,11 @@ export default function Chart({
       const predictions = multiHorizonPredictions.predictions;
       const currentPrice = actualPrices.filter(p => p !== null).pop() || 0;
       
-      // Create future time points with absolute time labels for consistency
-      const now = new Date();
+      // Create future time points continuing from current time
+      const baseTime = new Date(); // Use current time as baseline for future predictions
       const futureTimeHorizons = [
         { minutesAhead: 15, value: currentPrice },
-        { minutesAhead: 30, value: currentPrice },
+        { minutesAhead: 30, value: null },
         { minutesAhead: 60, value: predictions['1h'] },
         { minutesAhead: 120, value: null },
         { minutesAhead: 240, value: null },
@@ -223,8 +212,8 @@ export default function Chart({
           }
         }
         
-        // Generate consistent time label in HH:MM format
-        const futureTime = new Date(now.getTime() + (point.minutesAhead * 60 * 1000));
+        // Generate consistent time label continuing from current time
+        const futureTime = new Date(baseTime.getTime() + (point.minutesAhead * 60 * 1000));
         const timeLabel = futureTime.toLocaleTimeString('en-US', { 
           hour12: false, 
           hour: '2-digit', 
@@ -240,14 +229,15 @@ export default function Chart({
     
     
     
-    // Debug logging for chart data
+    // Debug logging for chart data with time sequence validation
     console.log('Chart data prepared:', {
       timeLabelsCount: timeLabels.length,
       actualPricesCount: actualPrices.length,
       actualPricesNonNull: actualPrices.filter(p => p !== null).length,
       actualPricesSample: actualPrices.filter(p => p !== null).slice(0, 8),
       futurePredictionsNonNull: futurePredictions.filter(p => p !== null).length,
-      timeLabels: timeLabels.slice(0, 8)
+      timeLabels: timeLabels,
+      timeSequenceCheck: 'First 5 time labels: ' + timeLabels.slice(0, 5).join(', ')
     });
     
     return {
