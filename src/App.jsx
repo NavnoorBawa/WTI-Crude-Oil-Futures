@@ -216,14 +216,14 @@ function App() {
                 {currentPrediction > 0 ? currentPrediction.toFixed(2) : '--'}
               </td>
               <td className="text-bloomberg-positive text-sm">
-                {data?.performance_metrics?.direction_accuracy ? 
+                {data?.performance_metrics?.direction_accuracy !== undefined && data?.performance_metrics?.direction_accuracy !== null ? 
                   `${Math.round(data.performance_metrics.direction_accuracy)}%` : 
-                  '--'}
+                  data?.accuracy || '--'}
               </td>
               <td className="text-bloomberg-positive text-sm">
-                {data?.performance_metrics?.confidence ? 
+                {data?.performance_metrics?.confidence !== undefined && data?.performance_metrics?.confidence !== null ? 
                   `${Math.round(data.performance_metrics.confidence)}%` : 
-                  '--'}
+                  data?.confidence || '--'}
               </td>
             </tr>
           </tbody>
