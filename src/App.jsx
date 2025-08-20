@@ -25,8 +25,8 @@ function App() {
           setError(null);
         }
         
-        // Use production backend URL with timeout
-        const apiUrl = 'https://wti-crude-oil-backend.onrender.com';
+        // Use local backend URL for development and testing
+        const apiUrl = 'http://localhost:9000';
         
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
