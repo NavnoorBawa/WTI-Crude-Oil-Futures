@@ -64,13 +64,20 @@ export default function Chart({
   // Process data with clear separation of actual, historical predictions, and future predictions
   const chartData = useMemo(() => {
     
-    // Get actual data
-    const actualData = unifiedData?.actual || { values: actualArray || [], timestamps: [] };
+    // Get actual data - handle both unified data structure and legacy arrays
+    let actualData;
+    if (unifiedData?.actual?.values && unifiedData.actual.values.length > 0) {
+      actualData = unifiedData.actual;
+    } else if (actualArray && actualArray.length > 0) {
+      actualData = { values: actualArray, timestamps: [] };
+    } else {
+      actualData = { values: [], timestamps: [] };
+    }
+    
     const predictedData = unifiedData?.predicted || { 
       historical: { values: predictedArray || [], timestamps: [], upper_bound: [], lower_bound: [] },
       future: { values: [], timestamps: [], upper_bound: [], lower_bound: [] }
     };
-    
     
     // If no historical data but we have current price and predictions, create a minimal chart
     if (!actualData.values || actualData.values.length === 0) {
@@ -87,8 +94,8 @@ export default function Chart({
     const futurePredictions = [];
     
     // LIMIT HISTORICAL DATA to give 3/4 space to future predictions (like btcgpt.info)
-    // Show only last 15-20 historical points to leave room for future predictions
-    const maxHistoricalPoints = 15;
+    // Show more historical points to display price variation better
+    const maxHistoricalPoints = 30;
     const startIndex = Math.max(0, actualData.values.length - maxHistoricalPoints);
     const historicalSlice = actualData.values.slice(startIndex);
     const timestampSlice = actualData.timestamps ? actualData.timestamps.slice(startIndex) : [];
@@ -199,6 +206,16 @@ export default function Chart({
     
     
     
+    // Debug logging for chart data
+    console.log('Chart data prepared:', {
+      timeLabelsCount: timeLabels.length,
+      actualPricesCount: actualPrices.length,
+      actualPricesNonNull: actualPrices.filter(p => p !== null).length,
+      actualPricesSample: actualPrices.filter(p => p !== null).slice(0, 8),
+      futurePredictionsNonNull: futurePredictions.filter(p => p !== null).length,
+      timeLabels: timeLabels.slice(0, 8)
+    });
+    
     return {
       isEmpty: false,
       timeLabels,
@@ -231,10 +248,49 @@ export default function Chart({
     const allPrices = [...actualPrices, ...historicalPrices, ...futurePrices];
     if (allPrices.length === 0) return { min: 60, max: 70 };
     
+    // Check if actual prices have small variation - if so, optimize for that
+    const actualMin = actualPrices.length > 0 ? Math.min(...actualPrices) : 0;
+    const actualMax = actualPrices.length > 0 ? Math.max(...actualPrices) : 0;
+    const actualRange = actualMax - actualMin;
+    
     const minPrice = Math.min(...allPrices);
     const maxPrice = Math.max(...allPrices);
-    const range = maxPrice - minPrice;
-    const padding = Math.max(0.5, range * 0.15); // At least $0.50 padding or 15% of range
+    const fullRange = maxPrice - minPrice;
+    
+    // Debug logging
+    console.log('Price range calculation:', {
+      actualCount: actualPrices.length,
+      actualRange,
+      actualMin,
+      actualMax,
+      fullRange,
+      minPrice,
+      maxPrice,
+      actualSample: actualPrices.slice(0, 5),
+      futureSample: futurePrices.slice(0, 3)
+    });
+    
+    // If actual price variation is small (<$0.50) but total range is large (>$5),
+    // focus the chart on actual prices with some room for future predictions
+    if (actualRange < 0.5 && fullRange > 5 && actualPrices.length > 0) {
+      const padding = Math.max(2.0, fullRange * 0.1); // Ensure we see price movements
+      return {
+        min: Math.max(0, actualMin - padding),
+        max: actualMax + padding
+      };
+    }
+    
+    // For small variations, ensure minimum visible range of $2
+    if (fullRange < 2 && actualPrices.length > 0) {
+      const center = (minPrice + maxPrice) / 2;
+      return {
+        min: Math.max(0, center - 1.5),
+        max: center + 1.5
+      };
+    }
+    
+    // Normal calculation for larger variations
+    const padding = fullRange < 1 ? 0.5 : Math.max(1.0, fullRange * 0.15);
     
     return {
       min: Math.max(0, minPrice - padding),
@@ -400,7 +456,7 @@ export default function Chart({
       x: {
         type: 'category',
         grid: {
-          color: '#333333',
+          color: 'rgba(255, 165, 0, 0.2)',
           lineWidth: 1,
         },
         ticks: {
@@ -435,7 +491,7 @@ export default function Chart({
         min: yAxisBounds.min,
         max: yAxisBounds.max,
         grid: {
-          color: '#333333',
+          color: 'rgba(255, 165, 0, 0.3)',
           lineWidth: 1,
         },
         ticks: {

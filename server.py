@@ -282,20 +282,61 @@ def get_data():
         # Calculate all values from REAL data
         current_price = contract_info['current_price']
         
+        # Calculate daily price change from historical data
+        price_change = 0.0
+        price_change_percent = 0.0
+        
+        try:
+            # Get historical data to find price from ~24 hours ago
+            historical_data = get_historical_data(limit=100)
+            if historical_data and historical_data.get('actual') and historical_data['actual'].get('values'):
+                actual_values = historical_data['actual']['values']
+                actual_timestamps = historical_data['actual']['timestamps']
+                
+                if len(actual_values) >= 2 and len(actual_timestamps) >= 2:
+                    # Find a price point from roughly 24 hours ago (86400 seconds)
+                    current_timestamp = datetime.now().timestamp()
+                    target_timestamp = current_timestamp - 86400  # 24 hours ago
+                    
+                    # Find the closest historical point to 24 hours ago
+                    closest_price = None
+                    min_time_diff = float('inf')
+                    
+                    for i, timestamp_str in enumerate(actual_timestamps):
+                        try:
+                            point_timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00')).timestamp()
+                            time_diff = abs(point_timestamp - target_timestamp)
+                            if time_diff < min_time_diff and i < len(actual_values):
+                                min_time_diff = time_diff
+                                closest_price = actual_values[i]
+                        except:
+                            continue
+                    
+                    # Calculate change if we found a suitable reference point
+                    if closest_price is not None and closest_price > 0:
+                        price_change = current_price - closest_price
+                        price_change_percent = (price_change / closest_price * 100)
+                        logger.debug(f"📊 Daily change calculated: {price_change:.3f} ({price_change_percent:.2f}%)")
+                    else:
+                        # Fallback: use oldest available price if 24h data not available
+                        if len(actual_values) > 0:
+                            oldest_price = actual_values[0]
+                            price_change = current_price - oldest_price
+                            price_change_percent = (price_change / oldest_price * 100) if oldest_price > 0 else 0.0
+                            logger.debug(f"📊 Change vs oldest data: {price_change:.3f} ({price_change_percent:.2f}%)")
+        except Exception as e:
+            logger.warning(f"Could not calculate daily price change: {e}")
+        
         # Set prediction values based on ML readiness
         if system_state['ml_ready'] and predictions:
             pred_1h = predictions['prediction_1h']
             pred_1d = predictions['prediction_1d'] 
             pred_1w = predictions['prediction_1w']
-            price_change = 0.0  # Will be calculated from stored data later
-            price_change_percent = 0.0
         else:
             # ML not ready - use current price as safe baseline
             pred_1h = current_price
             pred_1d = current_price
             pred_1w = current_price
-            price_change = 0.0
-            price_change_percent = 0.0
         
         # Format volume for display
         volume = contract_info.get('volume', 0)
@@ -309,6 +350,15 @@ def get_data():
         # Calculate next ML prediction time
         time_since_last = int(time.time() - system_state.get('last_prediction_time', 0))
         next_prediction_in = max(0, 180 - time_since_last) if system_state['ml_ready'] else 0
+        
+        # Calculate total data points for enterprise metrics
+        historical_data = get_historical_data(limit=30)
+        total_data_points = 0
+        if historical_data and historical_data.get('actual') and historical_data['actual'].get('values'):
+            total_data_points = len(historical_data['actual']['values'])
+        
+        # Add prediction count if available
+        prediction_count = accuracy_metrics.get('overall', {}).get('total_predictions', 0) if accuracy_metrics else 0
         
         return jsonify({
             # Core price data - REAL ONLY
@@ -372,7 +422,8 @@ def get_data():
                 'complex_ml_enabled': True,
                 'real_data_only': True,
                 'ml_ready': system_state['ml_ready'],
-                'error_count': system_state['error_count']
+                'error_count': system_state['error_count'],
+                'data_points': total_data_points + prediction_count  # Historical + prediction count
             },
             
             'feed_status': 'REAL-TIME',

@@ -18,41 +18,57 @@ function App() {
     }, 1000);
 
     // Fetch data function
-    const fetchData = async () => {
+    const fetchData = async (isInitial = false) => {
       try {
-        // Use Render backend URL with timeout
-        const apiUrl = 'https://wti-crude-oil-backend.onrender.com';
+        if (isInitial) {
+          setLoading(true);
+          setError(null);
+        }
+        
+        // Use local backend URL with timeout
+        const apiUrl = 'http://localhost:9000';
+        
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
         
         const response = await fetch(`${apiUrl}/data`, {
-          signal: controller.signal
+          signal: controller.signal,
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
         });
         clearTimeout(timeoutId);
         
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
         const result = await response.json();
+        
+        // Update state in correct order
         setData(result);
         setLastUpdate(new Date());
-        setLoading(false);
         setError(null);
+        setLoading(false);
+        
       } catch (err) {
         if (err.name === 'AbortError') {
           setError('Server timeout - Please wait and refresh');
+        } else if (err.name === 'TypeError' && err.message.includes('Failed to fetch')) {
+          setError('Cannot connect to local server - Check if backend is running on port 9000');
         } else {
-          setError(err.message);
+          setError(`Network error: ${err.message}`);
         }
         setLoading(false);
       }
     };
 
     // Initial fetch
-    fetchData();
+    fetchData(true);
 
     // Update every 3 seconds for more responsive live data
-    const interval = setInterval(fetchData, 3000);
+    const interval = setInterval(() => fetchData(false), 3000);
 
     return () => {
       clearInterval(interval);
@@ -60,8 +76,9 @@ function App() {
     };
   }, []);
 
+
   // Loading screen
-  if (loading) {
+  if (loading && !data) {
     return (
       <div className="min-h-screen bg-black text-bloomberg-amber font-mono flex items-center justify-center">
         <div className="text-center">
