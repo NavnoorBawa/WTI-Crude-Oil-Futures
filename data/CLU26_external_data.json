@@ -1,0 +1,54 @@
+{
+  "eia": {
+    "error": "EIA API unavailable",
+    "source": "EIA_failed",
+    "quality": "unavailable",
+    "timestamp": "2025-08-20T20:34:02.157132"
+  },
+  "fred": {
+    "data_quality": 100,
+    "dollar_strength": 1.1708,
+    "dollar_trend": 0.0012672727272728013,
+    "economic_stability": 99.98732727272727,
+    "source": "FRED_API",
+    "timestamp": "2025-08-20T20:34:02.766369"
+  },
+  "alpha_vantage": {
+    "error": "Alpha Vantage API unavailable",
+    "source": "AlphaVantage_failed",
+    "quality": "unavailable",
+    "timestamp": "2025-08-20T20:34:03.117827"
+  },
+  "finnhub": {
+    "data_quality": 100,
+    "sector_strength": 50.48716,
+    "sector_momentum": 0.24358,
+    "market_sentiment": "bullish",
+    "source": "Finnhub_API",
+    "timestamp": "2025-08-20T20:34:05.542657"
+  },
+  "news": {
+    "data_quality": 100,
+    "market_buzz": 52.333333333333336,
+    "sentiment_score": 0.4666666666666667,
+    "news_volume": 19,
+    "source": "NewsAPI",
+    "timestamp": "2025-08-20T20:34:06.035933"
+  },
+  "usda": {
+    "data_quality": 100,
+    "agricultural_impact": 0.9080000000000001,
+    "corn_price_level": 4.540000000000001,
+    "biofuel_demand": 0.9080000000000001,
+    "source": "USDA_API",
+    "timestamp": "2025-08-20T20:34:07.254013"
+  },
+  "noaa": {
+    "data_quality": 100,
+    "weather_impact": 3.1400000000000006,
+    "temperature_anomaly": 1.5700000000000003,
+    "seasonal_demand": 46.86,
+    "source": "NOAA_API",
+    "timestamp": "2025-08-20T20:34:11.791128"
+  }
+}

@@ -41,7 +41,7 @@ venv.bak/
 *.h5
 *.model
 *.bin
-data/
+# data/ - temporarily allow for production deployment
 models/
 
 # Editor directories and files
