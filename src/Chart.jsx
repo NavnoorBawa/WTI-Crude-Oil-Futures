@@ -272,11 +272,6 @@ export default function Chart({
     const allPrices = [...actualPrices, ...historicalPrices, ...futurePrices];
     if (allPrices.length === 0) return { min: 60, max: 70 };
     
-    // Check if actual prices have small variation - if so, optimize for that
-    const actualMin = actualPrices.length > 0 ? Math.min(...actualPrices) : 0;
-    const actualMax = actualPrices.length > 0 ? Math.max(...actualPrices) : 0;
-    const actualRange = actualMax - actualMin;
-    
     const minPrice = Math.min(...allPrices);
     const maxPrice = Math.max(...allPrices);
     const fullRange = maxPrice - minPrice;
@@ -284,9 +279,6 @@ export default function Chart({
     // Debug logging
     console.log('Price range calculation:', {
       actualCount: actualPrices.length,
-      actualRange,
-      actualMin,
-      actualMax,
       fullRange,
       minPrice,
       maxPrice,
@@ -294,27 +286,13 @@ export default function Chart({
       futureSample: futurePrices.slice(0, 3)
     });
     
-    // If actual price variation is small (<$0.50) but total range is large (>$5),
-    // focus the chart on actual prices with some room for future predictions
-    if (actualRange < 0.5 && fullRange > 5 && actualPrices.length > 0) {
-      const padding = Math.max(2.0, fullRange * 0.1); // Ensure we see price movements
-      return {
-        min: Math.max(0, actualMin - padding),
-        max: actualMax + padding
-      };
-    }
+    // For Bloomberg-style charts, always show meaningful price movement
+    // Minimum range of $1.50 to ensure price variations are visible
+    const minVisibleRange = 1.5;
+    let adjustedRange = Math.max(fullRange, minVisibleRange);
     
-    // For small variations, ensure minimum visible range of $2
-    if (fullRange < 2 && actualPrices.length > 0) {
-      const center = (minPrice + maxPrice) / 2;
-      return {
-        min: Math.max(0, center - 1.5),
-        max: center + 1.5
-      };
-    }
-    
-    // Normal calculation for larger variations
-    const padding = fullRange < 1 ? 0.5 : Math.max(1.0, fullRange * 0.15);
+    // Add 20% padding for better visualization
+    const padding = adjustedRange * 0.2;
     
     return {
       min: Math.max(0, minPrice - padding),
@@ -328,19 +306,19 @@ export default function Chart({
   const data = {
     labels: chartData.timeLabels || [],
     datasets: [
-      // 1. ACTUAL PRICES - Gold line
+      // 1. ACTUAL PRICES - Bold Gold line
       {
         label: 'ACTUAL PRICES',
         data: chartData.actualPrices || [],
         borderColor: '#FFD700',
         backgroundColor: 'transparent',
-        borderWidth: 3,
-        pointRadius: 2,
-        pointHoverRadius: 6,
+        borderWidth: 4, // Thicker for better visibility
+        pointRadius: 3, // Larger points
+        pointHoverRadius: 7,
         pointBackgroundColor: '#FFD700',
         pointBorderColor: '#000000',
         pointBorderWidth: 1,
-        tension: 0.2,
+        tension: 0.1, // Less smoothing for sharper price movements
         spanGaps: true,
         order: 1,
         segment: {
@@ -353,15 +331,15 @@ export default function Chart({
         label: 'HISTORICAL PREDICTIONS',
         data: showHistorical ? (chartData.historicalPredictions || []) : [],
         borderColor: '#00FF88',
-        backgroundColor: 'rgba(0, 255, 136, 0.1)',
+        backgroundColor: 'rgba(0, 255, 136, 0.05)',
         borderWidth: 3,
-        borderDash: [8, 4],
+        borderDash: [10, 6], // More distinct dash pattern
         pointRadius: 2,
         pointHoverRadius: 5,
         pointBackgroundColor: '#00FF88',
-        pointBorderColor: '#000000',
+        pointBorderColor: '#FFFFFF', // White border for contrast
         pointBorderWidth: 1,
-        tension: 0.2,
+        tension: 0.1,
         spanGaps: true,
         order: 2,
         hidden: !showHistorical,
@@ -370,24 +348,24 @@ export default function Chart({
         }
       },
       
-      // 3. FUTURE PREDICTIONS - Cyan dotted line
+      // 3. FUTURE PREDICTIONS - Cyan dotted line with distinct styling
       {
         label: 'FUTURE FORECAST',
         data: chartData.futurePredictions || [],
-        borderColor: '#4AF6C3',
-        backgroundColor: 'rgba(74, 246, 195, 0.1)',
+        borderColor: '#00FFFF', // Pure cyan for better contrast
+        backgroundColor: 'rgba(0, 255, 255, 0.05)',
         borderWidth: 3,
-        borderDash: [4, 8],
-        pointRadius: 4,
-        pointHoverRadius: 7,
-        pointBackgroundColor: '#4AF6C3',
-        pointBorderColor: '#000000',
+        borderDash: [3, 6, 3, 6], // Distinct dot-dash pattern
+        pointRadius: 5, // Larger points for future predictions
+        pointHoverRadius: 8,
+        pointBackgroundColor: '#00FFFF',
+        pointBorderColor: '#FFFFFF', // White border for contrast
         pointBorderWidth: 2,
-        tension: 0.3,
+        tension: 0.2,
         spanGaps: true,
         order: 3,
         segment: {
-          borderColor: ctx => ctx.p0.parsed.y === null || ctx.p1.parsed.y === null ? 'transparent' : '#4AF6C3'
+          borderColor: ctx => ctx.p0.parsed.y === null || ctx.p1.parsed.y === null ? 'transparent' : '#00FFFF'
         }
       },
       
@@ -395,23 +373,23 @@ export default function Chart({
       {
         label: 'VOLUME (CONTRACTS)',
         data: chartData.timeLabels?.map((_, i) => {
-          // Generate consistent volume patterns based on index for trading contracts
+          // Generate smaller volume patterns to prevent chart dominance
           if (chartData.actualPrices[i] !== null) {
-            const baseVolume = 25000; // Base contract volume
-            const variation = 12000 * Math.sin(i * 0.4) + 8000 * Math.cos(i * 0.2);
-            const marketHourMultiplier = 1 + 0.3 * Math.sin(i * 0.1); // Higher volume during active hours
-            return Math.max(3000, Math.floor((baseVolume + variation) * marketHourMultiplier));
+            const baseVolume = 15000; // Reduced base volume
+            const variation = 8000 * Math.sin(i * 0.4) + 5000 * Math.cos(i * 0.2);
+            const marketHourMultiplier = 1 + 0.2 * Math.sin(i * 0.1);
+            return Math.max(2000, Math.floor((baseVolume + variation) * marketHourMultiplier));
           }
           return null;
         }) || [],
         type: 'bar',
-        backgroundColor: 'rgba(0, 120, 255, 0.4)',
-        borderColor: 'rgba(0, 150, 255, 0.9)',
+        backgroundColor: 'rgba(0, 120, 255, 0.2)', // Reduced opacity
+        borderColor: 'rgba(0, 150, 255, 0.5)', // Reduced opacity
         borderWidth: 1,
         yAxisID: 'volume',
         order: 4,
-        barThickness: 3,
-        maxBarThickness: 4
+        barThickness: 2, // Thinner bars
+        maxBarThickness: 3
       }
     ]
   };
@@ -420,6 +398,7 @@ export default function Chart({
   const options = {
     responsive: true,
     maintainAspectRatio: false,
+    aspectRatio: 2.5, // Wider aspect ratio for better price visualization
     animation: false,
     interaction: {
       mode: 'index',
@@ -534,13 +513,13 @@ export default function Chart({
             size: 11,
             weight: 'normal'
           },
-          maxTicksLimit: 15,
+          maxTicksLimit: 12, // Fewer ticks for less compression
           maxRotation: 45,
           minRotation: 0,
           callback: function(value, index, ticks) {
             const label = this.getLabelForValue(value);
-            // Show every 3rd label for better spacing with time format
-            return index % 3 === 0 ? label : '';
+            // Show every 4th label for better spacing
+            return index % 4 === 0 ? label : '';
           }
         },
         border: {
@@ -578,7 +557,7 @@ export default function Chart({
             size: 12,
             weight: 'normal'
           },
-          stepSize: 0.25,
+          stepSize: (yAxisBounds.max - yAxisBounds.min) / 8, // Dynamic step size based on range
           callback: function(value) {
             return `$${value.toFixed(2)}`;
           }
@@ -599,20 +578,20 @@ export default function Chart({
         }
       },
       
-      // Volume Y-axis (left side, bottom 25% of chart)
+      // Volume Y-axis (left side, constrained to prevent chart dominance)
       volume: {
         type: 'linear',
         position: 'left',
         beginAtZero: true,
-        max: 60000,
+        max: 40000, // Reduced from 60000 to prevent volume bars from dominating
         grid: {
           display: false // Don't show volume grid lines
         },
         ticks: {
-          color: 'rgba(0, 150, 255, 0.8)',
+          color: 'rgba(0, 150, 255, 0.6)', // Reduced opacity
           font: {
             family: 'monospace',
-            size: 10
+            size: 9 // Smaller font
           },
           callback: function(value) {
             if (value >= 1000000) {
@@ -622,16 +601,16 @@ export default function Chart({
             }
             return value.toString();
           },
-          maxTicksLimit: 4
+          maxTicksLimit: 3 // Fewer ticks to reduce clutter
         },
         title: {
           display: true,
-          text: 'VOLUME (CONTRACTS)',
-          color: 'rgba(0, 150, 255, 0.8)',
+          text: 'VOL',
+          color: 'rgba(0, 150, 255, 0.6)',
           font: {
             family: 'monospace',
-            size: 11,
-            weight: 'bold'
+            size: 10,
+            weight: 'normal'
           }
         }
       }
