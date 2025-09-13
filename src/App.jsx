@@ -138,7 +138,7 @@ function App() {
   const currentPrediction = data?.multi_horizon_predictions?.predictions?.['1d'] || 0;  // Use 1D ML prediction
   const priceChange = data?.price_change || 0;
   const priceChangePercent = data?.price_change_percent || 0;
-  const contractInfo = data?.contract || { symbol: 'CLZ25', description: 'WTI CRUDE OIL FUTURES' };
+  const contractInfo = data?.contract || { symbol: 'CLV25', description: 'WTI CRUDE OIL FUTURES' };
 
   return (
     <div className="min-h-screen bg-black text-bloomberg-amber font-mono">
@@ -170,7 +170,7 @@ function App() {
       <div className="bg-black border-b border-bloomberg-amber p-2">
         <div className="flex items-center gap-4 text-sm">
           <span className="text-bloomberg-amber">COMMAND:</span>
-          <span className="bg-bloomberg-alert text-black px-2 py-1 font-bold">{contractInfo.symbol || 'CLQ25'}</span>
+          <span className="bg-bloomberg-alert text-black px-2 py-1 font-bold">{contractInfo.symbol || 'CLV25'}</span>
           <span className="text-bloomberg-amber">&lt;COMDTY&gt;</span>
           <span className="bg-bloomberg-alert text-black px-2 py-1 font-bold">GP</span>
           <span className="text-bloomberg-amber">&lt;GO&gt;</span>

@@ -26,7 +26,7 @@ This system provides:
 
 ### ✅ Data Storage
 - JSON-based persistent storage in `data/` directory
-- Contract-specific files (e.g., `CLU25_predictions.json`)
+- Contract-specific files (e.g., `CLV25_predictions.json`)
 - Historical accuracy metrics tracking
 - Automatic contract switching without data loss
 
@@ -49,8 +49,8 @@ The system correctly calculates and provides all these fields:
 
 ```json
 {
-  "security": "CLU25",
-  "security_full_name": "WTI CRUDE CLU25", 
+  "security": "CLV25",
+  "security_full_name": "WTI CRUDE CLV25", 
   "last_price": 62.80,
   "change": -0.340,
   "percent_change": -0.54,
@@ -119,10 +119,10 @@ python server.py
 - Auto-switches 5 days before contract expiry
 - Handles contract transitions seamlessly
 
-### Current Contract: CLU25
-- Symbol: CLU25 (August 2025)
+### Current Contract: CLV25
+- Symbol: CLV25 (October 2025)
 - YFinance Symbol: CL=F
-- Expiry: 2025-07-22
+- Expiry: 2025-09-22
 - Days to expiry: Calculated automatically
 
 ## ML System Details
@@ -171,10 +171,10 @@ System fails fast with clear messages for:
 ### File Structure
 ```
 data/
-├── CLU25_predictions.json      # ML predictions
-├── CLU25_actual_prices.json    # Historical prices
-├── CLU25_accuracy_metrics.json # Accuracy tracking
-└── CLU25_daily_metrics.json    # Daily statistics
+├── CLV25_predictions.json      # ML predictions
+├── CLV25_actual_prices.json    # Historical prices
+├── CLV25_accuracy_metrics.json # Accuracy tracking
+└── CLV25_daily_metrics.json    # Daily statistics
 ```
 
 ### Automatic Migration

@@ -89,15 +89,12 @@ def get_current_wti_contract():
             
             # For continuous contract, calculate which specific contract it represents
             # WTI contracts expire on the 3rd business day prior to the 25th of the month before delivery
-            if current_month >= 8:  # Aug-Dec: next year's contracts
-                next_year = current_year + 1
-                next_month = current_month + 1
-                if next_month > 12:
-                    next_month = 1
-                    next_year += 1
-            else:  # Jan-Jul: current year's contracts
-                next_year = current_year
-                next_month = current_month + 1
+            # Use next month's contract, staying in current year unless we go past December
+            next_month = current_month + 1
+            next_year = current_year
+            if next_month > 12:
+                next_month = 1
+                next_year += 1
             
             contract_symbol = f"CL{MONTH_CODES[next_month]}{str(next_year)[-2:]}"
             expiry_date = calculate_wti_expiry_date(next_year, next_month)
