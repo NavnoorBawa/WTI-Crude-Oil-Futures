@@ -21,12 +21,35 @@ from pathlib import Path
 import logging
 
 # ML imports
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, ExtraTreesRegressor
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, ExtraTreesRegressor, AdaBoostRegressor
 from sklearn.linear_model import ElasticNet, Ridge, Lasso
 from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from sklearn.feature_selection import SelectKBest, f_regression
+from sklearn.svm import SVR
+
+# Advanced boosting libraries specifically for oil price prediction
+try:
+    import xgboost as xgb
+    XGBOOST_AVAILABLE = True
+except ImportError:
+    XGBOOST_AVAILABLE = False
+    logger.warning("XGBoost not available - install with: pip install xgboost")
+
+try:
+    import lightgbm as lgb
+    LIGHTGBM_AVAILABLE = True
+except ImportError:
+    LIGHTGBM_AVAILABLE = False
+    logger.warning("LightGBM not available - install with: pip install lightgbm")
+
+try:
+    from catboost import CatBoostRegressor
+    CATBOOST_AVAILABLE = True
+except ImportError:
+    CATBOOST_AVAILABLE = False
+    logger.warning("CatBoost not available - install with: pip install catboost")
 
 warnings.filterwarnings('ignore')
 
@@ -1209,43 +1232,89 @@ class PremiumWTIPredictor:
         scaler = RobustScaler()
         X_scaled = scaler.fit_transform(X_selected)
 
-        # Train multiple models optimized for 70-feature dataset
-        models = {
-            # Tree-based models (good for feature interactions)
-            'random_forest': RandomForestRegressor(
-                n_estimators=150,
+        # Train multiple models SPECIFICALLY OPTIMIZED for oil price prediction with 70 features
+        models = {}
+
+        # 1. XGBoost - BEST for oil futures (handles non-linearity, feature interactions, regularization)
+        if XGBOOST_AVAILABLE:
+            models['xgboost'] = xgb.XGBRegressor(
+                n_estimators=200,           # More trees for 70 features
+                max_depth=8,                # Prevent overfitting
+                learning_rate=0.05,         # Slow learning = better accuracy
+                subsample=0.8,              # 80% data sampling (reduce overfitting)
+                colsample_bytree=0.8,       # 80% feature sampling per tree
+                reg_alpha=0.1,              # L1 regularization
+                reg_lambda=1.0,             # L2 regularization
                 random_state=42,
-                max_depth=12,
-                min_samples_split=5,
-                min_samples_leaf=2,
-                max_features='sqrt'
-            ),
-            'gradient_boost': GradientBoostingRegressor(
-                n_estimators=150,
-                random_state=42,
+                n_jobs=-1,                  # Use all CPU cores
+                objective='reg:squarederror'
+            )
+            logger.info("✅ XGBoost loaded - excellent for non-linear oil price dynamics")
+
+        # 2. LightGBM - BEST for large feature sets (70 features), fast and accurate
+        if LIGHTGBM_AVAILABLE:
+            models['lightgbm'] = lgb.LGBMRegressor(
+                n_estimators=200,
                 max_depth=8,
                 learning_rate=0.05,
-                subsample=0.8
-            ),
-            'extra_trees': ExtraTreesRegressor(
-                n_estimators=150,
+                num_leaves=31,              # Optimal for depth=8 (2^8/8 ≈ 31)
+                subsample=0.8,
+                colsample_bytree=0.8,
+                reg_alpha=0.1,              # L1 regularization
+                reg_lambda=1.0,             # L2 regularization
                 random_state=42,
-                max_depth=10,
-                min_samples_split=5,
-                max_features='sqrt'
-            ),
-            # Linear models (good for interpretability)
-            'elastic_net': ElasticNet(
-                alpha=0.05,
-                l1_ratio=0.5,
-                random_state=42,
-                max_iter=2000
-            ),
-            'ridge': Ridge(
-                alpha=0.5,
-                random_state=42
+                n_jobs=-1,
+                verbose=-1
             )
-        }
+            logger.info("✅ LightGBM loaded - optimized for 70-feature oil prediction")
+
+        # 3. CatBoost - EXCELLENT for categorical features and time series (ordered boosting)
+        if CATBOOST_AVAILABLE:
+            models['catboost'] = CatBoostRegressor(
+                iterations=200,
+                depth=8,
+                learning_rate=0.05,
+                l2_leaf_reg=3.0,           # L2 regularization
+                random_seed=42,
+                verbose=False,
+                allow_writing_files=False   # Don't write temp files
+            )
+            logger.info("✅ CatBoost loaded - handles regime changes in oil markets")
+
+        # 4. RandomForest - GOOD for feature importance and ensemble diversity
+        models['random_forest'] = RandomForestRegressor(
+            n_estimators=150,
+            max_depth=12,
+            min_samples_split=5,
+            min_samples_leaf=2,
+            max_features='sqrt',           # √40 ≈ 6 features per split
+            random_state=42,
+            n_jobs=-1
+        )
+        logger.info("✅ RandomForest loaded - captures feature interactions")
+
+        # 5. SVR with RBF kernel - EXCELLENT for non-linear oil price relationships
+        models['svr_rbf'] = SVR(
+            kernel='rbf',                  # Radial Basis Function (non-linear)
+            C=10.0,                        # Regularization parameter
+            gamma='scale',                 # Auto-calculate gamma for 70 features
+            epsilon=0.1                    # Epsilon-tube for predictions
+        )
+        logger.info("✅ SVR (RBF) loaded - handles non-linear supply/demand dynamics")
+
+        # 6. AdaBoost - DIFFERENT boosting approach for ensemble diversity
+        models['adaboost'] = AdaBoostRegressor(
+            n_estimators=100,
+            learning_rate=0.1,
+            loss='exponential',
+            random_state=42
+        )
+        logger.info("✅ AdaBoost loaded - adds ensemble diversity")
+
+        # NOTE: Removed ElasticNet and Ridge - too simple for complex oil price dynamics with 70 features
+        # Linear models can't capture: supply/demand interactions, regime changes, volatility clustering
+
+        logger.info(f"📊 Total models loaded: {len(models)} (optimized for oil futures)")
         
         trained_models = {}
         model_scores = {}
