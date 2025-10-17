@@ -1978,5 +1978,23 @@
     "confidence": 19.52082744790442,
     "model_count": 6,
     "processing_time": 12.310563087463379
+  },
+  "2025-08-20T20:37:22.750291": {
+    "timestamp": "2025-08-20T20:37:22.750291",
+    "prediction": 63.58209868342302,
+    "percentage_change": 2.074326134057879,
+    "current_price": 62.290000915527344,
+    "confidence": 19.52082744790442,
+    "model_count": 6,
+    "processing_time": 10.079899787902832
+  },
+  "2025-08-20T20:40:34.459093": {
+    "timestamp": "2025-08-20T20:40:34.459093",
+    "prediction": 63.60521333376871,
+    "percentage_change": 2.3085333876369725,
+    "current_price": 62.16999816894531,
+    "confidence": 19.52082744790442,
+    "model_count": 6,
+    "processing_time": 11.1858549118042
   }
 }

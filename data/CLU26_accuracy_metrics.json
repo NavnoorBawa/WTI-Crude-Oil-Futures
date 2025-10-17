@@ -1,15 +1,15 @@
 {
   "overall": {
-    "total_predictions": 220,
+    "total_predictions": 221,
     "correct_directions": 143,
-    "direction_accuracy": 65.0
+    "direction_accuracy": 64.70588235294117
   },
   "1h": {
-    "total_predictions": 202,
+    "total_predictions": 203,
     "correct_directions": 130,
-    "direction_accuracy": 64.35643564356435,
-    "mae": 4.271196801202919,
-    "rmse": 12.667483344477542
+    "direction_accuracy": 64.03940886699507,
+    "mae": 4.256690266600737,
+    "rmse": 12.63658703673369
   },
   "1d": {
     "total_predictions": 18,

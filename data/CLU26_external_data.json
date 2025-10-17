@@ -3,7 +3,7 @@
     "error": "EIA API unavailable",
     "source": "EIA_failed",
     "quality": "unavailable",
-    "timestamp": "2025-08-20T20:34:02.157132"
+    "timestamp": "2025-08-20T20:40:26.201783"
   },
   "fred": {
     "data_quality": 100,
@@ -11,29 +11,29 @@
     "dollar_trend": 0.0012672727272728013,
     "economic_stability": 99.98732727272727,
     "source": "FRED_API",
-    "timestamp": "2025-08-20T20:34:02.766369"
+    "timestamp": "2025-08-20T20:40:26.966109"
   },
   "alpha_vantage": {
     "error": "Alpha Vantage API unavailable",
     "source": "AlphaVantage_failed",
     "quality": "unavailable",
-    "timestamp": "2025-08-20T20:34:03.117827"
+    "timestamp": "2025-08-20T20:40:27.362742"
   },
   "finnhub": {
     "data_quality": 100,
-    "sector_strength": 50.48716,
-    "sector_momentum": 0.24358,
+    "sector_strength": 50.43656,
+    "sector_momentum": 0.21828000000000003,
     "market_sentiment": "bullish",
     "source": "Finnhub_API",
-    "timestamp": "2025-08-20T20:34:05.542657"
+    "timestamp": "2025-08-20T20:40:29.834432"
   },
   "news": {
     "data_quality": 100,
-    "market_buzz": 52.333333333333336,
-    "sentiment_score": 0.4666666666666667,
+    "market_buzz": 52.0,
+    "sentiment_score": 0.4,
     "news_volume": 19,
     "source": "NewsAPI",
-    "timestamp": "2025-08-20T20:34:06.035933"
+    "timestamp": "2025-08-20T20:40:30.425866"
   },
   "usda": {
     "data_quality": 100,
@@ -41,7 +41,7 @@
     "corn_price_level": 4.540000000000001,
     "biofuel_demand": 0.9080000000000001,
     "source": "USDA_API",
-    "timestamp": "2025-08-20T20:34:07.254013"
+    "timestamp": "2025-08-20T20:40:31.818818"
   },
   "noaa": {
     "data_quality": 100,
@@ -49,6 +49,6 @@
     "temperature_anomaly": 1.5700000000000003,
     "seasonal_demand": 46.86,
     "source": "NOAA_API",
-    "timestamp": "2025-08-20T20:34:11.791128"
+    "timestamp": "2025-08-20T20:40:33.948850"
   }
 }

@@ -4618,5 +4618,47 @@
     "is_real_prediction": true,
     "external_data_sources": 7,
     "premium_features": true
+  },
+  "2025-08-20T20:37:22.750291": {
+    "timestamp": "2025-08-20T20:37:22.750291",
+    "predictions": {
+      "1h": 63.58209868342302,
+      "1d": 63.77246424834345,
+      "1w": 63.137912365275355
+    },
+    "percentage_changes": {
+      "1h": 2.074326134057879,
+      "1d": 2.379937888950266,
+      "1w": 1.3612320393089734
+    },
+    "current_price": 62.290000915527344,
+    "processing_time": 10.079899787902832,
+    "feature_count": 20,
+    "model_count": 6,
+    "data_quality_score": 71.42857142857143,
+    "is_real_prediction": true,
+    "external_data_sources": 7,
+    "premium_features": true
+  },
+  "2025-08-20T20:40:34.459093": {
+    "timestamp": "2025-08-20T20:40:34.459093",
+    "predictions": {
+      "1h": 63.60521333376871,
+      "1d": 63.79564810422909,
+      "1w": 63.160865536027806
+    },
+    "percentage_changes": {
+      "1h": 2.3085333876369725,
+      "1d": 2.6148463618514426,
+      "1w": 1.5938031144698415
+    },
+    "current_price": 62.16999816894531,
+    "processing_time": 11.1858549118042,
+    "feature_count": 20,
+    "model_count": 6,
+    "data_quality_score": 71.42857142857143,
+    "is_real_prediction": true,
+    "external_data_sources": 7,
+    "premium_features": true
   }
 }
