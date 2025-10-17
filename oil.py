@@ -1196,25 +1196,55 @@ class PremiumWTIPredictor:
         X = features_df.drop(columns=[target_column])
         y = features_df[target_column]
         
-        # Feature selection
-        selector = SelectKBest(score_func=f_regression, k=min(20, len(X.columns)))
+        # Feature selection - Use more features since we have 70 total
+        # Select top 40 features or all if less than 40
+        num_features = min(40, len(X.columns))
+        selector = SelectKBest(score_func=f_regression, k=num_features)
         X_selected = selector.fit_transform(X, y)
         selected_features = X.columns[selector.get_support()].tolist()
-        
-        logger.info(f"Selected {len(selected_features)} best features for oil prediction")
-        
-        # Scale features
+
+        logger.info(f"Selected {len(selected_features)} best features for oil prediction from {len(X.columns)} total")
+
+        # Scale features using RobustScaler (better for outliers in oil prices)
         scaler = RobustScaler()
         X_scaled = scaler.fit_transform(X_selected)
-        
-        # Train multiple models
+
+        # Train multiple models optimized for 70-feature dataset
         models = {
-            'random_forest': RandomForestRegressor(n_estimators=100, random_state=42, max_depth=10),
-            'gradient_boost': GradientBoostingRegressor(n_estimators=100, random_state=42, max_depth=6),
-            'extra_trees': ExtraTreesRegressor(n_estimators=100, random_state=42, max_depth=8),
-            'elastic_net': ElasticNet(alpha=0.1, random_state=42),
-            'ridge': Ridge(alpha=1.0, random_state=42),
-            'lasso': Lasso(alpha=0.1, random_state=42)
+            # Tree-based models (good for feature interactions)
+            'random_forest': RandomForestRegressor(
+                n_estimators=150,
+                random_state=42,
+                max_depth=12,
+                min_samples_split=5,
+                min_samples_leaf=2,
+                max_features='sqrt'
+            ),
+            'gradient_boost': GradientBoostingRegressor(
+                n_estimators=150,
+                random_state=42,
+                max_depth=8,
+                learning_rate=0.05,
+                subsample=0.8
+            ),
+            'extra_trees': ExtraTreesRegressor(
+                n_estimators=150,
+                random_state=42,
+                max_depth=10,
+                min_samples_split=5,
+                max_features='sqrt'
+            ),
+            # Linear models (good for interpretability)
+            'elastic_net': ElasticNet(
+                alpha=0.05,
+                l1_ratio=0.5,
+                random_state=42,
+                max_iter=2000
+            ),
+            'ridge': Ridge(
+                alpha=0.5,
+                random_state=42
+            )
         }
         
         trained_models = {}
@@ -1544,31 +1574,40 @@ class PremiumWTIPredictor:
             # Combine technical and advanced features
             current_features_dict = {**current_technical_features, **current_advanced_features}
 
-            # Create DataFrame with same columns as training data (excluding target)
+            # Get training columns (excluding target)
             training_columns = [col for col in features_df.columns if col != 'target_1d']
 
-            # Ensure all training columns are present
+            # Create a complete feature dict with all training columns
+            complete_features = {}
             for col in training_columns:
-                if col not in current_features_dict:
-                    # Use consistent defaults based on feature type
-                    if 'trend' in col or 'momentum' in col or 'change' in col or 'acceleration' in col:
-                        current_features_dict[col] = 0  # Neutral trend
-                    elif 'data_quality' in col:
-                        current_features_dict[col] = 0  # Missing data indicator
-                    elif 'volatility' in col or 'std' in col:
-                        current_features_dict[col] = 1.0  # Default volatility
-                    elif 'rsi' in col or 'sentiment' in col:
-                        current_features_dict[col] = 50  # Neutral level
-                    elif 'stress' in col or 'pressure' in col:
-                        current_features_dict[col] = 0  # Neutral stress
+                if col in current_features_dict:
+                    complete_features[col] = current_features_dict[col]
+                else:
+                    # Use appropriate defaults for missing features
+                    if 'trend' in col or 'momentum' in col or 'change' in col or 'acceleration' in col or 'divergence' in col:
+                        complete_features[col] = 0.0
+                    elif 'quality' in col:
+                        complete_features[col] = 0.0
+                    elif 'volatility' in col or 'vol_' in col:
+                        complete_features[col] = 1.0
+                    elif 'rsi' in col or 'sentiment' in col or 'buzz' in col:
+                        complete_features[col] = 50.0
+                    elif 'stress' in col or 'pressure' in col or 'risk' in col:
+                        complete_features[col] = 0.0
+                    elif '_regime_' in col or 'aligned' in col or 'sync' in col:
+                        complete_features[col] = 0.0
+                    elif 'ratio' in col or 'strength' in col:
+                        complete_features[col] = 1.0
                     else:
-                        current_features_dict[col] = 0  # Safe default
+                        complete_features[col] = 0.0
 
-            # Create DataFrame with columns in same order as training
-            current_features = pd.DataFrame([current_features_dict], columns=training_columns)
+            # Create DataFrame with columns in exact same order as training
+            current_features_df = pd.DataFrame([complete_features], columns=training_columns)
 
-            # Now select only the features that were selected during training
-            current_features_selected = selector.transform(current_features[selected_features])
+            # IMPORTANT: selector.transform() expects ALL features (same as during fit),
+            # and it will internally select the best features
+            # We should NOT pre-select features before passing to selector.transform()
+            current_features_selected = selector.transform(current_features_df)
             current_features_scaled = scaler.transform(current_features_selected)
             
             # Generate ensemble predictions
