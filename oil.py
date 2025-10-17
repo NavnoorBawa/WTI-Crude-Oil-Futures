@@ -859,7 +859,336 @@ class PremiumWTIPredictor:
         
         logger.info(f"Created {len(features)} premium features")
         return features
-    
+
+    def engineer_advanced_features(self, basic_features, external_data):
+        """
+        Engineer advanced domain-specific features for WTI crude oil prediction.
+        Combines multiple data sources to create interaction and composite features.
+
+        Args:
+            basic_features: Dictionary of basic technical features
+            external_data: Dictionary of external data sources
+
+        Returns:
+            Dictionary of advanced features
+        """
+        logger.info("Engineering advanced oil-specific features...")
+
+        advanced_features = {}
+
+        # Extract external data values with safe defaults
+        eia = external_data.get('eia', {})
+        fred = external_data.get('fred', {})
+        alpha_vantage = external_data.get('alpha_vantage', {})
+        finnhub = external_data.get('finnhub', {})
+        news = external_data.get('news', {})
+        usda = external_data.get('usda', {})
+        noaa = external_data.get('noaa', {})
+
+        # Safe extraction with defaults
+        supply_level = eia.get('supply_level', 12000)
+        supply_trend = eia.get('supply_trend', 0.0)
+
+        dollar_strength = fred.get('dollar_strength', 1.0)
+        dollar_trend = fred.get('dollar_trend', 0.0)
+        economic_stability = fred.get('economic_stability', 70.0)
+
+        av_volatility = alpha_vantage.get('volatility', 2.5)
+        av_momentum = alpha_vantage.get('momentum_score', 0.0)
+        av_trend_strength = alpha_vantage.get('trend_strength', 50.0)
+
+        sector_strength = finnhub.get('sector_strength', 50.0)
+        sector_momentum = finnhub.get('sector_momentum', 0.0)
+
+        sentiment_score = news.get('sentiment_score', 0.0)
+        market_buzz = news.get('market_buzz', 50.0)
+        news_volume = news.get('news_volume', 10)
+
+        corn_price = usda.get('corn_price_level', 4.5)
+        biofuel_demand = usda.get('biofuel_demand', 50.0)
+        ag_impact = usda.get('agricultural_impact', 50.0)
+
+        temp_anomaly = noaa.get('temperature_anomaly', 0.0)
+        weather_impact = noaa.get('weather_impact', 30.0)
+        seasonal_demand = noaa.get('seasonal_demand', 60.0)
+
+        # Extract basic technical features
+        current_price = basic_features.get('current_price', 70.0)
+        price_change_1d = basic_features.get('price_change_pct', 0.0) / 100 if 'price_change_pct' in basic_features else basic_features.get('price_change_1d', 0.0)
+        price_change_5d = basic_features.get('price_change_5d', 0.0)
+        volatility_5d = basic_features.get('volatility_5d', 0.02)
+        volatility_20d = basic_features.get('volatility_20d', 0.02)
+        volume_ratio = basic_features.get('volume_ratio', 1.0)
+        price_to_ma20 = basic_features.get('price_to_ma20', 1.0)
+        ma5_to_ma20 = basic_features.get('ma5_to_ma20', 1.0)
+        month = basic_features.get('month', datetime.now().month)
+        is_winter = basic_features.get('is_winter', 0)
+        is_summer = basic_features.get('is_summer', 0)
+
+        # ===================================================================
+        # 1. SUPPLY-DEMAND BALANCE FEATURES (Critical for Oil!)
+        # ===================================================================
+
+        # Supply-Demand Pressure Index
+        # Positive = Oversupply (bearish), Negative = Undersupply (bullish)
+        advanced_features['supply_demand_pressure'] = (supply_level / max(seasonal_demand, 1)) - 1.0
+
+        # Weather-Adjusted Demand
+        advanced_features['weather_adjusted_demand'] = seasonal_demand * (1 + weather_impact / 100)
+
+        # Supply Stress Indicator (binary)
+        advanced_features['supply_stress'] = 1.0 if (supply_trend < 0 and seasonal_demand > 60) else 0.0
+
+        # Production Growth Rate
+        advanced_features['supply_growth_rate'] = supply_trend / max(abs(supply_level), 1)
+
+        # Demand Pressure Score
+        advanced_features['demand_pressure'] = (seasonal_demand - 50) / 50  # Normalized around 50
+
+        # ===================================================================
+        # 2. COMPOSITE SENTIMENT INDICATORS
+        # ===================================================================
+
+        # Overall Market Sentiment Score (weighted composite)
+        advanced_features['composite_sentiment'] = (
+            sentiment_score * 0.3 +                    # 30% news sentiment
+            (sector_momentum / 100) * 0.3 +            # 30% sector performance
+            (market_buzz / 100 - 0.5) * 0.2 +         # 20% news volume (centered)
+            ((sector_strength - 50) / 50) * 0.2       # 20% sector strength
+        )
+
+        # Sentiment-Price Divergence
+        price_momentum = price_change_1d * 100  # Convert to percentage
+        advanced_features['sentiment_price_divergence'] = advanced_features['composite_sentiment'] - (price_momentum / 10)
+
+        # News Velocity (sentiment strength per article)
+        advanced_features['news_velocity'] = sentiment_score / max(news_volume, 1) if news_volume > 0 else 0.0
+
+        # Sentiment Strength (magnitude regardless of direction)
+        advanced_features['sentiment_strength'] = abs(advanced_features['composite_sentiment'])
+
+        # Market Conviction (sentiment + volume)
+        advanced_features['market_conviction'] = abs(sentiment_score) * (market_buzz / 100)
+
+        # ===================================================================
+        # 3. ECONOMIC STRESS & RISK INDICATORS
+        # ===================================================================
+
+        # Dollar-Oil Pressure (inverse correlation)
+        advanced_features['dollar_oil_pressure'] = -dollar_trend * price_change_1d * 100
+
+        # Economic Stress Index
+        advanced_features['economic_stress'] = (100 - economic_stability) * abs(dollar_trend) * 10
+
+        # Risk Appetite Indicator
+        advanced_features['risk_appetite'] = sector_strength - (100 - economic_stability)
+
+        # Currency-Commodity Correlation (binary: are they moving together?)
+        dollar_up = dollar_trend > 0
+        oil_up = price_change_1d > 0
+        advanced_features['forex_commodity_sync'] = 1.0 if (dollar_up == oil_up) else 0.0
+
+        # Dollar Strength Impact
+        advanced_features['dollar_impact'] = (dollar_strength - 1.0) * -10  # Inverse relationship
+
+        # Economic Uncertainty Score
+        advanced_features['economic_uncertainty'] = abs(dollar_trend) * 100 * (100 - economic_stability) / 100
+
+        # ===================================================================
+        # 4. VOLATILITY & MARKET MICROSTRUCTURE FEATURES
+        # ===================================================================
+
+        # Cross-Market Volatility Spread
+        advanced_features['volatility_spread'] = av_volatility - volatility_20d
+
+        # Volume-Volatility Interaction
+        advanced_features['vol_volume_interaction'] = volatility_5d * (volume_ratio - 1)
+
+        # Volatility Regime (categorical encoded as levels)
+        if av_volatility < 1.5:
+            advanced_features['volatility_regime_low'] = 1.0
+            advanced_features['volatility_regime_medium'] = 0.0
+            advanced_features['volatility_regime_high'] = 0.0
+        elif av_volatility < 3.0:
+            advanced_features['volatility_regime_low'] = 0.0
+            advanced_features['volatility_regime_medium'] = 1.0
+            advanced_features['volatility_regime_high'] = 0.0
+        else:
+            advanced_features['volatility_regime_low'] = 0.0
+            advanced_features['volatility_regime_medium'] = 0.0
+            advanced_features['volatility_regime_high'] = 1.0
+
+        # Volatility Acceleration
+        advanced_features['volatility_acceleration'] = volatility_5d - volatility_20d
+
+        # Market Efficiency Score (low vol + trend = efficient market)
+        advanced_features['market_efficiency'] = (1 / (av_volatility + 0.1)) * abs(av_momentum)
+
+        # ===================================================================
+        # 5. SEASONAL & WEATHER INTERACTION FEATURES
+        # ===================================================================
+
+        # Winter Heating Demand Pressure
+        advanced_features['winter_demand_pressure'] = is_winter * abs(temp_anomaly) * (seasonal_demand / 100)
+
+        # Summer Driving Season Effect
+        advanced_features['summer_driving_demand'] = is_summer * (1 + seasonal_demand / 100)
+
+        # Weather Disruption Risk
+        advanced_features['weather_disruption_risk'] = abs(temp_anomaly) * (weather_impact / 100)
+
+        # Seasonal Price Premium
+        if month in [5, 6, 7]:  # Summer driving season
+            advanced_features['seasonal_premium'] = 0.2
+        elif month in [11, 12, 1]:  # Winter heating season
+            advanced_features['seasonal_premium'] = 0.1
+        else:
+            advanced_features['seasonal_premium'] = 0.0
+
+        # Temperature Stress (extreme temps drive demand)
+        advanced_features['temperature_stress'] = abs(temp_anomaly) / 10  # Normalized
+
+        # ===================================================================
+        # 6. TECHNICAL-FUNDAMENTAL CROSSOVER FEATURES
+        # ===================================================================
+
+        # Fundamental Score (composite of supply/demand/sentiment)
+        fundamental_score = (
+            advanced_features['supply_demand_pressure'] * -0.4 +  # Oversupply bearish
+            advanced_features['composite_sentiment'] * 0.3 +
+            advanced_features['economic_stress'] * -0.3
+        )
+        advanced_features['fundamental_score'] = fundamental_score
+
+        # Technical-Fundamental Divergence
+        technical_signal = (price_to_ma20 - 1.0)  # How far from MA
+        advanced_features['tech_fundamental_divergence'] = technical_signal - fundamental_score
+
+        # Momentum-Sentiment Alignment (binary)
+        momentum_bullish = av_momentum > 0
+        sentiment_bullish = advanced_features['composite_sentiment'] > 0
+        advanced_features['momentum_sentiment_aligned'] = 1.0 if (momentum_bullish == sentiment_bullish) else 0.0
+
+        # Breakout Confirmation Score
+        breakout_conditions = [
+            price_to_ma20 > 1.02,           # Price above MA
+            sector_momentum > 0,             # Sector bullish
+            advanced_features['composite_sentiment'] > 0.2,  # Sentiment bullish
+            volume_ratio > 1.2               # Volume confirming
+        ]
+        advanced_features['breakout_confirmation'] = sum(breakout_conditions) / len(breakout_conditions)
+
+        # Trend Quality Score
+        advanced_features['trend_quality'] = (
+            abs(av_momentum) * 0.4 +
+            (sector_strength / 100) * 0.3 +
+            advanced_features['sentiment_strength'] * 0.3
+        )
+
+        # ===================================================================
+        # 7. TREND STRENGTH & PERSISTENCE FEATURES
+        # ===================================================================
+
+        # Multi-Source Trend Confirmation
+        trend_signals = [
+            np.sign(supply_trend),
+            np.sign(dollar_trend) * -1,  # Inverse for dollar
+            np.sign(sector_momentum),
+            np.sign(sentiment_score),
+            np.sign(price_change_5d)
+        ]
+        advanced_features['trend_confirmation_score'] = sum(trend_signals) / len(trend_signals)
+
+        # Trend Strength (how many sources agree)
+        advanced_features['trend_agreement_count'] = sum(1 for s in trend_signals if abs(s) > 0)
+
+        # Trend Consistency (variance of signals)
+        advanced_features['trend_consistency'] = 1.0 - (np.std(trend_signals) if len(trend_signals) > 1 else 0)
+
+        # Price Acceleration
+        if abs(price_change_5d) > 0.001:
+            advanced_features['price_acceleration'] = (price_change_1d - price_change_5d) / abs(price_change_5d)
+        else:
+            advanced_features['price_acceleration'] = 0.0
+
+        # Supply Acceleration
+        advanced_features['supply_acceleration'] = supply_trend / (abs(supply_level) + 1)
+
+        # Trend Exhaustion Indicator
+        exhaustion_conditions = [
+            abs(price_to_ma20 - 1.0) > 0.1,      # Extended move
+            volatility_5d > volatility_20d * 1.5, # Vol increasing
+            volume_ratio < 0.8                     # Volume declining
+        ]
+        advanced_features['trend_exhaustion'] = sum(exhaustion_conditions) / len(exhaustion_conditions)
+
+        # ===================================================================
+        # 8. AGRICULTURAL-ENERGY LINKAGE FEATURES
+        # ===================================================================
+
+        # Ethanol Competition Index
+        advanced_features['ethanol_competition'] = (corn_price / 5.0) * (biofuel_demand / 100)
+
+        # Agricultural Inflation Pressure
+        advanced_features['ag_inflation_pressure'] = (corn_price - 4.0) / 4.0  # Normalized around $4
+
+        # Biofuel Policy Risk
+        advanced_features['biofuel_policy_risk'] = 1.0 if (biofuel_demand > 50 and corn_price > 5.0) else 0.0
+
+        # Corn-Oil Price Relationship
+        # Higher corn = more expensive ethanol = more gasoline demand = more oil demand
+        advanced_features['corn_oil_linkage'] = (corn_price / 5.0) * (1 - biofuel_demand / 100)
+
+        # ===================================================================
+        # 9. CROSS-ASSET CORRELATION FEATURES
+        # ===================================================================
+
+        # Oil-Equities Correlation (sector performance vs oil price)
+        advanced_features['oil_equities_correlation'] = sector_momentum * price_change_1d * 100
+
+        # Risk-Adjusted Sector Strength
+        advanced_features['risk_adjusted_sector'] = sector_strength * (economic_stability / 100)
+
+        # Market Stress Indicator
+        advanced_features['market_stress'] = (
+            (100 - sector_strength) * 0.5 +
+            (100 - economic_stability) * 0.3 +
+            av_volatility * 10 * 0.2
+        ) / 100
+
+        # ===================================================================
+        # 10. MOMENTUM & REVERSAL FEATURES
+        # ===================================================================
+
+        # Momentum Divergence (Alpha Vantage momentum vs price momentum)
+        advanced_features['momentum_divergence'] = av_momentum - price_change_1d
+
+        # Overbought/Oversold Composite
+        # Combines price position, sentiment, and technical indicators
+        price_extension = price_to_ma20 - 1.0
+        advanced_features['overbought_oversold'] = (
+            price_extension * 0.4 +
+            (advanced_features['composite_sentiment']) * 0.3 +
+            (ma5_to_ma20 - 1.0) * 0.3
+        )
+
+        # Mean Reversion Probability
+        advanced_features['mean_reversion_signal'] = (
+            abs(price_extension) *
+            (1 if advanced_features['trend_exhaustion'] > 0.6 else 0.5)
+        )
+
+        # Momentum Quality (strong momentum with confirmation)
+        advanced_features['momentum_quality'] = (
+            abs(av_momentum) *
+            advanced_features['trend_confirmation_score'] *
+            (volume_ratio if volume_ratio > 1 else volume_ratio * 0.5)
+        )
+
+        logger.info(f"Created {len(advanced_features)} advanced oil-specific features")
+
+        return advanced_features
+
     def train_prediction_models(self, features_df, target_column):
         """Train ensemble of ML models for oil prediction"""
         logger.info("Training oil-optimized ML models...")
@@ -1150,30 +1479,36 @@ class PremiumWTIPredictor:
             logger.info("Engineering comprehensive features...")
             all_features = []
             all_targets = {'1h': [], '1d': [], '1w': []}
-            
-            # Use ONLY technical features for consistent ML training
-            logger.info("Using technical features only for consistent ML training")
+
+            # Using technical + advanced features for enhanced ML training
+            logger.info("Using technical + advanced oil-specific features for ML training")
             
             # Process each historical point with consistent feature engineering
             for i in range(20, len(wti_data) - 5):  # Leave room for targets
                 try:
                     # Get window of data for this point
                     window_data = wti_data.iloc[i-20:i+1]
-                    
-                    # Create only technical features for consistency
-                    point_features = self.engineer_technical_features(window_data)
-                    
+
+                    # Create technical features
+                    technical_features = self.engineer_technical_features(window_data)
+
+                    # Create advanced features from technical features + external data
+                    advanced_features = self.engineer_advanced_features(technical_features, external_data)
+
+                    # Combine technical and advanced features
+                    combined_features = {**technical_features, **advanced_features}
+
                     # Create targets for different horizons
                     current_price = wti_data['Close'].iloc[i]
                     price_1h = wti_data['Close'].iloc[min(i+1, len(wti_data)-1)]  # Next day for hourly
                     price_1d = wti_data['Close'].iloc[min(i+1, len(wti_data)-1)]  # Next day
                     price_1w = wti_data['Close'].iloc[min(i+5, len(wti_data)-1)]  # 5 days ahead
-                    
-                    all_features.append(point_features)
+
+                    all_features.append(combined_features)
                     all_targets['1h'].append(price_1h)
-                    all_targets['1d'].append(price_1d) 
+                    all_targets['1d'].append(price_1d)
                     all_targets['1w'].append(price_1w)
-                    
+
                 except Exception as e:
                     logger.debug(f"Skipping data point {i}: {e}")
                     continue
@@ -1199,26 +1534,40 @@ class PremiumWTIPredictor:
             
             # Generate current features using the SAME method as training
             current_window = wti_data.iloc[-21:]  # Last 21 days for current features
-            
-            # Use ONLY technical features for consistency
-            current_features_dict = self.engineer_technical_features(current_window)
-            current_features = pd.DataFrame([current_features_dict])
-            
-            # Ensure current features match training features exactly
-            for feature in selected_features:
-                if feature not in current_features.columns:
+
+            # Create technical features
+            current_technical_features = self.engineer_technical_features(current_window)
+
+            # Create advanced features
+            current_advanced_features = self.engineer_advanced_features(current_technical_features, external_data)
+
+            # Combine technical and advanced features
+            current_features_dict = {**current_technical_features, **current_advanced_features}
+
+            # Create DataFrame with same columns as training data (excluding target)
+            training_columns = [col for col in features_df.columns if col != 'target_1d']
+
+            # Ensure all training columns are present
+            for col in training_columns:
+                if col not in current_features_dict:
                     # Use consistent defaults based on feature type
-                    if 'trend' in feature or 'momentum' in feature or 'change' in feature:
-                        current_features[feature] = 0  # Neutral trend
-                    elif 'data_quality' in feature:
-                        current_features[feature] = 0  # Missing data indicator
-                    elif 'volatility' in feature or 'std' in feature:
-                        current_features[feature] = 1.0  # Default volatility
-                    elif 'rsi' in feature or 'sentiment' in feature:
-                        current_features[feature] = 50  # Neutral level
+                    if 'trend' in col or 'momentum' in col or 'change' in col or 'acceleration' in col:
+                        current_features_dict[col] = 0  # Neutral trend
+                    elif 'data_quality' in col:
+                        current_features_dict[col] = 0  # Missing data indicator
+                    elif 'volatility' in col or 'std' in col:
+                        current_features_dict[col] = 1.0  # Default volatility
+                    elif 'rsi' in col or 'sentiment' in col:
+                        current_features_dict[col] = 50  # Neutral level
+                    elif 'stress' in col or 'pressure' in col:
+                        current_features_dict[col] = 0  # Neutral stress
                     else:
-                        current_features[feature] = 50  # Safe default
-            
+                        current_features_dict[col] = 0  # Safe default
+
+            # Create DataFrame with columns in same order as training
+            current_features = pd.DataFrame([current_features_dict], columns=training_columns)
+
+            # Now select only the features that were selected during training
             current_features_selected = selector.transform(current_features[selected_features])
             current_features_scaled = scaler.transform(current_features_selected)
             
