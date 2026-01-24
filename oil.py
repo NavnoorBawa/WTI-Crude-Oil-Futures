@@ -855,7 +855,10 @@ class PremiumWTIPredictor:
         """Train ensemble of ML models for oil prediction"""
         logger.info("Training oil-optimized ML models...")
         
-        X = features_df.drop(columns=[target_column])
+        # Drop ALL target columns to prevent data leakage and feature mismatch
+        target_columns = ['target_1h', 'target_1d', 'target_1w']
+        columns_to_drop = [col for col in target_columns if col in features_df.columns]
+        X = features_df.drop(columns=columns_to_drop)
         y = features_df[target_column]
         
         # Feature selection
@@ -1154,10 +1157,17 @@ class PremiumWTIPredictor:
                     # Create only technical features for consistency
                     point_features = self.engineer_technical_features(window_data)
                     
-                    # Create targets for different horizons
+                    # Create targets for different horizons (using daily data as proxy)
+                    # 1h: Use intraday-like approximation (slight change from current)
+                    # 1d: Next trading day
+                    # 1w: 5 trading days ahead
                     current_price = wti_data['Close'].iloc[i]
-                    price_1h = wti_data['Close'].iloc[min(i+1, len(wti_data)-1)]  # Next day for hourly
-                    price_1d = wti_data['Close'].iloc[min(i+1, len(wti_data)-1)]  # Next day
+                    # For 1h, we approximate short-term movement using high/low range
+                    current_high = wti_data['High'].iloc[i]
+                    current_low = wti_data['Low'].iloc[i]
+                    # 1h target: approximate intraday movement toward next day's open
+                    price_1h = (current_price + wti_data['Open'].iloc[min(i+1, len(wti_data)-1)]) / 2
+                    price_1d = wti_data['Close'].iloc[min(i+1, len(wti_data)-1)]  # Next day close
                     price_1w = wti_data['Close'].iloc[min(i+5, len(wti_data)-1)]  # 5 days ahead
                     
                     all_features.append(point_features)
@@ -1175,85 +1185,145 @@ class PremiumWTIPredictor:
             logger.info(f"Created {len(all_features)} training samples")
             features_df = pd.DataFrame(all_features)
             
-            # Add target columns to features dataframe
-            features_df['target_1d'] = all_targets['1d']  # Use 1d as primary target
+            # Add ALL target columns to features dataframe for per-horizon training
+            features_df['target_1h'] = all_targets['1h']
+            features_df['target_1d'] = all_targets['1d']
+            features_df['target_1w'] = all_targets['1w']
             
             logger.info(f"Created {len(features_df.columns)} premium features")
             
-            # Train models using 1d target as base (most reliable)
-            models, scores, scaler, selector, selected_features = self.train_prediction_models(
-                features_df, 'target_1d'
-            )
+            horizons = ['1h', '1d', '1w']
             
-            if not models:
-                raise Exception("No models successfully trained")
+            # Train SEPARATE models for EACH horizon
+            logger.info("Training separate models for each horizon...")
+            horizon_models = {}
+            
+            for horizon in horizons:
+                target_col = f'target_{horizon}'
+                logger.info(f"Training models for {horizon} horizon...")
+                
+                # Make a copy to avoid modifying original
+                horizon_features = features_df.copy()
+                
+                models, scores, scaler, selector, selected_features = self.train_prediction_models(
+                    horizon_features, target_col
+                )
+                
+                if models:
+                    horizon_models[horizon] = {
+                        'models': models,
+                        'scores': scores,
+                        'scaler': scaler,
+                        'selector': selector,
+                        'selected_features': selected_features
+                    }
+                    logger.info(f"✅ Trained {len(models)} models for {horizon}")
+                else:
+                    logger.warning(f"⚠️ No models trained for {horizon}")
+            
+            if not horizon_models:
+                raise Exception("No models successfully trained for any horizon")
             
             # Generate current features using the SAME method as training
             current_window = wti_data.iloc[-21:]  # Last 21 days for current features
             
             # Use ONLY technical features for consistency
             current_features_dict = self.engineer_technical_features(current_window)
-            current_features = pd.DataFrame([current_features_dict])
+            current_price = current_features_dict['current_price']
             
-            # Ensure current features match training features exactly
-            for feature in selected_features:
-                if feature not in current_features.columns:
-                    # Use consistent defaults based on feature type
-                    if 'trend' in feature or 'momentum' in feature or 'change' in feature:
-                        current_features[feature] = 0  # Neutral trend
-                    elif 'data_quality' in feature:
-                        current_features[feature] = 0  # Missing data indicator
-                    elif 'volatility' in feature or 'std' in feature:
-                        current_features[feature] = 1.0  # Default volatility
-                    elif 'rsi' in feature or 'sentiment' in feature:
-                        current_features[feature] = 50  # Neutral level
-                    else:
-                        current_features[feature] = 50  # Safe default
-            
-            current_features_selected = selector.transform(current_features[selected_features])
-            current_features_scaled = scaler.transform(current_features_selected)
-            
-            # Generate ensemble predictions
+            # Generate predictions for EACH horizon using its dedicated models
             predictions = {}
-            horizons = ['1h', '1d', '1w']
-            horizon_multipliers = {'1h': 1.002, '1d': 1.005, '1w': 0.995}  # Realistic oil price movements
+            total_model_count = 0
+            all_scores = {}
             
-            # Get base ensemble prediction first
-            base_predictions = []
-            for name, model in models.items():
-                try:
-                    base_pred = model.predict(current_features_scaled)[0]
-                    # Weight by model score (but don't let it make predictions too extreme)
-                    score_weight = max(0.3, min(1.0, scores[name]))  # Keep weights reasonable
-                    weighted_pred = base_pred * score_weight
-                    base_predictions.append(weighted_pred)
-                except Exception as e:
-                    logger.warning(f"Model {name} prediction failed: {e}")
-            
-            if not base_predictions:
-                raise Exception("No valid models available for predictions - refusing to generate fallback data")
-            
-            # Get ensemble base prediction
-            base_ensemble = np.mean(base_predictions)
-            
-            # Ensure the base prediction is reasonable relative to current price
-            if abs(base_ensemble - current_price) / current_price > 0.5:  # If prediction is more than 50% different
-                logger.warning(f"Base prediction {base_ensemble:.2f} seems unrealistic vs current {current_price:.2f}, using technical adjustment")
-                # Use a more conservative approach based on current price and technical indicators
-                rsi = current_features_dict.get('rsi', 50)
-                volatility = current_features_dict.get('volatility', 1.0)
-                
-                if rsi > 70:  # Overbought
-                    base_ensemble = current_price * (1 - volatility * 0.02)
-                elif rsi < 30:  # Oversold  
-                    base_ensemble = current_price * (1 + volatility * 0.02)
-                else:
-                    base_ensemble = current_price  # Neutral
-            
-            # Apply realistic horizon adjustments
             for horizon in horizons:
-                horizon_pred = base_ensemble * horizon_multipliers[horizon]
-                predictions[horizon] = max(1.0, horizon_pred)  # Ensure positive price
+                if horizon not in horizon_models:
+                    # Fallback only if horizon model failed to train
+                    predictions[horizon] = current_price
+                    logger.warning(f"Using current price fallback for {horizon}")
+                    continue
+                
+                h_data = horizon_models[horizon]
+                h_models = h_data['models']
+                h_scores = h_data['scores']
+                h_scaler = h_data['scaler']
+                h_selector = h_data['selector']
+                h_selected_features = h_data['selected_features']
+                
+                # Prepare current features for this horizon's selector/scaler
+                current_features = pd.DataFrame([current_features_dict])
+                
+                # Ensure current features match training features exactly
+                for feature in h_selected_features:
+                    if feature not in current_features.columns:
+                        # Handle all possible feature types with appropriate defaults
+                        if 'trend' in feature or 'momentum' in feature or 'change' in feature:
+                            current_features[feature] = 0
+                        elif 'data_quality' in feature:
+                            current_features[feature] = 0
+                        elif 'volatility' in feature or 'std' in feature:
+                            current_features[feature] = 1.0
+                        elif feature == 'rsi' or 'sentiment' in feature:
+                            current_features[feature] = 50
+                        elif feature == 'rsi_overbought' or feature == 'rsi_oversold':
+                            current_features[feature] = 0  # Binary indicator
+                        elif feature == 'month':
+                            current_features[feature] = datetime.now().month
+                        elif feature == 'quarter':
+                            current_features[feature] = (datetime.now().month - 1) // 3 + 1
+                        elif feature == 'day_of_week':
+                            current_features[feature] = datetime.now().weekday()
+                        elif feature == 'day_of_year':
+                            current_features[feature] = datetime.now().timetuple().tm_yday
+                        elif feature == 'is_quarter_end':
+                            current_features[feature] = 1 if datetime.now().month in [3, 6, 9, 12] else 0
+                        elif feature == 'is_winter':
+                            current_features[feature] = 1 if datetime.now().month in [12, 1, 2] else 0
+                        elif feature == 'is_summer':
+                            current_features[feature] = 1 if datetime.now().month in [6, 7, 8] else 0
+                        elif 'ratio' in feature or 'position' in feature:
+                            current_features[feature] = 1.0  # Neutral ratio
+                        elif 'price' in feature:
+                            current_features[feature] = current_price  # Use current price
+                        elif 'volume' in feature:
+                            current_features[feature] = 0  # Default volume
+                        elif 'ma' in feature.lower():
+                            current_features[feature] = current_price  # Use current price for MAs
+                        else:
+                            current_features[feature] = 50  # Safe default
+                
+                current_features_selected = h_selector.transform(current_features[h_selected_features])
+                current_features_scaled = h_scaler.transform(current_features_selected)
+                
+                # Get weighted ensemble prediction for this horizon
+                h_predictions = []
+                h_weights = []
+                
+                for name, model in h_models.items():
+                    try:
+                        pred = model.predict(current_features_scaled)[0]
+                        weight = max(0.3, min(1.0, h_scores[name]))
+                        h_predictions.append(pred)
+                        h_weights.append(weight)
+                        total_model_count += 1
+                    except Exception as e:
+                        logger.warning(f"Model {name} prediction failed for {horizon}: {e}")
+                
+                if h_predictions:
+                    # PROPER weighted average using numpy
+                    horizon_pred = np.average(h_predictions, weights=h_weights)
+                    
+                    # Sanity check: prediction should be within 10% of current price
+                    if abs(horizon_pred - current_price) / current_price > 0.10:
+                        logger.warning(f"{horizon} prediction {horizon_pred:.2f} >10% from current {current_price:.2f}, applying bounds")
+                        # Bound to ±10% of current price
+                        horizon_pred = np.clip(horizon_pred, current_price * 0.90, current_price * 1.10)
+                    
+                    predictions[horizon] = max(1.0, horizon_pred)
+                    all_scores[horizon] = np.mean(list(h_scores.values()))
+                else:
+                    predictions[horizon] = current_price
+                    logger.warning(f"No valid predictions for {horizon}, using current price")
             
             processing_time = time.time() - start_time
             
@@ -1266,14 +1336,18 @@ class PremiumWTIPredictor:
             
             # Store predictions with timestamp
             timestamp = datetime.now().isoformat()
+            # Get feature count from first available horizon model
+            first_horizon = next(iter(horizon_models.values()), None)
+            feature_count = len(first_horizon['selected_features']) if first_horizon else 0
+            
             prediction_record = {
                 'timestamp': timestamp,
                 'predictions': predictions,
                 'percentage_changes': percentage_changes,
                 'current_price': current_price,
                 'processing_time': processing_time,
-                'feature_count': len(selected_features),
-                'model_count': len(models),
+                'feature_count': feature_count,
+                'model_count': total_model_count,
                 'data_quality_score': min(100, sum(data.get('data_quality', 0) for data in external_data.values()) / len(external_data)) if external_data else 100,
                 'is_real_prediction': True,
                 'external_data_sources': len(external_data),
@@ -1287,13 +1361,15 @@ class PremiumWTIPredictor:
             # Store in horizon-specific files
             for horizon in horizons:
                 horizon_data = getattr(self, f'predictions_{horizon}')
+                # Use per-horizon confidence score if available
+                horizon_confidence = all_scores.get(horizon, 0.5) * 100
                 horizon_data[timestamp] = {
                     'timestamp': timestamp,
                     'prediction': predictions[horizon],
                     'percentage_change': percentage_changes[horizon],
                     'current_price': current_price,
-                    'confidence': scores.get('random_forest', 0.5) * 100,  # Use RF score as confidence
-                    'model_count': len(models),
+                    'confidence': horizon_confidence,
+                    'model_count': total_model_count // 3,  # Per-horizon model count
                     'processing_time': processing_time
                 }
                 self._save_horizon_predictions(horizon, horizon_data)
