@@ -28,6 +28,10 @@ from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from sklearn.feature_selection import SelectKBest, f_regression
 
+# Advanced ML models
+from xgboost import XGBRegressor
+from lightgbm import LGBMRegressor
+
 warnings.filterwarnings('ignore')
 
 # Configure logging
@@ -563,15 +567,15 @@ class PremiumWTIPredictor:
             }
     
     def get_news_sentiment(self):
-        """Fetch news sentiment from NewsAPI"""
+        """Fetch news sentiment from NewsAPI - ENHANCED with momentum and recency weighting"""
         logger.info("Fetching NewsAPI oil sentiment...")
         try:
             url = "https://newsapi.org/v2/everything"
             params = {
-                'q': 'oil prices OR crude oil OR WTI OR petroleum',
+                'q': 'oil prices OR crude oil OR WTI OR petroleum OR OPEC',
                 'language': 'en',
                 'sortBy': 'publishedAt',
-                'pageSize': 20,
+                'pageSize': 30,  # Increased for better analysis
                 'apiKey': self.config.NEWSAPI_KEY
             }
             
@@ -580,34 +584,70 @@ class PremiumWTIPredictor:
                 data = response.json()
                 articles = data.get('articles', [])
                 
+                # Enhanced sentiment analysis with finance-specific keywords
+                positive_words = [
+                    'rise', 'gain', 'up', 'higher', 'surge', 'boost', 'strong', 'increase',
+                    'rally', 'bullish', 'jump', 'soar', 'climb', 'recover', 'spike', 'breakout',
+                    'demand', 'supply cut', 'shortage', 'opec cut', 'production cut'
+                ]
+                negative_words = [
+                    'fall', 'drop', 'down', 'lower', 'decline', 'weak', 'decrease', 'plunge',
+                    'bearish', 'crash', 'slump', 'tumble', 'sink', 'collapse', 'slide',
+                    'oversupply', 'glut', 'recession', 'demand drop', 'production increase'
+                ]
+                
                 sentiment_scores = []
-                for article in articles[:15]:  # Analyze top 15 articles
+                recency_weights = []
+                bullish_count = 0
+                bearish_count = 0
+                
+                for i, article in enumerate(articles[:20]):
                     title = article.get('title', '').lower()
                     description = article.get('description', '').lower() if article.get('description') else ''
-                    
-                    # Simple sentiment analysis based on keywords
-                    positive_words = ['rise', 'gain', 'up', 'higher', 'surge', 'boost', 'strong', 'increase']
-                    negative_words = ['fall', 'drop', 'down', 'lower', 'decline', 'weak', 'decrease', 'plunge']
-                    
-                    score = 0
                     text = f"{title} {description}"
                     
+                    # Calculate sentiment score
+                    score = 0
                     for word in positive_words:
-                        score += text.count(word)
+                        if word in text:
+                            score += 1
                     for word in negative_words:
-                        score -= text.count(word)
+                        if word in text:
+                            score -= 1
+                    
+                    # Track bullish/bearish articles
+                    if score > 0:
+                        bullish_count += 1
+                    elif score < 0:
+                        bearish_count += 1
                     
                     sentiment_scores.append(score)
+                    # Recency weighting: recent articles (first 5) get 2x weight
+                    recency_weights.append(2.0 if i < 5 else 1.0)
                 
                 if sentiment_scores:
-                    avg_sentiment = np.mean(sentiment_scores)
-                    market_buzz = min(100, max(0, 50 + avg_sentiment * 5))
+                    # Weighted average with recency
+                    weighted_sentiment = np.average(sentiment_scores, weights=recency_weights)
                     
-                    logger.info(f"✅ NewsAPI: {len(sentiment_scores)} sentiment signals")
+                    # Calculate sentiment momentum (first half vs second half)
+                    half = len(sentiment_scores) // 2
+                    recent_avg = np.mean(sentiment_scores[:half]) if half > 0 else 0
+                    older_avg = np.mean(sentiment_scores[half:]) if half > 0 else 0
+                    sentiment_momentum = recent_avg - older_avg
+                    
+                    # Bullish ratio
+                    total_directional = bullish_count + bearish_count
+                    bullish_ratio = bullish_count / total_directional if total_directional > 0 else 0.5
+                    
+                    market_buzz = min(100, max(0, 50 + weighted_sentiment * 5))
+                    
+                    logger.info(f"✅ NewsAPI: {len(sentiment_scores)} sentiment signals (momentum: {sentiment_momentum:+.2f})")
                     return {
                         'data_quality': 100,
                         'market_buzz': market_buzz,
-                        'sentiment_score': avg_sentiment,
+                        'sentiment_score': weighted_sentiment,
+                        'sentiment_momentum': sentiment_momentum,  # NEW: sentiment direction
+                        'bullish_ratio': bullish_ratio,  # NEW: ratio of bullish articles
                         'news_volume': len(articles),
                         'source': 'NewsAPI',
                         'timestamp': datetime.now().isoformat()
@@ -628,6 +668,8 @@ class PremiumWTIPredictor:
                 'data_quality': 0,
                 'market_buzz': 0,
                 'sentiment_score': 0,
+                'sentiment_momentum': 0,
+                'bullish_ratio': 0.5,
                 'news_volume': 0,
                 'source': 'error',
                 'timestamp': datetime.now().isoformat()
@@ -861,6 +903,9 @@ class PremiumWTIPredictor:
         X = features_df.drop(columns=columns_to_drop)
         y = features_df[target_column]
         
+        # Store ALL feature names for prediction phase
+        all_feature_names = X.columns.tolist()
+        
         # Feature selection
         selector = SelectKBest(score_func=f_regression, k=min(20, len(X.columns)))
         X_selected = selector.fit_transform(X, y)
@@ -872,14 +917,16 @@ class PremiumWTIPredictor:
         scaler = RobustScaler()
         X_scaled = scaler.fit_transform(X_selected)
         
-        # Train multiple models
+        # Train multiple models - UPGRADED ENSEMBLE
+        # XGBoost replaces Gradient Boosting (better performance)
+        # LightGBM replaces Lasso (faster, handles mixed features)
         models = {
-            'random_forest': RandomForestRegressor(n_estimators=100, random_state=42, max_depth=10),
-            'gradient_boost': GradientBoostingRegressor(n_estimators=100, random_state=42, max_depth=6),
-            'extra_trees': ExtraTreesRegressor(n_estimators=100, random_state=42, max_depth=8),
+            'random_forest': RandomForestRegressor(n_estimators=150, random_state=42, max_depth=10),
+            'xgboost': XGBRegressor(n_estimators=150, max_depth=6, learning_rate=0.05, random_state=42, verbosity=0),
+            'extra_trees': ExtraTreesRegressor(n_estimators=150, random_state=42, max_depth=8),
             'elastic_net': ElasticNet(alpha=0.1, random_state=42),
             'ridge': Ridge(alpha=1.0, random_state=42),
-            'lasso': Lasso(alpha=0.1, random_state=42)
+            'lightgbm': LGBMRegressor(n_estimators=150, max_depth=6, learning_rate=0.05, random_state=42, verbosity=-1)
         }
         
         trained_models = {}
@@ -911,7 +958,8 @@ class PremiumWTIPredictor:
         
         logger.info(f"Trained {len(trained_models)} oil-optimized models")
         
-        return trained_models, model_scores, scaler, selector, selected_features
+        # Return all_feature_names for proper transform during prediction
+        return trained_models, model_scores, scaler, selector, selected_features, all_feature_names
     
     def get_multi_horizon_predictions_simple(self):
         """Generate predictions using only reliable yfinance data - no external dependencies"""
@@ -1118,6 +1166,61 @@ class PremiumWTIPredictor:
             'is_quarter_end': 1 if datetime.now().month in [3, 6, 9, 12] else 0,
         }
         
+        # === ADVANCED TECHNICAL INDICATORS ===
+        
+        # Bollinger Bands (20-day, 2 std dev)
+        if len(closes) >= 20:
+            bb_middle = closes[-20:].mean()
+            bb_std = closes[-20:].std()
+            bb_upper = bb_middle + (2 * bb_std)
+            bb_lower = bb_middle - (2 * bb_std)
+            features['bb_upper'] = bb_upper
+            features['bb_lower'] = bb_lower
+            features['bb_position'] = (closes[-1] - bb_lower) / (bb_upper - bb_lower) if (bb_upper - bb_lower) > 0 else 0.5
+            features['bb_width'] = (bb_upper - bb_lower) / bb_middle if bb_middle > 0 else 0
+        else:
+            features['bb_upper'] = closes[-1]
+            features['bb_lower'] = closes[-1]
+            features['bb_position'] = 0.5
+            features['bb_width'] = 0
+        
+        # MACD (12, 26, 9)
+        if len(closes) >= 26:
+            ema_12 = pd.Series(closes).ewm(span=12, adjust=False).mean().iloc[-1]
+            ema_26 = pd.Series(closes).ewm(span=26, adjust=False).mean().iloc[-1]
+            macd_line = ema_12 - ema_26
+            # Signal line (9-period EMA of MACD)
+            macd_series = pd.Series(closes).ewm(span=12, adjust=False).mean() - pd.Series(closes).ewm(span=26, adjust=False).mean()
+            signal_line = macd_series.ewm(span=9, adjust=False).mean().iloc[-1]
+            features['macd'] = macd_line
+            features['macd_signal'] = signal_line
+            features['macd_histogram'] = macd_line - signal_line
+            features['macd_crossover'] = 1 if macd_line > signal_line else -1
+        else:
+            features['macd'] = 0
+            features['macd_signal'] = 0
+            features['macd_histogram'] = 0
+            features['macd_crossover'] = 0
+        
+        # RSI Divergence (price vs RSI direction)
+        if len(closes) >= 20:
+            price_trend = 1 if closes[-1] > closes[-5] else -1
+            rsi_current = self.calculate_rsi(closes)
+            rsi_prev = self.calculate_rsi(closes[:-5]) if len(closes) > 19 else rsi_current
+            rsi_trend = 1 if rsi_current > rsi_prev else -1
+            features['rsi_divergence'] = 1 if price_trend != rsi_trend else 0  # Divergence signal
+        else:
+            features['rsi_divergence'] = 0
+        
+        # Volume indicators
+        if len(volumes) >= 20:
+            avg_volume = volumes[-20:].mean()
+            features['volume_ratio'] = volumes[-1] / avg_volume if avg_volume > 0 else 1.0
+            features['volume_trend'] = 1 if volumes[-1] > volumes[-5:].mean() else -1
+        else:
+            features['volume_ratio'] = 1.0
+            features['volume_trend'] = 0
+        
         return features
 
     def get_multi_horizon_predictions(self):
@@ -1205,7 +1308,7 @@ class PremiumWTIPredictor:
                 # Make a copy to avoid modifying original
                 horizon_features = features_df.copy()
                 
-                models, scores, scaler, selector, selected_features = self.train_prediction_models(
+                models, scores, scaler, selector, selected_features, all_feature_names = self.train_prediction_models(
                     horizon_features, target_col
                 )
                 
@@ -1215,7 +1318,8 @@ class PremiumWTIPredictor:
                         'scores': scores,
                         'scaler': scaler,
                         'selector': selector,
-                        'selected_features': selected_features
+                        'selected_features': selected_features,
+                        'all_feature_names': all_feature_names  # Store for proper transform
                     }
                     logger.info(f"✅ Trained {len(models)} models for {horizon}")
                 else:
@@ -1249,12 +1353,13 @@ class PremiumWTIPredictor:
                 h_scaler = h_data['scaler']
                 h_selector = h_data['selector']
                 h_selected_features = h_data['selected_features']
+                h_all_features = h_data['all_feature_names']  # All features selector was trained on
                 
                 # Prepare current features for this horizon's selector/scaler
                 current_features = pd.DataFrame([current_features_dict])
                 
-                # Ensure current features match training features exactly
-                for feature in h_selected_features:
+                # Ensure current features match ALL training features (not just selected)
+                for feature in h_all_features:
                     if feature not in current_features.columns:
                         # Handle all possible feature types with appropriate defaults
                         if 'trend' in feature or 'momentum' in feature or 'change' in feature:
@@ -1267,6 +1372,8 @@ class PremiumWTIPredictor:
                             current_features[feature] = 50
                         elif feature == 'rsi_overbought' or feature == 'rsi_oversold':
                             current_features[feature] = 0  # Binary indicator
+                        elif feature == 'rsi_divergence':
+                            current_features[feature] = 0  # No divergence
                         elif feature == 'month':
                             current_features[feature] = datetime.now().month
                         elif feature == 'quarter':
@@ -1281,6 +1388,26 @@ class PremiumWTIPredictor:
                             current_features[feature] = 1 if datetime.now().month in [12, 1, 2] else 0
                         elif feature == 'is_summer':
                             current_features[feature] = 1 if datetime.now().month in [6, 7, 8] else 0
+                        # MACD features
+                        elif feature == 'macd' or feature == 'macd_signal' or feature == 'macd_histogram':
+                            current_features[feature] = 0
+                        elif feature == 'macd_crossover':
+                            current_features[feature] = 0
+                        # Bollinger Bands features
+                        elif feature == 'bb_upper' or feature == 'bb_lower':
+                            current_features[feature] = current_price
+                        elif feature == 'bb_position':
+                            current_features[feature] = 0.5  # Middle of bands
+                        elif feature == 'bb_width':
+                            current_features[feature] = 0.05  # Typical width
+                        # Volume features
+                        elif feature == 'volume_ratio':
+                            current_features[feature] = 1.0
+                        elif feature == 'volume_trend':
+                            current_features[feature] = 0
+                        # Sentiment features
+                        elif feature == 'bullish_ratio':
+                            current_features[feature] = 0.5
                         elif 'ratio' in feature or 'position' in feature:
                             current_features[feature] = 1.0  # Neutral ratio
                         elif 'price' in feature:
@@ -1290,9 +1417,10 @@ class PremiumWTIPredictor:
                         elif 'ma' in feature.lower():
                             current_features[feature] = current_price  # Use current price for MAs
                         else:
-                            current_features[feature] = 50  # Safe default
+                            current_features[feature] = 0  # Safe default
                 
-                current_features_selected = h_selector.transform(current_features[h_selected_features])
+                # Transform using ALL features (selector will pick the right ones)
+                current_features_selected = h_selector.transform(current_features[h_all_features])
                 current_features_scaled = h_scaler.transform(current_features_selected)
                 
                 # Get weighted ensemble prediction for this horizon

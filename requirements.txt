@@ -8,3 +8,5 @@ flask-cors>=4.0.0
 scipy>=1.9.0
 gunicorn>=21.0.0
 pytz>=2023.3
+xgboost>=2.0.0
+lightgbm>=4.0.0
