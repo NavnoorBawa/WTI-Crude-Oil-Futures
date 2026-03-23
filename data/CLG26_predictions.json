@@ -1,0 +1,107 @@
+{
+  "2026-01-24T12:40:20.725152": {
+    "timestamp": "2026-01-24T12:40:20.725152",
+    "predictions": {
+      "1h": 61.14629501605674,
+      "1d": 60.48516039074049,
+      "1w": 60.114301122810744
+    },
+    "percentage_changes": {
+      "1h": 0.1249309343602103,
+      "1d": -0.9576540150749263,
+      "1w": -1.564923164875129
+    },
+    "current_price": 61.06999969482422,
+    "processing_time": 15.90517783164978,
+    "feature_count": 20,
+    "model_count": 18,
+    "data_quality_score": 57.142857142857146,
+    "is_real_prediction": true,
+    "external_data_sources": 7,
+    "premium_features": true
+  },
+  "2026-01-24T13:06:21.365972": {
+    "timestamp": "2026-01-24T13:06:21.365972",
+    "predictions": {
+      "1h": 61.17034380814766,
+      "1d": 60.27126167259788,
+      "1w": 60.248081770258246
+    },
+    "percentage_changes": {
+      "1h": 0.16430999480084973,
+      "1d": -1.3079057249349104,
+      "1w": -1.345862008634711
+    },
+    "current_price": 61.06999969482422,
+    "processing_time": 19.119489908218384,
+    "feature_count": 20,
+    "model_count": 18,
+    "data_quality_score": 57.142857142857146,
+    "is_real_prediction": true,
+    "external_data_sources": 7,
+    "premium_features": true
+  },
+  "2026-01-24T14:03:49.148277": {
+    "timestamp": "2026-01-24T14:03:49.148277",
+    "predictions": {
+      "1h": 61.17034380814766,
+      "1d": 60.27126167259788,
+      "1w": 60.248081770258246
+    },
+    "percentage_changes": {
+      "1h": 0.16430999480084973,
+      "1d": -1.3079057249349104,
+      "1w": -1.345862008634711
+    },
+    "current_price": 61.06999969482422,
+    "processing_time": 21.140201091766357,
+    "feature_count": 20,
+    "model_count": 18,
+    "data_quality_score": 57.142857142857146,
+    "is_real_prediction": true,
+    "external_data_sources": 7,
+    "premium_features": true
+  },
+  "2026-01-24T18:24:25.887819": {
+    "timestamp": "2026-01-24T18:24:25.887819",
+    "predictions": {
+      "1h": 61.17034380814766,
+      "1d": 60.27126167259788,
+      "1w": 60.248081770258246
+    },
+    "percentage_changes": {
+      "1h": 0.16430999480084973,
+      "1d": -1.3079057249349104,
+      "1w": -1.345862008634711
+    },
+    "current_price": 61.06999969482422,
+    "processing_time": 23.238988161087036,
+    "feature_count": 20,
+    "model_count": 18,
+    "data_quality_score": 57.142857142857146,
+    "is_real_prediction": true,
+    "external_data_sources": 7,
+    "premium_features": true
+  },
+  "2026-01-24T20:09:48.536782": {
+    "timestamp": "2026-01-24T20:09:48.536782",
+    "predictions": {
+      "1h": 61.17034380814766,
+      "1d": 60.27126167259788,
+      "1w": 60.248081770258246
+    },
+    "percentage_changes": {
+      "1h": 0.16430999480084973,
+      "1d": -1.3079057249349104,
+      "1w": -1.345862008634711
+    },
+    "current_price": 61.06999969482422,
+    "processing_time": 56.28924798965454,
+    "feature_count": 20,
+    "model_count": 18,
+    "data_quality_score": 42.857142857142854,
+    "is_real_prediction": true,
+    "external_data_sources": 7,
+    "premium_features": true
+  }
+}

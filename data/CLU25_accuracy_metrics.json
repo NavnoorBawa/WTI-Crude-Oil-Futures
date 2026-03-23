@@ -1,0 +1,26 @@
+{
+  "summary": {
+    "1h": {
+      "price_accuracy": 0.9833327576678889,
+      "direction_accuracy": 0.3005952380952381,
+      "sample_count": 336
+    },
+    "1d": {
+      "price_accuracy": 0.0,
+      "direction_accuracy": 0.0,
+      "sample_count": 0
+    },
+    "1w": {
+      "price_accuracy": 0.0,
+      "direction_accuracy": 0.0,
+      "sample_count": 0
+    }
+  },
+  "overall": {
+    "direction_accuracy": 0.3005952380952381,
+    "total_predictions": 354
+  },
+  "timestamp": "2025-08-18T01:55:07.288348",
+  "status": "calculated",
+  "is_premium": true
+}

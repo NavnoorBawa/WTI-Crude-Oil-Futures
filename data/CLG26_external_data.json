@@ -1,0 +1,56 @@
+{
+  "eia": {
+    "error": "EIA API unavailable",
+    "source": "EIA_failed",
+    "quality": "unavailable",
+    "timestamp": "2026-01-24T20:08:54.634390"
+  },
+  "fred": {
+    "data_quality": 100,
+    "dollar_strength": 1.1599,
+    "dollar_trend": -0.0010884848484847918,
+    "economic_stability": 99.98911515151515,
+    "source": "FRED_API",
+    "timestamp": "2026-01-24T20:08:55.693031"
+  },
+  "alpha_vantage": {
+    "data_quality": 0,
+    "volatility": 0,
+    "trend_strength": 0,
+    "momentum_score": 0,
+    "source": "error",
+    "timestamp": "2026-01-24T20:08:57.322884"
+  },
+  "finnhub": {
+    "data_quality": 100,
+    "sector_strength": 51.65916,
+    "sector_momentum": 0.82958,
+    "market_sentiment": "bullish",
+    "source": "Finnhub_API",
+    "timestamp": "2026-01-24T20:09:00.030471"
+  },
+  "news": {
+    "data_quality": 100,
+    "market_buzz": 52.8,
+    "sentiment_score": 0.56,
+    "sentiment_momentum": 0.39999999999999997,
+    "bullish_ratio": 0.8181818181818182,
+    "news_volume": 30,
+    "source": "NewsAPI",
+    "timestamp": "2026-01-24T20:09:00.660047"
+  },
+  "usda": {
+    "error": "USDA API unavailable",
+    "source": "USDA_failed",
+    "quality": "unavailable",
+    "timestamp": "2026-01-24T20:09:02.655805"
+  },
+  "noaa": {
+    "data_quality": 0,
+    "weather_impact": 0,
+    "temperature_anomaly": 0,
+    "seasonal_demand": 0,
+    "source": "error",
+    "timestamp": "2026-01-24T20:09:45.009721"
+  }
+}

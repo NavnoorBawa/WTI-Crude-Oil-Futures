@@ -1,0 +1,28 @@
+{
+  "overall": {
+    "total_predictions": 5,
+    "correct_directions": 5,
+    "direction_accuracy": 100.0
+  },
+  "1h": {
+    "total_predictions": 5,
+    "correct_directions": 5,
+    "direction_accuracy": 100.0,
+    "mae": 10.775116580364363,
+    "rmse": 10.775219698802562
+  },
+  "1d": {
+    "total_predictions": 0,
+    "correct_directions": 0,
+    "direction_accuracy": 0,
+    "mae": 0,
+    "rmse": 0
+  },
+  "1w": {
+    "total_predictions": 0,
+    "correct_directions": 0,
+    "direction_accuracy": 0,
+    "mae": 0,
+    "rmse": 0
+  }
+}

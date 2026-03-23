@@ -1,0 +1,59 @@
+{
+  "eia": {
+    "data_quality": 100,
+    "supply_level": 864701.0,
+    "supply_trend": 6618.999999999994,
+    "source": "EIA_API",
+    "timestamp": "2026-03-23T19:05:16.179677"
+  },
+  "fred": {
+    "data_quality": 100,
+    "dollar_strength": 1.1444,
+    "dollar_trend": -0.0018018181818181666,
+    "economic_stability": 96.39636363636367,
+    "source": "FRED_API",
+    "timestamp": "2026-03-23T19:05:16.371500"
+  },
+  "alpha_vantage": {
+    "data_quality": 100,
+    "volatility": 11.772047567177944,
+    "trend_strength": 12.140837438423643,
+    "momentum_score": 1.2140837438423644,
+    "source": "AlphaVantage_API",
+    "timestamp": "2026-03-23T19:05:18.142578"
+  },
+  "finnhub": {
+    "data_quality": 100,
+    "sector_strength": 48.76056,
+    "sector_momentum": -0.6197199999999999,
+    "market_sentiment": "bearish",
+    "source": "Finnhub_API",
+    "timestamp": "2026-03-23T19:05:21.168395"
+  },
+  "news": {
+    "data_quality": 100,
+    "market_buzz": 49.2,
+    "sentiment_score": -0.16,
+    "sentiment_momentum": -0.1,
+    "bullish_ratio": 0.5714285714285714,
+    "news_volume": 29,
+    "source": "NewsAPI",
+    "timestamp": "2026-03-23T19:05:21.631897"
+  },
+  "usda": {
+    "data_quality": 100,
+    "agricultural_impact": 100,
+    "corn_price_level": 14.55,
+    "biofuel_demand": 100,
+    "source": "USDA_API",
+    "timestamp": "2026-03-23T19:05:22.884570"
+  },
+  "noaa": {
+    "data_quality": 100,
+    "weather_impact": 39.806666666666665,
+    "temperature_anomaly": 19.903333333333332,
+    "seasonal_demand": 10.193333333333335,
+    "source": "NOAA_API",
+    "timestamp": "2026-03-23T19:05:24.709902"
+  }
+}

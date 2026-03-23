@@ -1,0 +1,212 @@
+{
+  "2026-03-23T13:06:15.138402": {
+    "timestamp": "2026-03-23T13:06:15.138402",
+    "predictions": {
+      "1d": 92.22967868189703,
+      "1w": 96.17506072648982,
+      "1h": 100.32063053317628
+    },
+    "percentage_changes": {
+      "1h": -0.8689391715255155,
+      "1d": -8.863951123371029,
+      "1w": -4.965352147512739
+    },
+    "current_price": 101.19999694824219,
+    "processing_time": 59.82747173309326,
+    "feature_count": 20,
+    "model_count": 18,
+    "data_quality_score": 71.42857142857143,
+    "is_real_prediction": true,
+    "external_data_sources": 7,
+    "premium_features": true
+  },
+  "2026-03-23T13:11:12.001150": {
+    "timestamp": "2026-03-23T13:11:12.001150",
+    "predictions": {
+      "1d": 92.26502352743593,
+      "1w": 96.13668860714724,
+      "1h": 100.4106650385701
+    },
+    "percentage_changes": {
+      "1h": -0.8974878197720417,
+      "1d": -8.937007693112783,
+      "1w": -5.115782770715667
+    },
+    "current_price": 101.31999969482422,
+    "processing_time": 54.7141010761261,
+    "feature_count": 20,
+    "model_count": 18,
+    "data_quality_score": 71.42857142857143,
+    "is_real_prediction": true,
+    "external_data_sources": 7,
+    "premium_features": true
+  },
+  "2026-03-23T13:16:06.459761": {
+    "timestamp": "2026-03-23T13:16:06.459761",
+    "predictions": {
+      "1d": 92.38591832658197,
+      "1w": 96.30477904073649,
+      "1h": 100.40926564864212
+    },
+    "percentage_changes": {
+      "1h": -1.1233258186455046,
+      "1d": -9.024209207069257,
+      "1w": -5.165163814271818
+    },
+    "current_price": 101.55000305175781,
+    "processing_time": 101.72855710983276,
+    "feature_count": 20,
+    "model_count": 18,
+    "data_quality_score": 100,
+    "is_real_prediction": true,
+    "external_data_sources": 7,
+    "premium_features": true
+  },
+  "2026-03-23T13:20:13.983231": {
+    "timestamp": "2026-03-23T13:20:13.983231",
+    "predictions": {
+      "1d": 92.29639048258049,
+      "1w": 96.24808808196056,
+      "1h": 100.3395622093936
+    },
+    "percentage_changes": {
+      "1h": -1.0945636000512688,
+      "1d": -9.022776482025611,
+      "1w": -5.127559411298495
+    },
+    "current_price": 101.44999694824219,
+    "processing_time": 66.25696206092834,
+    "feature_count": 20,
+    "model_count": 18,
+    "data_quality_score": 100,
+    "is_real_prediction": true,
+    "external_data_sources": 7,
+    "premium_features": true
+  },
+  "2026-03-23T13:25:33.833986": {
+    "timestamp": "2026-03-23T13:25:33.833986",
+    "predictions": {
+      "1d": 93.8866034312937,
+      "1w": 97.49511157915913,
+      "1h": 100.44546252379752
+    },
+    "percentage_changes": {
+      "1h": -1.0096961511581908,
+      "1d": -7.473536708563847,
+      "1w": -3.917305207179786
+    },
+    "current_price": 101.47000122070312,
+    "processing_time": 69.90891790390015,
+    "feature_count": 20,
+    "model_count": 18,
+    "data_quality_score": 100,
+    "is_real_prediction": true,
+    "external_data_sources": 7,
+    "premium_features": true
+  },
+  "2026-03-23T18:48:09.097414": {
+    "timestamp": "2026-03-23T18:48:09.097414",
+    "predictions": {
+      "1d": 87.64619116595196,
+      "1w": 88.12710096691286,
+      "1h": 89.8124781721079
+    },
+    "percentage_changes": {
+      "1h": 0.2259542019609689,
+      "1d": -2.191507009288811,
+      "1w": -1.6548372205539275
+    },
+    "current_price": 89.61000061035156,
+    "processing_time": 28.15670108795166,
+    "feature_count": 20,
+    "model_count": 18,
+    "data_quality_score": 85.71428571428571,
+    "is_real_prediction": true,
+    "external_data_sources": 7,
+    "premium_features": true
+  },
+  "2026-03-23T18:57:05.921360": {
+    "timestamp": "2026-03-23T18:57:05.921360",
+    "predictions": {
+      "1d": 88.1196441798006,
+      "1w": 88.65599335797322,
+      "1h": 90.61475783741479
+    },
+    "percentage_changes": {
+      "1h": 0.42641523458574254,
+      "1d": -2.3388663400407865,
+      "1w": -1.7444419155498405
+    },
+    "current_price": 90.2300033569336,
+    "processing_time": 26.96129083633423,
+    "feature_count": 20,
+    "model_count": 18,
+    "data_quality_score": 85.71428571428571,
+    "is_real_prediction": true,
+    "external_data_sources": 7,
+    "premium_features": true
+  },
+  "2026-03-23T18:59:06.594455": {
+    "timestamp": "2026-03-23T18:59:06.594455",
+    "predictions": {
+      "1d": 88.1769056415277,
+      "1w": 88.81318894023653,
+      "1h": 90.7894948709268
+    },
+    "percentage_changes": {
+      "1h": 0.37534321076747423,
+      "1d": -2.5130916345029974,
+      "1w": -1.8096274883704886
+    },
+    "current_price": 90.44999694824219,
+    "processing_time": 24.552808046340942,
+    "feature_count": 20,
+    "model_count": 18,
+    "data_quality_score": 85.71428571428571,
+    "is_real_prediction": true,
+    "external_data_sources": 7,
+    "premium_features": true
+  },
+  "2026-03-23T19:03:19.143031": {
+    "timestamp": "2026-03-23T19:03:19.143031",
+    "predictions": {
+      "1d": 88.2887525335368,
+      "1w": 89.12529176719768,
+      "1h": 91.70671685337902
+    },
+    "percentage_changes": {
+      "1h": 0.8209298333577416,
+      "1d": -2.9367266686701825,
+      "1w": -2.017048522143367
+    },
+    "current_price": 90.95999908447266,
+    "processing_time": 64.86268639564514,
+    "feature_count": 20,
+    "model_count": 18,
+    "data_quality_score": 85.71428571428571,
+    "is_real_prediction": true,
+    "external_data_sources": 7,
+    "premium_features": true
+  },
+  "2026-03-23T19:05:30.525066": {
+    "timestamp": "2026-03-23T19:05:30.525066",
+    "predictions": {
+      "1d": 88.29450332384737,
+      "1w": 89.24081479013225,
+      "1h": 91.68006567700725
+    },
+    "percentage_changes": {
+      "1h": 0.7694683383635023,
+      "1d": -2.9517475642976727,
+      "1w": -1.9116162921847177
+    },
+    "current_price": 90.9800033569336,
+    "processing_time": 24.826481819152832,
+    "feature_count": 20,
+    "model_count": 18,
+    "data_quality_score": 100,
+    "is_real_prediction": true,
+    "external_data_sources": 7,
+    "premium_features": true
+  }
+}

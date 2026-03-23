@@ -1,0 +1,207 @@
+# WTI Oil Price Prediction System
+
+A complete real-time WTI crude oil futures price prediction system using machine learning. **NO FALLBACK DATA - REAL VALUES ONLY**.
+
+## System Overview
+
+This system provides:
+- **Real-time WTI futures price fetching** from yfinance with automatic contract switching
+- **Multi-horizon ML predictions** (1 hour, 1 day, 1 week) using ensemble methods
+- **Persistent storage** of predictions and actual prices for accuracy tracking
+- **REST API server** for frontend integration
+- **Complete orchestration** with automatic background updates
+
+## Key Features
+
+### ✅ Real Data Only
+- No random values, no placeholders, no fallback data
+- System fails fast with clear errors if real data unavailable
+- Automatic WTI futures contract detection and switching
+
+### ✅ ML Predictions
+- Ensemble of 17+ ML models (Random Forest, Gradient Boosting, SVR, Neural Networks, etc.)
+- Multi-horizon predictions: 1H, 1D, 1W
+- Real accuracy tracking and confidence calculation
+- External data integration (economic indicators, sentiment, weather)
+
+### ✅ Data Storage
+- JSON-based persistent storage in `data/` directory
+- Contract-specific files (e.g., `CLV25_predictions.json`)
+- Historical accuracy metrics tracking
+- Automatic contract switching without data loss
+
+### ✅ API Integration
+- RESTful API for frontend consumption
+- Real-time data updates every 3 minutes
+- All required frontend fields calculated correctly
+
+## Files Structure
+
+- **`oil.py`** - Core prediction engine with ML models
+- **`server.py`** - Flask API server for frontend integration
+- **`run_complete_system.py`** - Complete system orchestrator
+- **`data/`** - Persistent storage directory
+- **`requirements.txt`** - Python dependencies
+
+## Frontend Data Fields
+
+The system correctly calculates and provides all these fields:
+
+```json
+{
+  "security": "CLV25",
+  "security_full_name": "WTI CRUDE CLV25", 
+  "last_price": 62.80,
+  "change": -0.340,
+  "percent_change": -0.54,
+  "volume": 251652,
+  "ml_prediction": 63.87,
+  "accuracy": "75%",
+  "confidence": "80%",
+  "multi_horizon_predictions": {
+    "prediction_1h": 63.87,
+    "prediction_1d": 63.87, 
+    "prediction_1w": 63.87,
+    "is_real_prediction": true
+  },
+  "horizon_changes": [
+    {"period": "1H", "value": "+1.7%"},
+    {"period": "1D", "value": "+1.7%"},
+    {"period": "1W", "value": "+1.7%"}
+  ],
+  "data_points": 50,
+  "feed_status": "REAL-TIME",
+  "status": "ACTIVE"
+}
+```
+
+## Installation & Usage
+
+### 1. Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Run Complete System
+```bash
+python run_complete_system.py
+```
+
+### 3. Run Individual Components
+
+**Test predictions only:**
+```bash
+python run_complete_system.py --test
+```
+
+**Validate system:**
+```bash
+python run_complete_system.py --validate
+```
+
+**Run server only:**
+```bash
+python server.py
+```
+
+### 4. API Endpoints
+
+- `GET /data` - Main data endpoint for frontend
+- `GET /ml-status` - ML system status  
+- `GET /health` - Health check
+- `POST /force-update` - Force prediction update
+
+## Contract Management
+
+### Automatic Contract Switching
+- Detects current active WTI futures contract
+- Uses generic `CL=F` symbol for maximum reliability  
+- Auto-switches 5 days before contract expiry
+- Handles contract transitions seamlessly
+
+### Current Contract: CLV25
+- Symbol: CLV25 (October 2025)
+- YFinance Symbol: CL=F
+- Expiry: 2025-09-22
+- Days to expiry: Calculated automatically
+
+## ML System Details
+
+### Models Used
+- Random Forest (Conservative & Aggressive)
+- Gradient Boosting (Optimized & Robust)  
+- Extra Trees
+- Support Vector Regression
+- Neural Networks (MLP)
+- Ridge/Lasso/Elastic Net Regression
+- Bayesian Ridge
+- XGBoost (if available)
+- LightGBM (if available)
+
+### Features
+- Technical indicators (RSI, MACD, Bollinger Bands)
+- Price momentum and volatility
+- External economic data
+- Market sentiment analysis
+- Weather data integration
+
+### Accuracy Tracking
+- Real-time accuracy calculation
+- Historical performance metrics
+- Confidence scoring based on model consensus
+- No predictions accepted below quality thresholds
+
+## Error Handling
+
+### Critical Failures
+System fails fast with clear messages for:
+- No real WTI data available
+- Invalid contract symbols
+- ML prediction failures  
+- Data quality issues
+
+### No Fallback Policy
+- No random data generation
+- No placeholder values
+- No approximations or estimates
+- Real data or system failure
+
+## Data Storage
+
+### File Structure
+```
+data/
+├── CLV25_predictions.json      # ML predictions
+├── CLV25_actual_prices.json    # Historical prices
+├── CLV25_accuracy_metrics.json # Accuracy tracking
+└── CLV25_daily_metrics.json    # Daily statistics
+```
+
+### Automatic Migration
+When contracts switch (e.g., CLU25 → CLV25), new files are created automatically without losing historical data.
+
+## System Monitoring
+
+### Health Checks
+- Contract validity monitoring
+- Data quality validation
+- Prediction accuracy tracking
+- Error count monitoring
+
+### Real-time Updates
+- Predictions updated every 3 minutes
+- Accuracy metrics recalculated continuously
+- Contract expiry monitoring
+- Automatic failover handling
+
+## Production Ready
+
+✅ **Robust Error Handling** - Fails fast, clear error messages
+✅ **Real Data Only** - No shortcuts or approximations  
+✅ **Scalable Architecture** - Modular, maintainable code
+✅ **Persistent Storage** - No data loss on restarts
+✅ **API Integration** - Ready for frontend consumption
+✅ **Contract Management** - Automatic futures handling
+✅ **ML Quality** - Ensemble methods, accuracy tracking
+
+This system is production-ready and designed to provide reliable, real-time WTI oil price predictions without any placeholder or fallback data.

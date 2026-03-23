@@ -1,0 +1,28 @@
+{
+  "overall": {
+    "total_predictions": 220,
+    "correct_directions": 143,
+    "direction_accuracy": 65.0
+  },
+  "1h": {
+    "total_predictions": 202,
+    "correct_directions": 130,
+    "direction_accuracy": 64.35643564356435,
+    "mae": 4.271196801202919,
+    "rmse": 12.667483344477542
+  },
+  "1d": {
+    "total_predictions": 18,
+    "correct_directions": 13,
+    "direction_accuracy": 72.22222222222221,
+    "mae": 36.41026775954443,
+    "rmse": 42.29715222359244
+  },
+  "1w": {
+    "total_predictions": 0,
+    "correct_directions": 0,
+    "direction_accuracy": 0,
+    "mae": 0,
+    "rmse": 0
+  }
+}

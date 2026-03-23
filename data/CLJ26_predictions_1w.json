@@ -1,0 +1,92 @@
+{
+  "2026-03-23T13:06:15.138402": {
+    "timestamp": "2026-03-23T13:06:15.138402",
+    "prediction": 96.17506072648982,
+    "percentage_change": -4.965352147512739,
+    "current_price": 101.19999694824219,
+    "confidence": 0.20297889991194923,
+    "model_count": 6,
+    "processing_time": 59.82747173309326
+  },
+  "2026-03-23T13:11:12.001150": {
+    "timestamp": "2026-03-23T13:11:12.001150",
+    "prediction": 96.13668860714724,
+    "percentage_change": -5.115782770715667,
+    "current_price": 101.31999969482422,
+    "confidence": 0.20626485274889725,
+    "model_count": 6,
+    "processing_time": 54.7141010761261
+  },
+  "2026-03-23T13:16:06.459761": {
+    "timestamp": "2026-03-23T13:16:06.459761",
+    "prediction": 96.30477904073649,
+    "percentage_change": -5.165163814271818,
+    "current_price": 101.55000305175781,
+    "confidence": 0.2125369617411943,
+    "model_count": 6,
+    "processing_time": 101.72855710983276
+  },
+  "2026-03-23T13:20:13.983231": {
+    "timestamp": "2026-03-23T13:20:13.983231",
+    "prediction": 96.24808808196056,
+    "percentage_change": -5.127559411298495,
+    "current_price": 101.44999694824219,
+    "confidence": 0.2098140251606749,
+    "model_count": 6,
+    "processing_time": 66.25696206092834
+  },
+  "2026-03-23T13:25:33.833986": {
+    "timestamp": "2026-03-23T13:25:33.833986",
+    "prediction": 97.49511157915913,
+    "percentage_change": -3.917305207179786,
+    "current_price": 101.47000122070312,
+    "confidence": 0.0,
+    "model_count": 6,
+    "processing_time": 69.90891790390015
+  },
+  "2026-03-23T18:48:09.097414": {
+    "timestamp": "2026-03-23T18:48:09.097414",
+    "prediction": 88.12710096691286,
+    "percentage_change": -1.6548372205539275,
+    "current_price": 89.61000061035156,
+    "confidence": 0.0,
+    "model_count": 6,
+    "processing_time": 28.15670108795166
+  },
+  "2026-03-23T18:57:05.921360": {
+    "timestamp": "2026-03-23T18:57:05.921360",
+    "prediction": 88.65599335797322,
+    "percentage_change": -1.7444419155498405,
+    "current_price": 90.2300033569336,
+    "confidence": 0.0,
+    "model_count": 6,
+    "processing_time": 26.96129083633423
+  },
+  "2026-03-23T18:59:06.594455": {
+    "timestamp": "2026-03-23T18:59:06.594455",
+    "prediction": 88.81318894023653,
+    "percentage_change": -1.8096274883704886,
+    "current_price": 90.44999694824219,
+    "confidence": 0.0,
+    "model_count": 6,
+    "processing_time": 24.552808046340942
+  },
+  "2026-03-23T19:03:19.143031": {
+    "timestamp": "2026-03-23T19:03:19.143031",
+    "prediction": 89.12529176719768,
+    "percentage_change": -2.017048522143367,
+    "current_price": 90.95999908447266,
+    "confidence": 0.0,
+    "model_count": 6,
+    "processing_time": 64.86268639564514
+  },
+  "2026-03-23T19:05:30.525066": {
+    "timestamp": "2026-03-23T19:05:30.525066",
+    "prediction": 89.24081479013225,
+    "percentage_change": -1.9116162921847177,
+    "current_price": 90.9800033569336,
+    "confidence": 0.0,
+    "model_count": 6,
+    "processing_time": 24.826481819152832
+  }
+}
