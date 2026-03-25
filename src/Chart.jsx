@@ -67,7 +67,7 @@ export default function Chart({
       null,
       multiHorizonPredictions.predictions['1h'],
       multiHorizonPredictions.predictions['1d'],
-      multiHorizonPredictions.predictions['7d'] || multiHorizonPredictions.predictions['1w']
+      multiHorizonPredictions.predictions['1w'] || multiHorizonPredictions.predictions['7d']
     ];
 
     return {
@@ -185,7 +185,7 @@ export default function Chart({
         { minutesAhead: 1440, value: predictions['1d'] },
         { minutesAhead: 2880, value: null },
         { minutesAhead: 4320, value: null },
-        { minutesAhead: 10080, value: predictions['7d'] }
+        { minutesAhead: 10080, value: predictions['1w'] || predictions['7d'] }
       ];
       
       // Enhanced interpolation with current price connection
@@ -193,7 +193,7 @@ export default function Chart({
         { minutes: 0, value: currentPrice }, // Start from current actual price
         { minutes: 60, value: predictions['1h'] },
         { minutes: 1440, value: predictions['1d'] },
-        { minutes: 10080, value: predictions['7d'] }
+        { minutes: 10080, value: predictions['1w'] || predictions['7d'] }
       ].filter(p => p.value && !isNaN(p.value));
       
       // Add future prediction points with consistent time formatting

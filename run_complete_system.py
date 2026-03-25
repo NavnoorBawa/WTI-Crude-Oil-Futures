@@ -30,7 +30,6 @@ try:
         get_multi_horizon_wti_predictions,
         get_prediction_accuracy_metrics,
         store_actual_price_update,
-        PremiumWTIPredictor,
         main as oil_main
     )
     oil_available = True
@@ -127,28 +126,16 @@ class WTISystemOrchestrator:
         
         # Test prediction engine with real ML
         try:
-            predictor = PremiumWTIPredictor()
-            logger.info("✅ Prediction engine initialized")
-            
             # Test if we can actually generate predictions
             test_predictions = get_multi_horizon_wti_predictions()
             if not test_predictions or not test_predictions.get('is_real_prediction'):
                 raise Exception("Prediction engine not generating real predictions")
                 
+            logger.info("✅ Prediction engine initialized")
             logger.info("✅ ML prediction system generating real predictions")
             
         except Exception as e:
             raise Exception(f"Prediction engine failed: {e}")
-        
-        # Verify external data sources (optional warning, not critical)
-        try:
-            # This will test if external sources are accessible
-            predictor = PremiumWTIPredictor()
-            # Don't fail startup if external sources are down, just warn
-            logger.info("✅ External data source connectivity verified")
-        except Exception as e:
-            logger.warning(f"⚠️  External data sources may be limited: {e}")
-            logger.warning("⚠️  System will use available data sources only")
         
         logger.info("✅ All critical system requirements validated")
         logger.info("🎯 System ready for REAL DATA ONLY operation")

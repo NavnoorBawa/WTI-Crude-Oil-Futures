@@ -20,6 +20,13 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app, origins=["*"])
 
+# FIX #6: Global startup synchronization event
+_startup_ready = threading.Event()
+_startup_complete_time = None
+_startup_lock = threading.Lock()
+_startup_thread = None
+_startup_started = False
+
 # Import oil.py functions - CRITICAL DEPENDENCY
 try:
     from oil import (
@@ -142,13 +149,25 @@ def initialize_oil_system():
         raise Exception(f"Cannot initialize oil system: {e}")
 
 def update_predictions():
-    """Update predictions every 3 minutes"""
+    """Update predictions every 3 minutes - FIX #7: Corrected timing logic"""
+    initialization_wait = True  # First run should update immediately
+    
     while True:
         try:
             time.sleep(30)  # Check every 30 seconds
             
             current_time = time.time()
-            if current_time - system_state['last_prediction_time'] >= 180:  # 3 minutes
+            last_prediction_time = system_state.get('last_prediction_time', 0)
+            
+            # FIX #7: Force the first loop to refresh, regardless of startup timestamps.
+            if initialization_wait:
+                logger.info("🔄 First prediction update (initialization)")
+                initialization_wait = False
+                time_since_last = 180  # Force update
+            else:
+                time_since_last = current_time - last_prediction_time if last_prediction_time > 0 else 180
+            
+            if time_since_last >= 180:  # 3 minutes
                 
                 if not system_state['ml_ready']:
                     # Test if ML system became ready
@@ -158,21 +177,21 @@ def update_predictions():
                         logger.debug("⚠️ ML system still not ready")
                         continue
                 
-                logger.info("🔄 Updating predictions...")
+                logger.info(f"🔄 Updating predictions ({time_since_last:.0f}s since last)...")
                 
                 # Get fresh predictions
                 predictions, accuracy = get_cached_ml_data()
                 
                 if predictions and predictions.get('is_real_prediction'):
-                    system_state['last_prediction_time'] = current_time
+                    system_state['last_prediction_time'] = current_time  # Update AFTER success
                     system_state['error_count'] = 0
                     logger.info(f"✅ Predictions updated - 1H: ${predictions['prediction_1h']:.2f}")
                 else:
                     raise Exception("Failed to get real predictions")
                 
         except Exception as e:
-            system_state['error_count'] += 1
-            logger.error(f"❌ Prediction update failed (error {system_state['error_count']}): {e}")
+            system_state['error_count'] = system_state.get('error_count', 0) + 1
+            logger.error(f"❌ Prediction update failed (error #{system_state['error_count']}): {e}")
             
             if system_state['error_count'] >= 5:
                 logger.critical("🚨 Too many prediction errors - ML system may be failing")
@@ -256,6 +275,16 @@ def root():
 @app.route('/data')
 def get_data():
     """Main data endpoint - REAL DATA ONLY from oil.py"""
+    ensure_startup_started()
+    
+    # FIX #6: Check if startup is complete before serving (prevents race condition)
+    if not _startup_ready.is_set():
+        return jsonify({
+            'error': 'SYSTEM_INITIALIZING',
+            'message': 'Server starting up. Please wait 5-10 seconds...',
+            'server_time': datetime.now().isoformat()
+        }), 503
+    
     if not OIL_IMPORTS_AVAILABLE:
         return jsonify({
             'error': 'CRITICAL_ERROR',
@@ -282,9 +311,10 @@ def get_data():
         # Calculate all values from REAL data
         current_price = contract_info['current_price']
         
-        # Calculate daily price change from historical data
-        price_change = 0.0
-        price_change_percent = 0.0
+        # FIX #5: Calculate daily price change with quality indicator
+        price_change = None
+        price_change_percent = None
+        price_change_quality = 'unavailable'
         
         try:
             # Get historical data to find price from ~24 hours ago
@@ -312,8 +342,17 @@ def get_data():
                         except:
                             continue
                     
-                    # Calculate change if we found a suitable reference point
+                    # FIX #5: Calculate change with quality indicator
                     if closest_price is not None and closest_price > 0:
+                        if min_time_diff <= 3600:  # Within 1 hour
+                            price_change_quality = 'precise'
+                        elif min_time_diff <= 3600 * 6:  # Within 6 hours
+                            price_change_quality = 'good'
+                        elif min_time_diff <= 86400 * 2:  # Within 48 hours
+                            price_change_quality = 'approximate'
+                        else:
+                            price_change_quality = 'stale'
+                        
                         price_change = current_price - closest_price
                         price_change_percent = (price_change / closest_price * 100)
                         logger.debug(f"📊 Daily change calculated: {price_change:.3f} ({price_change_percent:.2f}%)")
@@ -323,9 +362,17 @@ def get_data():
                             oldest_price = actual_values[0]
                             price_change = current_price - oldest_price
                             price_change_percent = (price_change / oldest_price * 100) if oldest_price > 0 else 0.0
+                            price_change_quality = 'oldest_available'
                             logger.debug(f"📊 Change vs oldest data: {price_change:.3f} ({price_change_percent:.2f}%)")
         except Exception as e:
             logger.warning(f"Could not calculate daily price change: {e}")
+            price_change_quality = 'error'
+        
+        # Use sensible defaults if still None (FIX #5)
+        if price_change is None:
+            price_change = 0.0
+        if price_change_percent is None:
+            price_change_percent = 0.0
         
         # Set prediction values based on ML readiness
         if system_state['ml_ready'] and predictions:
@@ -365,6 +412,7 @@ def get_data():
             'current_price': round(current_price, 2),
             'price_change': round(price_change, 3),
             'price_change_percent': round(price_change_percent, 2),
+            'price_change_quality': price_change_quality,  # FIX #5: NEW - client knows data quality
             'volume': volume,
             'volume_display': volume_display,
             
@@ -379,11 +427,13 @@ def get_data():
                 'predictions': {
                     '1h': round(pred_1h, 2),
                     '1d': round(pred_1d, 2),
+                    '1w': round(pred_1w, 2),
                     '7d': round(pred_1w, 2)
                 },
                 'percentage_changes': {
                     '1h': round((pred_1h - current_price) / current_price * 100, 1) if system_state['ml_ready'] else 0.0,
                     '1d': round((pred_1d - current_price) / current_price * 100, 1) if system_state['ml_ready'] else 0.0,
+                    '1w': round((pred_1w - current_price) / current_price * 100, 1) if system_state['ml_ready'] else 0.0,
                     '7d': round((pred_1w - current_price) / current_price * 100, 1) if system_state['ml_ready'] else 0.0
                 },
                 'is_real_prediction': system_state['ml_ready'] and predictions is not None,
@@ -450,6 +500,7 @@ def get_data():
 @app.route('/health')
 def health():
     """Health check endpoint"""
+    ensure_startup_started()
     try:
         if not OIL_IMPORTS_AVAILABLE:
             return jsonify({
@@ -484,7 +535,7 @@ def health():
 
 # Initialize system on startup
 def startup_initialization():
-    """Initialize system in background"""
+    """Initialize system in background - FIX #6: Add threading event"""
     try:
         logger.info("🚀 Starting oil.py system initialization...")
         time.sleep(2)  # Let server start
@@ -498,17 +549,35 @@ def startup_initialization():
         prediction_thread.start()
         price_thread.start()
         
-        logger.info("✅ All background workers started")
+        time.sleep(1)  # Give threads time to start
+        
+        # FIX #6: Signal that startup is complete (solves race condition)
+        _startup_ready.set()
+        logger.info("✅ Startup sequence complete - system ready to serve requests")
         
     except Exception as e:
         logger.critical(f"❌ System initialization FAILED: {e}")
 
-# Start initialization
-startup_thread = threading.Thread(target=startup_initialization, daemon=True)
-startup_thread.start()
+def ensure_startup_started():
+    """Start background initialization only once and avoid side effects on import."""
+    global _startup_thread, _startup_started
+    if _startup_started:
+        return
+    with _startup_lock:
+        if _startup_started:
+            return
+        _startup_thread = threading.Thread(target=startup_initialization, daemon=True)
+        _startup_thread.start()
+        _startup_started = True
+
+@app.before_request
+def _ensure_startup_for_requests():
+    """Guarantee startup thread is running for WSGI servers (Gunicorn/import usage)."""
+    ensure_startup_started()
 
 def run_server(host='0.0.0.0', port=9000, debug=False):
     """Run the Flask server - for use by run_complete_system.py"""
+    ensure_startup_started()
     app.run(host=host, port=port, debug=debug)
 
 logger.info("🚀 WTI Server starting - REAL DATA ONLY MODE")

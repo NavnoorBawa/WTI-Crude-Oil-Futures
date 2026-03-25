@@ -7,6 +7,8 @@ function App() {
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [currentTime, setCurrentTime] = useState(new Date());
+  const pollIntervalMs = Number(import.meta.env.VITE_POLL_INTERVAL_MS || 15000);
+  const configuredApiBase = import.meta.env.VITE_API_BASE_URL;
 
   useEffect(() => {
     // Set title
@@ -25,11 +27,8 @@ function App() {
           setError(null);
         }
         
-        // Dynamic API URL - use deployed backend for production, local for development
-        const isProduction = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
-        const apiUrl = isProduction 
-          ? 'https://wti-crude-oil-backend.onrender.com' 
-          : 'http://172.16.221.202:9000';
+        // Prefer explicit env override; fallback to local backend during development.
+        const apiUrl = configuredApiBase || 'http://127.0.0.1:9000';
         
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
@@ -70,14 +69,14 @@ function App() {
     // Initial fetch
     fetchData(true);
 
-    // Update every 3 seconds for more responsive live data
-    const interval = setInterval(() => fetchData(false), 3000);
+    // Backend prediction cadence is minutes, so lower polling frequency cuts load.
+    const interval = setInterval(() => fetchData(false), pollIntervalMs);
 
     return () => {
       clearInterval(interval);
       clearInterval(timeInterval);
     };
-  }, []);
+  }, [configuredApiBase, pollIntervalMs]);
 
 
   // Loading screen
@@ -279,7 +278,7 @@ function App() {
                   ));
                 }
                 
-                const horizons = ['1h', '1d', '7d'];
+                const horizons = ['1h', '1d', '1w'];
                 const labels = ['1H', '1D', '1W'];
                 
                 return horizons.map((horizon, i) => {
