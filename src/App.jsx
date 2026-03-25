@@ -24,6 +24,7 @@ function App() {
 
     // Production fallbacks if env var is missing on frontend host.
     return [
+      "https://wti-crude-oil-backend.onrender.com",
       "https://wti-crude-oil-futures.onrender.com",
       "https://wti-crude-oil-futures-api.onrender.com",
       window.location.origin,
