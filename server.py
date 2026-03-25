@@ -8,6 +8,7 @@ Serves only real ML predictions and stored data
 
 import time
 import threading
+import os
 from datetime import datetime
 import logging
 from flask import Flask, jsonify
@@ -53,6 +54,8 @@ system_state = {
     'cached_predictions': None,
     'cached_accuracy': None
 }
+
+EAGER_ML_WARMUP = os.getenv('EAGER_ML_WARMUP', 'false').lower() == 'true'
 
 def test_ml_system_readiness():
     """Test if ML system is ready by calling oil.py functions"""
@@ -121,23 +124,26 @@ def initialize_oil_system():
         contract_info = get_current_wti_contract()
         logger.info(f"✅ Active contract: {contract_info['symbol']} @ ${contract_info['current_price']:.2f}")
         
-        # Test ML system by generating initial predictions
-        logger.info("🔄 Testing ML prediction system...")
-        predictions = get_multi_horizon_wti_predictions()
-        
-        if not predictions.get('is_real_prediction'):
-            raise Exception("CRITICAL: System not generating real predictions")
-        
-        logger.info(f"✅ Initial predictions generated:")
-        logger.info(f"   1H: ${predictions['prediction_1h']:.2f}")
-        logger.info(f"   1D: ${predictions['prediction_1d']:.2f}")
-        logger.info(f"   1W: ${predictions['prediction_1w']:.2f}")
-        
-        # Update system state
+        # Update lightweight startup state first so service is available quickly.
         system_state['initialized'] = True
-        system_state['ml_ready'] = True
-        system_state['cached_predictions'] = predictions
+        system_state['ml_ready'] = False
+        system_state['cached_predictions'] = None
         system_state['last_prediction_time'] = time.time()
+
+        if EAGER_ML_WARMUP:
+            logger.info("🔄 EAGER_ML_WARMUP enabled - generating initial predictions...")
+            predictions = get_multi_horizon_wti_predictions()
+            if not predictions.get('is_real_prediction'):
+                raise Exception("CRITICAL: System not generating real predictions")
+            logger.info(f"✅ Initial predictions generated:")
+            logger.info(f"   1H: ${predictions['prediction_1h']:.2f}")
+            logger.info(f"   1D: ${predictions['prediction_1d']:.2f}")
+            logger.info(f"   1W: ${predictions['prediction_1w']:.2f}")
+            system_state['ml_ready'] = True
+            system_state['cached_predictions'] = predictions
+            system_state['last_prediction_time'] = time.time()
+        else:
+            logger.info("⏳ Deferred ML warmup - service online, models load on first cycle/request")
         
         logger.info("🚀 Oil prediction system ready - REAL DATA ONLY")
         return True
@@ -150,7 +156,7 @@ def initialize_oil_system():
 
 def update_predictions():
     """Update predictions every 3 minutes - FIX #7: Corrected timing logic"""
-    initialization_wait = True  # First run should update immediately
+    initialization_wait = EAGER_ML_WARMUP
     
     while True:
         try:

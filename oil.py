@@ -273,7 +273,8 @@ class PremiumWTIPredictor:
         self.strict_premium_api_required = os.getenv('STRICT_PREMIUM_API_REQUIRED', 'false').lower() == 'true'
         self.min_required_external_sources = max(1, int(os.getenv('MIN_REQUIRED_EXTERNAL_SOURCES', '1')))
         self.external_fetch_workers = max(2, int(os.getenv('EXTERNAL_FETCH_WORKERS', '4')))
-        self.model_n_estimators = max(60, int(os.getenv('MODEL_N_ESTIMATORS', '100')))
+        self.model_n_estimators = max(20, int(os.getenv('MODEL_N_ESTIMATORS', '60')))
+        self.model_cpu_workers = max(1, int(os.getenv('MODEL_CPU_WORKERS', '1')))
         self.time_series_cv_splits = max(2, int(os.getenv('TIME_SERIES_CV_SPLITS', '2')))
         self.max_hourly_training_samples = max(240, int(os.getenv('MAX_HOURLY_TRAINING_SAMPLES', '720')))
         self.external_data_ttl_seconds = max(30, int(os.getenv('EXTERNAL_DATA_TTL_SECONDS', '180')))
@@ -1389,7 +1390,7 @@ class PremiumWTIPredictor:
         y_values = y.to_numpy(dtype=float)
 
         n_estimators = self.model_n_estimators
-        cpu_workers = max(1, (os.cpu_count() or 2) - 1)
+        cpu_workers = self.model_cpu_workers
         
         # Train multiple models - UPGRADED ENSEMBLE
         # XGBoost replaces Gradient Boosting (better performance)
