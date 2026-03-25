@@ -9,3 +9,5 @@ scipy>=1.9.0
 gunicorn>=21.0.0
 pytz>=2023.3
 python-dotenv>=1.0.0
+xgboost>=2.0.0
+lightgbm>=4.0.0
