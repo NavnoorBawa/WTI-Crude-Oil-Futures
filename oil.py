@@ -21,8 +21,13 @@ import hashlib
 import copy
 from pathlib import Path
 import logging
-from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+try:
+    from dotenv import load_dotenv
+except Exception:
+    def load_dotenv(*args, **kwargs):
+        return False
 
 # Load environment variables from .env file
 load_dotenv()
@@ -35,9 +40,16 @@ from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from sklearn.feature_selection import SelectKBest, f_regression
 
-# Advanced ML models
-from xgboost import XGBRegressor
-from lightgbm import LGBMRegressor
+# Advanced ML models (optional in constrained deploy targets)
+try:
+    from xgboost import XGBRegressor
+except Exception:
+    XGBRegressor = None
+
+try:
+    from lightgbm import LGBMRegressor
+except Exception:
+    LGBMRegressor = None
 
 warnings.filterwarnings('ignore')
 
@@ -1397,12 +1409,39 @@ class PremiumWTIPredictor:
         # LightGBM replaces Lasso (faster, handles mixed features)
         models = {
             'random_forest': RandomForestRegressor(n_estimators=n_estimators, random_state=42, max_depth=10, n_jobs=cpu_workers),
-            'xgboost': XGBRegressor(n_estimators=n_estimators, max_depth=6, learning_rate=0.05, random_state=42, verbosity=0, n_jobs=cpu_workers, tree_method='hist', subsample=0.9, colsample_bytree=0.9),
             'extra_trees': ExtraTreesRegressor(n_estimators=n_estimators, random_state=42, max_depth=8, n_jobs=cpu_workers),
             'elastic_net': ElasticNet(alpha=0.1, random_state=42),
             'ridge': Ridge(alpha=1.0, random_state=42),
-            'lightgbm': LGBMRegressor(n_estimators=n_estimators, max_depth=6, learning_rate=0.05, random_state=42, verbosity=-1, n_jobs=cpu_workers, subsample=0.9, colsample_bytree=0.9)
         }
+
+        if XGBRegressor is not None:
+            models['xgboost'] = XGBRegressor(
+                n_estimators=n_estimators,
+                max_depth=6,
+                learning_rate=0.05,
+                random_state=42,
+                verbosity=0,
+                n_jobs=cpu_workers,
+                tree_method='hist',
+                subsample=0.9,
+                colsample_bytree=0.9,
+            )
+        else:
+            logger.warning("xgboost not installed; continuing without xgboost model")
+
+        if LGBMRegressor is not None:
+            models['lightgbm'] = LGBMRegressor(
+                n_estimators=n_estimators,
+                max_depth=6,
+                learning_rate=0.05,
+                random_state=42,
+                verbosity=-1,
+                n_jobs=cpu_workers,
+                subsample=0.9,
+                colsample_bytree=0.9,
+            )
+        else:
+            logger.warning("lightgbm not installed; continuing without lightgbm model")
         
         trained_models = {}
         model_scores = {}
