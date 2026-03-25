@@ -10,6 +10,26 @@ function App() {
   const pollIntervalMs = Number(import.meta.env.VITE_POLL_INTERVAL_MS || 15000);
   const configuredApiBase = import.meta.env.VITE_API_BASE_URL;
 
+  const getApiBaseCandidates = () => {
+    const hostname = window.location.hostname;
+    const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1";
+
+    if (configuredApiBase) {
+      return [configuredApiBase];
+    }
+
+    if (isLocalHost) {
+      return ["http://127.0.0.1:9000"];
+    }
+
+    // Production fallbacks if env var is missing on frontend host.
+    return [
+      "https://wti-crude-oil-futures.onrender.com",
+      "https://wti-crude-oil-futures-api.onrender.com",
+      window.location.origin,
+    ];
+  };
+
   useEffect(() => {
     // Set title
     document.title = "Bloomberg Terminal - WTI Crude Oil";
@@ -27,25 +47,42 @@ function App() {
           setError(null);
         }
         
-        // Prefer explicit env override; fallback to local backend during development.
-        const apiUrl = configuredApiBase || 'http://127.0.0.1:9000';
-        
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-        
-        const response = await fetch(`${apiUrl}/data`, {
-          signal: controller.signal,
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          },
-        });
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const apiCandidates = getApiBaseCandidates();
+        let response = null;
+        let lastAttemptError = null;
+
+        for (const apiBase of apiCandidates) {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+          try {
+            const attempt = await fetch(`${apiBase}/data`, {
+              signal: controller.signal,
+              method: 'GET',
+              headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+              },
+            });
+
+            clearTimeout(timeoutId);
+
+            if (attempt.ok) {
+              response = attempt;
+              break;
+            }
+
+            lastAttemptError = new Error(`HTTP ${attempt.status}: ${attempt.statusText}`);
+          } catch (attemptErr) {
+            clearTimeout(timeoutId);
+            lastAttemptError = attemptErr;
+          }
         }
+
+        if (!response) {
+          throw lastAttemptError || new Error("No reachable API endpoint found");
+        }
+
         const result = await response.json();
         
         // Update state in correct order
@@ -58,7 +95,7 @@ function App() {
         if (err.name === 'AbortError') {
           setError('Server timeout - Please wait and refresh');
         } else if (err.name === 'TypeError' && err.message.includes('Failed to fetch')) {
-          setError('Cannot connect to local server - Check if backend is running on port 9000');
+          setError('Cannot connect to backend API - verify VITE_API_BASE_URL in frontend environment');
         } else {
           setError(`Network error: ${err.message}`);
         }
