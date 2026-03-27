@@ -384,7 +384,7 @@ button:focus {
 
 /* Chart Container */
 canvas {
-  background: #000000 !important;
+  background: transparent !important;
 }
 
 /* Scrollbars */
@@ -704,4 +704,629 @@ canvas {
   text-align: right;
   font-size: 8px;
   color: var(--bloomberg-gray-400);
+}
+
+/* TradingView-inspired chart surface */
+.tv-chart-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 680px;
+  background: #131722;
+  color: #d1d4dc;
+}
+
+.tv-chart-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #2a2e39;
+  background: #131722;
+  flex-wrap: wrap;
+}
+
+.tv-thesis-banner {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 16px 0;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
+    #131722;
+}
+
+.tv-thesis-copy {
+  flex: 1 1 auto;
+  padding: 12px 16px;
+  border: 1px solid #252a37;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at top right, rgba(79, 140, 255, 0.08), transparent 34%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0.005)),
+    #161b26;
+}
+
+.tv-thesis-kicker {
+  color: #868993;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 7px;
+}
+
+.tv-thesis-title {
+  color: #ffffff;
+  font-size: 18px;
+  line-height: 1.15;
+  font-weight: 700;
+  margin-bottom: 5px;
+}
+
+.tv-thesis-text {
+  color: #aeb4c0;
+  font-size: 11px;
+  line-height: 1.45;
+  max-width: 860px;
+}
+
+.tv-thesis-metrics {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.tv-thesis-pill {
+  min-width: 132px;
+  padding: 12px 14px;
+  border: 1px solid #252a37;
+  border-radius: 14px;
+  background: #161b26;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+}
+
+.tv-thesis-pill span {
+  color: #868993;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+
+.tv-thesis-pill strong {
+  color: #ffffff;
+  font-size: 15px;
+  line-height: 1.15;
+}
+
+.tv-thesis-pill.tone-up {
+  border-color: rgba(38, 166, 154, 0.35);
+}
+
+.tv-thesis-pill.tone-up strong {
+  color: #8ff2c7;
+}
+
+.tv-thesis-pill.tone-down {
+  border-color: rgba(239, 83, 80, 0.35);
+}
+
+.tv-thesis-pill.tone-down strong {
+  color: #ff8f8f;
+}
+
+.tv-thesis-pill.tone-neutral {
+  border-color: rgba(134, 137, 147, 0.3);
+}
+
+.tv-investor-rail {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  padding: 8px 16px 0;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0)),
+    #131722;
+}
+
+.tv-investor-card {
+  min-height: 68px;
+  padding: 10px 12px;
+  border: 1px solid #232734;
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.04), transparent 54%),
+    #161b26;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.tv-investor-card.tone-up {
+  border-color: rgba(38, 166, 154, 0.35);
+}
+
+.tv-investor-card.tone-down {
+  border-color: rgba(239, 83, 80, 0.35);
+}
+
+.tv-investor-card.tone-neutral {
+  border-color: rgba(134, 137, 147, 0.28);
+}
+
+.tv-investor-label {
+  color: #868993;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  margin-bottom: 6px;
+}
+
+.tv-investor-value {
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.05;
+}
+
+.tv-investor-subvalue {
+  margin-top: 5px;
+  color: #9aa3b2;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.tv-investor-card.tone-up .tv-investor-subvalue,
+.tv-investor-card.tone-up .tv-investor-value {
+  color: #8ff2c7;
+}
+
+.tv-investor-card.tone-down .tv-investor-subvalue,
+.tv-investor-card.tone-down .tv-investor-value {
+  color: #ff8f8f;
+}
+
+.tv-toolbar-main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.tv-symbol-block {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tv-symbol-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #1e222d;
+  border: 1px solid #2a2e39;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tv-symbol-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tv-symbol-title {
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.tv-toolbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #868993;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex-wrap: wrap;
+}
+
+.tv-price-block {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-left: 8px;
+}
+
+.tv-price-main {
+  color: #ffffff;
+  font-size: 28px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.tv-price-change {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tv-price-change.is-up {
+  color: #26a69a;
+}
+
+.tv-price-change.is-down {
+  color: #ef5350;
+}
+
+.tv-forecast-strip {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tv-forecast-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 112px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid #2a2e39;
+  background: #161b26;
+  color: #d1d4dc;
+  text-align: left;
+  transition: border-color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
+}
+
+.tv-forecast-card:hover {
+  background: #1a2030;
+  border-color: var(--forecast-accent);
+  transform: translateY(-1px);
+}
+
+.tv-forecast-card.is-active {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: var(--forecast-accent);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.tv-forecast-label {
+  color: #868993;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.tv-forecast-value {
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.tv-forecast-change {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tv-forecast-change.is-up {
+  color: #26a69a;
+}
+
+.tv-forecast-change.is-down {
+  color: #ef5350;
+}
+
+.tv-chart-stage {
+  position: relative;
+  flex: 1 1 360px;
+  min-height: 360px;
+  background: #131722;
+}
+
+.tv-chart-host {
+  position: absolute;
+  inset: 0;
+}
+
+.tv-chart-overlay {
+  position: absolute;
+  top: 12px;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.tv-overlay-left {
+  left: 12px;
+}
+
+.tv-overlay-right {
+  right: 12px;
+}
+
+.tv-legend-card,
+.tv-active-forecast-card {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(42, 46, 57, 0.95);
+  background: rgba(19, 23, 34, 0.88);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+}
+
+.tv-legend-time,
+.tv-active-forecast-label {
+  color: #868993;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.tv-legend-grid {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #d1d4dc;
+  font-size: 11px;
+  font-weight: 600;
+  flex-wrap: wrap;
+}
+
+.tv-active-forecast-value {
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.tv-active-forecast-range {
+  color: #aeb4c0;
+  font-size: 11px;
+}
+
+.tv-chart-watermark {
+  position: absolute;
+  left: 16px;
+  bottom: 18px;
+  z-index: 3;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  pointer-events: none;
+  opacity: 0.68;
+}
+
+.tv-watermark-symbol {
+  color: rgba(255, 255, 255, 0.16);
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.tv-watermark-caption {
+  color: rgba(174, 180, 192, 0.48);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.tv-chart-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  border-top: 1px solid #2a2e39;
+  background: #131722;
+  flex-wrap: wrap;
+}
+
+.tv-range-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tv-range-button {
+  padding: 6px 10px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #868993;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tv-range-button:hover {
+  background: #1c2230;
+  color: #d1d4dc;
+}
+
+.tv-range-button.is-active {
+  background: #1e3a5f;
+  border-color: #2962ff;
+  color: #ffffff;
+}
+
+.tv-footer-copy {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #6f7480;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  flex-wrap: wrap;
+}
+
+.tv-footer-copy span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tv-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-block;
+  background: var(--dot-color, #ffffff);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.tv-dot.actual {
+  --dot-color: #8ff2c7;
+}
+
+.tv-dot.history {
+  --dot-color: rgba(79, 140, 255, 0.72);
+}
+
+.tv-dot.future {
+  --dot-color: #4f8cff;
+}
+
+.tv-dot.band {
+  --dot-color: rgba(79, 140, 255, 0.48);
+}
+
+.tv-chart-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 520px;
+  background: #131722;
+  color: #d1d4dc;
+}
+
+.tv-empty-title {
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.tv-empty-subtitle {
+  color: #868993;
+  font-size: 12px;
+}
+
+@media (max-width: 960px) {
+  .tv-thesis-banner {
+    flex-direction: column;
+  }
+
+  .tv-thesis-metrics {
+    width: 100%;
+  }
+
+  .tv-thesis-pill {
+    flex: 1 1 0;
+  }
+
+  .tv-investor-rail {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .tv-chart-toolbar {
+    gap: 12px;
+  }
+
+  .tv-price-main {
+    font-size: 24px;
+  }
+
+  .tv-forecast-card {
+    min-width: 104px;
+  }
+
+  .tv-active-forecast-card,
+  .tv-legend-card {
+    max-width: calc(100vw - 48px);
+  }
+
+  .tv-chart-watermark {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .tv-thesis-metrics {
+    flex-direction: column;
+  }
+
+  .tv-investor-rail {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-height: 860px) {
+  .tv-chart-toolbar {
+    padding: 8px 16px;
+  }
+
+  .tv-thesis-banner {
+    padding-top: 6px;
+  }
+
+  .tv-thesis-copy {
+    padding: 10px 14px;
+  }
+
+  .tv-thesis-title {
+    font-size: 16px;
+    margin-bottom: 2px;
+  }
+
+  .tv-thesis-text {
+    display: none;
+  }
+
+  .tv-investor-rail {
+    gap: 8px;
+    padding-top: 6px;
+  }
+
+  .tv-investor-card {
+    min-height: 58px;
+    padding: 8px 10px;
+  }
+
+  .tv-investor-value {
+    font-size: 15px;
+  }
+
+  .tv-investor-subvalue {
+    margin-top: 3px;
+    font-size: 9px;
+  }
+
+  .tv-chart-stage {
+    min-height: 320px;
+    flex-basis: 320px;
+  }
+
+  .tv-chart-footer {
+    padding: 6px 14px;
+  }
 }

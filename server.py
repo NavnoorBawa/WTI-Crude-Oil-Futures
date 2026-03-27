@@ -382,6 +382,11 @@ def get_data():
         if price_change_percent is None:
             price_change_percent = 0.0
         
+        prediction_is_real = bool(predictions.get('is_real_prediction', False)) if predictions else False
+        prediction_is_full_real = bool(predictions.get('is_full_real_prediction', prediction_is_real)) if predictions else False
+        prediction_fallbacks = predictions.get('fallbacks', {}) if predictions else {}
+        prediction_data_quality = int(round(float(predictions.get('data_quality_score', 0) or 0))) if predictions else 0
+
         # Set prediction values based on ML readiness
         if system_state['ml_ready'] and predictions:
             pred_1h = predictions['prediction_1h']
@@ -465,7 +470,7 @@ def get_data():
             'volume_display': volume_display,
             
             # Chart data - Get real historical data from stored prices
-            'unified_data': get_historical_data(limit=30),  # Last 30 data points for chart
+            'unified_data': get_historical_data(limit=240),  # Deeper history for charting
             'actual': [],  # Legacy field - data now in unified_data
             'predicted': [],  # Legacy field - data now in unified_data  
             'timestamps': [],  # Legacy field - data now in unified_data
@@ -488,9 +493,9 @@ def get_data():
                 'horizon_confidence': horizon_confidence,
                 'horizon_drift_scores': horizon_drift_scores,
                 'horizon_backtests': horizon_backtests,
-                'is_real_prediction': system_state['ml_ready'] and predictions is not None,
-                'is_full_real_prediction': bool(predictions.get('is_full_real_prediction', True)) if predictions else False,
-                'fallbacks': predictions.get('fallbacks', {}) if predictions else {},
+                'is_real_prediction': prediction_is_real,
+                'is_full_real_prediction': prediction_is_full_real,
+                'fallbacks': prediction_fallbacks,
                 'processing_time': predictions.get('processing_time', 0) if predictions else 0,
                 'feature_count': predictions.get('feature_count', 0) if predictions else 0,
                 'last_update': predictions.get('timestamp', datetime.now().isoformat()) if predictions else datetime.now().isoformat()
@@ -525,16 +530,16 @@ def get_data():
             
             # System status
             'enterprise_metrics': {
-                'data_quality': 100,  # Always 100 if we reach here
+                'data_quality': prediction_data_quality,
                 'complex_ml_enabled': True,
                 'real_data_only': True,
-                'ml_ready': system_state['ml_ready'],
+                'ml_ready': prediction_is_real,
                 'error_count': system_state['error_count'],
                 'data_points': total_data_points + prediction_count  # Historical + prediction count
             },
             
-            'feed_status': 'REAL-TIME',
-            'status': 'ACTIVE',
+            'feed_status': 'REAL-TIME' if prediction_is_full_real else ('DEGRADED' if prediction_is_real else 'INITIALIZING'),
+            'status': 'ACTIVE' if prediction_is_full_real else ('DEGRADED' if prediction_is_real else 'INITIALIZING'),
             'data_source': 'oil.py ML ENGINE',
             'last_update': datetime.now().isoformat(),
             

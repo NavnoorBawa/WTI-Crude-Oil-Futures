@@ -184,6 +184,11 @@ function App() {
   const minLiveSamples = Number(data?.performance_metrics?.min_live_accuracy_samples || 18);
   const modelBacktestDirection1d = data?.multi_horizon_predictions?.horizon_backtests?.['1d']?.direction_accuracy;
   const modelConfidence1d = data?.multi_horizon_predictions?.horizon_confidence?.['1d'];
+  const isRealPrediction = Boolean(data?.multi_horizon_predictions?.is_real_prediction);
+  const isFullRealPrediction = Boolean(data?.multi_horizon_predictions?.is_full_real_prediction);
+  const fallbackHorizons = Object.entries(data?.multi_horizon_predictions?.fallbacks || {})
+    .filter(([, used]) => Boolean(used))
+    .map(([horizon]) => horizon.toUpperCase());
 
   const effectiveAccuracy = (displayDirectionAccuracyRaw !== undefined && displayDirectionAccuracyRaw !== null)
     ? Number(displayDirectionAccuracyRaw)
@@ -209,7 +214,7 @@ function App() {
       : (data?.confidence || '--'));
 
   return (
-    <div className="min-h-screen bg-black text-bloomberg-amber font-mono">
+    <div className="min-h-screen bg-black text-bloomberg-amber font-mono" style={{ display: 'flex', flexDirection: 'column' }}>
       {/* BLOOMBERG TERMINAL HEADER */}
       <div className="bloomberg-titlebar">
         BLOOMBERG PROFESSIONAL
@@ -316,20 +321,27 @@ function App() {
               <span className="text-bloomberg-amber font-medium">STATUS:</span>
               <span className={`font-medium ${
                 data?.ml_prediction_timer?.currently_processing ? 'text-bloomberg-alert animate-pulse' :
-                data?.multi_horizon_predictions?.is_real_prediction ? 'text-bloomberg-positive' : 
+                isFullRealPrediction ? 'text-bloomberg-positive' :
+                isRealPrediction ? 'text-bloomberg-alert' :
                 'text-bloomberg-red'
               }`}>
                 {data?.ml_prediction_timer?.currently_processing ? 'PROCESSING' :
-                 data?.multi_horizon_predictions?.is_real_prediction ? 'REAL ML' : 
+                 isFullRealPrediction ? 'REAL ML' :
+                 isRealPrediction ? 'PARTIAL ML' :
                  'NO REAL DATA'}
               </span>
-              {(displayAccuracySource !== 'live') && data?.multi_horizon_predictions?.is_real_prediction && (
+              {(displayAccuracySource !== 'live') && isRealPrediction && (
                 <span className="text-bloomberg-blue font-medium">
                   {displayAccuracySource === 'blended'
                     ? `EVAL: BLENDED (${totalEvaluatedPredictions}/${minLiveSamples})`
                     : (displayAccuracySource === 'backtest'
                       ? 'EVAL: BACKTEST'
                       : `EVAL: WARMUP (${totalEvaluatedPredictions}/${minLiveSamples})`)}
+                </span>
+              )}
+              {fallbackHorizons.length > 0 && (
+                <span className="text-bloomberg-orange font-medium">
+                  FALLBACKS: {fallbackHorizons.join(', ')}
                 </span>
               )}
             </div>
@@ -339,7 +351,7 @@ function App() {
                 const percentChanges = data?.multi_horizon_predictions?.percentage_changes;
                 
                 // Only show real calculated values, no fallback
-                if (!predictions || !percentChanges || !data?.multi_horizon_predictions?.is_real_prediction) {
+                if (!predictions || !percentChanges || !isRealPrediction) {
                   return [
                     { period: '1H', value: '--' },
                     { period: '1D', value: '--' },
@@ -384,7 +396,9 @@ function App() {
 
       {/* BLOOMBERG MAIN CHART DISPLAY */}
       <div className="bloomberg-window" style={{
-        height: 'calc(100vh - 200px)',
+        flex: '1 1 auto',
+        minHeight: '680px',
+        height: 'calc(100vh - 150px)',
         borderTop: '1px solid var(--bloomberg-amber)',
         margin: '0'
       }}>
@@ -395,6 +409,12 @@ function App() {
           multiHorizonPredictions={data?.multi_horizon_predictions}
           unifiedData={data?.unified_data}
           currentPrice={currentPrice}
+          contractInfo={contractInfo}
+          priceChange={priceChange}
+          priceChangePercent={priceChangePercent}
+          displayAccuracy={displayAccuracy}
+          displayConfidence={displayConfidence}
+          feedStatus={data?.feed_status || 'UNKNOWN'}
         />
       </div>
 

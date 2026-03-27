@@ -3019,53 +3019,133 @@ def store_actual_price_update(price, volume=None):
 def get_historical_data(limit=50):
     """Get historical stored data for chart display"""
     predictor = get_premium_predictor()
-    
-    # Get stored actual prices sorted by timestamp
-    sorted_prices = sorted(
-        predictor.stored_actual_prices.items(),
-        key=lambda x: x[0]
-    )
-    
-    # Get stored predictions sorted by timestamp  
-    sorted_predictions = sorted(
-        predictor.stored_predictions.items(),
-        key=lambda x: x[0]
-    )
-    
-    # For better visualization, take a broader sample rather than just latest points
-    if len(sorted_prices) > limit:
-        # Take every Nth entry to get good time spread with price variation
-        step = max(1, len(sorted_prices) // limit)
-        recent_prices = sorted_prices[::step][-limit:]
-    else:
-        recent_prices = sorted_prices
-        
-    if len(sorted_predictions) > limit:
-        step = max(1, len(sorted_predictions) // limit)
-        recent_predictions = sorted_predictions[::step][-limit:]
-    else:
-        recent_predictions = sorted_predictions
-    
-    # Extract values and timestamps
-    actual_values = [data['price'] for _, data in recent_prices]
-    actual_timestamps = [timestamp for timestamp, _ in recent_prices]
-    actual_volumes = [
-        int(data.get('volume', 0) or 0) if isinstance(data, dict) else 0
-        for _, data in recent_prices
-    ]
-    
-    predicted_values = []
-    predicted_timestamps = []
-    predicted_upper = []
-    predicted_lower = []
+
+    # Keep enough points for smooth charting even when callers request fewer.
+    max_points = max(int(limit or 0), 720)
+
+    def _timestamp_to_epoch_seconds(timestamp_value):
+        try:
+            parsed = pd.Timestamp(timestamp_value)
+        except Exception:
+            parsed = predictor._safe_parse_iso(str(timestamp_value))
+            if parsed is None:
+                return None
+            parsed = pd.Timestamp(parsed)
+
+        try:
+            if parsed.tzinfo is not None:
+                parsed = parsed.tz_convert(None)
+        except Exception:
+            pass
+
+        try:
+            parsed = parsed.tz_localize(None)
+        except Exception:
+            pass
+
+        return int(parsed.timestamp())
+
+    def _epoch_to_iso(epoch_seconds):
+        return datetime.fromtimestamp(int(epoch_seconds)).isoformat()
+
+    actual_point_map = {}
+
+    def _store_actual_point(timestamp_value, price_value, volume_value=0):
+        price_numeric = pd.to_numeric(price_value, errors='coerce')
+        if pd.isna(price_numeric) or float(price_numeric) <= 0:
+            return
+
+        epoch_seconds = _timestamp_to_epoch_seconds(timestamp_value)
+        if epoch_seconds is None:
+            return
+
+        volume_numeric = pd.to_numeric(volume_value, errors='coerce')
+        actual_point_map[epoch_seconds] = {
+            'timestamp': _epoch_to_iso(epoch_seconds),
+            'price': float(price_numeric),
+            'volume': int(volume_numeric) if not pd.isna(volume_numeric) and float(volume_numeric) > 0 else 0,
+        }
+
+    broad_history = None
+    intraday_history = None
+
+    try:
+        broad_history = predictor.get_wti_historical_data(period="6mo", interval="1d")
+    except Exception as e:
+        logger.warning(f"Daily chart history unavailable: {e}")
+
+    try:
+        intraday_history = predictor.get_wti_historical_data(period="1mo", interval="1h")
+    except Exception as e:
+        logger.warning(f"Intraday chart history unavailable: {e}")
+
+    intraday_start = None
+    if intraday_history is not None and not intraday_history.empty:
+        try:
+            intraday_start = _timestamp_to_epoch_seconds(intraday_history.index[0])
+        except Exception:
+            intraday_start = None
+
+    if broad_history is not None and not broad_history.empty:
+        for idx, row in broad_history.iterrows():
+            epoch_seconds = _timestamp_to_epoch_seconds(idx)
+            if intraday_start is not None and epoch_seconds is not None and epoch_seconds >= intraday_start:
+                continue
+            _store_actual_point(idx, row.get('Close'), row.get('Volume'))
+
+    if intraday_history is not None and not intraday_history.empty:
+        for idx, row in intraday_history.iterrows():
+            _store_actual_point(idx, row.get('Close'), row.get('Volume'))
+
+    # Overlay the freshest stored live points so the chart reaches the current session.
+    sorted_prices = sorted(predictor.stored_actual_prices.items(), key=lambda x: x[0])
+    for timestamp, data in sorted_prices:
+        if isinstance(data, dict):
+            _store_actual_point(timestamp, data.get('price'), data.get('volume'))
+
+    sorted_actual_points = sorted(actual_point_map.values(), key=lambda item: item['timestamp'])
+    if len(sorted_actual_points) > max_points:
+        step = max(1, len(sorted_actual_points) // max_points)
+        sorted_actual_points = sorted_actual_points[::step][-max_points:]
+
+    actual_values = [round(point['price'], 4) for point in sorted_actual_points]
+    actual_timestamps = [point['timestamp'] for point in sorted_actual_points]
+    actual_volumes = [point['volume'] for point in sorted_actual_points]
+
+    # Get stored predictions sorted by timestamp
+    sorted_predictions = sorted(predictor.stored_predictions.items(), key=lambda x: x[0])
+    prediction_points = max(int(limit or 0), 180)
+    recent_predictions = sorted_predictions[-prediction_points:]
+
+    historical_by_horizon = {
+        '1h': {'values': [], 'timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
+        '1d': {'values': [], 'timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
+        '1w': {'values': [], 'timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
+    }
+
     for timestamp, pred_data in recent_predictions:
-        if isinstance(pred_data, dict) and 'predictions' in pred_data:
-            predicted_values.append(pred_data['predictions']['1h'])
-            predicted_timestamps.append(timestamp)
-            pred_intervals = pred_data.get('prediction_intervals', {}) if isinstance(pred_data, dict) else {}
-            h1_interval = pred_intervals.get('1h', {}) if isinstance(pred_intervals, dict) else {}
-            predicted_upper.append(h1_interval.get('upper'))
-            predicted_lower.append(h1_interval.get('lower'))
+        if not isinstance(pred_data, dict) or 'predictions' not in pred_data:
+            continue
+
+        prediction_intervals = pred_data.get('prediction_intervals', {}) if isinstance(pred_data, dict) else {}
+        current_price = pred_data.get('current_price')
+
+        for horizon in ['1h', '1d', '1w']:
+            pred_value = pred_data.get('predictions', {}).get(horizon)
+            if pred_value is None:
+                continue
+
+            horizon_interval = prediction_intervals.get(horizon, {}) if isinstance(prediction_intervals, dict) else {}
+            historical_by_horizon[horizon]['values'].append(float(pred_value))
+            historical_by_horizon[horizon]['timestamps'].append(timestamp)
+            historical_by_horizon[horizon]['upper_bound'].append(horizon_interval.get('upper'))
+            historical_by_horizon[horizon]['lower_bound'].append(horizon_interval.get('lower'))
+            historical_by_horizon[horizon]['current_prices'].append(float(current_price) if current_price is not None else None)
+
+    predicted_values = historical_by_horizon['1h']['values']
+    predicted_timestamps = historical_by_horizon['1h']['timestamps']
+    predicted_upper = historical_by_horizon['1h']['upper_bound']
+    predicted_lower = historical_by_horizon['1h']['lower_bound']
 
     future_values = []
     future_timestamps = []
@@ -3102,6 +3182,7 @@ def get_historical_data(limit=50):
                 'upper_bound': predicted_upper,
                 'lower_bound': predicted_lower,
             },
+            'historical_by_horizon': historical_by_horizon,
             'future': {
                 'values': future_values,
                 'timestamps': future_timestamps,
