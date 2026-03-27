@@ -38,6 +38,18 @@ const parseTimestamp = (value) => {
   return Number.isNaN(d.getTime()) ? null : d;
 };
 
+const quantile = (arr, q) => {
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const pos = (sorted.length - 1) * q;
+  const base = Math.floor(pos);
+  const rest = pos - base;
+  if (sorted[base + 1] !== undefined) {
+    return sorted[base] + rest * (sorted[base + 1] - sorted[base]);
+  }
+  return sorted[base];
+};
+
 const formatTimeLabel = (dateObj, firstDateObj) => {
   if (!dateObj) return "--:--";
   const sameDay =
@@ -74,6 +86,7 @@ export default function Chart({
   currentPrice = 0,
 }) {
   const [showHistorical, setShowHistorical] = useState(true);
+  const [showBand, setShowBand] = useState(true);
   const chartRef = useRef();
 
   const chartData = useMemo(() => {
@@ -221,6 +234,29 @@ export default function Chart({
     const firstDateObj = points[0].ts;
     const labels = points.map((p) => formatTimeLabel(p.ts, firstDateObj));
 
+    const maxBandPct = 0.18;
+    points.forEach((point) => {
+      const center = point.futurePred ?? point.histPred ?? point.actual;
+      const upper = point.upperBand;
+      const lower = point.lowerBand;
+      if (!Number.isFinite(center) || !Number.isFinite(upper) || !Number.isFinite(lower)) {
+        return;
+      }
+
+      const hi = Math.max(upper, lower);
+      const lo = Math.min(upper, lower);
+      const width = hi - lo;
+      const widthPct = width / Math.max(1e-6, Math.abs(center));
+      if (widthPct > maxBandPct) {
+        const half = (maxBandPct * Math.abs(center)) / 2;
+        point.upperBand = Number((center + half).toFixed(2));
+        point.lowerBand = Number((center - half).toFixed(2));
+      } else {
+        point.upperBand = Number(hi.toFixed(2));
+        point.lowerBand = Number(lo.toFixed(2));
+      }
+    });
+
     const actualSeries = points.map((p) => p.actual);
     const histSeries = points.map((p) => p.histPred);
     const futureSeries = points.map((p) => p.futurePred);
@@ -228,13 +264,36 @@ export default function Chart({
     const lowerSeries = points.map((p) => p.lowerBand);
     const volumeSeries = points.map((p) => p.volume);
 
-    const allPrices = [...actualSeries, ...histSeries, ...futureSeries, ...upperSeries, ...lowerSeries]
+    const corePrices = [...actualSeries, ...histSeries, ...futureSeries]
       .filter((v) => v !== null && Number.isFinite(v));
 
-    const minPrice = allPrices.length > 0 ? Math.min(...allPrices) : Math.max(0, currentPrice - 2);
-    const maxPrice = allPrices.length > 0 ? Math.max(...allPrices) : currentPrice + 2;
-    const range = Math.max(1.2, maxPrice - minPrice);
-    const pad = Math.max(0.6, range * 0.18);
+    const allPrices = corePrices.length > 0
+      ? corePrices
+      : [...upperSeries, ...lowerSeries].filter((v) => v !== null && Number.isFinite(v));
+
+    const minPriceRaw = allPrices.length > 0 ? Math.min(...allPrices) : Math.max(0, currentPrice - 2);
+    const maxPriceRaw = allPrices.length > 0 ? Math.max(...allPrices) : currentPrice + 2;
+
+    let minPrice = minPriceRaw;
+    let maxPrice = maxPriceRaw;
+    if (allPrices.length >= 12) {
+      const q05 = quantile(allPrices, 0.05);
+      const q95 = quantile(allPrices, 0.95);
+      if (Number.isFinite(q05) && Number.isFinite(q95) && q95 > q05) {
+        minPrice = Math.min(minPriceRaw, q05);
+        maxPrice = Math.max(maxPriceRaw, q95);
+      }
+    }
+
+    const anchor = Number.isFinite(currentPrice) && currentPrice > 0
+      ? currentPrice
+      : (allPrices.length > 0 ? allPrices[allPrices.length - 1] : 100);
+    const minVisibleRange = Math.max(1.6, anchor * 0.02);
+    const range = Math.max(minVisibleRange, maxPrice - minPrice);
+    const pad = Math.max(0.5, range * 0.14);
+
+    const bandPointCount = upperSeries.filter((v, idx) => Number.isFinite(v) && Number.isFinite(lowerSeries[idx])).length;
+    const hasBand = bandPointCount >= 2;
 
     const hasRealVolume = volumeSeries.some((v) => Number.isFinite(v) && v > 0);
     const maxVolume = hasRealVolume
@@ -252,6 +311,7 @@ export default function Chart({
       lowerSeries,
       volumeSeries,
       hasRealVolume,
+      hasBand,
       yMin: Math.max(0, minPrice - pad),
       yMax: maxPrice + pad,
       volumeMax: maxVolume > 0 ? Math.ceil(maxVolume * 1.25) : 1000,
@@ -309,31 +369,31 @@ export default function Chart({
         pointBackgroundColor: "#00F5FF",
         pointBorderColor: "#FFFFFF",
         pointBorderWidth: 1.5,
-        tension: 0.14,
+        tension: 0.05,
         spanGaps: true,
         order: 3,
       },
       {
         label: "INTERVAL LOWER",
-        data: chartData.lowerSeries || [],
+        data: (showBand && chartData.hasBand) ? (chartData.lowerSeries || []) : [],
         borderColor: "rgba(0, 245, 255, 0.0)",
         backgroundColor: "transparent",
         borderWidth: 0,
         pointRadius: 0,
         tension: 0.14,
-        spanGaps: true,
+        spanGaps: false,
         order: 4,
       },
       {
         label: "CONFIDENCE BAND",
-        data: chartData.upperSeries || [],
+        data: (showBand && chartData.hasBand) ? (chartData.upperSeries || []) : [],
         borderColor: "rgba(0, 245, 255, 0.0)",
-        backgroundColor: "rgba(0, 245, 255, 0.10)",
+        backgroundColor: "rgba(0, 245, 255, 0.08)",
         borderWidth: 0,
         pointRadius: 0,
         fill: "-1",
         tension: 0.14,
-        spanGaps: true,
+        spanGaps: false,
         order: 4,
       },
       ...(chartData.hasRealVolume
@@ -556,6 +616,16 @@ export default function Chart({
               }`}
             >
               HISTORICAL
+            </button>
+            <button
+              onClick={() => setShowBand(!showBand)}
+              className={`px-3 py-1 text-sm font-mono border transition-all ${
+                showBand
+                  ? "bg-bloomberg-cyan text-black border-bloomberg-cyan"
+                  : "bg-transparent text-bloomberg-cyan border-bloomberg-cyan hover:bg-bloomberg-cyan hover:text-black"
+              }`}
+            >
+              BAND
             </button>
             <button
               onClick={resetZoom}
