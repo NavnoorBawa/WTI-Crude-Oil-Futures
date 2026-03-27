@@ -118,6 +118,27 @@ python backtest_walk_forward.py --period 18mo --min-train 140 --step 5 --estimat
 - `GET /data` - Main data endpoint for frontend
 - `GET /health` - Health check
 
+## Render Deployment
+
+This repo now includes [render.yaml](/Users/navnoorbawa/Downloads/RESUME%20PROJECTS/WTI%20Crude%20Oil%20Futures%20Prediction/WTI-Crude-Oil-Futures-main/render.yaml) so frontend/backend service wiring is defined in code instead of drifting in the Render dashboard.
+
+### Frontend environment
+
+- `VITE_API_BASE_URL=https://wti-crude-oil-backend.onrender.com`
+- `VITE_POLL_INTERVAL_MS=15000`
+- `VITE_STARTUP_RETRY_MS=5000`
+
+### Backend environment
+
+- `EAGER_ML_WARMUP=false`
+- `API_STARTUP_RETRY_SECONDS=5`
+
+### Startup behavior
+
+- `GET /` and `GET /health` report initialization state consistently.
+- `GET /data` can return `SYSTEM_INITIALIZING` with `retry_after_seconds` while Render wakes the free instance.
+- The frontend treats this as a loading/warm-up state and retries instead of showing a hard failure page.
+
 ## Contract Management
 
 ### Automatic Contract Switching

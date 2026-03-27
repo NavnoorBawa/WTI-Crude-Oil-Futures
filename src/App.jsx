@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Chart from "./Chart";
 
 function App() {
@@ -9,7 +9,11 @@ function App() {
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [currentTime, setCurrentTime] = useState(new Date());
   const pollIntervalMs = Number(import.meta.env.VITE_POLL_INTERVAL_MS || 15000);
+  const startupRetryMs = Number(import.meta.env.VITE_STARTUP_RETRY_MS || 5000);
   const configuredApiBase = import.meta.env.VITE_API_BASE_URL;
+  const latestDataRef = useRef(null);
+
+  latestDataRef.current = data;
 
   const getApiBaseCandidates = () => {
     const hostname = window.location.hostname;
@@ -30,11 +34,36 @@ function App() {
   useEffect(() => {
     // Set title
     document.title = "Bloomberg Terminal - WTI Crude Oil";
+    let isDisposed = false;
+    let retryTimeoutId = null;
 
     // Update time every second
     const timeInterval = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
+
+    const clearRetryTimeout = () => {
+      if (retryTimeoutId) {
+        clearTimeout(retryTimeoutId);
+        retryTimeoutId = null;
+      }
+    };
+
+    const scheduleRetry = (retryAfterSeconds) => {
+      const delayMs = Math.max(
+        2000,
+        Number.isFinite(Number(retryAfterSeconds))
+          ? Number(retryAfterSeconds) * 1000
+          : startupRetryMs
+      );
+
+      clearRetryTimeout();
+      retryTimeoutId = setTimeout(() => {
+        if (!isDisposed) {
+          fetchData(true);
+        }
+      }, delayMs);
+    };
 
     // Fetch data function
     const fetchData = async (isInitial = false) => {
@@ -76,6 +105,7 @@ function App() {
               if (startupPayload?.error === 'SYSTEM_INITIALIZING') {
                 const startupError = new Error(startupPayload.message || 'Backend is waking up');
                 startupError.code = 'SYSTEM_INITIALIZING';
+                startupError.retryAfterSeconds = Number(startupPayload.retry_after_seconds) || (startupRetryMs / 1000);
                 throw startupError;
               }
             }
@@ -97,8 +127,16 @@ function App() {
         }
 
         const result = await response.json();
+
+        if (result?.error === 'SYSTEM_INITIALIZING') {
+          const startupError = new Error(result.message || 'Backend is waking up');
+          startupError.code = 'SYSTEM_INITIALIZING';
+          startupError.retryAfterSeconds = Number(result.retry_after_seconds) || (startupRetryMs / 1000);
+          throw startupError;
+        }
         
         // Update state in correct order
+        clearRetryTimeout();
         setData(result);
         setLastUpdate(new Date());
         setError(null);
@@ -107,13 +145,18 @@ function App() {
         
       } catch (err) {
         if (err.code === 'SYSTEM_INITIALIZING') {
-          if (isInitial) {
+          const retryAfterSeconds = Number(err.retryAfterSeconds) || (startupRetryMs / 1000);
+          const startupMessage = err.message || 'Backend is waking up on Render. This can take 10-30 seconds on the free tier.';
+
+          if (isInitial || !latestDataRef.current) {
             setLoading(true);
             setError(null);
-            setLoadingMessage('Backend is waking up on Render. This can take 10-30 seconds on the free tier.');
-            return;
+            setLoadingMessage(startupMessage);
+          } else {
+            setError(`LIVE DATA DELAY: ${startupMessage} Showing last good market snapshot.`);
           }
-          setError(null);
+
+          scheduleRetry(retryAfterSeconds);
           return;
         } else if (err.name === 'AbortError') {
           setError('Server timeout - Please wait and refresh');
@@ -133,10 +176,12 @@ function App() {
     const interval = setInterval(() => fetchData(false), pollIntervalMs);
 
     return () => {
+      isDisposed = true;
+      clearRetryTimeout();
       clearInterval(interval);
       clearInterval(timeInterval);
     };
-  }, [configuredApiBase, pollIntervalMs]);
+  }, [configuredApiBase, pollIntervalMs, startupRetryMs]);
 
 
   // Loading screen
@@ -153,7 +198,7 @@ function App() {
   }
 
   // Error screen - System designed to fail rather than show placeholder data
-  if (error) {
+  if (error && !data) {
     return (
       <div className="min-h-screen bg-black text-bloomberg-amber font-mono flex items-center justify-center">
         <div className="text-center">
@@ -273,6 +318,13 @@ function App() {
           <span className="text-gray-400 ml-4">{contractInfo.description || 'WTI CRUDE OIL FUTURES NYMEX'}</span>
         </div>
       </div>
+
+      {error && data && (
+        <div className="bg-black border-b border-bloomberg-red px-3 py-2 text-sm">
+          <span className="text-bloomberg-red font-semibold">LIVE SNAPSHOT WARNING:</span>
+          <span className="text-gray-300 ml-2">{error}</span>
+        </div>
+      )}
 
       {/* BLOOMBERG TERMINAL DATA DASHBOARD */}
       <div className="bg-black border-b border-gray-700 p-2">

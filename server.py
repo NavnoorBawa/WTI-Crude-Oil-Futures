@@ -11,7 +11,7 @@ import threading
 import os
 from datetime import datetime
 import logging
-from flask import Flask, jsonify
+from flask import Flask, jsonify, make_response
 from flask_cors import CORS
 
 # Configure logging
@@ -56,6 +56,33 @@ system_state = {
 }
 
 EAGER_ML_WARMUP = os.getenv('EAGER_ML_WARMUP', 'false').lower() == 'true'
+API_STARTUP_RETRY_SECONDS = max(2, int(os.getenv('API_STARTUP_RETRY_SECONDS', '5')))
+
+
+def json_response(payload, status_code=200, retry_after=None):
+    """Standard JSON response with no-store cache semantics for live market data."""
+    response = make_response(jsonify(payload), status_code)
+    response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    if retry_after is not None:
+        response.headers['Retry-After'] = str(int(retry_after))
+    return response
+
+
+def startup_payload(message, retry_after_seconds=None):
+    retry_seconds = int(retry_after_seconds or API_STARTUP_RETRY_SECONDS)
+    return {
+        'service': 'WTI Oil Price Prediction API',
+        'status': 'INITIALIZING',
+        'ready': False,
+        'startup_ready': False,
+        'ml_ready': False,
+        'error': 'SYSTEM_INITIALIZING',
+        'message': message,
+        'retry_after_seconds': retry_seconds,
+        'server_time': datetime.now().isoformat()
+    }
 
 def test_ml_system_readiness():
     """Test if ML system is ready by calling oil.py functions"""
@@ -232,31 +259,37 @@ def update_price_data():
 @app.route('/')
 def root():
     """Root endpoint - server status"""
+    ensure_startup_started()
+
     if not OIL_IMPORTS_AVAILABLE:
-        return jsonify({
+        return json_response({
             'service': 'WTI Oil Price Prediction API',
             'status': 'CRITICAL_ERROR',
             'error': 'oil.py imports not available',
             'message': 'Server cannot function without oil.py',
             'ready': False,
             'server_time': datetime.now().isoformat()
-        }), 200
+        }, 200)
+
+    if not _startup_ready.is_set():
+        return json_response(
+            startup_payload('Background startup in progress. API data will be available shortly.'),
+            200
+        )
     
     try:
         # Test contract detection
         contract_info = get_current_wti_contract()
         if not contract_info or not contract_info.get('current_price'):
             raise Exception("Contract detection not ready")
-        
-        # Test ML readiness if not already confirmed
-        if not system_state['ml_ready']:
-            system_state['ml_ready'] = test_ml_system_readiness()
-        
-        return jsonify({
+
+        return json_response({
             'service': 'WTI Oil Price Prediction API',
-            'status': 'ACTIVE',
+            'status': 'ACTIVE' if system_state['ml_ready'] else 'INITIALIZING',
             'version': '4.0.0-real-data-only',
             'ml_ready': system_state['ml_ready'],
+            'startup_ready': True,
+            'ready': bool(system_state['ml_ready']),
             'contract': contract_info['symbol'],
             'current_price': contract_info['current_price'],
             'data_source': 'oil.py REAL DATA ONLY',
@@ -271,14 +304,14 @@ def root():
         })
         
     except Exception as e:
-        return jsonify({
+        return json_response({
             'service': 'WTI Oil Price Prediction API',
             'status': 'INITIALIZING',
             'message': 'System initializing - oil.py engine starting...',
             'error': str(e),
             'ready': False,
             'server_time': datetime.now().isoformat()
-        }), 200
+        }, 200)
 
 @app.route('/data')
 def get_data():
@@ -287,28 +320,28 @@ def get_data():
     
     # FIX #6: Check if startup is complete before serving (prevents race condition)
     if not _startup_ready.is_set():
-        return jsonify({
-            'error': 'SYSTEM_INITIALIZING',
-            'message': 'Server starting up. Please wait 5-10 seconds...',
-            'server_time': datetime.now().isoformat()
-        }), 503
+        return json_response(
+            startup_payload('Server starting up. Please wait a few seconds...', API_STARTUP_RETRY_SECONDS),
+            503,
+            retry_after=API_STARTUP_RETRY_SECONDS
+        )
     
     if not OIL_IMPORTS_AVAILABLE:
-        return jsonify({
+        return json_response({
             'error': 'CRITICAL_ERROR',
             'message': 'oil.py imports not available - cannot serve data',
             'server_time': datetime.now().isoformat()
-        }), 503
+        }, 503)
     
     try:
         # Test contract detection
         contract_info = get_current_wti_contract()
         if not contract_info or not contract_info.get('current_price'):
-            return jsonify({
-                'error': 'SYSTEM_INITIALIZING',
-                'message': 'System still initializing - please wait for oil.py to be ready',
-                'server_time': datetime.now().isoformat()
-            }), 503
+            return json_response(
+                startup_payload('System still initializing - waiting for contract data to become available.', API_STARTUP_RETRY_SECONDS),
+                503,
+                retry_after=API_STARTUP_RETRY_SECONDS
+            )
         
         # Test ML readiness and get predictions
         if not system_state['ml_ready']:
@@ -460,7 +493,7 @@ def get_data():
         # Add prediction count if available
         prediction_count = live_total_predictions
         
-        return jsonify({
+        return json_response({
             # Core price data - REAL ONLY
             'current_price': round(current_price, 2),
             'price_change': round(price_change, 3),
@@ -553,11 +586,11 @@ def get_data():
         
     except Exception as e:
         logger.error(f"❌ Data endpoint error: {e}")
-        return jsonify({
+        return json_response({
             'error': 'DATA_UNAVAILABLE',
             'message': f'Cannot get real data from oil.py: {str(e)}',
             'server_time': datetime.now().isoformat()
-        }), 500
+        }, 500)
 
 @app.route('/health')
 def health():
@@ -565,22 +598,24 @@ def health():
     ensure_startup_started()
     try:
         if not OIL_IMPORTS_AVAILABLE:
-            return jsonify({
+            return json_response({
                 'status': 'CRITICAL',
                 'ready': False,
                 'message': 'oil.py imports not available',
                 'timestamp': datetime.now().isoformat()
-            }), 200
+            }, 200)
 
         # Keep platform health checks passing while async startup completes.
         if not _startup_ready.is_set():
-            return jsonify({
+            return json_response({
                 'status': 'INITIALIZING',
                 'ready': False,
+                'startup_ready': False,
                 'ml_ready': False,
                 'message': 'Background startup in progress',
+                'retry_after_seconds': API_STARTUP_RETRY_SECONDS,
                 'timestamp': datetime.now().isoformat()
-            }), 200
+            }, 200)
         
         contract_info = None
         try:
@@ -588,24 +623,25 @@ def health():
         except Exception as contract_error:
             logger.warning(f"Health contract probe failed: {contract_error}")
         
-        return jsonify({
-            'status': 'HEALTHY',
-            'ready': True,
+        return json_response({
+            'status': 'HEALTHY' if system_state['ml_ready'] else 'INITIALIZING',
+            'ready': bool(system_state['ml_ready']),
+            'startup_ready': True,
             'ml_ready': system_state['ml_ready'],
             'contract': contract_info.get('symbol') if contract_info else None,
             'current_price': contract_info.get('current_price') if contract_info else None,
             'error_count': system_state['error_count'],
             'data_source': 'oil.py REAL DATA',
             'timestamp': datetime.now().isoformat()
-        }), 200
+        }, 200)
         
     except Exception as e:
-        return jsonify({
+        return json_response({
             'status': 'UNHEALTHY',
             'ready': False,
             'error': str(e),
             'timestamp': datetime.now().isoformat()
-        }), 200
+        }, 200)
 
 # Initialize system on startup
 def startup_initialization():

@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: wti-crude-oil-backend
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: ./start.sh
+    healthCheckPath: /health
+    envVars:
+      - key: EAGER_ML_WARMUP
+        value: "false"
+      - key: API_STARTUP_RETRY_SECONDS
+        value: "5"
+
+  - type: web
+    name: wti-crude-oil-frontend
+    runtime: static
+    plan: free
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://wti-crude-oil-backend.onrender.com
+      - key: VITE_POLL_INTERVAL_MS
+        value: "15000"
+      - key: VITE_STARTUP_RETRY_MS
+        value: "5000"
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
