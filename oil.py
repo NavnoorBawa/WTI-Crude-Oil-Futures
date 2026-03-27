@@ -2703,8 +2703,8 @@ class PremiumWTIPredictor:
                 }
                 self._save_horizon_predictions(horizon, horizon_data)
             
-            # Store current actual price
-            self.store_actual_price(current_price)
+            # Store current actual price with the latest observed contract volume.
+            self.store_actual_price(current_price, self.contract_info.get('volume'))
             
             logger.info(f"Premium multi-horizon predictions completed in {processing_time:.2f}s")
             logger.info(f"1H: {predictions['1h']:.2f} ({percentage_changes['1h']:+.2f}%)")
