@@ -5,6 +5,7 @@ function App() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [loadingMessage, setLoadingMessage] = useState("Connecting to Real-Time Data Feeds");
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [currentTime, setCurrentTime] = useState(new Date());
   const pollIntervalMs = Number(import.meta.env.VITE_POLL_INTERVAL_MS || 15000);
@@ -22,13 +23,8 @@ function App() {
       return ["http://127.0.0.1:9000"];
     }
 
-    // Production fallbacks if env var is missing on frontend host.
-    return [
-      "https://wti-crude-oil-backend.onrender.com",
-      "https://wti-crude-oil-futures.onrender.com",
-      "https://wti-crude-oil-futures-api.onrender.com",
-      window.location.origin,
-    ];
+    // Production default if frontend env var is missing.
+    return ["https://wti-crude-oil-backend.onrender.com"];
   };
 
   useEffect(() => {
@@ -46,6 +42,7 @@ function App() {
         if (isInitial) {
           setLoading(true);
           setError(null);
+          setLoadingMessage("Connecting to Real-Time Data Feeds");
         }
         
         const apiCandidates = getApiBaseCandidates();
@@ -67,6 +64,21 @@ function App() {
             });
 
             clearTimeout(timeoutId);
+
+            if (attempt.status === 503) {
+              let startupPayload = null;
+              try {
+                startupPayload = await attempt.json();
+              } catch {
+                startupPayload = null;
+              }
+
+              if (startupPayload?.error === 'SYSTEM_INITIALIZING') {
+                const startupError = new Error(startupPayload.message || 'Backend is waking up');
+                startupError.code = 'SYSTEM_INITIALIZING';
+                throw startupError;
+              }
+            }
 
             if (attempt.ok) {
               response = attempt;
@@ -91,9 +103,19 @@ function App() {
         setLastUpdate(new Date());
         setError(null);
         setLoading(false);
+        setLoadingMessage("Connecting to Real-Time Data Feeds");
         
       } catch (err) {
-        if (err.name === 'AbortError') {
+        if (err.code === 'SYSTEM_INITIALIZING') {
+          if (isInitial) {
+            setLoading(true);
+            setError(null);
+            setLoadingMessage('Backend is waking up on Render. This can take 10-30 seconds on the free tier.');
+            return;
+          }
+          setError(null);
+          return;
+        } else if (err.name === 'AbortError') {
           setError('Server timeout - Please wait and refresh');
         } else if (err.name === 'TypeError' && err.message.includes('Failed to fetch')) {
           setError('Cannot connect to backend API - verify VITE_API_BASE_URL in frontend environment');
@@ -124,7 +146,7 @@ function App() {
         <div className="text-center">
           <div className="text-xl mb-3">BLOOMBERG TERMINAL</div>
           <div className="text-lg mb-4">INITIALIZING MARKET DATA SYSTEMS...</div>
-          <div className="text-sm text-gray-500 mt-4">Connecting to Real-Time Data Feeds</div>
+          <div className="text-sm text-gray-500 mt-4">{loadingMessage}</div>
         </div>
       </div>
     );
