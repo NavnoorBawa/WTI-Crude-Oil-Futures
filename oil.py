@@ -556,7 +556,7 @@ class PremiumWTIPredictor:
         return time_deltas[horizon], search_windows.get(horizon, timedelta(days=30))
 
     def _find_closest_actual_price(self, target_time, search_window):
-        """Find closest realized price to a target timestamp within a bounded window."""
+        """Find the first realized price at/after target timestamp within a forward window."""
         closest_actual = None
         min_time_diff = timedelta.max
 
@@ -564,10 +564,14 @@ class PremiumWTIPredictor:
             actual_time = self._safe_parse_iso(actual_timestamp)
             if actual_time is None:
                 continue
-            if abs(actual_time - target_time) > search_window:
+
+            # Use forward-only matching so unmatured forecasts are never evaluated early.
+            time_diff = actual_time - target_time
+            if time_diff < timedelta(0):
+                continue
+            if time_diff > search_window:
                 continue
 
-            time_diff = abs(actual_time - target_time)
             if time_diff < min_time_diff:
                 min_time_diff = time_diff
                 closest_actual = float(actual_data.get('price', 0.0))
@@ -2321,6 +2325,7 @@ class PremiumWTIPredictor:
             horizon_backtests = {}
             horizon_confidence = {}
             horizon_drift_scores = {}
+            horizon_fallbacks = {'1h': False, '1d': False, '1w': False}
             horizon_model_counts = {'1h': 0, '1d': 0, '1w': 0}
             current_price = wti_data['Close'].iloc[-1]
             total_model_count = 0
@@ -2425,6 +2430,7 @@ class PremiumWTIPredictor:
 
                     if not h_preds:
                         logger.warning(f"No valid model outputs for {horizon}; using current price fallback")
+                        horizon_fallbacks[horizon] = True
                         predictions[horizon] = current_price
                         all_scores[horizon] = 0.0
                         prediction_intervals[horizon] = {
@@ -2468,6 +2474,7 @@ class PremiumWTIPredictor:
                     
                 except Exception as e:
                     logger.error(f"Failed to predict {horizon}: {e}")
+                    horizon_fallbacks[horizon] = True
                     predictions[horizon] = current_price # Fallback
                     all_scores[horizon] = 0.0
                     horizon_drift_scores[horizon] = 0.0
@@ -2551,6 +2558,7 @@ class PremiumWTIPredictor:
                 except Exception as e:
                     logger.warning(f"Hourly pipeline prediction failed: {e}")
                     # FIX #4: Multiple fallback levels with guards
+                    horizon_fallbacks['1h'] = True
                     all_scores['1h'] = 0.0
                     horizon_drift_scores['1h'] = 0.0
                     if '1d' in predictions and isinstance(predictions['1d'], (int, float)) and predictions['1d'] > 0:
@@ -2586,6 +2594,7 @@ class PremiumWTIPredictor:
             else:
                 logger.warning("⚠️ Using daily fallback for 1H prediction (insufficient hourly data)")
                 # FIX #4: Guard against missing 1d before using it
+                horizon_fallbacks['1h'] = True
                 all_scores['1h'] = 0.0
                 horizon_drift_scores['1h'] = 0.0
                 if '1d' in predictions and isinstance(predictions['1d'], (int, float)) and predictions['1d'] > 0:
@@ -2656,6 +2665,8 @@ class PremiumWTIPredictor:
             # Get feature count from first available horizon model
             first_horizon = next(iter(horizon_models.values()), None)
             feature_count = len(first_horizon['selected_features']) if first_horizon else 0
+            has_any_fallback = any(horizon_fallbacks.values())
+            has_critical_fallback = horizon_fallbacks.get('1d', False) or horizon_fallbacks.get('1w', False)
             
             prediction_record = {
                 'schema_version': 2,
@@ -2671,7 +2682,9 @@ class PremiumWTIPredictor:
                 'model_count': total_model_count,
                 # BUG23 FIX: Proper division guard for data_quality_score calculation
                 'data_quality_score': min(100, sum(data.get('data_quality', 0) for data in external_data.values()) / max(1, len(external_data))) if external_data else 0,
-                'is_real_prediction': True,
+                'is_real_prediction': not has_critical_fallback,
+                'is_full_real_prediction': not has_any_fallback,
+                'fallbacks': horizon_fallbacks,
                 'external_data_sources': len(external_data),
                 'premium_features': True,
                 'pipeline_timings': timings,
@@ -2977,6 +2990,8 @@ def get_multi_horizon_wti_predictions():
             'feature_count': result['feature_count'],
             'data_quality_score': result['data_quality_score'],
             'is_real_prediction': result['is_real_prediction'],
+            'is_full_real_prediction': result.get('is_full_real_prediction', result['is_real_prediction']),
+            'fallbacks': result.get('fallbacks', {}),
             'premium_features': result['premium_features'],
             'model_count': result['model_count'],
             'external_data_sources': result['external_data_sources'],

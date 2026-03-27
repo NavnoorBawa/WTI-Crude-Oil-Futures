@@ -489,6 +489,8 @@ def get_data():
                 'horizon_drift_scores': horizon_drift_scores,
                 'horizon_backtests': horizon_backtests,
                 'is_real_prediction': system_state['ml_ready'] and predictions is not None,
+                'is_full_real_prediction': bool(predictions.get('is_full_real_prediction', True)) if predictions else False,
+                'fallbacks': predictions.get('fallbacks', {}) if predictions else {},
                 'processing_time': predictions.get('processing_time', 0) if predictions else 0,
                 'feature_count': predictions.get('feature_count', 0) if predictions else 0,
                 'last_update': predictions.get('timestamp', datetime.now().isoformat()) if predictions else datetime.now().isoformat()
