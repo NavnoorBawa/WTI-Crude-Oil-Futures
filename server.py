@@ -218,8 +218,8 @@ def update_price_data():
             contract_info = get_current_wti_contract()
             current_price = contract_info['current_price']
             
-            # Store the price update
-            store_actual_price_update(current_price)
+            # Store the price update with volume snapshot for real chart volume series.
+            store_actual_price_update(current_price, contract_info.get('volume'))
             
             system_state['last_price_update_time'] = time.time()
             
@@ -404,6 +404,34 @@ def get_data():
         confidence_1d = float(horizon_confidence.get('1d', 0.0)) if horizon_confidence else 0.0
         if confidence_1d <= 0 and accuracy_metrics:
             confidence_1d = float(min(95, max(50, accuracy_metrics.get('overall', {}).get('direction_accuracy', 0) + 10)))
+
+        overall_metrics = accuracy_metrics.get('overall', {}) if accuracy_metrics else {}
+        live_total_predictions = int(overall_metrics.get('total_predictions', 0) or 0)
+        live_correct_directions = int(overall_metrics.get('correct_directions', 0) or 0)
+        live_direction_accuracy = float(overall_metrics.get('direction_accuracy', 0.0) or 0.0)
+
+        min_live_accuracy_samples = max(6, int(os.getenv('MIN_LIVE_ACCURACY_SAMPLES', '18')))
+        accuracy_prior_strength = max(4, int(os.getenv('ACCURACY_PRIOR_STRENGTH', '18')))
+        backtest_direction_1d = None
+        if isinstance(horizon_backtests, dict):
+            backtest_direction_1d = horizon_backtests.get('1d', {}).get('direction_accuracy')
+
+        display_accuracy = None
+        display_accuracy_source = 'unavailable'
+        if live_total_predictions >= min_live_accuracy_samples:
+            display_accuracy = live_direction_accuracy
+            display_accuracy_source = 'live'
+        elif live_total_predictions > 0 and backtest_direction_1d is not None:
+            prior_correct = float(backtest_direction_1d) * accuracy_prior_strength / 100.0
+            blended = (live_correct_directions + prior_correct) / (live_total_predictions + accuracy_prior_strength)
+            display_accuracy = blended * 100.0
+            display_accuracy_source = 'blended'
+        elif backtest_direction_1d is not None:
+            display_accuracy = float(backtest_direction_1d)
+            display_accuracy_source = 'backtest'
+        elif live_total_predictions > 0:
+            display_accuracy = live_direction_accuracy
+            display_accuracy_source = 'live_sparse'
         
         # Format volume for display
         volume = contract_info.get('volume', 0)
@@ -425,7 +453,7 @@ def get_data():
             total_data_points = len(historical_data['actual']['values'])
         
         # Add prediction count if available
-        prediction_count = accuracy_metrics.get('overall', {}).get('total_predictions', 0) if accuracy_metrics else 0
+        prediction_count = live_total_predictions
         
         return jsonify({
             # Core price data - REAL ONLY
@@ -476,9 +504,12 @@ def get_data():
             
             # Performance metrics - REAL ONLY
             'performance_metrics': {
-                'direction_accuracy': round(accuracy_metrics.get('overall', {}).get('direction_accuracy', 0), 1) if accuracy_metrics else 0,
+                'direction_accuracy': round(live_direction_accuracy, 1),
+                'display_direction_accuracy': round(display_accuracy, 1) if display_accuracy is not None else None,
+                'display_accuracy_source': display_accuracy_source,
+                'min_live_accuracy_samples': min_live_accuracy_samples,
                 'confidence': round(confidence_1d, 1),
-                'total_predictions': accuracy_metrics.get('overall', {}).get('total_predictions', 0) if accuracy_metrics else 0
+                'total_predictions': live_total_predictions,
             },
             
             # Contract information - REAL ONLY
@@ -508,7 +539,7 @@ def get_data():
             # Legacy compatibility fields
             'last_price': round(current_price, 2),
             'ml_prediction': round(pred_1d, 2),
-            'accuracy': f"{round(accuracy_metrics.get('overall', {}).get('direction_accuracy', 0)) if accuracy_metrics else 0}%",
+            'accuracy': f"{round(display_accuracy)}%" if display_accuracy is not None else '--',
             'confidence': f"{round(confidence_1d if confidence_1d > 0 else 50)}%",
             'timestamp': datetime.now().isoformat()
         })

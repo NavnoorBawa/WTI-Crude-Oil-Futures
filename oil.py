@@ -2724,12 +2724,13 @@ class PremiumWTIPredictor:
             logger.error(f"Premium prediction engine failed: {e}")
             raise Exception(f"Cannot generate real predictions: {e}")
     
-    def store_actual_price(self, price):
-        """Store actual price with timestamp"""
+    def store_actual_price(self, price, volume=None):
+        """Store actual price with timestamp and optional observed volume."""
         timestamp = datetime.now().isoformat()
         self.stored_actual_prices[timestamp] = {
             'timestamp': timestamp,
-            'price': float(price)
+            'price': float(price),
+            'volume': int(volume) if volume is not None else None,
         }
         self._save_actual_prices()
     
@@ -2995,10 +2996,10 @@ def get_prediction_accuracy_metrics():
     predictor = get_premium_predictor()
     return predictor.calculate_prediction_accuracy()
 
-def store_actual_price_update(price):
-    """Store actual price update"""
+def store_actual_price_update(price, volume=None):
+    """Store actual price update with optional volume snapshot."""
     predictor = get_premium_predictor()
-    predictor.store_actual_price(price)
+    predictor.store_actual_price(price, volume=volume)
 
 def get_historical_data(limit=50):
     """Get historical stored data for chart display"""
@@ -3033,31 +3034,64 @@ def get_historical_data(limit=50):
     # Extract values and timestamps
     actual_values = [data['price'] for _, data in recent_prices]
     actual_timestamps = [timestamp for timestamp, _ in recent_prices]
+    actual_volumes = [
+        int(data.get('volume', 0) or 0) if isinstance(data, dict) else 0
+        for _, data in recent_prices
+    ]
     
     predicted_values = []
     predicted_timestamps = []
+    predicted_upper = []
+    predicted_lower = []
     for timestamp, pred_data in recent_predictions:
         if isinstance(pred_data, dict) and 'predictions' in pred_data:
             predicted_values.append(pred_data['predictions']['1h'])
             predicted_timestamps.append(timestamp)
+            pred_intervals = pred_data.get('prediction_intervals', {}) if isinstance(pred_data, dict) else {}
+            h1_interval = pred_intervals.get('1h', {}) if isinstance(pred_intervals, dict) else {}
+            predicted_upper.append(h1_interval.get('upper'))
+            predicted_lower.append(h1_interval.get('lower'))
+
+    future_values = []
+    future_timestamps = []
+    future_upper = []
+    future_lower = []
+    if sorted_predictions:
+        latest_ts, latest_pred = sorted_predictions[-1]
+        if isinstance(latest_pred, dict):
+            preds = latest_pred.get('predictions', {}) or {}
+            intervals = latest_pred.get('prediction_intervals', {}) or {}
+            base_time = predictor._safe_parse_iso(latest_ts) or datetime.now()
+            horizon_offsets = {'1h': timedelta(hours=1), '1d': timedelta(days=1), '1w': timedelta(weeks=1)}
+            for horizon in ['1h', '1d', '1w']:
+                pred_val = preds.get(horizon)
+                if pred_val is None:
+                    continue
+                horizon_time = base_time + horizon_offsets[horizon]
+                horizon_interval = intervals.get(horizon, {}) if isinstance(intervals, dict) else {}
+                future_values.append(float(pred_val))
+                future_timestamps.append(horizon_time.isoformat())
+                future_upper.append(horizon_interval.get('upper'))
+                future_lower.append(horizon_interval.get('lower'))
     
     return {
         'actual': {
             'values': actual_values,
-            'timestamps': actual_timestamps
+            'timestamps': actual_timestamps,
+            'volumes': actual_volumes,
         },
         'predicted': {
             'historical': {
                 'values': predicted_values,
                 'timestamps': predicted_timestamps,
-                'upper_bound': [],
-                'lower_bound': []
+                'upper_bound': predicted_upper,
+                'lower_bound': predicted_lower,
             },
             'future': {
-                'values': [],
-                'timestamps': [],
-                'upper_bound': [],
-                'lower_bound': []
+                'values': future_values,
+                'timestamps': future_timestamps,
+                'upper_bound': future_upper,
+                'lower_bound': future_lower,
             }
         }
     }

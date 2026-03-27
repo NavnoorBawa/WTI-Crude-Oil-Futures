@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -6,7 +6,6 @@ import {
   PointElement,
   LineElement,
   BarElement,
-  BarController,
   Title,
   Tooltip,
   Legend,
@@ -23,7 +22,6 @@ ChartJS.register(
   PointElement,
   LineElement,
   BarElement,
-  BarController,
   Title,
   Tooltip,
   Legend,
@@ -32,611 +30,505 @@ ChartJS.register(
   zoomPlugin
 );
 
-export default function Chart({ 
-  actualArray = [], 
-  predictedArray = [], 
+const parseTimestamp = (value) => {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+const formatTimeLabel = (dateObj, firstDateObj) => {
+  if (!dateObj) return "--:--";
+  const sameDay =
+    firstDateObj &&
+    dateObj.getFullYear() === firstDateObj.getFullYear() &&
+    dateObj.getMonth() === firstDateObj.getMonth() &&
+    dateObj.getDate() === firstDateObj.getDate();
+
+  if (sameDay) {
+    return dateObj.toLocaleTimeString("en-US", {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  const dayPart = dateObj.toLocaleDateString("en-US", {
+    month: "short",
+    day: "2-digit",
+  });
+  const timePart = dateObj.toLocaleTimeString("en-US", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${dayPart} ${timePart}`;
+};
+
+export default function Chart({
+  actualArray = [],
+  predictedArray = [],
   unifiedData = null,
   multiHorizonPredictions = null,
-  showFuture = true,
-  currentPrice = 0
+  currentPrice = 0,
 }) {
   const [showHistorical, setShowHistorical] = useState(true);
   const chartRef = useRef();
-  
-  // Cleanup chart on unmount to prevent canvas reuse errors
-  React.useEffect(() => {
-    return () => {
-      if (chartRef.current) {
-        chartRef.current.destroy();
-      }
-    };
-  }, []);
 
-  // Create minimal chart with current price and ML predictions using consistent time format
-  const createMinimalChart = (currentPrice, multiHorizonPredictions) => {
-    const now = new Date();
-    const timeLabels = [
-      now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
-      new Date(now.getTime() + 60*60*1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
-      new Date(now.getTime() + 24*60*60*1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
-      new Date(now.getTime() + 7*24*60*60*1000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
-    ];
-    
-    const actualPrices = [currentPrice, null, null, null];
-    const futurePredictions = [
-      null,
-      multiHorizonPredictions.predictions['1h'],
-      multiHorizonPredictions.predictions['1d'],
-      multiHorizonPredictions.predictions['1w'] || multiHorizonPredictions.predictions['7d']
-    ];
-
-    return {
-      isEmpty: false,
-      timeLabels: timeLabels,
-      actualPrices: actualPrices,
-      historicalPredictions: [],
-      futurePredictions: futurePredictions,
-      upperBounds: [],
-      lowerBounds: []
-    };
-  };
-
-  // Process data with clear separation of actual, historical predictions, and future predictions
   const chartData = useMemo(() => {
-    
-    // Get actual data - handle both unified data structure and legacy arrays
-    let actualData;
-    if (unifiedData?.actual?.values && unifiedData.actual.values.length > 0) {
-      actualData = unifiedData.actual;
-    } else if (actualArray && actualArray.length > 0) {
-      actualData = { values: actualArray, timestamps: [] };
-    } else {
-      actualData = { values: [], timestamps: [] };
-    }
-    
-    const predictedData = unifiedData?.predicted || { 
-      historical: { values: predictedArray || [], timestamps: [], upper_bound: [], lower_bound: [] },
-      future: { values: [], timestamps: [], upper_bound: [], lower_bound: [] }
+    const actualPayload = unifiedData?.actual || {};
+    const predictedPayload = unifiedData?.predicted || {};
+
+    const actualValues = Array.isArray(actualPayload.values) ? actualPayload.values : actualArray;
+    const actualTimestamps = Array.isArray(actualPayload.timestamps) ? actualPayload.timestamps : [];
+    const actualVolumes = Array.isArray(actualPayload.volumes) ? actualPayload.volumes : [];
+
+    const historicalPred = predictedPayload?.historical || {};
+    const historicalPredValues = Array.isArray(historicalPred.values) ? historicalPred.values : predictedArray;
+    const historicalPredTimestamps = Array.isArray(historicalPred.timestamps) ? historicalPred.timestamps : [];
+    const historicalPredUpper = Array.isArray(historicalPred.upper_bound) ? historicalPred.upper_bound : [];
+    const historicalPredLower = Array.isArray(historicalPred.lower_bound) ? historicalPred.lower_bound : [];
+
+    const futurePred = predictedPayload?.future || {};
+    const futureValues = Array.isArray(futurePred.values) ? futurePred.values : [];
+    const futureTimestamps = Array.isArray(futurePred.timestamps) ? futurePred.timestamps : [];
+    const futureUpper = Array.isArray(futurePred.upper_bound) ? futurePred.upper_bound : [];
+    const futureLower = Array.isArray(futurePred.lower_bound) ? futurePred.lower_bound : [];
+
+    const pointMap = new Map();
+
+    const ensurePoint = (dateObj) => {
+      if (!dateObj) return null;
+      const key = Math.floor(dateObj.getTime() / 60000);
+      if (!pointMap.has(key)) {
+        pointMap.set(key, {
+          ts: dateObj,
+          actual: null,
+          histPred: null,
+          futurePred: null,
+          upperBand: null,
+          lowerBand: null,
+          volume: null,
+        });
+      }
+      return pointMap.get(key);
     };
-    
-    // If no historical data but we have current price and predictions, create a minimal chart
-    if (!actualData.values || actualData.values.length === 0) {
-      if (currentPrice > 0 && multiHorizonPredictions?.predictions) {
-        return createMinimalChart(currentPrice, multiHorizonPredictions);
-      }
-      return { isEmpty: true };
-    }
-    
-    // Create timeline labels
-    const timeLabels = [];
-    const actualPrices = [];
-    const historicalPredictions = [];
-    const futurePredictions = [];
-    
-    // Show comprehensive historical data for continuous price stream
-    const maxHistoricalPoints = 30; // Optimal for display without crowding
-    const startIndex = Math.max(0, actualData.values.length - maxHistoricalPoints);
-    const historicalSlice = actualData.values.slice(startIndex);
-    const timestampSlice = actualData.timestamps ? actualData.timestamps.slice(startIndex) : [];
-    
-    // Create consistent chronological time sequence
-    // Use single reference time for all calculations to prevent sequence errors
-    const referenceTime = new Date();
-    const historicalData = [];
-    
-    for (let i = 0; i < historicalSlice.length; i++) {
-      if (historicalSlice[i] && !isNaN(historicalSlice[i]) && historicalSlice[i] > 0) {
-        // Create synthetic sequential time labels with guaranteed chronological order
-        const minutesBack = (historicalSlice.length - 1 - i) * 15; // 15-minute intervals going back
-        const syntheticTime = new Date(referenceTime.getTime() - (minutesBack * 60 * 1000));
-        
-        historicalData.push({
-          price: historicalSlice[i],
-          timestamp: syntheticTime,
-          originalIndex: i
-        });
+
+    for (let i = 0; i < actualValues.length; i += 1) {
+      const price = Number(actualValues[i]);
+      if (!Number.isFinite(price) || price <= 0) continue;
+
+      const ts = parseTimestamp(actualTimestamps[i]) || new Date(Date.now() - (actualValues.length - i) * 15 * 60 * 1000);
+      const point = ensurePoint(ts);
+      if (!point) continue;
+
+      point.actual = Number(price.toFixed(2));
+      const vol = Number(actualVolumes[i]);
+      if (Number.isFinite(vol) && vol > 0) {
+        point.volume = Math.max(0, Math.round(vol));
       }
     }
-    
-    // Data is now inherently chronological due to synthetic timestamps
-    
-    // Process historical data with guaranteed chronological time formatting
-    historicalData.forEach((dataPoint, i) => {
-      // Always use synthetic timestamp for consistent chronological display
-      const timeLabel = dataPoint.timestamp.toLocaleTimeString('en-US', { 
-        hour12: false, 
-        hour: '2-digit', 
-        minute: '2-digit' 
-      });
-      
-      timeLabels.push(timeLabel);
-      actualPrices.push(Number(dataPoint.price.toFixed(2)));
-      historicalPredictions.push(null);
-      futurePredictions.push(null);
-    });
-    
-    // Process historical predictions (align with actual data)
-    if (predictedData.historical?.values && predictedData.historical.values.length > 0) {
-      // Fill historical predictions array with prediction values
-      predictedData.historical.values.forEach((pred, i) => {
-        if (i < historicalPredictions.length && pred && !isNaN(pred)) {
-          historicalPredictions[i] = Number(pred.toFixed(2));
-        }
-      });
+
+    for (let i = 0; i < historicalPredValues.length; i += 1) {
+      const pred = Number(historicalPredValues[i]);
+      if (!Number.isFinite(pred) || pred <= 0) continue;
+      const ts = parseTimestamp(historicalPredTimestamps[i]);
+      if (!ts) continue;
+      const point = ensurePoint(ts);
+      if (!point) continue;
+
+      point.histPred = Number(pred.toFixed(2));
+
+      const upper = Number(historicalPredUpper[i]);
+      const lower = Number(historicalPredLower[i]);
+      if (Number.isFinite(upper)) point.upperBand = Number(upper.toFixed(2));
+      if (Number.isFinite(lower)) point.lowerBand = Number(lower.toFixed(2));
     }
-    
-    // Add continuous future predictions with seamless time continuation
-    if (showFuture && actualPrices.length > 0 && multiHorizonPredictions?.predictions) {
-      const predictions = multiHorizonPredictions.predictions;
-      const currentPrice = actualPrices.filter(p => p !== null).pop() || 0;
-      
-      // Use same reference time to ensure chronological continuity
-      const baseTime = referenceTime; // Continue from same reference time used for historical data
-      // Create seamless transition from current price to future predictions
-      const futureTimeHorizons = [
-        { minutesAhead: 0, value: currentPrice }, // Connect at current time
-        { minutesAhead: 15, value: null }, // Bridge point
-        { minutesAhead: 30, value: null },
-        { minutesAhead: 60, value: predictions['1h'] },
-        { minutesAhead: 120, value: null },
-        { minutesAhead: 240, value: null },
-        { minutesAhead: 480, value: null },
-        { minutesAhead: 720, value: null },
-        { minutesAhead: 1440, value: predictions['1d'] },
-        { minutesAhead: 2880, value: null },
-        { minutesAhead: 4320, value: null },
-        { minutesAhead: 10080, value: predictions['1w'] || predictions['7d'] }
+
+    for (let i = 0; i < futureValues.length; i += 1) {
+      const pred = Number(futureValues[i]);
+      if (!Number.isFinite(pred) || pred <= 0) continue;
+
+      const ts = parseTimestamp(futureTimestamps[i]);
+      if (!ts) continue;
+      const point = ensurePoint(ts);
+      if (!point) continue;
+
+      point.futurePred = Number(pred.toFixed(2));
+
+      const upper = Number(futureUpper[i]);
+      const lower = Number(futureLower[i]);
+      if (Number.isFinite(upper)) point.upperBand = Number(upper.toFixed(2));
+      if (Number.isFinite(lower)) point.lowerBand = Number(lower.toFixed(2));
+    }
+
+    const hasFutureFromPayload = futureValues.length > 0;
+    const forecastDict = multiHorizonPredictions?.predictions || {};
+    const intervalDict = multiHorizonPredictions?.prediction_intervals || {};
+
+    if (!hasFutureFromPayload && forecastDict && Object.keys(forecastDict).length > 0) {
+      const allPointsNow = [...pointMap.values()].sort((a, b) => a.ts - b.ts);
+      const baseTime = allPointsNow.length > 0 ? allPointsNow[allPointsNow.length - 1].ts : new Date();
+
+      const syntheticHorizons = [
+        { key: "1h", minutes: 60 },
+        { key: "1d", minutes: 24 * 60 },
+        { key: "1w", minutes: 7 * 24 * 60 },
       ];
-      
-      // Enhanced interpolation with current price connection
-      const knownPredictions = [
-        { minutes: 0, value: currentPrice }, // Start from current actual price
-        { minutes: 60, value: predictions['1h'] },
-        { minutes: 1440, value: predictions['1d'] },
-        { minutes: 10080, value: predictions['1w'] || predictions['7d'] }
-      ].filter(p => p.value && !isNaN(p.value));
-      
-      // Add future prediction points with consistent time formatting
-      futureTimeHorizons.forEach(point => {
-        let interpolatedValue = point.value;
-        
-        // If no explicit value, interpolate between known points
-        if (!interpolatedValue && knownPredictions.length >= 2) {
-          for (let i = 0; i < knownPredictions.length - 1; i++) {
-            const p1 = knownPredictions[i];
-            const p2 = knownPredictions[i + 1];
-            
-            if (point.minutesAhead >= p1.minutes && point.minutesAhead <= p2.minutes) {
-              const ratio = (point.minutesAhead - p1.minutes) / (p2.minutes - p1.minutes);
-              interpolatedValue = p1.value + ratio * (p2.value - p1.value);
-              break;
-            }
-          }
-        }
-        
-        // Generate chronologically correct time labels
-        const futureTime = new Date(baseTime.getTime() + (point.minutesAhead * 60 * 1000));
-        const timeLabel = futureTime.toLocaleTimeString('en-US', { 
-          hour12: false, 
-          hour: '2-digit', 
-          minute: '2-digit' 
-        });
-        
-        timeLabels.push(timeLabel);
-        
-        // For seamless connection, extend actual price to first future point
-        if (point.minutesAhead === 0) {
-          actualPrices.push(Number(currentPrice.toFixed(2))); // Bridge connection
-          futurePredictions.push(Number(currentPrice.toFixed(2))); // Start forecast from current
-        } else {
-          actualPrices.push(null);
-          futurePredictions.push(interpolatedValue ? Number(interpolatedValue.toFixed(2)) : null);
-        }
-        historicalPredictions.push(null);
+
+      syntheticHorizons.forEach((h) => {
+        const pred = Number(forecastDict[h.key]);
+        if (!Number.isFinite(pred) || pred <= 0) return;
+
+        const ts = new Date(baseTime.getTime() + h.minutes * 60 * 1000);
+        const point = ensurePoint(ts);
+        if (!point) return;
+        point.futurePred = Number(pred.toFixed(2));
+
+        const intervalObj = intervalDict[h.key] || {};
+        const upper = Number(intervalObj.upper);
+        const lower = Number(intervalObj.lower);
+        if (Number.isFinite(upper)) point.upperBand = Number(upper.toFixed(2));
+        if (Number.isFinite(lower)) point.lowerBand = Number(lower.toFixed(2));
       });
     }
-    
-    
-    
-    // Debug logging for chart data with time sequence validation
-    console.log('Chart data prepared:', {
-      timeLabelsCount: timeLabels.length,
-      actualPricesCount: actualPrices.length,
-      actualPricesNonNull: actualPrices.filter(p => p !== null).length,
-      actualPricesSample: actualPrices.filter(p => p !== null).slice(0, 8),
-      futurePredictionsNonNull: futurePredictions.filter(p => p !== null).length,
-      timeLabels: timeLabels,
-      timeSequenceCheck: 'First 5 time labels: ' + timeLabels.slice(0, 5).join(', ')
-    });
-    
+
+    let points = [...pointMap.values()].sort((a, b) => a.ts - b.ts);
+    if (points.length > 96) {
+      points = points.slice(points.length - 96);
+    }
+
+    if (points.length === 0) {
+      if (currentPrice > 0) {
+        const now = new Date();
+        points = [
+          {
+            ts: now,
+            actual: Number(currentPrice.toFixed(2)),
+            histPred: null,
+            futurePred: null,
+            upperBand: null,
+            lowerBand: null,
+            volume: null,
+          },
+        ];
+      } else {
+        return { isEmpty: true };
+      }
+    }
+
+    const firstDateObj = points[0].ts;
+    const labels = points.map((p) => formatTimeLabel(p.ts, firstDateObj));
+
+    const actualSeries = points.map((p) => p.actual);
+    const histSeries = points.map((p) => p.histPred);
+    const futureSeries = points.map((p) => p.futurePred);
+    const upperSeries = points.map((p) => p.upperBand);
+    const lowerSeries = points.map((p) => p.lowerBand);
+    const volumeSeries = points.map((p) => p.volume);
+
+    const allPrices = [...actualSeries, ...histSeries, ...futureSeries, ...upperSeries, ...lowerSeries]
+      .filter((v) => v !== null && Number.isFinite(v));
+
+    const minPrice = allPrices.length > 0 ? Math.min(...allPrices) : Math.max(0, currentPrice - 2);
+    const maxPrice = allPrices.length > 0 ? Math.max(...allPrices) : currentPrice + 2;
+    const range = Math.max(1.2, maxPrice - minPrice);
+    const pad = Math.max(0.6, range * 0.18);
+
+    const hasRealVolume = volumeSeries.some((v) => Number.isFinite(v) && v > 0);
+    const maxVolume = hasRealVolume
+      ? Math.max(...volumeSeries.map((v) => (Number.isFinite(v) ? v : 0)))
+      : 0;
+
     return {
       isEmpty: false,
-      timeLabels,
-      actualPrices,
-      historicalPredictions,
-      futurePredictions,
-      currentPrice: actualPrices.filter(p => p !== null).pop() || 0,
-      totalPoints: actualPrices.filter(p => p !== null).length
+      labels,
+      firstDateObj,
+      actualSeries,
+      histSeries,
+      futureSeries,
+      upperSeries,
+      lowerSeries,
+      volumeSeries,
+      hasRealVolume,
+      yMin: Math.max(0, minPrice - pad),
+      yMax: maxPrice + pad,
+      volumeMax: maxVolume > 0 ? Math.ceil(maxVolume * 1.25) : 1000,
     };
-  }, [actualArray, predictedArray, unifiedData, multiHorizonPredictions, showFuture, currentPrice]);
+  }, [actualArray, predictedArray, unifiedData, multiHorizonPredictions, currentPrice]);
 
-  // Reset zoom function
   const resetZoom = () => {
     if (chartRef.current) {
       chartRef.current.resetZoom();
     }
   };
 
-  // Toggle historical data
-  const toggleHistoricalData = () => {
-    setShowHistorical(!showHistorical);
-  };
-
-  // Calculate Y-axis bounds for optimal oil price visualization
-  const calculateYAxisBounds = () => {
-    const actualPrices = chartData.actualPrices?.filter(p => p !== null && !isNaN(p)) || [];
-    const historicalPrices = chartData.historicalPredictions?.filter(p => p !== null && !isNaN(p)) || [];
-    const futurePrices = chartData.futurePredictions?.filter(p => p !== null && !isNaN(p)) || [];
-    
-    const allPrices = [...actualPrices, ...historicalPrices, ...futurePrices];
-    if (allPrices.length === 0) return { min: 60, max: 70 };
-    
-    const minPrice = Math.min(...allPrices);
-    const maxPrice = Math.max(...allPrices);
-    const fullRange = maxPrice - minPrice;
-    
-    // Debug logging
-    console.log('Price range calculation:', {
-      actualCount: actualPrices.length,
-      fullRange,
-      minPrice,
-      maxPrice,
-      actualSample: actualPrices.slice(0, 5),
-      futureSample: futurePrices.slice(0, 3)
-    });
-    
-    // For Bloomberg-style charts, always show meaningful price movement
-    // Minimum range of $1.50 to ensure price variations are visible
-    const minVisibleRange = 1.5;
-    let adjustedRange = Math.max(fullRange, minVisibleRange);
-    
-    // Add 20% padding for better visualization
-    const padding = adjustedRange * 0.2;
-    
-    return {
-      min: Math.max(0, minPrice - padding),
-      max: maxPrice + padding
-    };
-  };
-  
-  const yAxisBounds = calculateYAxisBounds();
-
-  // Chart configuration with professional Bloomberg styling
   const data = {
-    labels: chartData.timeLabels || [],
+    labels: chartData.labels || [],
     datasets: [
-      // 1. ACTUAL PRICES - Bold Gold line
       {
-        label: 'ACTUAL PRICES',
-        data: chartData.actualPrices || [],
-        borderColor: '#FFD700',
-        backgroundColor: 'transparent',
-        borderWidth: 4, // Thicker for better visibility
-        pointRadius: 3, // Larger points
-        pointHoverRadius: 7,
-        pointBackgroundColor: '#FFD700',
-        pointBorderColor: '#000000',
+        label: "ACTUAL PRICES",
+        data: chartData.actualSeries || [],
+        borderColor: "#FFD700",
+        backgroundColor: "transparent",
+        borderWidth: 3,
+        pointRadius: 2,
+        pointHoverRadius: 6,
+        pointBackgroundColor: "#FFD700",
+        pointBorderColor: "#000000",
         pointBorderWidth: 1,
-        tension: 0.1, // Less smoothing for sharper price movements
+        tension: 0.08,
         spanGaps: true,
         order: 1,
-        segment: {
-          borderColor: ctx => ctx.p0.parsed.y === null || ctx.p1.parsed.y === null ? 'transparent' : '#FFD700'
-        }
       },
-      
-      // 2. HISTORICAL PREDICTIONS - Green dashed line
       {
-        label: 'HISTORICAL PREDICTIONS',
-        data: showHistorical ? (chartData.historicalPredictions || []) : [],
-        borderColor: '#00FF88',
-        backgroundColor: 'rgba(0, 255, 136, 0.05)',
-        borderWidth: 3,
-        borderDash: [10, 6], // More distinct dash pattern
-        pointRadius: 2,
+        label: "HISTORICAL PREDICTIONS",
+        data: showHistorical ? (chartData.histSeries || []) : [],
+        borderColor: "#2DFF9B",
+        backgroundColor: "transparent",
+        borderWidth: 2,
+        borderDash: [7, 4],
+        pointRadius: 1.8,
         pointHoverRadius: 5,
-        pointBackgroundColor: '#00FF88',
-        pointBorderColor: '#FFFFFF', // White border for contrast
-        pointBorderWidth: 1,
+        pointBackgroundColor: "#2DFF9B",
+        pointBorderWidth: 0,
         tension: 0.1,
         spanGaps: true,
         order: 2,
-        hidden: !showHistorical,
-        segment: {
-          borderColor: ctx => ctx.p0.parsed.y === null || ctx.p1.parsed.y === null ? 'transparent' : '#00FF88'
-        }
       },
-      
-      // 3. FUTURE PREDICTIONS - Cyan dotted line with distinct styling
       {
-        label: 'FUTURE FORECAST',
-        data: chartData.futurePredictions || [],
-        borderColor: '#00FFFF', // Pure cyan for better contrast
-        backgroundColor: 'rgba(0, 255, 255, 0.05)',
-        borderWidth: 3,
-        borderDash: [3, 6, 3, 6], // Distinct dot-dash pattern
-        pointRadius: 5, // Larger points for future predictions
-        pointHoverRadius: 8,
-        pointBackgroundColor: '#00FFFF',
-        pointBorderColor: '#FFFFFF', // White border for contrast
-        pointBorderWidth: 2,
-        tension: 0.2,
+        label: "FUTURE FORECAST",
+        data: chartData.futureSeries || [],
+        borderColor: "#00F5FF",
+        backgroundColor: "transparent",
+        borderWidth: 2.6,
+        borderDash: [2, 4],
+        pointRadius: 4,
+        pointHoverRadius: 7,
+        pointBackgroundColor: "#00F5FF",
+        pointBorderColor: "#FFFFFF",
+        pointBorderWidth: 1.5,
+        tension: 0.14,
         spanGaps: true,
         order: 3,
-        segment: {
-          borderColor: ctx => ctx.p0.parsed.y === null || ctx.p1.parsed.y === null ? 'transparent' : '#00FFFF'
-        }
       },
-      
-      // 4. VOLUME BARS - Blue bars at bottom
       {
-        label: 'VOLUME (CONTRACTS)',
-        data: chartData.timeLabels?.map((_, i) => {
-          // Generate smaller volume patterns to prevent chart dominance
-          if (chartData.actualPrices[i] !== null) {
-            const baseVolume = 15000; // Reduced base volume
-            const variation = 8000 * Math.sin(i * 0.4) + 5000 * Math.cos(i * 0.2);
-            const marketHourMultiplier = 1 + 0.2 * Math.sin(i * 0.1);
-            return Math.max(2000, Math.floor((baseVolume + variation) * marketHourMultiplier));
-          }
-          return null;
-        }) || [],
-        type: 'bar',
-        backgroundColor: 'rgba(0, 120, 255, 0.2)', // Reduced opacity
-        borderColor: 'rgba(0, 150, 255, 0.5)', // Reduced opacity
-        borderWidth: 1,
-        yAxisID: 'volume',
+        label: "INTERVAL LOWER",
+        data: chartData.lowerSeries || [],
+        borderColor: "rgba(0, 245, 255, 0.0)",
+        backgroundColor: "transparent",
+        borderWidth: 0,
+        pointRadius: 0,
+        tension: 0.14,
+        spanGaps: true,
         order: 4,
-        barThickness: 2, // Thinner bars
-        maxBarThickness: 3
-      }
-    ]
+      },
+      {
+        label: "CONFIDENCE BAND",
+        data: chartData.upperSeries || [],
+        borderColor: "rgba(0, 245, 255, 0.0)",
+        backgroundColor: "rgba(0, 245, 255, 0.10)",
+        borderWidth: 0,
+        pointRadius: 0,
+        fill: "-1",
+        tension: 0.14,
+        spanGaps: true,
+        order: 4,
+      },
+      ...(chartData.hasRealVolume
+        ? [
+            {
+              label: "VOLUME (REAL)",
+              data: chartData.volumeSeries || [],
+              type: "bar",
+              yAxisID: "volume",
+              backgroundColor: "rgba(0, 128, 255, 0.20)",
+              borderColor: "rgba(0, 170, 255, 0.35)",
+              borderWidth: 1,
+              order: 5,
+              barThickness: 3,
+              maxBarThickness: 5,
+            },
+          ]
+        : []),
+    ],
   };
 
-  // Chart options optimized for Bloomberg appearance
   const options = {
     responsive: true,
     maintainAspectRatio: false,
-    aspectRatio: 2.5, // Wider aspect ratio for better price visualization
     animation: false,
     interaction: {
-      mode: 'index',
+      mode: "index",
       intersect: false,
     },
     plugins: {
       zoom: {
         zoom: {
-          wheel: {
-            enabled: true,
-            speed: 0.1,
-          },
-          pinch: {
-            enabled: true
-          },
-          mode: 'xy',
+          wheel: { enabled: true, speed: 0.1 },
+          pinch: { enabled: true },
+          mode: "xy",
           drag: {
             enabled: true,
-            backgroundColor: 'rgba(255, 215, 0, 0.1)',
-            borderColor: '#FFD700',
+            backgroundColor: "rgba(255, 215, 0, 0.08)",
+            borderColor: "#FFD700",
             borderWidth: 1,
-          }
+          },
         },
         pan: {
           enabled: true,
-          mode: 'xy',
+          mode: "xy",
           threshold: 10,
-        }
+        },
       },
       legend: {
         display: true,
-        position: 'top',
+        position: "top",
         labels: {
-          color: '#FFA500',
+          filter: (item) => !["INTERVAL LOWER", "CONFIDENCE BAND"].includes(item.text),
+          color: "#FFA500",
           font: {
-            family: 'monospace',
-            size: 14,
-            weight: 'normal'
+            family: "monospace",
+            size: 12,
           },
-          padding: 20,
-          usePointStyle: false,
-          boxWidth: 20,
-          boxHeight: 3
-        }
+          padding: 16,
+          boxWidth: 16,
+          boxHeight: 3,
+        },
       },
       tooltip: {
         enabled: true,
-        mode: 'index',
+        mode: "index",
         intersect: false,
-        backgroundColor: 'rgba(0, 0, 0, 0.9)',
-        titleColor: '#FFA500',
-        bodyColor: '#FFFFFF',
-        borderColor: '#FFA500',
+        filter: (context) => !["INTERVAL LOWER", "CONFIDENCE BAND"].includes(context.dataset.label),
+        backgroundColor: "rgba(0, 0, 0, 0.92)",
+        titleColor: "#FFA500",
+        bodyColor: "#FFFFFF",
+        borderColor: "#FFA500",
         borderWidth: 1,
         cornerRadius: 0,
         padding: 8,
-        titleFont: {
-          size: 14,
-          family: 'monospace',
-          weight: 'normal'
-        },
-        bodyFont: {
-          size: 13,
-          family: 'monospace'
-        },
         callbacks: {
-          title: function(tooltipItems) {
-            return `TIME: ${tooltipItems[0].label}`;
-          },
-          label: function(context) {
-            if (context.parsed.y === null) return null;
-            
-            const value = context.parsed.y;
-            const datasetLabel = context.dataset.label;
-            
-            if (datasetLabel === 'ACTUAL PRICES') {
-              return `ACTUAL: $${value.toFixed(2)}`;
-            } else if (datasetLabel === 'HISTORICAL PREDICTIONS') {
-              return `HISTORICAL: $${value.toFixed(2)}`;
-            } else if (datasetLabel === 'FUTURE FORECAST') {
-              return `FORECAST: $${value.toFixed(2)}`;
-            } else if (datasetLabel === 'VOLUME (CONTRACTS)' || datasetLabel === 'VOLUME') {
-              // Format volume as contracts, not currency
-              if (value >= 1000000) {
-                return `VOLUME: ${(value/1000000).toFixed(1)}M contracts`;
-              } else if (value >= 1000) {
-                return `VOLUME: ${(value/1000).toFixed(1)}K contracts`;
-              } else {
-                return `VOLUME: ${Math.round(value)} contracts`;
-              }
+          title: (items) => `TIME: ${items[0]?.label || "--"}`,
+          label: (context) => {
+            if (context.parsed.y === null || context.parsed.y === undefined) return null;
+            const value = Number(context.parsed.y);
+            const label = context.dataset.label;
+
+            if (label === "ACTUAL PRICES") return `ACTUAL: $${value.toFixed(2)}`;
+            if (label === "HISTORICAL PREDICTIONS") return `HISTORICAL: $${value.toFixed(2)}`;
+            if (label === "FUTURE FORECAST") return `FORECAST: $${value.toFixed(2)}`;
+            if (label === "VOLUME (REAL)") {
+              if (value >= 1_000_000) return `VOLUME: ${(value / 1_000_000).toFixed(2)}M`;
+              if (value >= 1_000) return `VOLUME: ${(value / 1_000).toFixed(1)}K`;
+              return `VOLUME: ${Math.round(value)}`;
             }
-            
-            return `$${value.toFixed(2)}`;
-          }
-        }
-      }
+
+            return `${label}: ${value.toFixed(2)}`;
+          },
+          afterBody: (items) => {
+            const idx = items?.[0]?.dataIndex;
+            if (idx === undefined || idx === null) return "";
+            const low = chartData.lowerSeries?.[idx];
+            const high = chartData.upperSeries?.[idx];
+            if (low !== null && low !== undefined && high !== null && high !== undefined) {
+              return `RANGE: $${Number(low).toFixed(2)} - $${Number(high).toFixed(2)}`;
+            }
+            return "";
+          },
+        },
+      },
     },
     scales: {
       x: {
-        type: 'category',
+        type: "category",
         grid: {
-          color: 'rgba(255, 165, 0, 0.4)',
+          color: "rgba(255, 165, 0, 0.22)",
           lineWidth: 1,
-          drawBorder: true,
-          drawOnChartArea: true,
-          display: true
+          display: true,
         },
         ticks: {
-          color: '#FFA500',
+          color: "#FFA500",
           font: {
-            family: 'monospace',
+            family: "monospace",
             size: 11,
-            weight: 'normal'
           },
-          maxTicksLimit: 12, // Fewer ticks for less compression
+          autoSkip: true,
+          maxTicksLimit: 14,
           maxRotation: 45,
           minRotation: 0,
-          callback: function(value, index, ticks) {
-            const label = this.getLabelForValue(value);
-            // Show every 4th label for better spacing
-            return index % 4 === 0 ? label : '';
-          }
         },
         border: {
-          color: '#FFA500',
-          width: 2
+          color: "#FFA500",
+          width: 1,
         },
-        title: {
-          display: true,
-          text: 'TIME HORIZON',
-          color: '#FFA500',
-          font: {
-            family: 'monospace',
-            size: 13,
-            weight: 'bold'
-          }
-        }
       },
       y: {
-        type: 'linear',
-        position: 'right',
+        type: "linear",
+        position: "right",
         beginAtZero: false,
-        min: yAxisBounds.min,
-        max: yAxisBounds.max,
+        min: chartData.yMin,
+        max: chartData.yMax,
         grid: {
-          color: 'rgba(255, 165, 0, 0.5)',
+          color: "rgba(255, 165, 0, 0.30)",
           lineWidth: 1,
-          drawBorder: true,
-          drawOnChartArea: true,
-          display: true
         },
         ticks: {
-          color: '#FFA500',
+          color: "#FFA500",
           font: {
-            family: 'monospace',
+            family: "monospace",
             size: 12,
-            weight: 'normal'
           },
-          stepSize: (yAxisBounds.max - yAxisBounds.min) / 8, // Dynamic step size based on range
-          callback: function(value) {
-            return `$${value.toFixed(2)}`;
-          }
+          callback: (value) => `$${Number(value).toFixed(2)}`,
         },
         border: {
-          color: '#FFA500',
-          width: 2
+          color: "#FFA500",
+          width: 1,
         },
         title: {
           display: true,
-          text: 'WTI CRUDE OIL (USD/BBL)',
-          color: '#FFA500',
+          text: "WTI CRUDE OIL (USD/BBL)",
+          color: "#FFA500",
           font: {
-            family: 'monospace',
-            size: 13,
-            weight: 'normal'
-          }
-        }
+            family: "monospace",
+            size: 12,
+          },
+        },
       },
-      
-      // Volume Y-axis (left side, constrained to prevent chart dominance)
       volume: {
-        type: 'linear',
-        position: 'left',
+        display: chartData.hasRealVolume,
+        type: "linear",
+        position: "left",
         beginAtZero: true,
-        max: 40000, // Reduced from 60000 to prevent volume bars from dominating
-        grid: {
-          display: false // Don't show volume grid lines
-        },
+        min: 0,
+        max: chartData.volumeMax,
+        grid: { display: false },
         ticks: {
-          color: 'rgba(0, 150, 255, 0.6)', // Reduced opacity
-          font: {
-            family: 'monospace',
-            size: 9 // Smaller font
+          color: "rgba(0, 180, 255, 0.75)",
+          font: { family: "monospace", size: 10 },
+          maxTicksLimit: 4,
+          callback: (value) => {
+            const v = Number(value);
+            if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+            if (v >= 1_000) return `${(v / 1_000).toFixed(0)}K`;
+            return `${Math.round(v)}`;
           },
-          callback: function(value) {
-            if (value >= 1000000) {
-              return `${(value/1000000).toFixed(1)}M`;
-            } else if (value >= 1000) {
-              return `${(value/1000).toFixed(0)}K`;
-            }
-            return value.toString();
-          },
-          maxTicksLimit: 3 // Fewer ticks to reduce clutter
         },
         title: {
-          display: true,
-          text: 'VOL',
-          color: 'rgba(0, 150, 255, 0.6)',
-          font: {
-            family: 'monospace',
-            size: 10,
-            weight: 'normal'
-          }
-        }
-      }
-    }
+          display: chartData.hasRealVolume,
+          text: "REAL VOL",
+          color: "rgba(0, 180, 255, 0.75)",
+          font: { family: "monospace", size: 10 },
+        },
+      },
+    },
   };
 
-  // Loading state
   if (chartData.isEmpty) {
     return (
       <div className="w-full h-full bg-black flex items-center justify-center">
         <div className="text-center">
-          <div className="text-bloomberg-amber text-lg font-mono mb-2">
-            LOADING WTI CRUDE OIL DATA...
-          </div>
-          <div className="text-gray-400 text-sm">
-            Connecting to real-time feeds
-          </div>
+          <div className="text-bloomberg-amber text-lg font-mono mb-2">LOADING WTI CRUDE OIL DATA...</div>
+          <div className="text-gray-400 text-sm">Waiting for real-time data and predictions</div>
         </div>
       </div>
     );
@@ -644,30 +536,26 @@ export default function Chart({
 
   return (
     <div className="w-full h-full bg-black text-white font-mono">
-      {/* Chart header */}
       <div className="bg-black border-b border-gray-700 px-2 py-1">
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-4">
             <h1 className="text-lg font-normal text-bloomberg-amber">WTI CRUDE OIL</h1>
-            <div className="text-2xl font-bold text-white">
-              ${currentPrice?.toFixed(2) || '0.00'}
-            </div>
+            <div className="text-2xl font-bold text-white">${currentPrice?.toFixed(2) || "0.00"}</div>
             <div className="text-sm text-gray-400">USD/BBL</div>
           </div>
-          
-          {/* Chart Controls */}
+
           <div className="flex items-center gap-3">
-            <button 
-              onClick={toggleHistoricalData}
+            <button
+              onClick={() => setShowHistorical(!showHistorical)}
               className={`px-3 py-1 text-sm font-mono border transition-all ${
-                showHistorical 
-                  ? 'bg-bloomberg-amber text-black border-bloomberg-amber' 
-                  : 'bg-transparent text-bloomberg-amber border-bloomberg-amber hover:bg-bloomberg-amber hover:text-black'
+                showHistorical
+                  ? "bg-bloomberg-amber text-black border-bloomberg-amber"
+                  : "bg-transparent text-bloomberg-amber border-bloomberg-amber hover:bg-bloomberg-amber hover:text-black"
               }`}
             >
               HISTORICAL
             </button>
-            <button 
+            <button
               onClick={resetZoom}
               className="px-3 py-1 text-sm font-mono bg-transparent text-bloomberg-amber border border-bloomberg-amber hover:bg-bloomberg-amber hover:text-black transition-all"
             >
@@ -677,7 +565,6 @@ export default function Chart({
         </div>
       </div>
 
-      {/* Chart area */}
       <div className="h-full bg-black p-1">
         <div className="h-full w-full">
           <Line ref={chartRef} data={data} options={options} />

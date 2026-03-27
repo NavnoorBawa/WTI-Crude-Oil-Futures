@@ -179,14 +179,27 @@ function App() {
 
   const totalEvaluatedPredictions = Number(data?.performance_metrics?.total_predictions || 0);
   const liveDirectionAccuracy = Number(data?.performance_metrics?.direction_accuracy || 0);
+  const displayDirectionAccuracyRaw = data?.performance_metrics?.display_direction_accuracy;
+  const displayAccuracySource = data?.performance_metrics?.display_accuracy_source || 'unavailable';
+  const minLiveSamples = Number(data?.performance_metrics?.min_live_accuracy_samples || 18);
   const modelBacktestDirection1d = data?.multi_horizon_predictions?.horizon_backtests?.['1d']?.direction_accuracy;
   const modelConfidence1d = data?.multi_horizon_predictions?.horizon_confidence?.['1d'];
 
-  const displayAccuracy = totalEvaluatedPredictions > 0
-    ? `${Math.round(liveDirectionAccuracy)}%`
-    : (modelBacktestDirection1d !== undefined && modelBacktestDirection1d !== null
-      ? `${Math.round(modelBacktestDirection1d)}%*`
-      : '--');
+  const effectiveAccuracy = (displayDirectionAccuracyRaw !== undefined && displayDirectionAccuracyRaw !== null)
+    ? Number(displayDirectionAccuracyRaw)
+    : (totalEvaluatedPredictions > 0
+      ? liveDirectionAccuracy
+      : (modelBacktestDirection1d !== undefined && modelBacktestDirection1d !== null
+        ? Number(modelBacktestDirection1d)
+        : null));
+
+  const displayAccuracy = effectiveAccuracy === null
+    ? '--'
+    : `${Math.round(effectiveAccuracy)}${displayAccuracySource === 'backtest' ? '%*' : (displayAccuracySource === 'blended' ? '%~' : '%')}`;
+
+  const accuracyClassName = (displayAccuracySource === 'live' || displayAccuracySource === 'blended')
+    ? 'text-bloomberg-positive'
+    : 'text-bloomberg-blue';
 
   const fallbackConfidence = data?.performance_metrics?.confidence;
   const displayConfidence = (modelConfidence1d !== undefined && modelConfidence1d !== null)
@@ -270,7 +283,7 @@ function App() {
               <td className="text-bloomberg-cyan text-sm">
                 {currentPrediction > 0 ? currentPrediction.toFixed(2) : '--'}
               </td>
-              <td className={`text-sm ${totalEvaluatedPredictions > 0 ? 'text-bloomberg-positive' : 'text-bloomberg-blue'}`}>
+              <td className={`text-sm ${accuracyClassName}`}>
                 {displayAccuracy}
               </td>
               <td className="text-bloomberg-positive text-sm">
@@ -310,8 +323,14 @@ function App() {
                  data?.multi_horizon_predictions?.is_real_prediction ? 'REAL ML' : 
                  'NO REAL DATA'}
               </span>
-              {totalEvaluatedPredictions === 0 && data?.multi_horizon_predictions?.is_real_prediction && (
-                <span className="text-bloomberg-blue font-medium">EVAL: WARMUP</span>
+              {(displayAccuracySource !== 'live') && data?.multi_horizon_predictions?.is_real_prediction && (
+                <span className="text-bloomberg-blue font-medium">
+                  {displayAccuracySource === 'blended'
+                    ? `EVAL: BLENDED (${totalEvaluatedPredictions}/${minLiveSamples})`
+                    : (displayAccuracySource === 'backtest'
+                      ? 'EVAL: BACKTEST'
+                      : `EVAL: WARMUP (${totalEvaluatedPredictions}/${minLiveSamples})`)}
+                </span>
               )}
             </div>
             <div className="flex gap-6">
