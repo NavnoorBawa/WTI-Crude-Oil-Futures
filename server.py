@@ -387,11 +387,23 @@ def get_data():
             pred_1h = predictions['prediction_1h']
             pred_1d = predictions['prediction_1d'] 
             pred_1w = predictions['prediction_1w']
+            horizon_confidence = predictions.get('horizon_confidence', {})
+            horizon_drift_scores = predictions.get('horizon_drift_scores', {})
+            prediction_intervals = predictions.get('prediction_intervals', {})
+            horizon_backtests = predictions.get('horizon_backtests', {})
         else:
             # ML not ready - use current price as safe baseline
             pred_1h = current_price
             pred_1d = current_price
             pred_1w = current_price
+            horizon_confidence = {}
+            horizon_drift_scores = {}
+            prediction_intervals = {}
+            horizon_backtests = {}
+
+        confidence_1d = float(horizon_confidence.get('1d', 0.0)) if horizon_confidence else 0.0
+        if confidence_1d <= 0 and accuracy_metrics:
+            confidence_1d = float(min(95, max(50, accuracy_metrics.get('overall', {}).get('direction_accuracy', 0) + 10)))
         
         # Format volume for display
         volume = contract_info.get('volume', 0)
@@ -444,6 +456,10 @@ def get_data():
                     '1w': round((pred_1w - current_price) / current_price * 100, 1) if system_state['ml_ready'] else 0.0,
                     '7d': round((pred_1w - current_price) / current_price * 100, 1) if system_state['ml_ready'] else 0.0
                 },
+                'prediction_intervals': prediction_intervals,
+                'horizon_confidence': horizon_confidence,
+                'horizon_drift_scores': horizon_drift_scores,
+                'horizon_backtests': horizon_backtests,
                 'is_real_prediction': system_state['ml_ready'] and predictions is not None,
                 'processing_time': predictions.get('processing_time', 0) if predictions else 0,
                 'feature_count': predictions.get('feature_count', 0) if predictions else 0,
@@ -461,7 +477,7 @@ def get_data():
             # Performance metrics - REAL ONLY
             'performance_metrics': {
                 'direction_accuracy': round(accuracy_metrics.get('overall', {}).get('direction_accuracy', 0), 1) if accuracy_metrics else 0,
-                'confidence': round(min(95, max(50, accuracy_metrics.get('overall', {}).get('direction_accuracy', 0) + 10)), 1) if accuracy_metrics else 0,
+                'confidence': round(confidence_1d, 1),
                 'total_predictions': accuracy_metrics.get('overall', {}).get('total_predictions', 0) if accuracy_metrics else 0
             },
             
@@ -493,7 +509,7 @@ def get_data():
             'last_price': round(current_price, 2),
             'ml_prediction': round(pred_1d, 2),
             'accuracy': f"{round(accuracy_metrics.get('overall', {}).get('direction_accuracy', 0)) if accuracy_metrics else 0}%",
-            'confidence': f"{round(min(95, max(50, accuracy_metrics.get('overall', {}).get('direction_accuracy', 0) + 10)) if accuracy_metrics else 50)}%",
+            'confidence': f"{round(confidence_1d if confidence_1d > 0 else 50)}%",
             'timestamp': datetime.now().isoformat()
         })
         

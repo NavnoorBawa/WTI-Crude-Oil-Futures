@@ -19,6 +19,7 @@ import time
 import os
 import hashlib
 import copy
+import tempfile
 from pathlib import Path
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -275,6 +276,8 @@ class PremiumWTIPredictor:
         self.external_fetch_workers = max(2, int(os.getenv('EXTERNAL_FETCH_WORKERS', '4')))
         self.model_n_estimators = max(20, int(os.getenv('MODEL_N_ESTIMATORS', '60')))
         self.model_cpu_workers = max(1, int(os.getenv('MODEL_CPU_WORKERS', '1')))
+        self.interval_quantile = min(0.95, max(0.60, float(os.getenv('INTERVAL_CALIBRATION_QUANTILE', '0.80'))))
+        self.confidence_floor = max(5.0, min(50.0, float(os.getenv('CONFIDENCE_FLOOR_PERCENT', '10'))))
         self.time_series_cv_splits = max(2, int(os.getenv('TIME_SERIES_CV_SPLITS', '2')))
         self.max_hourly_training_samples = max(240, int(os.getenv('MAX_HOURLY_TRAINING_SAMPLES', '720')))
         self.external_data_ttl_seconds = max(30, int(os.getenv('EXTERNAL_DATA_TTL_SECONDS', '180')))
@@ -435,7 +438,7 @@ class PremiumWTIPredictor:
         if self.predictions_file.exists():
             try:
                 with open(self.predictions_file, 'r') as f:
-                    return json.load(f)
+                    return self._normalize_time_index_store(json.load(f))
             except Exception as e:
                 logger.warning(f"Could not load predictions: {e}")
         return {}
@@ -445,7 +448,7 @@ class PremiumWTIPredictor:
         if self.actual_prices_file.exists():
             try:
                 with open(self.actual_prices_file, 'r') as f:
-                    return json.load(f)
+                    return self._normalize_time_index_store(json.load(f))
             except Exception as e:
                 logger.warning(f"Could not load actual prices: {e}")
         return {}
@@ -466,32 +469,60 @@ class PremiumWTIPredictor:
         if file_path.exists():
             try:
                 with open(file_path, 'r') as f:
-                    return json.load(f)
+                    return self._normalize_time_index_store(json.load(f))
             except Exception as e:
                 logger.warning(f"Could not load {horizon} predictions: {e}")
         return {}
+
+    def _normalize_time_index_store(self, payload):
+        """Normalize persisted records to a timestamp-keyed dict format."""
+        if isinstance(payload, dict):
+            # Forward compatibility for wrapped payloads.
+            if isinstance(payload.get('records'), dict):
+                return payload['records']
+            return payload
+        return {}
+
+    def _atomic_write_json(self, file_path: Path, payload):
+        """Persist JSON atomically to avoid partial writes on crashes/restarts."""
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode='w',
+                encoding='utf-8',
+                delete=False,
+                dir=str(file_path.parent),
+                prefix=f"{file_path.name}.",
+                suffix='.tmp'
+            ) as tmp_file:
+                json.dump(payload, tmp_file, indent=2, sort_keys=True)
+                temp_path = Path(tmp_file.name)
+            os.replace(temp_path, file_path)
+        finally:
+            if temp_path is not None and temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except OSError:
+                    pass
     
     def _save_predictions(self):
         """Save predictions to file"""
         try:
-            with open(self.predictions_file, 'w') as f:
-                json.dump(self.stored_predictions, f, indent=2)
+            self._atomic_write_json(self.predictions_file, self.stored_predictions)
         except Exception as e:
             logger.error(f"Could not save predictions: {e}")
     
     def _save_actual_prices(self):
         """Save actual prices to file"""
         try:
-            with open(self.actual_prices_file, 'w') as f:
-                json.dump(self.stored_actual_prices, f, indent=2)
+            self._atomic_write_json(self.actual_prices_file, self.stored_actual_prices)
         except Exception as e:
             logger.error(f"Could not save actual prices: {e}")
     
     def _save_accuracy_metrics(self):
         """Save accuracy metrics to file"""
         try:
-            with open(self.accuracy_file, 'w') as f:
-                json.dump(self.accuracy_metrics, f, indent=2)
+            self._atomic_write_json(self.accuracy_file, self.accuracy_metrics)
         except Exception as e:
             logger.error(f"Could not save accuracy metrics: {e}")
     
@@ -499,10 +530,125 @@ class PremiumWTIPredictor:
         """Save horizon-specific predictions"""
         file_path = getattr(self, f'predictions_{horizon}_file')
         try:
-            with open(file_path, 'w') as f:
-                json.dump(data, f, indent=2)
+            self._atomic_write_json(file_path, data)
         except Exception as e:
             logger.error(f"Could not save {horizon} predictions: {e}")
+
+    def _safe_parse_iso(self, timestamp_str):
+        """Parse ISO timestamp safely and tolerate trailing Z."""
+        if not timestamp_str:
+            return None
+        try:
+            return datetime.fromisoformat(str(timestamp_str).replace('Z', '+00:00'))
+        except Exception:
+            return None
+
+    def _get_horizon_delta_and_window(self, horizon):
+        """Return target delta and matching window for realized accuracy joins."""
+        time_deltas = {'1h': timedelta(hours=1), '1d': timedelta(days=1), '1w': timedelta(weeks=1)}
+        search_windows = {
+            '1h': timedelta(hours=4),
+            '1d': timedelta(days=1),
+            '1w': timedelta(weeks=1, days=1),
+        }
+        return time_deltas[horizon], search_windows.get(horizon, timedelta(days=30))
+
+    def _find_closest_actual_price(self, target_time, search_window):
+        """Find closest realized price to a target timestamp within a bounded window."""
+        closest_actual = None
+        min_time_diff = timedelta.max
+
+        for actual_timestamp, actual_data in self.stored_actual_prices.items():
+            actual_time = self._safe_parse_iso(actual_timestamp)
+            if actual_time is None:
+                continue
+            if abs(actual_time - target_time) > search_window:
+                continue
+
+            time_diff = abs(actual_time - target_time)
+            if time_diff < min_time_diff:
+                min_time_diff = time_diff
+                closest_actual = float(actual_data.get('price', 0.0))
+
+        return closest_actual
+
+    def _get_recent_realized_abs_errors(self, horizon, limit=80):
+        """Collect recent absolute forecast errors for interval calibration."""
+        horizon_data = getattr(self, f'predictions_{horizon}', {})
+        if not horizon_data:
+            return []
+
+        delta, search_window = self._get_horizon_delta_and_window(horizon)
+        sorted_preds = sorted(
+            horizon_data.items(),
+            key=lambda kv: self._safe_parse_iso(kv[0]) or datetime.min,
+            reverse=True,
+        )
+
+        errors = []
+        for pred_timestamp, pred_data in sorted_preds:
+            pred_time = self._safe_parse_iso(pred_timestamp)
+            if pred_time is None:
+                continue
+
+            actual_price = self._find_closest_actual_price(pred_time + delta, search_window)
+            if actual_price is None:
+                continue
+
+            predicted_price = float(pred_data.get('prediction', 0.0))
+            errors.append(abs(predicted_price - actual_price))
+            if len(errors) >= limit:
+                break
+
+        return errors
+
+    def _compute_feature_drift_score(self, transformed_features):
+        """Estimate feature drift magnitude from transformed feature values."""
+        try:
+            arr = np.asarray(transformed_features, dtype=float).reshape(-1)
+            arr = np.clip(arr, -8.0, 8.0)
+            return float(np.mean(np.abs(arr)))
+        except Exception:
+            return 0.0
+
+    def _calibrated_interval_margin(self, horizon, pred_std, current_price, backtest_metrics, drift_score):
+        """Calibrate interval width using model dispersion plus realized-error history."""
+        floor_margin = max(0.05, current_price * 0.0015)
+        model_margin = 1.64 * max(0.0, float(pred_std))
+
+        candidates = [floor_margin, model_margin]
+
+        if isinstance(backtest_metrics, dict):
+            backtest_mae = float(backtest_metrics.get('mae', 0.0) or 0.0)
+            backtest_rmse = float(backtest_metrics.get('rmse', 0.0) or 0.0)
+            if backtest_mae > 0:
+                candidates.append(backtest_mae * 1.1)
+            if backtest_rmse > 0:
+                candidates.append(backtest_rmse * 0.9)
+
+        realized_errors = self._get_recent_realized_abs_errors(horizon, limit=80)
+        if len(realized_errors) >= 8:
+            candidates.append(float(np.quantile(realized_errors, self.interval_quantile)))
+
+        margin = max(candidates)
+        drift_multiplier = 1.0 + min(0.35, max(0.0, drift_score - 1.5) * 0.10)
+        return float(margin * drift_multiplier)
+
+    def _compose_horizon_confidence(self, base_score, current_price, interval_obj, drift_score, backtest_metrics):
+        """Build confidence from validation score, uncertainty width, drift, and realized backtest direction."""
+        base_pct = float(np.clip(base_score * 100.0, self.confidence_floor, 95.0))
+        direction_accuracy = 50.0
+        if isinstance(backtest_metrics, dict):
+            direction_accuracy = float(backtest_metrics.get('direction_accuracy', 50.0) or 50.0)
+
+        direction_adjustment = (direction_accuracy - 50.0) * 0.55
+        interval_width = float(interval_obj.get('upper', current_price) - interval_obj.get('lower', current_price))
+        interval_ratio = interval_width / max(1e-9, float(current_price))
+        uncertainty_penalty = min(45.0, max(0.0, interval_ratio) * 230.0)
+        drift_penalty = min(25.0, max(0.0, drift_score - 1.2) * 10.0)
+
+        confidence = base_pct + direction_adjustment - uncertainty_penalty - drift_penalty
+        return float(np.clip(confidence, self.confidence_floor, 95.0))
 
     def _build_training_signature(self, features_df, target_column):
         """Create a compact fingerprint for cache-safe model reuse."""
@@ -1987,6 +2133,8 @@ class PremiumWTIPredictor:
             prediction_intervals = {}
             all_scores = {}
             horizon_backtests = {}
+            horizon_confidence = {}
+            horizon_drift_scores = {}
             horizon_model_counts = {'1h': 0, '1d': 0, '1w': 0}
             current_price = wti_data['Close'].iloc[-1]
             total_model_count = 0
@@ -2053,6 +2201,8 @@ class PremiumWTIPredictor:
                     # Transform and Predict
                     current_features_selected = selector.transform(current_features[all_feature_names])
                     current_features_scaled = scaler.transform(current_features_selected)
+                    drift_score = self._compute_feature_drift_score(current_features_scaled)
+                    horizon_drift_scores[horizon] = drift_score
                     
                     h_preds = []
                     h_weights = []
@@ -2100,27 +2250,46 @@ class PremiumWTIPredictor:
                     predictions[horizon] = final_pred
                     all_scores[horizon] = np.mean(list(scores.values()))
 
-                    # Uncertainty from model dispersion (90% normal-approx interval)
+                    # Uncertainty from model dispersion, calibrated by historical realized errors.
                     if len(h_preds) >= 2:
                         pred_std = float(np.std(h_preds))
                     else:
                         pred_std = 0.0
-                    ci_margin = 1.64 * pred_std
+                    backtest_metrics = horizon_backtests.get(horizon, {})
+                    ci_margin = self._calibrated_interval_margin(
+                        horizon,
+                        pred_std,
+                        current_price,
+                        backtest_metrics,
+                        drift_score,
+                    )
                     prediction_intervals[horizon] = {
                         'lower': float(final_pred - ci_margin),
                         'upper': float(final_pred + ci_margin),
-                        'std': pred_std,
+                        'std': float(pred_std),
+                        'calibrated_margin': float(ci_margin),
                     }
+                    horizon_confidence[horizon] = self._compose_horizon_confidence(
+                        all_scores[horizon],
+                        current_price,
+                        prediction_intervals[horizon],
+                        drift_score,
+                        backtest_metrics,
+                    )
                     logger.info(f"✅ {horizon} Prediction: ${final_pred:.2f} (Regime: {market_regime})")
                     
                 except Exception as e:
                     logger.error(f"Failed to predict {horizon}: {e}")
                     predictions[horizon] = current_price # Fallback
+                    all_scores[horizon] = 0.0
+                    horizon_drift_scores[horizon] = 0.0
                     prediction_intervals[horizon] = {
                         'lower': float(current_price),
                         'upper': float(current_price),
                         'std': 0.0,
+                        'calibrated_margin': 0.0,
                     }
+                    horizon_confidence[horizon] = self.confidence_floor
             
             # 2. 1H Prediction (Using Pipeline A if successful, else Pipeline B Fallback)
             if hourly_model_package:
@@ -2143,6 +2312,8 @@ class PremiumWTIPredictor:
                     # Transform
                     h_features_selected = hourly_model_package['selector'].transform(current_hourly_features[all_hourly_feats])
                     h_features_scaled = hourly_model_package['scaler'].transform(h_features_selected)
+                    h1_drift_score = self._compute_feature_drift_score(h_features_scaled)
+                    horizon_drift_scores['1h'] = h1_drift_score
                     
                     # Predict
                     h1_preds = []
@@ -2165,25 +2336,44 @@ class PremiumWTIPredictor:
                             h1_std = float(np.std(h1_preds))
                         else:
                             h1_std = 0.0
-                        h1_margin = 1.64 * h1_std
+                        h1_backtest = horizon_backtests.get('1h', {})
+                        h1_margin = self._calibrated_interval_margin(
+                            '1h',
+                            h1_std,
+                            current_price,
+                            h1_backtest,
+                            h1_drift_score,
+                        )
                         prediction_intervals['1h'] = {
                             'lower': float(predictions['1h'] - h1_margin),
                             'upper': float(predictions['1h'] + h1_margin),
                             'std': h1_std,
+                            'calibrated_margin': float(h1_margin),
                         }
+                        horizon_confidence['1h'] = self._compose_horizon_confidence(
+                            all_scores['1h'],
+                            current_price,
+                            prediction_intervals['1h'],
+                            h1_drift_score,
+                            h1_backtest,
+                        )
                         logger.info(f"✅ 1H Prediction using REAL HOURLY data: ${predictions['1h']:.2f}")
                     else:
                         raise ValueError("No valid hourly predictions generated")
                 except Exception as e:
                     logger.warning(f"Hourly pipeline prediction failed: {e}")
                     # FIX #4: Multiple fallback levels with guards
+                    all_scores['1h'] = 0.0
+                    horizon_drift_scores['1h'] = 0.0
                     if '1d' in predictions and isinstance(predictions['1d'], (int, float)) and predictions['1d'] > 0:
                         predictions['1h'] = current_price + (predictions['1d'] - current_price) * 0.1
                         prediction_intervals['1h'] = {
                             'lower': float(min(predictions['1h'], current_price)),
                             'upper': float(max(predictions['1h'], current_price)),
                             'std': float(abs(predictions['1h'] - current_price) / 1.64),
+                            'calibrated_margin': float(abs(predictions['1h'] - current_price)),
                         }
+                        horizon_confidence['1h'] = self.confidence_floor
                         logger.info(f"1H: Using 1D fallback: ${predictions['1h']:.2f}")
                     elif '1w' in predictions and isinstance(predictions['1w'], (int, float)) and predictions['1w'] > 0:
                         predictions['1h'] = current_price + (predictions['1w'] - current_price) * 0.05
@@ -2191,7 +2381,9 @@ class PremiumWTIPredictor:
                             'lower': float(min(predictions['1h'], current_price)),
                             'upper': float(max(predictions['1h'], current_price)),
                             'std': float(abs(predictions['1h'] - current_price) / 1.64),
+                            'calibrated_margin': float(abs(predictions['1h'] - current_price)),
                         }
+                        horizon_confidence['1h'] = self.confidence_floor
                         logger.info(f"1H: Using 1W fallback: ${predictions['1h']:.2f}")
                     else:
                         predictions['1h'] = current_price
@@ -2199,18 +2391,24 @@ class PremiumWTIPredictor:
                             'lower': float(current_price),
                             'upper': float(current_price),
                             'std': 0.0,
+                            'calibrated_margin': 0.0,
                         }
+                        horizon_confidence['1h'] = self.confidence_floor
                         logger.error("❌ All horizons failed - using current price for 1H")
             else:
                 logger.warning("⚠️ Using daily fallback for 1H prediction (insufficient hourly data)")
                 # FIX #4: Guard against missing 1d before using it
+                all_scores['1h'] = 0.0
+                horizon_drift_scores['1h'] = 0.0
                 if '1d' in predictions and isinstance(predictions['1d'], (int, float)) and predictions['1d'] > 0:
                     predictions['1h'] = current_price + (predictions['1d'] - current_price) * 0.1
                     prediction_intervals['1h'] = {
                         'lower': float(min(predictions['1h'], current_price)),
                         'upper': float(max(predictions['1h'], current_price)),
                         'std': float(abs(predictions['1h'] - current_price) / 1.64),
+                        'calibrated_margin': float(abs(predictions['1h'] - current_price)),
                     }
+                    horizon_confidence['1h'] = self.confidence_floor
                     logger.info(f"1H: Using 1D fallback: ${predictions['1h']:.2f}")
                 elif '1w' in predictions and isinstance(predictions['1w'], (int, float)) and predictions['1w'] > 0:
                     predictions['1h'] = current_price + (predictions['1w'] - current_price) * 0.05
@@ -2218,7 +2416,9 @@ class PremiumWTIPredictor:
                         'lower': float(min(predictions['1h'], current_price)),
                         'upper': float(max(predictions['1h'], current_price)),
                         'std': float(abs(predictions['1h'] - current_price) / 1.64),
+                        'calibrated_margin': float(abs(predictions['1h'] - current_price)),
                     }
+                    horizon_confidence['1h'] = self.confidence_floor
                     logger.info(f"1H: Using 1W fallback: ${predictions['1h']:.2f}")
                 else:
                     predictions['1h'] = current_price  # Last resort
@@ -2226,7 +2426,9 @@ class PremiumWTIPredictor:
                         'lower': float(current_price),
                         'upper': float(current_price),
                         'std': 0.0,
+                        'calibrated_margin': 0.0,
                     }
+                    horizon_confidence['1h'] = self.confidence_floor
                     logger.error("❌ No horizon predictions available - using current price for 1H")
 
             # Ensure all horizons have uncertainty fields
@@ -2236,7 +2438,18 @@ class PremiumWTIPredictor:
                         'lower': float(predictions[horizon]),
                         'upper': float(predictions[horizon]),
                         'std': 0.0,
+                        'calibrated_margin': 0.0,
                     }
+                if horizon not in horizon_drift_scores:
+                    horizon_drift_scores[horizon] = 0.0
+                if horizon not in horizon_confidence:
+                    horizon_confidence[horizon] = self._compose_horizon_confidence(
+                        all_scores.get(horizon, 0.0),
+                        current_price,
+                        prediction_intervals[horizon],
+                        horizon_drift_scores[horizon],
+                        horizon_backtests.get(horizon, {}),
+                    )
             timings['daily_pipeline_seconds'] = float(time.perf_counter() - daily_pipeline_start)
             
             
@@ -2257,9 +2470,12 @@ class PremiumWTIPredictor:
             feature_count = len(first_horizon['selected_features']) if first_horizon else 0
             
             prediction_record = {
+                'schema_version': 2,
                 'timestamp': timestamp,
                 'predictions': predictions,
                 'prediction_intervals': prediction_intervals,
+                'horizon_confidence': horizon_confidence,
+                'horizon_drift_scores': horizon_drift_scores,
                 'percentage_changes': percentage_changes,
                 'current_price': current_price,
                 'processing_time': processing_time,
@@ -2282,14 +2498,18 @@ class PremiumWTIPredictor:
             # Store in horizon-specific files
             for horizon in horizons:
                 horizon_data = getattr(self, f'predictions_{horizon}')
-                # Use per-horizon confidence score if available
-                horizon_confidence = all_scores.get(horizon, 0.5) * 100
+                horizon_confidence_pct = float(horizon_confidence.get(horizon, all_scores.get(horizon, 0.5) * 100.0))
+                horizon_interval = prediction_intervals.get(horizon, {})
                 horizon_data[timestamp] = {
                     'timestamp': timestamp,
                     'prediction': predictions[horizon],
                     'percentage_change': percentage_changes[horizon],
                     'current_price': current_price,
-                    'confidence': horizon_confidence,
+                    'confidence': horizon_confidence_pct,
+                    'drift_score': float(horizon_drift_scores.get(horizon, 0.0)),
+                    'interval_lower': float(horizon_interval.get('lower', predictions[horizon])),
+                    'interval_upper': float(horizon_interval.get('upper', predictions[horizon])),
+                    'interval_std': float(horizon_interval.get('std', 0.0)),
                     'model_count': horizon_model_counts.get(horizon, 0),
                     'processing_time': processing_time
                 }
@@ -2330,10 +2550,19 @@ class PremiumWTIPredictor:
         logger.info("Calculating prediction accuracy...")
         
         accuracy_metrics = {
-            'overall': {'total_predictions': 0, 'correct_directions': 0, 'direction_accuracy': 0},
-            '1h': {'total_predictions': 0, 'correct_directions': 0, 'direction_accuracy': 0, 'mae': 0, 'rmse': 0, 'avg_strategy_return_pct': 0, 'sharpe_like': 0},
-            '1d': {'total_predictions': 0, 'correct_directions': 0, 'direction_accuracy': 0, 'mae': 0, 'rmse': 0, 'avg_strategy_return_pct': 0, 'sharpe_like': 0},
-            '1w': {'total_predictions': 0, 'correct_directions': 0, 'direction_accuracy': 0, 'mae': 0, 'rmse': 0, 'avg_strategy_return_pct': 0, 'sharpe_like': 0}
+            'schema_version': 2,
+            'overall': {
+                'total_predictions': 0,
+                'correct_directions': 0,
+                'direction_accuracy': 0,
+                'mae': 0,
+                'rmse': 0,
+                'mape': 0,
+                'interval_coverage': 0,
+            },
+            '1h': {'total_predictions': 0, 'correct_directions': 0, 'direction_accuracy': 0, 'mae': 0, 'rmse': 0, 'mape': 0, 'avg_strategy_return_pct': 0, 'sharpe_like': 0, 'interval_coverage': 0},
+            '1d': {'total_predictions': 0, 'correct_directions': 0, 'direction_accuracy': 0, 'mae': 0, 'rmse': 0, 'mape': 0, 'avg_strategy_return_pct': 0, 'sharpe_like': 0, 'interval_coverage': 0},
+            '1w': {'total_predictions': 0, 'correct_directions': 0, 'direction_accuracy': 0, 'mae': 0, 'rmse': 0, 'mape': 0, 'avg_strategy_return_pct': 0, 'sharpe_like': 0, 'interval_coverage': 0}
         }
         
         # Calculate accuracy for each horizon
@@ -2351,10 +2580,26 @@ class PremiumWTIPredictor:
         total_correct = sum(accuracy_metrics[h]['correct_directions'] for h in ['1h', '1d', '1w'])
         
         if total_predictions > 0:
+            weighted_mae = sum(accuracy_metrics[h]['mae'] * accuracy_metrics[h]['total_predictions'] for h in ['1h', '1d', '1w']) / total_predictions
+            weighted_rmse = sum(accuracy_metrics[h]['rmse'] * accuracy_metrics[h]['total_predictions'] for h in ['1h', '1d', '1w']) / total_predictions
+            weighted_mape = sum(accuracy_metrics[h]['mape'] * accuracy_metrics[h]['total_predictions'] for h in ['1h', '1d', '1w']) / total_predictions
+
+            coverage_numerator = 0.0
+            coverage_denominator = 0.0
+            for h in ['1h', '1d', '1w']:
+                interval_total = float(accuracy_metrics[h].get('interval_total', 0) or 0)
+                if interval_total > 0:
+                    coverage_numerator += float(accuracy_metrics[h].get('interval_hits', 0) or 0)
+                    coverage_denominator += interval_total
+
             accuracy_metrics['overall'] = {
                 'total_predictions': total_predictions,
                 'correct_directions': total_correct,
-                'direction_accuracy': (total_correct / total_predictions) * 100
+                'direction_accuracy': (total_correct / total_predictions) * 100,
+                'mae': float(weighted_mae),
+                'rmse': float(weighted_rmse),
+                'mape': float(weighted_mape),
+                'interval_coverage': float((coverage_numerator / coverage_denominator) * 100) if coverage_denominator > 0 else 0.0,
             }
         
         # Store accuracy metrics
@@ -2375,47 +2620,41 @@ class PremiumWTIPredictor:
                 'direction_accuracy': 0,
                 'mae': 0,
                 'rmse': 0,
+                'mape': 0,
                 'avg_strategy_return_pct': 0,
                 'sharpe_like': 0,
+                'interval_hits': 0,
+                'interval_total': 0,
+                'interval_coverage': 0,
+                'rolling_direction_accuracy_20': 0,
+                'rolling_mae_20': 0,
             }
-        
-        # Get time delta for horizon
-        time_deltas = {'1h': timedelta(hours=1), '1d': timedelta(days=1), '1w': timedelta(weeks=1)}
-        delta = time_deltas[horizon]
-        
-        # FIX #9: Expand search windows to find more matches (before OR after target)
-        search_windows = {
-            '1h': timedelta(hours=4),        # ±2 hours around target
-            '1d': timedelta(days=1),        # ±12 hours around target
-            '1w': timedelta(weeks=1, days=1)  # ±3.5 days around target
-        }
-        search_window = search_windows.get(horizon, timedelta(days=30))
+
+        delta, search_window = self._get_horizon_delta_and_window(horizon)
         
         correct_directions = 0
         total_predictions = 0
         absolute_errors = []
         squared_errors = []
+        actual_price_values = []
         strategy_returns = []
+        direction_flags = []
+        interval_hits = 0
+        interval_total = 0
+
+        sorted_predictions = sorted(
+            horizon_data.items(),
+            key=lambda kv: self._safe_parse_iso(kv[0]) or datetime.min,
+        )
         
-        for pred_timestamp, pred_data in horizon_data.items():
+        for pred_timestamp, pred_data in sorted_predictions:
             try:
-                pred_time = datetime.fromisoformat(pred_timestamp)
+                pred_time = self._safe_parse_iso(pred_timestamp)
+                if pred_time is None:
+                    continue
                 target_time = pred_time + delta
                 
-                # FIX #9: Find CLOSEST actual price (before OR after target, within window)
-                closest_actual = None
-                min_time_diff = float('inf')
-                
-                for actual_timestamp, actual_data in self.stored_actual_prices.items():
-                    actual_time = datetime.fromisoformat(actual_timestamp)
-                    
-                    # Allow matching before or after target (not just after)
-                    if abs(actual_time - target_time) <= search_window:
-                        time_diff = abs(actual_time - target_time)
-                        
-                        if time_diff < min_time_diff:
-                            min_time_diff = time_diff
-                            closest_actual = actual_data['price']
+                closest_actual = self._find_closest_actual_price(target_time, search_window)
                 
                 if closest_actual is not None:
                     predicted_price = pred_data['prediction']
@@ -2428,6 +2667,9 @@ class PremiumWTIPredictor:
                     
                     if predicted_direction == actual_direction:
                         correct_directions += 1
+                        direction_flags.append(1)
+                    else:
+                        direction_flags.append(0)
 
                     if current_price > 0:
                         realized_return = (actual_price - current_price) / current_price
@@ -2439,6 +2681,14 @@ class PremiumWTIPredictor:
                     abs_error = abs(predicted_price - actual_price)
                     absolute_errors.append(abs_error)
                     squared_errors.append(abs_error ** 2)
+                    actual_price_values.append(actual_price)
+
+                    interval_lower = pred_data.get('interval_lower')
+                    interval_upper = pred_data.get('interval_upper')
+                    if interval_lower is not None and interval_upper is not None:
+                        interval_total += 1
+                        if float(interval_lower) <= actual_price <= float(interval_upper):
+                            interval_hits += 1
                 else:
                     logger.debug(f"⚠️ {horizon} prediction at {pred_timestamp}: no actual price within {search_window}")
                     
@@ -2453,16 +2703,36 @@ class PremiumWTIPredictor:
                 'direction_accuracy': 0,
                 'mae': 0,
                 'rmse': 0,
+                'mape': 0,
                 'avg_strategy_return_pct': 0,
                 'sharpe_like': 0,
+                'interval_hits': 0,
+                'interval_total': 0,
+                'interval_coverage': 0,
+                'rolling_direction_accuracy_20': 0,
+                'rolling_mae_20': 0,
             }
         
         direction_accuracy = (correct_directions / total_predictions) * 100
         mae = np.mean(absolute_errors) if absolute_errors else 0
         rmse = np.sqrt(np.mean(squared_errors)) if squared_errors else 0
+        if absolute_errors and actual_price_values:
+            mape = float(np.mean(np.asarray(absolute_errors) / np.maximum(1e-6, np.abs(np.asarray(actual_price_values, dtype=float)))) * 100)
+        else:
+            mape = 0.0
         avg_strategy_return_pct = (np.mean(strategy_returns) * 100) if strategy_returns else 0
         strategy_std = np.std(strategy_returns) if strategy_returns else 0
         sharpe_like = (np.mean(strategy_returns) / strategy_std) if strategy_std > 1e-12 else 0
+
+        rolling_window = min(20, len(direction_flags))
+        if rolling_window > 0:
+            rolling_direction_accuracy_20 = float(np.mean(direction_flags[-rolling_window:]) * 100)
+            rolling_mae_20 = float(np.mean(absolute_errors[-rolling_window:])) if absolute_errors else 0.0
+        else:
+            rolling_direction_accuracy_20 = 0.0
+            rolling_mae_20 = 0.0
+
+        interval_coverage = float((interval_hits / interval_total) * 100) if interval_total > 0 else 0.0
         
         return {
             'total_predictions': total_predictions,
@@ -2470,8 +2740,14 @@ class PremiumWTIPredictor:
             'direction_accuracy': direction_accuracy,
             'mae': mae,
             'rmse': rmse,
+            'mape': float(mape),
             'avg_strategy_return_pct': avg_strategy_return_pct,
             'sharpe_like': float(sharpe_like),
+            'interval_hits': int(interval_hits),
+            'interval_total': int(interval_total),
+            'interval_coverage': interval_coverage,
+            'rolling_direction_accuracy_20': rolling_direction_accuracy_20,
+            'rolling_mae_20': rolling_mae_20,
         }
 
 # Global predictor instance
@@ -2504,6 +2780,8 @@ def get_multi_horizon_wti_predictions():
             'prediction_1d': result['predictions']['1d'], 
             'prediction_1w': result['predictions']['1w'],
             'prediction_intervals': result.get('prediction_intervals', {}),
+            'horizon_confidence': result.get('horizon_confidence', {}),
+            'horizon_drift_scores': result.get('horizon_drift_scores', {}),
             'horizon_backtests': result.get('horizon_backtests', {}),
             'current_price': result['current_price'],
             'processing_time': result['processing_time'],

@@ -19,7 +19,7 @@ This system provides:
 - Automatic WTI futures contract detection and switching
 
 ### ✅ ML Predictions
-- Ensemble of 17+ ML models (Random Forest, Gradient Boosting, SVR, Neural Networks, etc.)
+- Ensemble of tree and linear models (Random Forest, Extra Trees, Elastic Net, Ridge, XGBoost, LightGBM)
 - Multi-horizon predictions: 1H, 1D, 1W
 - Real accuracy tracking and confidence calculation
 - External data integration (economic indicators, sentiment, weather)
@@ -106,10 +106,9 @@ python server.py
 
 ### 4. API Endpoints
 
+- `GET /` - Service status and readiness
 - `GET /data` - Main data endpoint for frontend
-- `GET /ml-status` - ML system status  
 - `GET /health` - Health check
-- `POST /force-update` - Force prediction update
 
 ## Contract Management
 
@@ -119,24 +118,24 @@ python server.py
 - Auto-switches 5 days before contract expiry
 - Handles contract transitions seamlessly
 
-### Current Contract: CLV25
-- Symbol: CLV25 (October 2025)
+### Current Contract: Dynamic (auto-detected)
+- Symbol: Active WTI contract (e.g., CLK26)
 - YFinance Symbol: CL=F
-- Expiry: 2025-09-22
+- Expiry: Calculated from active contract month/year
 - Days to expiry: Calculated automatically
 
 ## ML System Details
 
 ### Models Used
-- Random Forest (Conservative & Aggressive)
-- Gradient Boosting (Optimized & Robust)  
+- Random Forest
 - Extra Trees
-- Support Vector Regression
-- Neural Networks (MLP)
-- Ridge/Lasso/Elastic Net Regression
-- Bayesian Ridge
-- XGBoost (if available)
-- LightGBM (if available)
+- Elastic Net
+- Ridge
+- XGBoost
+- LightGBM
+
+The system blends model outputs with validation-aware weighting and applies calibrated
+prediction intervals plus drift-aware confidence adjustment per horizon.
 
 ### Features
 - Technical indicators (RSI, MACD, Bollinger Bands)
@@ -148,8 +147,9 @@ python server.py
 ### Accuracy Tracking
 - Real-time accuracy calculation
 - Historical performance metrics
-- Confidence scoring based on model consensus
+- Confidence scoring based on model consensus, interval width, and feature drift
 - No predictions accepted below quality thresholds
+- Horizon-level rolling metrics and interval coverage tracking
 
 ## Error Handling
 
