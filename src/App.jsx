@@ -177,6 +177,24 @@ function App() {
   const priceChangePercent = data?.price_change_percent || 0;
   const contractInfo = data?.contract || { symbol: 'CLV25', description: 'WTI CRUDE OIL FUTURES' };
 
+  const totalEvaluatedPredictions = Number(data?.performance_metrics?.total_predictions || 0);
+  const liveDirectionAccuracy = Number(data?.performance_metrics?.direction_accuracy || 0);
+  const modelBacktestDirection1d = data?.multi_horizon_predictions?.horizon_backtests?.['1d']?.direction_accuracy;
+  const modelConfidence1d = data?.multi_horizon_predictions?.horizon_confidence?.['1d'];
+
+  const displayAccuracy = totalEvaluatedPredictions > 0
+    ? `${Math.round(liveDirectionAccuracy)}%`
+    : (modelBacktestDirection1d !== undefined && modelBacktestDirection1d !== null
+      ? `${Math.round(modelBacktestDirection1d)}%*`
+      : '--');
+
+  const fallbackConfidence = data?.performance_metrics?.confidence;
+  const displayConfidence = (modelConfidence1d !== undefined && modelConfidence1d !== null)
+    ? `${Math.round(modelConfidence1d)}%`
+    : (fallbackConfidence !== undefined && fallbackConfidence !== null
+      ? `${Math.round(fallbackConfidence)}%`
+      : (data?.confidence || '--'));
+
   return (
     <div className="min-h-screen bg-black text-bloomberg-amber font-mono">
       {/* BLOOMBERG TERMINAL HEADER */}
@@ -252,15 +270,11 @@ function App() {
               <td className="text-bloomberg-cyan text-sm">
                 {currentPrediction > 0 ? currentPrediction.toFixed(2) : '--'}
               </td>
-              <td className="text-bloomberg-positive text-sm">
-                {data?.performance_metrics?.direction_accuracy !== undefined && data?.performance_metrics?.direction_accuracy !== null ? 
-                  `${Math.round(data.performance_metrics.direction_accuracy)}%` : 
-                  data?.accuracy || '--'}
+              <td className={`text-sm ${totalEvaluatedPredictions > 0 ? 'text-bloomberg-positive' : 'text-bloomberg-blue'}`}>
+                {displayAccuracy}
               </td>
               <td className="text-bloomberg-positive text-sm">
-                {data?.performance_metrics?.confidence !== undefined && data?.performance_metrics?.confidence !== null ? 
-                  `${Math.round(data.performance_metrics.confidence)}%` : 
-                  data?.confidence || '--'}
+                {displayConfidence}
               </td>
             </tr>
           </tbody>
@@ -296,6 +310,9 @@ function App() {
                  data?.multi_horizon_predictions?.is_real_prediction ? 'REAL ML' : 
                  'NO REAL DATA'}
               </span>
+              {totalEvaluatedPredictions === 0 && data?.multi_horizon_predictions?.is_real_prediction && (
+                <span className="text-bloomberg-blue font-medium">EVAL: WARMUP</span>
+              )}
             </div>
             <div className="flex gap-6">
               {(() => {
