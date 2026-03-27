@@ -22,7 +22,9 @@ This system provides:
 - Ensemble of tree and linear models (Random Forest, Extra Trees, Elastic Net, Ridge, XGBoost, LightGBM)
 - Multi-horizon predictions: 1H, 1D, 1W
 - Real accuracy tracking and confidence calculation
+- Adaptive interval calibration that responds to realized coverage gaps
 - External data integration (economic indicators, sentiment, weather)
+- Cross-asset and term-structure context features (Brent-WTI spread, DXY, VIX/OVX, rates, XLE, front-next spread)
 
 ### ✅ Data Storage
 - JSON-based persistent storage in `data/` directory
@@ -40,6 +42,7 @@ This system provides:
 - **`oil.py`** - Core prediction engine with ML models
 - **`server.py`** - Flask API server for frontend integration
 - **`run_complete_system.py`** - Complete system orchestrator
+- **`backtest_walk_forward.py`** - Expanding-window walk-forward backtest with baselines
 - **`data/`** - Persistent storage directory
 - **`requirements.txt`** - Python dependencies
 
@@ -104,6 +107,11 @@ python run_complete_system.py --validate
 python server.py
 ```
 
+**Run walk-forward backtest (1D/1W + baselines):**
+```bash
+python backtest_walk_forward.py --period 18mo --min-train 140 --step 5 --estimators 40
+```
+
 ### 4. API Endpoints
 
 - `GET /` - Service status and readiness
@@ -150,6 +158,7 @@ prediction intervals plus drift-aware confidence adjustment per horizon.
 - Confidence scoring based on model consensus, interval width, and feature drift
 - No predictions accepted below quality thresholds
 - Horizon-level rolling metrics and interval coverage tracking
+- Walk-forward backtest script to compare ensemble vs naive/drift/seasonal baselines
 
 ## Error Handling
 

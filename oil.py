@@ -277,6 +277,8 @@ class PremiumWTIPredictor:
         self.model_n_estimators = max(20, int(os.getenv('MODEL_N_ESTIMATORS', '60')))
         self.model_cpu_workers = max(1, int(os.getenv('MODEL_CPU_WORKERS', '1')))
         self.interval_quantile = min(0.95, max(0.60, float(os.getenv('INTERVAL_CALIBRATION_QUANTILE', '0.80'))))
+        self.target_interval_coverage = min(0.95, max(0.55, float(os.getenv('TARGET_INTERVAL_COVERAGE', '0.80'))))
+        self.interval_coverage_gain = min(0.60, max(0.0, float(os.getenv('INTERVAL_COVERAGE_GAIN', '0.25'))))
         self.confidence_floor = max(5.0, min(50.0, float(os.getenv('CONFIDENCE_FLOOR_PERCENT', '10'))))
         self.time_series_cv_splits = max(2, int(os.getenv('TIME_SERIES_CV_SPLITS', '2')))
         self.max_hourly_training_samples = max(240, int(os.getenv('MAX_HOURLY_TRAINING_SAMPLES', '720')))
@@ -617,6 +619,17 @@ class PremiumWTIPredictor:
         model_margin = 1.64 * max(0.0, float(pred_std))
 
         candidates = [floor_margin, model_margin]
+        adaptive_quantile = float(self.interval_quantile)
+        coverage_ratio = None
+
+        horizon_accuracy = self.accuracy_metrics.get(horizon, {}) if isinstance(self.accuracy_metrics, dict) else {}
+        if isinstance(horizon_accuracy, dict):
+            coverage_pct = float(horizon_accuracy.get('interval_coverage', 0.0) or 0.0)
+            interval_total = int(horizon_accuracy.get('interval_total', 0) or 0)
+            if coverage_pct > 0 and interval_total > 0:
+                coverage_ratio = coverage_pct / 100.0
+                adaptive_shift = (self.target_interval_coverage - coverage_ratio) * 0.20
+                adaptive_quantile = float(np.clip(adaptive_quantile + adaptive_shift, 0.65, 0.98))
 
         if isinstance(backtest_metrics, dict):
             backtest_mae = float(backtest_metrics.get('mae', 0.0) or 0.0)
@@ -628,11 +641,18 @@ class PremiumWTIPredictor:
 
         realized_errors = self._get_recent_realized_abs_errors(horizon, limit=80)
         if len(realized_errors) >= 8:
-            candidates.append(float(np.quantile(realized_errors, self.interval_quantile)))
+            candidates.append(float(np.quantile(realized_errors, adaptive_quantile)))
 
         margin = max(candidates)
         drift_multiplier = 1.0 + min(0.35, max(0.0, drift_score - 1.5) * 0.10)
-        return float(margin * drift_multiplier)
+        margin *= drift_multiplier
+
+        if coverage_ratio is not None:
+            gap = self.target_interval_coverage - coverage_ratio
+            coverage_multiplier = 1.0 + float(np.clip(gap * self.interval_coverage_gain, -0.18, 0.35))
+            margin *= coverage_multiplier
+
+        return float(max(floor_margin, margin))
 
     def _compose_horizon_confidence(self, base_score, current_price, interval_obj, drift_score, backtest_metrics):
         """Build confidence from validation score, uncertainty width, drift, and realized backtest direction."""
@@ -804,6 +824,169 @@ class PremiumWTIPredictor:
         except Exception as e:
             logger.warning(f"Failed to get hourly data: {e}")
             return None
+
+    def _date_feature_key(self, timestamp_value):
+        """Normalize timestamps to date-only keys for cross-asset joins."""
+        ts = pd.Timestamp(timestamp_value)
+        try:
+            if ts.tzinfo is not None:
+                ts = ts.tz_convert(None)
+        except Exception:
+            pass
+        try:
+            ts = ts.tz_localize(None)
+        except Exception:
+            pass
+        return ts.normalize()
+
+    def _get_next_wti_contract_symbol(self):
+        """Infer the next-month WTI contract symbol from the active contract code."""
+        try:
+            current = str(self.contract_symbol)
+            if len(current) < 5 or not current.startswith('CL'):
+                return None
+
+            month_lookup = {code: month for month, code in MONTH_CODES.items()}
+            month_code = current[2]
+            year_suffix = int(current[3:5])
+            month_value = month_lookup.get(month_code)
+            if month_value is None:
+                return None
+
+            year_value = 2000 + year_suffix
+            next_month = month_value + 1
+            next_year = year_value
+            if next_month > 12:
+                next_month = 1
+                next_year += 1
+
+            return f"CL{MONTH_CODES[next_month]}{str(next_year)[-2:]}"
+        except Exception:
+            return None
+
+    def _fetch_market_series(self, symbol, period='2y', interval='1d'):
+        """Fetch and cache close-price series for contextual cross-asset features."""
+        cache_key = f"series:{symbol}:{period}:{interval}"
+        now_ts = time.time()
+        cached = self._market_data_mem_cache.get(cache_key)
+        if cached and (now_ts - cached.get('fetched_at', 0.0)) <= self.market_data_ttl_seconds:
+            cached_series = cached.get('data')
+            if cached_series is not None and len(cached_series) > 0:
+                return cached_series.copy()
+
+        try:
+            ticker = yf.Ticker(symbol)
+            data = ticker.history(period=period, interval=interval, timeout=12)
+            if data is None or data.empty or 'Close' not in data.columns:
+                return None
+
+            close_series = pd.to_numeric(data['Close'], errors='coerce')
+            close_series = close_series[~close_series.index.duplicated(keep='last')].sort_index()
+
+            self._market_data_mem_cache[cache_key] = {
+                'fetched_at': now_ts,
+                'data': close_series.copy(),
+            }
+            return close_series
+        except Exception as e:
+            logger.warning(f"Market context fetch failed for {symbol}: {e}")
+            return None
+
+    def build_market_context_feature_map(self, wti_data):
+        """Build date-keyed cross-asset and term-structure features aligned to WTI history."""
+        if wti_data is None or len(wti_data) < 25 or 'Close' not in wti_data.columns:
+            return {}
+
+        date_index = pd.Index([self._date_feature_key(ts) for ts in wti_data.index])
+        feature_frame = pd.DataFrame(index=date_index)
+        feature_frame['wti_close'] = pd.to_numeric(wti_data['Close'], errors='coerce').values
+
+        context_symbols = {
+            'brent_close': 'BZ=F',
+            'dxy_close': 'DX-Y.NYB',
+            'vix_close': '^VIX',
+            'ovx_close': '^OVX',
+            'tnx_close': '^TNX',
+            'xle_close': 'XLE',
+        }
+
+        for col_name, symbol in context_symbols.items():
+            series = self._fetch_market_series(symbol, period='2y', interval='1d')
+            if series is None or len(series) == 0:
+                feature_frame[col_name] = np.nan
+                continue
+
+            normalized_index = pd.Index([self._date_feature_key(ts) for ts in series.index])
+            normalized_series = pd.Series(series.values, index=normalized_index)
+            normalized_series = normalized_series[~normalized_series.index.duplicated(keep='last')].sort_index()
+            feature_frame[col_name] = normalized_series.reindex(feature_frame.index).ffill()
+
+        next_contract = self._get_next_wti_contract_symbol()
+        if next_contract:
+            next_series = self._fetch_market_series(next_contract, period='2y', interval='1d')
+            if next_series is not None and len(next_series) > 0:
+                next_index = pd.Index([self._date_feature_key(ts) for ts in next_series.index])
+                next_series_norm = pd.Series(next_series.values, index=next_index)
+                next_series_norm = next_series_norm[~next_series_norm.index.duplicated(keep='last')].sort_index()
+                feature_frame['next_contract_close'] = next_series_norm.reindex(feature_frame.index).ffill()
+            else:
+                feature_frame['next_contract_close'] = np.nan
+        else:
+            feature_frame['next_contract_close'] = np.nan
+
+        feature_frame['wti_return_1d'] = feature_frame['wti_close'].pct_change(1)
+        feature_frame['xle_return_1d'] = feature_frame['xle_close'].pct_change(1)
+        feature_frame['brent_wti_spread'] = feature_frame['brent_close'] - feature_frame['wti_close']
+        feature_frame['brent_wti_ratio'] = feature_frame['brent_close'] / feature_frame['wti_close'].replace(0, np.nan)
+        feature_frame['dxy_return_5d'] = feature_frame['dxy_close'].pct_change(5)
+        feature_frame['dxy_level'] = feature_frame['dxy_close']
+        feature_frame['vix_level'] = feature_frame['vix_close']
+        feature_frame['ovx_level'] = feature_frame['ovx_close']
+        feature_frame['ovx_vix_spread'] = feature_frame['ovx_close'] - feature_frame['vix_close']
+        feature_frame['tnx_level'] = feature_frame['tnx_close']
+        feature_frame['tnx_change_5d'] = feature_frame['tnx_close'].diff(5)
+        feature_frame['xle_return_5d'] = feature_frame['xle_close'].pct_change(5)
+        feature_frame['xle_return_20d'] = feature_frame['xle_close'].pct_change(20)
+        feature_frame['wti_xle_corr_20d'] = feature_frame['wti_return_1d'].rolling(20).corr(feature_frame['xle_return_1d'])
+        feature_frame['term_spread_front_next'] = feature_frame['wti_close'] - feature_frame['next_contract_close']
+        feature_frame['is_contango'] = (feature_frame['term_spread_front_next'] < 0).astype(float)
+        spread_std = feature_frame['term_spread_front_next'].rolling(20).std().replace(0, np.nan)
+        feature_frame['term_spread_zscore_20d'] = (
+            feature_frame['term_spread_front_next'] - feature_frame['term_spread_front_next'].rolling(20).mean()
+        ) / spread_std
+        feature_frame['roll_yield_5d_ann'] = (
+            (feature_frame['wti_close'] / feature_frame['next_contract_close']) - 1.0
+        ) * (252.0 / 5.0)
+
+        feature_defaults = {
+            'brent_wti_spread': 0.0,
+            'brent_wti_ratio': 1.0,
+            'dxy_return_5d': 0.0,
+            'dxy_level': 100.0,
+            'vix_level': 20.0,
+            'ovx_level': 35.0,
+            'ovx_vix_spread': 0.0,
+            'tnx_level': 4.0,
+            'tnx_change_5d': 0.0,
+            'xle_return_5d': 0.0,
+            'xle_return_20d': 0.0,
+            'wti_xle_corr_20d': 0.0,
+            'term_spread_front_next': 0.0,
+            'term_spread_zscore_20d': 0.0,
+            'roll_yield_5d_ann': 0.0,
+            'is_contango': 0.0,
+        }
+
+        feature_columns = list(feature_defaults.keys())
+        for col_name in feature_columns:
+            cleaned = pd.to_numeric(feature_frame[col_name], errors='coerce').replace([np.inf, -np.inf], np.nan)
+            feature_frame[col_name] = cleaned.ffill().fillna(feature_defaults[col_name]).astype(float)
+
+        feature_map = {}
+        for row_key, row in feature_frame[feature_columns].iterrows():
+            feature_map[row_key] = {name: float(row[name]) for name in feature_columns}
+
+        return feature_map
     
     def get_external_data_sources(self):
         """Get all external data sources for premium predictions"""
@@ -2098,6 +2281,7 @@ class PremiumWTIPredictor:
             
             # Use ONLY technical features for consistent ML training
             logger.info("Engineering daily features...")
+            market_context_map = self.build_market_context_feature_map(wti_data)
             
             # Process each historical point with consistent feature engineering
             daily_features = []
@@ -2107,6 +2291,8 @@ class PremiumWTIPredictor:
                 try:
                     window_data = wti_data.iloc[i-20:i+1]
                     point_features = self.engineer_technical_features(window_data)
+                    row_key = self._date_feature_key(window_data.index[-1])
+                    point_features.update(market_context_map.get(row_key, {}))
                     if self.use_external_features_in_training:
                         # Optional: merge external snapshots into daily rows (off by default to avoid leakage/noise).
                         point_features.update(external_features_dict)
@@ -2145,6 +2331,8 @@ class PremiumWTIPredictor:
             # Calculate current daily features once
             current_window = wti_data.iloc[-21:]
             current_features_dict = self.engineer_technical_features(current_window)
+            current_key = self._date_feature_key(current_window.index[-1])
+            current_features_dict.update(market_context_map.get(current_key, {}))
             if self.use_external_features_in_training:
                 # Keep train/inference feature schema aligned when external training features are enabled.
                 current_features_dict.update(external_features_dict)
