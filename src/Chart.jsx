@@ -409,6 +409,10 @@ export default function Chart({
     };
   }, [activeHorizon, chartModel.activeForecast, chartModel.lastActual, displayAccuracy, displayConfidence]);
 
+  const displaySpotPrice = Number.isFinite(Number(currentPrice)) && Number(currentPrice) > 0
+    ? Number(currentPrice)
+    : (chartModel.lastActual?.value ?? 0);
+
   useEffect(() => {
     if (!chartModel.lastActual) {
       setLegendSnapshot(null);
@@ -669,7 +673,7 @@ export default function Chart({
           </div>
 
           <div className="tv-price-block">
-            <div className="tv-price-main">${Number(currentPrice || 0).toFixed(2)}</div>
+            <div className="tv-price-main">${displaySpotPrice.toFixed(2)}</div>
             <div className={`tv-price-change ${Number(priceChange) >= 0 ? "is-up" : "is-down"}`}>
               <span>{formatSignedPrice(Number(priceChange) || 0)}</span>
               <span>{formatSignedPercent(Number(priceChangePercent) || 0)}</span>

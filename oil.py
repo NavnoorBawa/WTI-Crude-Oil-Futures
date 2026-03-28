@@ -2810,7 +2810,7 @@ class PremiumWTIPredictor:
         
         if total_predictions > 0:
             weighted_mae = sum(accuracy_metrics[h]['mae'] * accuracy_metrics[h]['total_predictions'] for h in ['1h', '1d', '1w']) / total_predictions
-            weighted_rmse = sum(accuracy_metrics[h]['rmse'] * accuracy_metrics[h]['total_predictions'] for h in ['1h', '1d', '1w']) / total_predictions
+            weighted_mse = sum((accuracy_metrics[h]['rmse'] ** 2) * accuracy_metrics[h]['total_predictions'] for h in ['1h', '1d', '1w']) / total_predictions
             weighted_mape = sum(accuracy_metrics[h]['mape'] * accuracy_metrics[h]['total_predictions'] for h in ['1h', '1d', '1w']) / total_predictions
 
             coverage_numerator = 0.0
@@ -2826,7 +2826,7 @@ class PremiumWTIPredictor:
                 'correct_directions': total_correct,
                 'direction_accuracy': (total_correct / total_predictions) * 100,
                 'mae': float(weighted_mae),
-                'rmse': float(weighted_rmse),
+                'rmse': float(np.sqrt(weighted_mse)),
                 'mape': float(weighted_mape),
                 'interval_coverage': float((coverage_numerator / coverage_denominator) * 100) if coverage_denominator > 0 else 0.0,
             }
@@ -2891,8 +2891,8 @@ class PremiumWTIPredictor:
                     actual_price = closest_actual
                     
                     # Direction accuracy
-                    predicted_direction = 1 if predicted_price > current_price else -1
-                    actual_direction = 1 if actual_price > current_price else -1
+                    predicted_direction = 1 if predicted_price > current_price else (-1 if predicted_price < current_price else 0)
+                    actual_direction = 1 if actual_price > current_price else (-1 if actual_price < current_price else 0)
                     
                     if predicted_direction == actual_direction:
                         correct_directions += 1

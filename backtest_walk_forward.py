@@ -17,6 +17,22 @@ import pandas as pd
 from oil import PremiumWTIPredictor
 
 
+def apply_production_feature_defaults(row_df, feature_names):
+    """Mirror the inference-time feature defaults used in the main predictor."""
+    for feature in feature_names:
+        if feature in row_df.columns:
+            continue
+        if "dollar_strength" in feature:
+            row_df[feature] = 100.0
+        elif "dollar_trend" in feature:
+            row_df[feature] = 0.0
+        elif "trend" in feature or "momentum" in feature or "divergence" in feature:
+            row_df[feature] = 0.0
+        else:
+            row_df[feature] = 0.0
+    return row_df
+
+
 def compute_metrics(actuals, predictions, references):
     """Compute regression and directional metrics for one model stream."""
     if not actuals:
@@ -86,9 +102,7 @@ def build_ensemble_prediction(package, row_features):
     all_feature_names = package["all_feature_names"]
 
     row_df = pd.DataFrame([row_features])
-    for feature in all_feature_names:
-        if feature not in row_df.columns:
-            row_df[feature] = 0.0
+    row_df = apply_production_feature_defaults(row_df, all_feature_names)
 
     transformed = selector.transform(row_df[all_feature_names])
     scaled = scaler.transform(transformed)

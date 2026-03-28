@@ -12,6 +12,8 @@ function App() {
   const startupRetryMs = Number(import.meta.env.VITE_STARTUP_RETRY_MS || 5000);
   const configuredApiBase = import.meta.env.VITE_API_BASE_URL;
   const latestDataRef = useRef(null);
+  const requestInFlightRef = useRef(false);
+  const startupRetryPendingRef = useRef(false);
 
   latestDataRef.current = data;
 
@@ -67,12 +69,23 @@ function App() {
 
     // Fetch data function
     const fetchData = async (isInitial = false) => {
+      let didStartRequest = false;
       try {
         if (isInitial) {
           setLoading(true);
           setError(null);
           setLoadingMessage("Connecting to Real-Time Data Feeds");
         }
+
+        if (requestInFlightRef.current) {
+          return;
+        }
+        if (!isInitial && startupRetryPendingRef.current && !latestDataRef.current) {
+          return;
+        }
+
+        requestInFlightRef.current = true;
+        didStartRequest = true;
         
         const apiCandidates = getApiBaseCandidates();
         let response = null;
@@ -144,6 +157,7 @@ function App() {
         
         // Update state in correct order
         clearRetryTimeout();
+        startupRetryPendingRef.current = false;
         setData(result);
         setLastUpdate(new Date());
         setError(null);
@@ -154,6 +168,7 @@ function App() {
         if (err.code === 'SYSTEM_INITIALIZING') {
           const retryAfterSeconds = Number(err.retryAfterSeconds) || (startupRetryMs / 1000);
           const startupMessage = err.message || 'Backend is waking up on Render. This can take 10-30 seconds on the free tier.';
+          startupRetryPendingRef.current = true;
 
           if (isInitial || !latestDataRef.current) {
             setLoading(true);
@@ -172,7 +187,12 @@ function App() {
         } else {
           setError(`Network error: ${err.message}`);
         }
+        startupRetryPendingRef.current = false;
         setLoading(false);
+      } finally {
+        if (didStartRequest) {
+          requestInFlightRef.current = false;
+        }
       }
     };
 
@@ -272,7 +292,7 @@ function App() {
         ? Number(modelBacktestDirection1d)
         : null));
 
-  const displayAccuracy = effectiveAccuracy === null
+  const displayAccuracy = !Number.isFinite(effectiveAccuracy)
     ? '--'
     : `${Math.round(effectiveAccuracy)}${displayAccuracySource === 'backtest' ? '%*' : (displayAccuracySource === 'blended' ? '%~' : '%')}`;
 
@@ -281,7 +301,7 @@ function App() {
     : 'text-bloomberg-blue';
 
   const fallbackConfidence = data?.performance_metrics?.confidence;
-  const displayConfidence = (modelConfidence1d !== undefined && modelConfidence1d !== null)
+  const displayConfidence = Number.isFinite(modelConfidence1d)
     ? `${Math.round(modelConfidence1d)}%`
     : (fallbackConfidence !== undefined && fallbackConfidence !== null
       ? `${Math.round(fallbackConfidence)}%`
