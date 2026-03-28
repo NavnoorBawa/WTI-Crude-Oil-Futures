@@ -17,22 +17,6 @@ import pandas as pd
 from .oil import PremiumWTIPredictor
 
 
-def apply_production_feature_defaults(row_df, feature_names):
-    """Mirror the inference-time feature defaults used in the main predictor."""
-    for feature in feature_names:
-        if feature in row_df.columns:
-            continue
-        if "dollar_strength" in feature:
-            row_df[feature] = 100.0
-        elif "dollar_trend" in feature:
-            row_df[feature] = 0.0
-        elif "trend" in feature or "momentum" in feature or "divergence" in feature:
-            row_df[feature] = 0.0
-        else:
-            row_df[feature] = 0.0
-    return row_df
-
-
 def compute_metrics(actuals, predictions, references):
     """Compute regression and directional metrics for one model stream."""
     if not actuals:
@@ -66,6 +50,8 @@ def compute_metrics(actuals, predictions, references):
 def prepare_daily_dataset(predictor, wti_data, horizon):
     """Rebuild the per-horizon daily feature matrix used by the production predictor."""
     market_context_map = predictor.build_market_context_feature_map(wti_data)
+    historical_external_map = predictor.build_historical_external_feature_map(wti_data)
+    historical_external_defaults = predictor._historical_external_feature_defaults()
     lookback_bars = max(30, int(predictor._get_daily_feature_lookback(horizon)))
     target_mode = getattr(predictor, "daily_target_mode", "price")
     horizon_steps = 1 if horizon == "1d" else 5
@@ -76,12 +62,20 @@ def prepare_daily_dataset(predictor, wti_data, horizon):
         row_features = predictor.engineer_technical_features(window_data)
         row_key = predictor._date_feature_key(window_data.index[-1])
         row_features.update(market_context_map.get(row_key, {}))
+        row_features.update(historical_external_map.get(row_key, historical_external_defaults))
         reference_close = float(wti_data["Close"].iloc[i])
         target_price = float(wti_data["Close"].iloc[i + horizon_steps])
+        baseline_return = predictor._compute_target_baseline_return(window_data["Close"], horizon)
 
         row_features["timestamp"] = str(wti_data.index[i])
         row_features["reference_close"] = reference_close
-        row_features[f"target_{horizon}"] = predictor._encode_target_value(reference_close, target_price, target_mode)
+        row_features[f"baseline_return_{horizon}"] = baseline_return
+        row_features[f"target_{horizon}"] = predictor._encode_target_value(
+            reference_close,
+            target_price,
+            target_mode,
+            baseline_return=baseline_return,
+        )
         row_features[f"actual_price_{horizon}"] = target_price
         rows.append(row_features)
 
@@ -108,7 +102,7 @@ def build_ensemble_prediction(predictor, package, row_features, horizon, train_r
     diagnostics = package.get("diagnostics", {})
 
     row_df = pd.DataFrame([row_features])
-    row_df = apply_production_feature_defaults(row_df, all_feature_names)
+    row_df = predictor._apply_feature_defaults(row_df, all_feature_names)
 
     transformed = selector.transform(row_df[all_feature_names])
     scaled = scaler.transform(transformed)
@@ -117,11 +111,17 @@ def build_ensemble_prediction(predictor, package, row_features, horizon, train_r
     model_weights = []
     model_pred_map = {}
     target_mode = package.get("target_mode", diagnostics.get("target_mode", "price"))
+    baseline_return = row_features.get(f"baseline_return_{horizon}", 0.0)
     for model_name, model in models.items():
         raw_pred = float(model.predict(scaled)[0])
         if np.isnan(raw_pred):
             continue
-        pred = predictor._decode_target_value(row_features.get("reference_close", 0.0), raw_pred, target_mode)
+        pred = predictor._decode_target_value(
+            row_features.get("reference_close", 0.0),
+            raw_pred,
+            target_mode,
+            baseline_return=baseline_return,
+        )
         model_preds.append(pred)
         model_weights.append(max(0.3, min(1.0, float(scores.get(model_name, 0.5)))))
         model_pred_map[model_name] = pred
@@ -144,6 +144,7 @@ def build_ensemble_prediction(predictor, package, row_features, horizon, train_r
         stabilized_pred,
         drift_challenger,
         diagnostics.get("latest_fold_backtest", {}),
+        horizon=horizon,
     )
     return float(blended_pred)
 

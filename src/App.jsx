@@ -220,6 +220,20 @@ function App() {
     };
   }, [configuredApiBase, pollIntervalMs, startupRetryMs]);
 
+  const headlineMetrics = data?.performance_metrics?.headline || {};
+  const headlineHorizonKey = String(headlineMetrics?.horizon || "1d").toLowerCase();
+  const recommendedDisplayHorizon = headlineMetrics?.quality_status === "QUALIFIED"
+    ? headlineHorizonKey.toUpperCase()
+    : "1W";
+  const resolvedActiveDisplayHorizon = DISPLAY_HORIZONS.includes(activeDisplayHorizon)
+    ? activeDisplayHorizon
+    : recommendedDisplayHorizon;
+
+  useEffect(() => {
+    setActiveDisplayHorizon((previous) => (
+      DISPLAY_HORIZONS.includes(previous) ? previous : recommendedDisplayHorizon
+    ));
+  }, [recommendedDisplayHorizon]);
 
   // Loading screen
   if (loading && !data) {
@@ -279,14 +293,6 @@ function App() {
   const priceChange = data?.price_change || 0;
   const priceChangePercent = data?.price_change_percent || 0;
   const contractInfo = data?.contract || { symbol: 'CLV25', description: 'WTI CRUDE OIL FUTURES' };
-  const headlineMetrics = data?.performance_metrics?.headline || {};
-  const headlineHorizonKey = String(headlineMetrics?.horizon || '1d').toLowerCase();
-  const recommendedDisplayHorizon = headlineMetrics?.quality_status === 'QUALIFIED'
-    ? headlineHorizonKey.toUpperCase()
-    : '1W';
-  const resolvedActiveDisplayHorizon = DISPLAY_HORIZONS.includes(activeDisplayHorizon)
-    ? activeDisplayHorizon
-    : recommendedDisplayHorizon;
   const activeHorizonKey = resolvedActiveDisplayHorizon.toLowerCase();
   const activeHorizonLabel = resolvedActiveDisplayHorizon;
   const metricsByHorizon = data?.performance_metrics?.by_horizon || {};
@@ -334,12 +340,6 @@ function App() {
     : (fallbackConfidence !== undefined && fallbackConfidence !== null
       ? `${Math.round(fallbackConfidence)}%`
       : (data?.confidence || '--'));
-
-  useEffect(() => {
-    setActiveDisplayHorizon((previous) => (
-      DISPLAY_HORIZONS.includes(previous) ? previous : recommendedDisplayHorizon
-    ));
-  }, [recommendedDisplayHorizon]);
 
   return (
     <div className="min-h-screen bg-black text-bloomberg-amber font-mono" style={{ display: 'flex', flexDirection: 'column' }}>

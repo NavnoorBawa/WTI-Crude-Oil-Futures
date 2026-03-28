@@ -104,6 +104,15 @@ class OilLogicGuardsTest(unittest.TestCase):
         self.assertAlmostEqual(encoded, 0.035, places=6)
         self.assertAlmostEqual(decoded, 103.5, places=6)
 
+    def test_excess_return_target_encoding_round_trips_back_to_price(self):
+        predictor = self._make_predictor_stub()
+
+        encoded = predictor._encode_target_value(100.0, 103.5, "excess_return", baseline_return=0.01)
+        decoded = predictor._decode_target_value(100.0, encoded, "excess_return", baseline_return=0.01)
+
+        self.assertAlmostEqual(encoded, 0.025, places=6)
+        self.assertAlmostEqual(decoded, 103.5, places=6)
+
     def test_model_weight_score_rewards_directional_skill(self):
         predictor = self._make_predictor_stub()
 
@@ -162,6 +171,10 @@ class OilLogicGuardsTest(unittest.TestCase):
             "drawdown_60",
             "price_zscore_60",
             "dollar_volume_zscore_20",
+            "open_gap_pct",
+            "close_location_value",
+            "momentum_vol_ratio_20",
+            "obv_slope_10",
         ]:
             self.assertIn(feature_name, features)
             self.assertTrue(math.isfinite(features[feature_name]))
@@ -199,9 +212,49 @@ class OilLogicGuardsTest(unittest.TestCase):
             "term_spread_pct",
             "energy_equity_relative_20d",
             "wti_dxy_corr_20d",
+            "brent_return_1d",
+            "ovx_vix_ratio_zscore_20d",
+            "wti_brent_corr_20d",
+            "risk_off_pressure_1d",
         ]:
             self.assertIn(feature_name, latest_row)
             self.assertTrue(math.isfinite(latest_row[feature_name]))
+
+    def test_historical_external_feature_map_uses_release_lag_without_leakage(self):
+        predictor = PremiumWTIPredictor.__new__(PremiumWTIPredictor)
+        predictor.use_historical_external_features_in_training = True
+        predictor.eia_release_lag_days = 5
+        predictor.fred_daily_release_lag_days = 1
+        predictor.fred_monthly_release_lag_days = 15
+        predictor._historical_external_mem_cache = {}
+
+        index = pd.date_range("2026-01-01", periods=35, freq="D")
+        wti_data = pd.DataFrame({"Close": pd.Series([70 + (i * 0.2) for i in range(35)], index=index)}, index=index)
+
+        predictor._fetch_eia_weekly_stocks_series = lambda: pd.Series(
+            [100.0, 95.0, 92.0],
+            index=pd.to_datetime(["2026-01-02", "2026-01-09", "2026-01-16"]),
+        )
+
+        fred_series = {
+            "INDPRO": pd.Series([100.0, 101.0, 102.0], index=pd.to_datetime(["2025-11-01", "2025-12-01", "2026-01-01"])),
+            "FEDFUNDS": pd.Series([4.0, 4.1, 4.2], index=pd.to_datetime(["2025-11-01", "2025-12-01", "2026-01-01"])),
+            "UMCSENT": pd.Series([70.0, 72.0, 74.0], index=pd.to_datetime(["2025-11-01", "2025-12-01", "2026-01-01"])),
+            "T10Y2Y": pd.Series([0.4 + (i * 0.01) for i in range(35)], index=index),
+        }
+        predictor._fetch_fred_csv_series = lambda series_id, start_date=None, end_date=None: fred_series.get(series_id)
+
+        feature_map = predictor.build_historical_external_feature_map(wti_data)
+
+        before_eia_release = predictor._date_feature_key(pd.Timestamp("2026-01-06"))
+        after_eia_release = predictor._date_feature_key(pd.Timestamp("2026-01-07"))
+        after_monthly_release = predictor._date_feature_key(pd.Timestamp("2026-01-20"))
+
+        self.assertEqual(feature_map[before_eia_release]["hist_eia_stocks_level"], 0.0)
+        self.assertEqual(feature_map[after_eia_release]["hist_eia_stocks_level"], 100.0)
+        self.assertGreater(feature_map[after_monthly_release]["hist_fred_fedfunds_level"], 0.0)
+        self.assertIn("hist_macro_growth_vs_rates", feature_map[after_monthly_release])
+        self.assertTrue(math.isfinite(feature_map[after_monthly_release]["hist_macro_growth_vs_rates"]))
 
 
 class ServerMetricSelectionTest(unittest.TestCase):
