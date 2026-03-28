@@ -24,6 +24,24 @@ const RANGE_PRESETS = {
   ALL: { lookbackSec: null, rightPaddingSec: null, barSpacing: 5 },
 };
 
+const HISTORICAL_MIN_SPACING_SEC = {
+  "1H": 20 * 60,
+  "1D": 6 * 60 * 60,
+  "1W": 24 * 60 * 60,
+};
+
+const HISTORICAL_GAP_BREAK_SEC = {
+  "1H": 8 * 60 * 60,
+  "1D": 3 * 24 * 60 * 60,
+  "1W": 14 * 24 * 60 * 60,
+};
+
+const HISTORY_BRIDGE_MAX_GAP_SEC = {
+  "1H": 3 * 60 * 60,
+  "1D": 36 * 60 * 60,
+  "1W": 10 * 24 * 60 * 60,
+};
+
 const DEFAULT_RANGE = "1M";
 const DEFAULT_HORIZON = "1W";
 
@@ -128,33 +146,70 @@ const buildActualPoints = (actualPayload, actualArray) => {
   return [...deduped.values()].sort((a, b) => a.time - b.time);
 };
 
-const buildHistoricalPredictionPoints = (predictedPayload, activeHorizon) => {
+const buildHistoricalPredictionModel = (predictedPayload, activeHorizon) => {
   const horizonKey = HORIZON_META[activeHorizon]?.key || "1h";
   const byHorizon = predictedPayload?.historical_by_horizon?.[horizonKey];
   const fallbackPayload = predictedPayload?.historical || {};
   const source = byHorizon || fallbackPayload;
 
   const values = Array.isArray(source?.values) ? source.values : [];
-  const timestamps = Array.isArray(source?.timestamps) ? source.timestamps : [];
+  const targetTimestamps = Array.isArray(source?.target_timestamps) && source.target_timestamps.length > 0
+    ? source.target_timestamps
+    : (Array.isArray(source?.timestamps) ? source.timestamps : []);
+  const issueTimestamps = Array.isArray(source?.issue_timestamps) ? source.issue_timestamps : [];
+  const minSpacingSec = HISTORICAL_MIN_SPACING_SEC[activeHorizon] || 0;
+  const gapBreakSec = HISTORICAL_GAP_BREAK_SEC[activeHorizon] || Number.POSITIVE_INFINITY;
 
-  const points = values
+  const rawPoints = values
     .map((value, index) => {
-      const time = toUnixSeconds(timestamps[index]);
+      const time = toUnixSeconds(targetTimestamps[index]);
       const numeric = toNum(value);
+      const issueTime = toUnixSeconds(issueTimestamps[index]);
       if (!Number.isFinite(time) || !Number.isFinite(numeric) || numeric <= 0) {
         return null;
       }
       return {
         time,
         value: round2(numeric),
+        issueTime: Number.isFinite(issueTime) ? issueTime : time,
       };
     })
     .filter(Boolean)
-    .sort((a, b) => a.time - b.time);
+    .sort((a, b) => (a.time - b.time) || (a.issueTime - b.issueTime));
 
-  const deduped = new Map();
-  points.forEach((point) => deduped.set(point.time, point));
-  return [...deduped.values()].sort((a, b) => a.time - b.time);
+  const collapsedPoints = [];
+  rawPoints.forEach((point) => {
+    const previous = collapsedPoints[collapsedPoints.length - 1];
+    if (previous && (point.time - previous.time) <= minSpacingSec) {
+      collapsedPoints[collapsedPoints.length - 1] = point.issueTime >= previous.issueTime ? point : previous;
+      return;
+    }
+    collapsedPoints.push(point);
+  });
+
+  const points = collapsedPoints.map(({ time, value }) => ({ time, value }));
+  const seriesData = [];
+  points.forEach((point, index) => {
+    seriesData.push(point);
+    const nextPoint = points[index + 1];
+    if (!nextPoint) return;
+
+    const gapSeconds = nextPoint.time - point.time;
+    if (gapSeconds <= gapBreakSec) return;
+
+    const whitespaceTime = Math.max(
+      point.time + 1,
+      Math.min(nextPoint.time - 1, point.time + Math.floor(gapSeconds / 2))
+    );
+    if (whitespaceTime > point.time && whitespaceTime < nextPoint.time) {
+      seriesData.push({ time: whitespaceTime });
+    }
+  });
+
+  return {
+    points,
+    seriesData,
+  };
 };
 
 const buildForecastMap = (futurePayload, multiHorizonPredictions, latestTime, latestClose) => {
@@ -255,11 +310,17 @@ const buildProjectionPath = (lastActual, forecast) => {
   ]);
 };
 
-const buildPredictionBridge = (historicalPredictions, projectionPoints, lastActual) => {
+const buildPredictionBridge = (historicalPredictions, projectionPoints, lastActual, activeHorizon) => {
   const bridge = [];
   const tail = historicalPredictions.length > 0 ? historicalPredictions[historicalPredictions.length - 1] : null;
+  const maxGapSec = HISTORY_BRIDGE_MAX_GAP_SEC[activeHorizon] || 0;
 
-  if (tail && lastActual && tail.time < lastActual.time) {
+  if (
+    tail
+    && lastActual
+    && tail.time < lastActual.time
+    && (lastActual.time - tail.time) <= maxGapSec
+  ) {
     bridge.push(tail, { time: lastActual.time, value: lastActual.value });
   }
 
@@ -302,6 +363,18 @@ const getConvictionMeta = (accuracyValue, confidenceValue) => {
   return { label: "Low Conviction", tone: "down", detail: `Composite ${score.toFixed(0)}%` };
 };
 
+const getQualityMeta = (qualityPayload) => {
+  const status = String(qualityPayload?.status || "unknown").toLowerCase();
+  const reasons = Array.isArray(qualityPayload?.reasons) ? qualityPayload.reasons : [];
+  if (status === "qualified") {
+    return { label: "Qualified", tone: "up", detail: "Supported by current evidence" };
+  }
+  if (status === "watch") {
+    return { label: "Watch", tone: "neutral", detail: reasons.length > 0 ? reasons.join(", ").replaceAll("_", " ") : "Limited evaluation evidence" };
+  }
+  return { label: "Low Quality", tone: "down", detail: reasons.length > 0 ? reasons.join(", ").replaceAll("_", " ") : "Forecast not quality qualified" };
+};
+
 export default function Chart({
   actualArray = [],
   unifiedData = null,
@@ -318,6 +391,8 @@ export default function Chart({
   const [selectedRange, setSelectedRange] = useState(DEFAULT_RANGE);
   const [activeHorizon, setActiveHorizon] = useState(DEFAULT_HORIZON);
   const [legendSnapshot, setLegendSnapshot] = useState(null);
+  const qualityByHorizon = multiHorizonPredictions?.horizon_quality || {};
+  const activeQuality = qualityByHorizon?.[HORIZON_META[activeHorizon]?.key] || {};
 
   const chartModel = useMemo(() => {
     const actualPayload = unifiedData?.actual || {};
@@ -334,7 +409,8 @@ export default function Chart({
       ? actualPoints
       : [lastActual];
 
-    const historicalPredictionPoints = buildHistoricalPredictionPoints(predictedPayload, activeHorizon);
+    const historicalPredictionModel = buildHistoricalPredictionModel(predictedPayload, activeHorizon);
+    const historicalPredictionPoints = historicalPredictionModel.points;
     const forecasts = buildForecastMap(
       futurePayload,
       multiHorizonPredictions,
@@ -344,7 +420,7 @@ export default function Chart({
 
     const activeForecast = forecasts[activeHorizon] || null;
     const projectionPoints = buildProjectionPath(lastActual, activeForecast);
-    const predictionBridge = buildPredictionBridge(historicalPredictionPoints, projectionPoints, lastActual);
+    const predictionBridge = buildPredictionBridge(historicalPredictionPoints, projectionPoints, lastActual, activeHorizon);
     const upperScenarioPoints = buildScenarioPath(lastActual, activeForecast?.time, activeForecast?.upper);
     const lowerScenarioPoints = buildScenarioPath(lastActual, activeForecast?.time, activeForecast?.lower);
 
@@ -352,6 +428,7 @@ export default function Chart({
       actualPoints: resolvedActualPoints,
       lastActual,
       historicalPredictionPoints,
+      historicalPredictionSeriesData: historicalPredictionModel.seriesData,
       forecasts,
       activeForecast,
       projectionPoints,
@@ -382,20 +459,24 @@ export default function Chart({
       ? upsidePct / Math.abs(downsidePct)
       : null;
     const conviction = getConvictionMeta(displayAccuracy, displayConfidence);
+    const quality = getQualityMeta(activeQuality);
     const lens = HORIZON_META[activeHorizon]?.lens || activeHorizon;
-    const thesisTitle = bias.tone === "up"
-      ? `${lens} setup favors upside follow-through`
-      : bias.tone === "down"
-        ? `${lens} setup calls for defensive positioning`
-        : `${lens} setup points to a balanced range`;
+    const thesisTitle = quality.label === "Low Quality"
+      ? `${lens} setup lacks enough evidence for a full conviction call`
+      : (bias.tone === "up"
+        ? `${lens} setup favors upside follow-through`
+        : bias.tone === "down"
+          ? `${lens} setup calls for defensive positioning`
+          : `${lens} setup points to a balanced range`);
     const thesisCopy = Number.isFinite(rewardRisk)
-      ? `Base target ${formatCurrency(forecast.value)} with ${formatCurrency(lower ?? forecast.value)} to ${formatCurrency(upper ?? forecast.value)} as the working band. Reward-to-risk is ${rewardRisk.toFixed(2)}x from current spot.`
-      : `Base target ${formatCurrency(forecast.value)} with ${formatCurrency(lower ?? forecast.value)} to ${formatCurrency(upper ?? forecast.value)} as the working band.`;
+      ? `Base target ${formatCurrency(forecast.value)} with ${formatCurrency(lower ?? forecast.value)} to ${formatCurrency(upper ?? forecast.value)} as the working band. Reward-to-risk is ${rewardRisk.toFixed(2)}x from current spot. ${quality.detail}.`
+      : `Base target ${formatCurrency(forecast.value)} with ${formatCurrency(lower ?? forecast.value)} to ${formatCurrency(upper ?? forecast.value)} as the working band. ${quality.detail}.`;
 
     return {
       bias,
       lens,
       conviction,
+      quality,
       thesisTitle,
       thesisCopy,
       baseTarget: forecast.value,
@@ -407,7 +488,7 @@ export default function Chart({
       rewardRisk,
       rangeWidthPct,
     };
-  }, [activeHorizon, chartModel.activeForecast, chartModel.lastActual, displayAccuracy, displayConfidence]);
+  }, [activeHorizon, activeQuality, chartModel.activeForecast, chartModel.lastActual, displayAccuracy, displayConfidence]);
 
   const displaySpotPrice = Number.isFinite(Number(currentPrice)) && Number(currentPrice) > 0
     ? Number(currentPrice)
@@ -502,14 +583,14 @@ export default function Chart({
     actualSeries.setData(chartModel.actualPoints.map((point) => ({ time: point.time, value: point.value })));
 
     const historicalPredictionSeries = chart.addSeries(LineSeries, {
-      color: rgba(activeMeta.color, 0.72),
-      lineWidth: 1.75,
-      lineStyle: LineStyle.Dashed,
+      color: rgba(activeMeta.color, 0.92),
+      lineWidth: 2,
+      lineStyle: LineStyle.Solid,
       lastValueVisible: false,
       priceLineVisible: false,
       crosshairMarkerVisible: false,
     });
-    historicalPredictionSeries.setData(chartModel.historicalPredictionPoints);
+    historicalPredictionSeries.setData(chartModel.historicalPredictionSeriesData);
 
     const futureAreaSeries = chart.addSeries(AreaSeries, {
       lineColor: activeMeta.color,
@@ -686,6 +767,7 @@ export default function Chart({
             const forecast = chartModel.forecasts[horizon];
             const meta = HORIZON_META[horizon];
             const isActive = activeHorizon === horizon;
+            const qualityMeta = getQualityMeta(qualityByHorizon?.[meta.key]);
 
             return (
               <button
@@ -700,6 +782,9 @@ export default function Chart({
                 </span>
                 <span className={`tv-forecast-change ${forecast?.changePct >= 0 ? "is-up" : "is-down"}`}>
                   {forecast ? formatSignedPercent(forecast.changePct) : "--"}
+                </span>
+                <span className={`tv-forecast-quality tone-${qualityMeta.tone}`}>
+                  {qualityMeta.label}
                 </span>
               </button>
             );
@@ -761,6 +846,12 @@ export default function Chart({
             <div className="tv-investor-label">Conviction</div>
             <div className="tv-investor-value">{investorSummary.conviction.label}</div>
             <div className="tv-investor-subvalue">{investorSummary.conviction.detail}</div>
+          </div>
+
+          <div className={`tv-investor-card tone-${investorSummary.quality.tone}`}>
+            <div className="tv-investor-label">Quality Gate</div>
+            <div className="tv-investor-value">{investorSummary.quality.label}</div>
+            <div className="tv-investor-subvalue">{investorSummary.quality.detail}</div>
           </div>
         </div>
       )}

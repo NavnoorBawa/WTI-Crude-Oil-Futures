@@ -1,6 +1,6 @@
 # WTI Oil Price Prediction System
 
-A complete real-time WTI crude oil futures price prediction system using machine learning. **NO FALLBACK DATA - REAL VALUES ONLY**.
+A complete real-time WTI crude oil futures price prediction system using machine learning. Real market data only, with degraded horizons labeled explicitly instead of hidden behind placeholders.
 
 ## System Overview
 
@@ -14,9 +14,10 @@ This system provides:
 ## Key Features
 
 ### ✅ Real Data Only
-- No random values, no placeholders, no fallback data
+- No random values or placeholder market data
 - System fails fast with clear errors if real data unavailable
 - Automatic WTI futures contract detection and switching
+- Weak or unsupported horizons are labeled as low-quality instead of being blended into a fake headline score
 
 ### ✅ ML Predictions
 - Ensemble of tree and linear models (Random Forest, Extra Trees, Elastic Net, Ridge, XGBoost, LightGBM)
@@ -145,7 +146,7 @@ This repo now includes `render.yaml` so frontend/backend service wiring is defin
 
 ### Automatic Contract Switching
 - Detects current active WTI futures contract
-- Uses generic `CL=F` symbol for maximum reliability  
+- Uses the active contract for history when available and `CL=F` for quote discovery / continuous fallback  
 - Auto-switches 5 days before contract expiry
 - Handles contract transitions seamlessly
 
@@ -179,7 +180,7 @@ prediction intervals plus drift-aware confidence adjustment per horizon.
 - Real-time accuracy calculation
 - Historical performance metrics
 - Confidence scoring based on model consensus, interval width, and feature drift
-- No predictions accepted below quality thresholds
+- Horizon-specific quality gating and explicit qualification status
 - Horizon-level rolling metrics and interval coverage tracking
 - Walk-forward backtest script to compare ensemble vs naive/drift/seasonal baselines
 
@@ -192,11 +193,11 @@ System fails fast with clear messages for:
 - ML prediction failures  
 - Data quality issues
 
-### No Fallback Policy
+### No Placeholder Policy
 - No random data generation
-- No placeholder values
-- No approximations or estimates
-- Real data or system failure
+- No placeholder market data
+- Real API/model failures are surfaced explicitly
+- If a horizon falls back or fails quality checks, the API labels it as degraded or unqualified
 
 ## Data Storage
 
@@ -229,11 +230,11 @@ When contracts switch (e.g., CLU25 → CLV25), new files are created automatical
 ## Production Ready
 
 ✅ **Robust Error Handling** - Fails fast, clear error messages
-✅ **Real Data Only** - No shortcuts or approximations  
+✅ **Real Data Only** - No placeholder market data  
 ✅ **Scalable Architecture** - Modular, maintainable code
 ✅ **Persistent Storage** - No data loss on restarts
 ✅ **API Integration** - Ready for frontend consumption
 ✅ **Contract Management** - Automatic futures handling
 ✅ **ML Quality** - Ensemble methods, accuracy tracking
 
-This system is production-ready and designed to provide reliable, real-time WTI oil price predictions without any placeholder or fallback data.
+This system is designed to provide reliable, real-time WTI oil price predictions with explicit readiness, fallback, and horizon-quality signaling.

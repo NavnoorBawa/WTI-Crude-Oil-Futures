@@ -3,7 +3,7 @@ PREMIUM WTI Oil Price Prediction Engine - REAL DATA ONLY
 ========================================================
 Advanced ML-based WTI crude oil price prediction system using premium data sources.
 NO RANDOM DATA - REAL MULTI-SOURCE PREDICTIONS ONLY.
-Everything is built around this engine - no shortcuts, no fallbacks.
+Fallbacks and weak horizons are labeled explicitly so the API can distinguish them from qualified forecasts.
 """
 
 import pandas as pd
@@ -12,7 +12,7 @@ import yfinance as yf
 import requests
 import json
 import warnings
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Tuple, List, Union
 import time
@@ -23,6 +23,7 @@ import tempfile
 from pathlib import Path
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
@@ -35,7 +36,7 @@ from sklearn.linear_model import ElasticNet, Ridge
 from sklearn.preprocessing import RobustScaler
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import mean_squared_error, mean_absolute_error
-from sklearn.feature_selection import SelectKBest, f_regression
+from sklearn.feature_selection import SelectKBest, f_regression, mutual_info_regression
 from xgboost import XGBRegressor
 from lightgbm import LGBMRegressor
 
@@ -282,6 +283,14 @@ class PremiumWTIPredictor:
         self.target_interval_coverage = min(0.95, max(0.55, float(os.getenv('TARGET_INTERVAL_COVERAGE', '0.80'))))
         self.interval_coverage_gain = min(0.60, max(0.0, float(os.getenv('INTERVAL_COVERAGE_GAIN', '0.25'))))
         self.confidence_floor = max(5.0, min(50.0, float(os.getenv('CONFIDENCE_FLOOR_PERCENT', '10'))))
+        self.min_live_quality_samples = max(4, int(os.getenv('MIN_LIVE_QUALITY_SAMPLES', '10')))
+        self.min_live_direction_accuracy = float(os.getenv('MIN_LIVE_DIRECTION_ACCURACY_PERCENT', '50'))
+        self.min_backtest_direction_accuracy = float(os.getenv('MIN_BACKTEST_DIRECTION_ACCURACY_PERCENT', '45'))
+        self.min_backtest_samples = max(10, int(os.getenv('MIN_BACKTEST_SAMPLES', '30')))
+        self.min_quality_confidence = float(os.getenv('MIN_QUALITY_CONFIDENCE_PERCENT', '15'))
+        self.max_quality_drift_score = float(os.getenv('MAX_QUALITY_DRIFT_SCORE', '3.0'))
+        self.actual_quote_heartbeat_seconds = max(60, int(os.getenv('ACTUAL_QUOTE_HEARTBEAT_SECONDS', '300')))
+        self.market_timezone = ZoneInfo(os.getenv('MARKET_TIMEZONE', 'America/Chicago'))
         self.time_series_cv_splits = max(2, int(os.getenv('TIME_SERIES_CV_SPLITS', '2')))
         self.max_hourly_training_samples = max(240, int(os.getenv('MAX_HOURLY_TRAINING_SAMPLES', '720')))
         self.external_data_ttl_seconds = max(30, int(os.getenv('EXTERNAL_DATA_TTL_SECONDS', '180')))
@@ -294,6 +303,10 @@ class PremiumWTIPredictor:
         self._external_data_mem_cache = {'fetched_at': 0.0, 'data': None}
         self._market_data_mem_cache = {}
         self._last_contract_refresh_ts = 0.0
+        self._market_source_info = {
+            'daily_history': None,
+            'hourly_history': None,
+        }
         
         # Get current contract info
         self.contract_info = get_current_wti_contract()
@@ -456,7 +469,11 @@ class PremiumWTIPredictor:
         if self.actual_prices_file.exists():
             try:
                 with open(self.actual_prices_file, 'r') as f:
-                    return self._normalize_time_index_store(json.load(f))
+                    loaded = self._normalize_time_index_store(json.load(f))
+                    cleaned, changed = self._dedupe_actual_price_store(loaded)
+                    if changed:
+                        self._atomic_write_json(self.actual_prices_file, cleaned)
+                    return cleaned
             except Exception as e:
                 logger.warning(f"Could not load actual prices: {e}")
         return {}
@@ -491,6 +508,150 @@ class PremiumWTIPredictor:
             return payload
         return {}
 
+    def _sorted_time_items(self, payload):
+        """Return timestamp-keyed payload items in chronological order."""
+        return sorted(
+            (payload or {}).items(),
+            key=lambda kv: self._safe_parse_iso(kv[0]) or datetime.min,
+        )
+
+    def _record_market_source(self, series_kind, symbol, rows, from_cache=False):
+        """Persist the last market data provenance used for model/history fetches."""
+        self._market_source_info[series_kind] = {
+            'symbol': symbol,
+            'rows': int(rows),
+            'from_cache': bool(from_cache),
+            'recorded_at': datetime.now().isoformat(),
+        }
+
+    def _to_market_time(self, timestamp_value=None):
+        """Convert a timestamp to America/Chicago for CME session checks."""
+        try:
+            if timestamp_value is None:
+                return datetime.now(timezone.utc).astimezone(self.market_timezone)
+
+            ts = pd.Timestamp(timestamp_value)
+            if ts.tzinfo is None:
+                ts = ts.tz_localize('UTC')
+            else:
+                ts = ts.tz_convert('UTC')
+            return ts.tz_convert(self.market_timezone).to_pydatetime()
+        except Exception:
+            return datetime.now(timezone.utc).astimezone(self.market_timezone)
+
+    def _is_cme_cl_session_open(self, timestamp_value=None):
+        """WTI futures session check: Sun 17:00 CT to Fri 16:00 CT with daily 16:00-17:00 break."""
+        market_time = self._to_market_time(timestamp_value)
+        weekday = market_time.weekday()
+        minute_of_day = market_time.hour * 60 + market_time.minute
+
+        if weekday == 5:
+            return False
+        if weekday == 6:
+            return minute_of_day >= 17 * 60
+        if weekday == 4:
+            return minute_of_day < 16 * 60
+        return not (16 * 60 <= minute_of_day < 17 * 60)
+
+    def _prices_match(self, left_price, left_volume, right_price, right_volume):
+        """Compare two stored quotes conservatively to avoid duplicate actual points."""
+        left_numeric = pd.to_numeric(left_price, errors='coerce')
+        right_numeric = pd.to_numeric(right_price, errors='coerce')
+        if pd.isna(left_numeric) or pd.isna(right_numeric):
+            return False
+
+        left_volume_numeric = pd.to_numeric(left_volume, errors='coerce')
+        right_volume_numeric = pd.to_numeric(right_volume, errors='coerce')
+        left_volume_value = int(left_volume_numeric) if not pd.isna(left_volume_numeric) else 0
+        right_volume_value = int(right_volume_numeric) if not pd.isna(right_volume_numeric) else 0
+
+        return abs(float(left_numeric) - float(right_numeric)) < 1e-9 and left_volume_value == right_volume_value
+
+    def _dedupe_actual_price_store(self, payload):
+        """Collapse redundant stored quote heartbeats while preserving the latest closed-session print."""
+        changed = False
+        cleaned = {}
+        last_kept_timestamp = None
+        last_kept_data = None
+
+        for timestamp, raw_data in self._sorted_time_items(payload):
+            if not isinstance(raw_data, dict):
+                changed = True
+                continue
+
+            price_value = pd.to_numeric(raw_data.get('price'), errors='coerce')
+            if pd.isna(price_value) or float(price_value) <= 0:
+                changed = True
+                continue
+
+            volume_numeric = pd.to_numeric(raw_data.get('volume'), errors='coerce')
+            normalized_row = {
+                'timestamp': str(raw_data.get('timestamp') or timestamp),
+                'price': float(price_value),
+                'volume': int(volume_numeric) if not pd.isna(volume_numeric) and float(volume_numeric) > 0 else 0,
+            }
+
+            current_time = self._safe_parse_iso(timestamp)
+            if last_kept_timestamp and last_kept_data:
+                last_time = self._safe_parse_iso(last_kept_timestamp)
+                gap_seconds = None
+                if current_time is not None and last_time is not None:
+                    gap_seconds = (current_time - last_time).total_seconds()
+
+                if self._prices_match(
+                    last_kept_data.get('price'),
+                    last_kept_data.get('volume'),
+                    normalized_row.get('price'),
+                    normalized_row.get('volume'),
+                ):
+                    if not self._is_cme_cl_session_open(timestamp):
+                        cleaned.pop(last_kept_timestamp, None)
+                        cleaned[timestamp] = normalized_row
+                        last_kept_timestamp = timestamp
+                        last_kept_data = normalized_row
+                        changed = True
+                        continue
+
+                    if gap_seconds is not None and gap_seconds < self.actual_quote_heartbeat_seconds:
+                        changed = True
+                        continue
+
+            cleaned[timestamp] = normalized_row
+            last_kept_timestamp = timestamp
+            last_kept_data = normalized_row
+
+        return cleaned, changed
+
+    def _hybrid_feature_scores(self, X, y):
+        """Blend linear and nonlinear relevance so feature selection is less brittle than F-test only."""
+        X_arr = np.asarray(X, dtype=float)
+        y_arr = np.asarray(y, dtype=float)
+        feature_count = X_arr.shape[1] if X_arr.ndim == 2 else 0
+        if feature_count <= 0:
+            return np.array([]), np.array([])
+
+        score_blocks = []
+        try:
+            f_scores, _ = f_regression(X_arr, y_arr)
+            score_blocks.append(np.nan_to_num(f_scores, nan=0.0, posinf=0.0, neginf=0.0))
+        except Exception:
+            score_blocks.append(np.zeros(feature_count, dtype=float))
+
+        try:
+            mi_scores = mutual_info_regression(X_arr, y_arr, random_state=42)
+            score_blocks.append(np.nan_to_num(mi_scores, nan=0.0, posinf=0.0, neginf=0.0))
+        except Exception:
+            score_blocks.append(np.zeros(feature_count, dtype=float))
+
+        normalized_blocks = []
+        for block in score_blocks:
+            block = np.clip(np.asarray(block, dtype=float), 0.0, None)
+            max_value = float(np.max(block)) if block.size else 0.0
+            normalized_blocks.append(block / max_value if max_value > 0 else block)
+
+        blended_scores = np.mean(normalized_blocks, axis=0) if normalized_blocks else np.zeros(feature_count, dtype=float)
+        return blended_scores, np.ones(feature_count, dtype=float)
+
     def _atomic_write_json(self, file_path: Path, payload):
         """Persist JSON atomically to avoid partial writes on crashes/restarts."""
         temp_path = None
@@ -523,6 +684,8 @@ class PremiumWTIPredictor:
     def _save_actual_prices(self):
         """Save actual prices to file"""
         try:
+            cleaned, _ = self._dedupe_actual_price_store(self.stored_actual_prices)
+            self.stored_actual_prices = cleaned
             self._atomic_write_json(self.actual_prices_file, self.stored_actual_prices)
         except Exception as e:
             logger.error(f"Could not save actual prices: {e}")
@@ -682,6 +845,77 @@ class PremiumWTIPredictor:
         confidence = base_pct + direction_adjustment - uncertainty_penalty - drift_penalty
         return float(np.clip(confidence, self.confidence_floor, 95.0))
 
+    def _assess_horizon_quality(self, horizon, confidence_pct, drift_score, backtest_metrics):
+        """Classify each horizon so the API can distinguish real-but-weak forecasts from qualified ones."""
+        live_metrics = self.accuracy_metrics.get(horizon, {}) if isinstance(self.accuracy_metrics, dict) else {}
+        live_samples = int(live_metrics.get('total_predictions', 0) or 0) if isinstance(live_metrics, dict) else 0
+        live_direction_accuracy = float(live_metrics.get('direction_accuracy', 0.0) or 0.0) if isinstance(live_metrics, dict) else 0.0
+
+        backtest_samples = int(backtest_metrics.get('samples', 0) or 0) if isinstance(backtest_metrics, dict) else 0
+        backtest_direction_accuracy = float(backtest_metrics.get('direction_accuracy', 0.0) or 0.0) if isinstance(backtest_metrics, dict) else 0.0
+
+        evaluation_source = 'none'
+        observed_accuracy = None
+        observed_samples = 0
+        min_accuracy_threshold = self.min_backtest_direction_accuracy
+
+        if live_samples >= self.min_live_quality_samples:
+            evaluation_source = 'live'
+            observed_accuracy = live_direction_accuracy
+            observed_samples = live_samples
+            min_accuracy_threshold = self.min_live_direction_accuracy
+        elif backtest_samples >= self.min_backtest_samples:
+            evaluation_source = 'backtest'
+            observed_accuracy = backtest_direction_accuracy
+            observed_samples = backtest_samples
+            min_accuracy_threshold = self.min_backtest_direction_accuracy
+        elif live_samples > 0:
+            evaluation_source = 'live_sparse'
+            observed_accuracy = live_direction_accuracy
+            observed_samples = live_samples
+            min_accuracy_threshold = self.min_live_direction_accuracy
+        elif backtest_samples > 0:
+            evaluation_source = 'backtest_sparse'
+            observed_accuracy = backtest_direction_accuracy
+            observed_samples = backtest_samples
+            min_accuracy_threshold = self.min_backtest_direction_accuracy
+
+        reasons = []
+        if observed_accuracy is None:
+            reasons.append('no_evaluation_evidence')
+        elif observed_accuracy < min_accuracy_threshold:
+            reasons.append('low_direction_accuracy')
+
+        if evaluation_source.endswith('_sparse'):
+            reasons.append('limited_samples')
+        if float(confidence_pct or 0.0) < self.min_quality_confidence:
+            reasons.append('low_confidence')
+        if float(drift_score or 0.0) > self.max_quality_drift_score:
+            reasons.append('high_feature_drift')
+
+        if not reasons:
+            status = 'qualified'
+        elif all(reason in {'limited_samples', 'no_evaluation_evidence'} for reason in reasons):
+            status = 'watch'
+        else:
+            status = 'unqualified'
+
+        return {
+            'status': status,
+            'qualified': status == 'qualified',
+            'evaluation_source': evaluation_source,
+            'observed_direction_accuracy': observed_accuracy,
+            'observed_samples': observed_samples,
+            'min_required_accuracy': float(min_accuracy_threshold),
+            'live_direction_accuracy': live_direction_accuracy,
+            'live_samples': live_samples,
+            'backtest_direction_accuracy': backtest_direction_accuracy,
+            'backtest_samples': backtest_samples,
+            'confidence': float(confidence_pct or 0.0),
+            'drift_score': float(drift_score or 0.0),
+            'reasons': reasons,
+        }
+
     def _build_training_signature(self, features_df, target_column):
         """Create a compact fingerprint for cache-safe model reuse."""
         tail_values = []
@@ -809,6 +1043,7 @@ class PremiumWTIPredictor:
                 if cached and (now_ts - cached['fetched_at']) <= self.market_data_ttl_seconds:
                     cached_df = cached.get('data')
                     if cached_df is not None and not cached_df.empty:
+                        self._record_market_source('daily_history', symbol, len(cached_df), from_cache=True)
                         logger.info(f"Using cached WTI historical data for {symbol} ({len(cached_df)} rows)")
                         return cached_df.copy()
 
@@ -822,6 +1057,7 @@ class PremiumWTIPredictor:
                         'fetched_at': now_ts,
                         'data': historical_data.copy()
                     }
+                    self._record_market_source('daily_history', symbol, len(historical_data), from_cache=False)
                     logger.info(f"Loaded {len(historical_data)} WTI data points from {symbol}")
                     return historical_data
                 except Exception as symbol_error:
@@ -844,6 +1080,7 @@ class PremiumWTIPredictor:
                 if cached and (now_ts - cached['fetched_at']) <= self.market_data_ttl_seconds:
                     cached_df = cached.get('data')
                     if cached_df is not None and not cached_df.empty:
+                        self._record_market_source('hourly_history', symbol, len(cached_df), from_cache=True)
                         logger.info(f"Using cached WTI hourly data for {symbol} ({len(cached_df)} rows)")
                         return cached_df.copy()
 
@@ -859,6 +1096,7 @@ class PremiumWTIPredictor:
                         'fetched_at': now_ts,
                         'data': hourly_data.copy()
                     }
+                    self._record_market_source('hourly_history', symbol, len(hourly_data), from_cache=False)
                     logger.info(f"Loaded {len(hourly_data)} WTI hourly data points from {symbol}")
                     return hourly_data
                 except Exception as symbol_error:
@@ -1396,11 +1634,26 @@ class PremiumWTIPredictor:
                     'bearish', 'crash', 'slump', 'tumble', 'sink', 'collapse', 'slide',
                     'oversupply', 'glut', 'recession', 'demand drop', 'production increase'
                 ]
+                uncertainty_words = [
+                    'uncertain', 'uncertainty', 'risk', 'volatile', 'volatility', 'war',
+                    'sanction', 'tariff', 'disruption', 'tension', 'conflict', 'shock'
+                ]
+                forward_words = [
+                    'outlook', 'forecast', 'expected', 'expects', 'guidance', 'next week',
+                    'next month', 'ahead', 'future', 'projection', 'scenario', 'target'
+                ]
+                intensity_words = [
+                    'sharply', 'significantly', 'strongly', 'materially', 'dramatically',
+                    'severely', 'massively', 'rapidly', 'heavily', 'aggressively'
+                ]
                 
                 sentiment_scores = []
                 recency_weights = []
                 bullish_count = 0
                 bearish_count = 0
+                uncertainty_scores = []
+                forward_scores = []
+                intensity_scores = []
                 
                 for i, article in enumerate(articles[:20]):
                     title = article.get('title', '').lower()
@@ -1423,12 +1676,18 @@ class PremiumWTIPredictor:
                         bearish_count += 1
                     
                     sentiment_scores.append(score)
+                    uncertainty_scores.append(sum(1 for word in uncertainty_words if word in text))
+                    forward_scores.append(sum(1 for word in forward_words if word in text))
+                    intensity_scores.append(sum(1 for word in intensity_words if word in text))
                     # Recency weighting: recent articles (first 5) get 2x weight
                     recency_weights.append(2.0 if i < 5 else 1.0)
                 
                 if sentiment_scores:
                     # Weighted average with recency
                     weighted_sentiment = np.average(sentiment_scores, weights=recency_weights)
+                    uncertainty_score = float(np.average(uncertainty_scores, weights=recency_weights))
+                    forwardness_score = float(np.average(forward_scores, weights=recency_weights))
+                    intensity_score = float(np.average(intensity_scores, weights=recency_weights))
                     
                     # Calculate sentiment momentum (newest articles vs older articles)
                     # articles list is sorted newest-first, so [:half] = most recent
@@ -1451,6 +1710,9 @@ class PremiumWTIPredictor:
                         'sentiment_score': weighted_sentiment,
                         'sentiment_momentum': sentiment_momentum,  # NEW: sentiment direction
                         'bullish_ratio': bullish_ratio,  # NEW: ratio of bullish articles
+                        'uncertainty_score': uncertainty_score,
+                        'forwardness_score': forwardness_score,
+                        'intensity_score': intensity_score,
                         'news_volume': len(articles),
                         'source': 'NewsAPI',
                         'timestamp': datetime.now().isoformat()
@@ -1473,6 +1735,9 @@ class PremiumWTIPredictor:
                 'sentiment_score': 0,    # 0 is raw neutral score
                 'sentiment_momentum': 0,
                 'bullish_ratio': 0.5,    # Neutral ratio
+                'uncertainty_score': 0,
+                'forwardness_score': 0,
+                'intensity_score': 0,
                 'news_volume': 0,
                 'source': 'error',
                 'timestamp': datetime.now().isoformat()
@@ -1672,7 +1937,7 @@ class PremiumWTIPredictor:
             'fred': ['data_quality', 'dollar_strength', 'dollar_trend', 'economic_stability'],
             'alpha_vantage': ['data_quality', 'volatility', 'trend_strength', 'momentum_score'],
             'finnhub': ['data_quality', 'sector_strength', 'sector_momentum'],
-            'news': ['data_quality', 'market_buzz', 'sentiment_score', 'sentiment_momentum', 'bullish_ratio', 'news_volume'],
+            'news': ['data_quality', 'market_buzz', 'sentiment_score', 'sentiment_momentum', 'bullish_ratio', 'uncertainty_score', 'forwardness_score', 'intensity_score', 'news_volume'],
             'usda': ['data_quality', 'agricultural_impact', 'corn_price_level', 'biofuel_demand'],
             'noaa': ['data_quality', 'weather_impact', 'temperature_anomaly', 'seasonal_demand']
         }
@@ -1751,7 +2016,7 @@ class PremiumWTIPredictor:
                 k_value = n_features - 1
 
         # Fit global preprocessing once for final model training and production inference.
-        selector = SelectKBest(score_func=f_regression, k=k_value)
+        selector = SelectKBest(score_func=self._hybrid_feature_scores, k=k_value)
         X_selected = selector.fit_transform(X, y)
         selected_features = X.columns[selector.get_support()].tolist()
 
@@ -1830,7 +2095,7 @@ class PremiumWTIPredictor:
                         y_val = y_values[val_idx]
 
                         # Fit preprocessing only on the fold train set to avoid leakage.
-                        fold_selector = SelectKBest(score_func=f_regression, k=k_value)
+                        fold_selector = SelectKBest(score_func=self._hybrid_feature_scores, k=k_value)
                         X_train_selected = fold_selector.fit_transform(X_train_raw, y_train)
                         X_val_selected = fold_selector.transform(X_val_raw)
 
@@ -2049,6 +2314,9 @@ class PremiumWTIPredictor:
             'news_sentiment_score': 0,
             'news_sentiment_momentum': 0,
             'news_bullish_ratio': 0.5,
+            'news_uncertainty_score': 0,
+            'news_forwardness_score': 0,
+            'news_intensity_score': 0,
             'news_news_volume': 10,
             'usda_data_quality': 0,
             'usda_agricultural_impact': 50,
@@ -2672,6 +2940,19 @@ class PremiumWTIPredictor:
                         horizon_drift_scores[horizon],
                         horizon_backtests.get(horizon, {}),
                     )
+            horizon_quality = {
+                horizon: self._assess_horizon_quality(
+                    horizon,
+                    horizon_confidence.get(horizon, 0.0),
+                    horizon_drift_scores.get(horizon, 0.0),
+                    horizon_backtests.get(horizon, {}),
+                )
+                for horizon in ['1h', '1d', '1w']
+            }
+            quality_qualified_horizons = [
+                horizon for horizon, quality in horizon_quality.items()
+                if isinstance(quality, dict) and quality.get('qualified')
+            ]
             timings['daily_pipeline_seconds'] = float(time.perf_counter() - daily_pipeline_start)
             
             
@@ -2710,11 +2991,19 @@ class PremiumWTIPredictor:
                 'is_real_prediction': not has_critical_fallback,
                 'is_full_real_prediction': not has_any_fallback,
                 'fallbacks': horizon_fallbacks,
+                'horizon_quality': horizon_quality,
+                'quality_qualified_horizons': quality_qualified_horizons,
                 'external_data_sources': len(external_data),
                 'premium_features': True,
                 'pipeline_timings': timings,
                 'cache_stats': cache_stats,
                 'horizon_backtests': horizon_backtests,
+                'market_data_sources': copy.deepcopy(self._market_source_info),
+                'contract_metadata': {
+                    'contract_symbol': self.contract_symbol,
+                    'quote_symbol': self.yfinance_symbol,
+                    'history_symbol': self.history_symbol,
+                },
             }
             
             # Store in main predictions file
@@ -2762,15 +3051,37 @@ class PremiumWTIPredictor:
             logger.error(f"Premium prediction engine failed: {e}")
             raise Exception(f"Cannot generate real predictions: {e}")
     
-    def store_actual_price(self, price, volume=None):
-        """Store actual price with timestamp and optional observed volume."""
+    def store_actual_price(self, price, volume=None, force=False):
+        """Store actual price with dedupe/session guards so closed-market heartbeats do not pollute evaluation."""
         timestamp = datetime.now().isoformat()
+        new_time = self._safe_parse_iso(timestamp)
+        normalized_volume = int(volume) if volume is not None else 0
+
+        last_items = self._sorted_time_items(self.stored_actual_prices)
+        if last_items:
+            last_timestamp, last_row = last_items[-1]
+            last_time = self._safe_parse_iso(last_timestamp)
+            last_price = last_row.get('price') if isinstance(last_row, dict) else None
+            last_volume = last_row.get('volume') if isinstance(last_row, dict) else 0
+            same_quote = self._prices_match(last_price, last_volume, price, normalized_volume)
+
+            gap_seconds = None
+            if new_time is not None and last_time is not None:
+                gap_seconds = (new_time - last_time).total_seconds()
+
+            if not force and same_quote:
+                if not self._is_cme_cl_session_open():
+                    return False
+                if gap_seconds is not None and gap_seconds < self.actual_quote_heartbeat_seconds:
+                    return False
+
         self.stored_actual_prices[timestamp] = {
             'timestamp': timestamp,
             'price': float(price),
-            'volume': int(volume) if volume is not None else None,
+            'volume': normalized_volume,
         }
         self._save_actual_prices()
+        return True
     
     def calculate_prediction_accuracy(self):
         """Calculate prediction accuracy from stored data"""
@@ -3017,11 +3328,15 @@ def get_multi_horizon_wti_predictions():
             'is_real_prediction': result['is_real_prediction'],
             'is_full_real_prediction': result.get('is_full_real_prediction', result['is_real_prediction']),
             'fallbacks': result.get('fallbacks', {}),
+            'horizon_quality': result.get('horizon_quality', {}),
+            'quality_qualified_horizons': result.get('quality_qualified_horizons', []),
             'premium_features': result['premium_features'],
             'model_count': result['model_count'],
             'external_data_sources': result['external_data_sources'],
             'pipeline_timings': result.get('pipeline_timings', {}),
             'cache_stats': result.get('cache_stats', {}),
+            'market_data_sources': result.get('market_data_sources', {}),
+            'contract_metadata': result.get('contract_metadata', {}),
             'timestamp': result['timestamp']
         }
         
@@ -3044,11 +3359,12 @@ def store_actual_price_update(price, volume=None):
 def get_historical_data(limit=50):
     """Get historical stored data for chart display"""
     predictor = get_premium_predictor()
+    backend_timezone = datetime.now().astimezone().tzinfo or timezone.utc
 
     # Keep enough points for smooth charting even when callers request fewer.
     max_points = max(int(limit or 0), 720)
 
-    def _timestamp_to_epoch_seconds(timestamp_value):
+    def _normalized_chart_datetime(timestamp_value):
         try:
             parsed = pd.Timestamp(timestamp_value)
         except Exception:
@@ -3059,19 +3375,48 @@ def get_historical_data(limit=50):
 
         try:
             if parsed.tzinfo is not None:
-                parsed = parsed.tz_convert(None)
+                parsed = parsed.tz_convert('UTC').tz_localize(None)
+            else:
+                parsed = parsed.tz_localize(backend_timezone).tz_convert('UTC').tz_localize(None)
         except Exception:
             pass
 
         try:
-            parsed = parsed.tz_localize(None)
+            return parsed.to_pydatetime()
+        except Exception:
+            return None
+
+    def _normalize_chart_timestamp(timestamp_value):
+        try:
+            parsed = pd.Timestamp(timestamp_value)
+        except Exception:
+            parsed = predictor._safe_parse_iso(str(timestamp_value))
+            if parsed is None:
+                return None
+            parsed = pd.Timestamp(parsed)
+
+        try:
+            if parsed.tzinfo is None:
+                parsed = parsed.tz_localize(backend_timezone)
+            else:
+                parsed = parsed.tz_convert('UTC')
+            return parsed.tz_convert('UTC').isoformat().replace('+00:00', 'Z')
         except Exception:
             pass
 
-        return int(parsed.timestamp())
+        try:
+            return parsed.to_pydatetime().isoformat()
+        except Exception:
+            return None
 
-    def _epoch_to_iso(epoch_seconds):
-        return datetime.fromtimestamp(int(epoch_seconds)).isoformat()
+    def _datetime_to_chart_timestamp(datetime_value):
+        if datetime_value is None:
+            return None
+        if getattr(datetime_value, 'tzinfo', None) is None:
+            normalized = datetime_value.replace(tzinfo=timezone.utc)
+        else:
+            normalized = datetime_value.astimezone(timezone.utc)
+        return normalized.isoformat().replace('+00:00', 'Z')
 
     actual_point_map = {}
 
@@ -3080,13 +3425,13 @@ def get_historical_data(limit=50):
         if pd.isna(price_numeric) or float(price_numeric) <= 0:
             return
 
-        epoch_seconds = _timestamp_to_epoch_seconds(timestamp_value)
-        if epoch_seconds is None:
+        normalized_timestamp = _normalize_chart_timestamp(timestamp_value)
+        if normalized_timestamp is None:
             return
 
         volume_numeric = pd.to_numeric(volume_value, errors='coerce')
-        actual_point_map[epoch_seconds] = {
-            'timestamp': _epoch_to_iso(epoch_seconds),
+        actual_point_map[normalized_timestamp] = {
+            'timestamp': normalized_timestamp,
             'price': float(price_numeric),
             'volume': int(volume_numeric) if not pd.isna(volume_numeric) and float(volume_numeric) > 0 else 0,
         }
@@ -3107,14 +3452,14 @@ def get_historical_data(limit=50):
     intraday_start = None
     if intraday_history is not None and not intraday_history.empty:
         try:
-            intraday_start = _timestamp_to_epoch_seconds(intraday_history.index[0])
+            intraday_start = _normalized_chart_datetime(intraday_history.index[0])
         except Exception:
             intraday_start = None
 
     if broad_history is not None and not broad_history.empty:
         for idx, row in broad_history.iterrows():
-            epoch_seconds = _timestamp_to_epoch_seconds(idx)
-            if intraday_start is not None and epoch_seconds is not None and epoch_seconds >= intraday_start:
+            point_time = _normalized_chart_datetime(idx)
+            if intraday_start is not None and point_time is not None and point_time >= intraday_start:
                 continue
             _store_actual_point(idx, row.get('Close'), row.get('Volume'))
 
@@ -3123,12 +3468,18 @@ def get_historical_data(limit=50):
             _store_actual_point(idx, row.get('Close'), row.get('Volume'))
 
     # Overlay the freshest stored live points so the chart reaches the current session.
-    sorted_prices = sorted(predictor.stored_actual_prices.items(), key=lambda x: x[0])
+    sorted_prices = sorted(
+        predictor.stored_actual_prices.items(),
+        key=lambda item: _normalized_chart_datetime(item[0]) or datetime.min,
+    )
     for timestamp, data in sorted_prices:
         if isinstance(data, dict):
             _store_actual_point(timestamp, data.get('price'), data.get('volume'))
 
-    sorted_actual_points = sorted(actual_point_map.values(), key=lambda item: item['timestamp'])
+    sorted_actual_points = sorted(
+        actual_point_map.values(),
+        key=lambda item: _normalized_chart_datetime(item.get('timestamp')) or datetime.min,
+    )
     if len(sorted_actual_points) > max_points:
         step = max(1, len(sorted_actual_points) // max_points)
         sampled_points = sorted_actual_points[::step]
@@ -3139,16 +3490,21 @@ def get_historical_data(limit=50):
     actual_values = [round(point['price'], 4) for point in sorted_actual_points]
     actual_timestamps = [point['timestamp'] for point in sorted_actual_points]
     actual_volumes = [point['volume'] for point in sorted_actual_points]
+    last_actual_time = _normalized_chart_datetime(actual_timestamps[-1]) if actual_timestamps else None
 
     # Get stored predictions sorted by timestamp
-    sorted_predictions = sorted(predictor.stored_predictions.items(), key=lambda x: x[0])
+    sorted_predictions = sorted(
+        predictor.stored_predictions.items(),
+        key=lambda item: _normalized_chart_datetime(item[0]) or datetime.min,
+    )
     prediction_points = max(int(limit or 0), 180)
     recent_predictions = sorted_predictions[-prediction_points:]
+    horizon_offsets = {'1h': timedelta(hours=1), '1d': timedelta(days=1), '1w': timedelta(weeks=1)}
 
     historical_by_horizon = {
-        '1h': {'values': [], 'timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
-        '1d': {'values': [], 'timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
-        '1w': {'values': [], 'timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
+        '1h': {'values': [], 'timestamps': [], 'issue_timestamps': [], 'target_timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
+        '1d': {'values': [], 'timestamps': [], 'issue_timestamps': [], 'target_timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
+        '1w': {'values': [], 'timestamps': [], 'issue_timestamps': [], 'target_timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
     }
 
     for timestamp, pred_data in recent_predictions:
@@ -3157,15 +3513,26 @@ def get_historical_data(limit=50):
 
         prediction_intervals = pred_data.get('prediction_intervals', {}) if isinstance(pred_data, dict) else {}
         current_price = pred_data.get('current_price')
+        issue_time = _normalized_chart_datetime(timestamp)
 
         for horizon in ['1h', '1d', '1w']:
             pred_value = pred_data.get('predictions', {}).get(horizon)
             if pred_value is None:
                 continue
 
+            target_time = None
+            if issue_time is not None:
+                target_time = issue_time + horizon_offsets[horizon]
+            if target_time is not None and last_actual_time is not None and target_time > last_actual_time:
+                continue
+
             horizon_interval = prediction_intervals.get(horizon, {}) if isinstance(prediction_intervals, dict) else {}
+            normalized_issue_timestamp = _datetime_to_chart_timestamp(issue_time) if issue_time is not None else (_normalize_chart_timestamp(timestamp) or timestamp)
+            normalized_target_timestamp = _datetime_to_chart_timestamp(target_time) if target_time is not None else normalized_issue_timestamp
             historical_by_horizon[horizon]['values'].append(float(pred_value))
-            historical_by_horizon[horizon]['timestamps'].append(timestamp)
+            historical_by_horizon[horizon]['timestamps'].append(normalized_target_timestamp)
+            historical_by_horizon[horizon]['issue_timestamps'].append(normalized_issue_timestamp)
+            historical_by_horizon[horizon]['target_timestamps'].append(normalized_target_timestamp)
             historical_by_horizon[horizon]['upper_bound'].append(horizon_interval.get('upper'))
             historical_by_horizon[horizon]['lower_bound'].append(horizon_interval.get('lower'))
             historical_by_horizon[horizon]['current_prices'].append(float(current_price) if current_price is not None else None)
@@ -3185,21 +3552,21 @@ def get_historical_data(limit=50):
         if isinstance(latest_pred, dict):
             preds = latest_pred.get('predictions', {}) or {}
             intervals = latest_pred.get('prediction_intervals', {}) or {}
-            base_time = predictor._safe_parse_iso(latest_ts) or datetime.now()
-            horizon_offsets = {'1h': timedelta(hours=1), '1d': timedelta(days=1), '1w': timedelta(weeks=1)}
+            base_time = _normalized_chart_datetime(latest_ts) or datetime.now(timezone.utc).replace(tzinfo=None)
             for horizon in ['1h', '1d', '1w']:
                 pred_val = preds.get(horizon)
                 if pred_val is None:
                     continue
                 horizon_time = base_time + horizon_offsets[horizon]
                 horizon_interval = intervals.get(horizon, {}) if isinstance(intervals, dict) else {}
+                normalized_horizon_timestamp = _datetime_to_chart_timestamp(horizon_time) or horizon_time.isoformat()
                 future_values.append(float(pred_val))
-                future_timestamps.append(horizon_time.isoformat())
+                future_timestamps.append(normalized_horizon_timestamp)
                 future_upper.append(horizon_interval.get('upper'))
                 future_lower.append(horizon_interval.get('lower'))
                 future_by_horizon[horizon] = {
                     'value': float(pred_val),
-                    'timestamp': horizon_time.isoformat(),
+                    'timestamp': normalized_horizon_timestamp,
                     'upper': horizon_interval.get('upper'),
                     'lower': horizon_interval.get('lower'),
                 }

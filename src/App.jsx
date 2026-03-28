@@ -266,18 +266,24 @@ function App() {
 
   // Main interface - USE REAL API DATA ONLY
   const currentPrice = data?.current_price || 0;
-  const currentPrediction = data?.multi_horizon_predictions?.predictions?.['1d'] || 0;  // Use 1D ML prediction
   const priceChange = data?.price_change || 0;
   const priceChangePercent = data?.price_change_percent || 0;
   const contractInfo = data?.contract || { symbol: 'CLV25', description: 'WTI CRUDE OIL FUTURES' };
+  const headlineMetrics = data?.performance_metrics?.headline || {};
+  const headlineHorizonKey = headlineMetrics?.horizon || '1d';
+  const headlineHorizonLabel = String(headlineHorizonKey || '1d').toUpperCase();
+  const currentPrediction = Number(
+    headlineMetrics?.prediction ?? data?.multi_horizon_predictions?.predictions?.[headlineHorizonKey] ?? 0
+  ) || 0;
 
   const totalEvaluatedPredictions = Number(data?.performance_metrics?.total_predictions || 0);
   const liveDirectionAccuracy = Number(data?.performance_metrics?.direction_accuracy || 0);
-  const displayDirectionAccuracyRaw = data?.performance_metrics?.display_direction_accuracy;
-  const displayAccuracySource = data?.performance_metrics?.display_accuracy_source || 'unavailable';
+  const displayDirectionAccuracyRaw = headlineMetrics?.display_direction_accuracy ?? data?.performance_metrics?.display_direction_accuracy;
+  const displayAccuracySource = headlineMetrics?.display_accuracy_source || data?.performance_metrics?.display_accuracy_source || 'unavailable';
   const minLiveSamples = Number(data?.performance_metrics?.min_live_accuracy_samples || 18);
-  const modelBacktestDirection1d = data?.multi_horizon_predictions?.horizon_backtests?.['1d']?.direction_accuracy;
-  const modelConfidence1d = data?.multi_horizon_predictions?.horizon_confidence?.['1d'];
+  const modelConfidence = headlineMetrics?.confidence;
+  const headlineQualityStatus = String(headlineMetrics?.quality_status || data?.enterprise_metrics?.quality_status || 'UNKNOWN').toUpperCase();
+  const headlineQualityReasons = Array.isArray(headlineMetrics?.quality_reasons) ? headlineMetrics.quality_reasons : [];
   const isRealPrediction = Boolean(data?.multi_horizon_predictions?.is_real_prediction);
   const isFullRealPrediction = Boolean(data?.multi_horizon_predictions?.is_full_real_prediction);
   const fallbackHorizons = Object.entries(data?.multi_horizon_predictions?.fallbacks || {})
@@ -286,23 +292,21 @@ function App() {
 
   const effectiveAccuracy = (displayDirectionAccuracyRaw !== undefined && displayDirectionAccuracyRaw !== null)
     ? Number(displayDirectionAccuracyRaw)
-    : (totalEvaluatedPredictions > 0
-      ? liveDirectionAccuracy
-      : (modelBacktestDirection1d !== undefined && modelBacktestDirection1d !== null
-        ? Number(modelBacktestDirection1d)
-        : null));
+    : (totalEvaluatedPredictions > 0 ? liveDirectionAccuracy : null);
 
   const displayAccuracy = !Number.isFinite(effectiveAccuracy)
     ? '--'
-    : `${Math.round(effectiveAccuracy)}${displayAccuracySource === 'backtest' ? '%*' : (displayAccuracySource === 'blended' ? '%~' : '%')}`;
+    : `${Math.round(effectiveAccuracy)}${displayAccuracySource === 'backtest' ? '%*' : '%'}`;
 
-  const accuracyClassName = (displayAccuracySource === 'live' || displayAccuracySource === 'blended')
-    ? 'text-bloomberg-positive'
-    : 'text-bloomberg-blue';
+  const accuracyClassName = headlineQualityStatus === 'UNQUALIFIED'
+    ? 'text-bloomberg-negative'
+    : ((displayAccuracySource === 'live' || displayAccuracySource === 'live_sparse')
+      ? 'text-bloomberg-positive'
+      : 'text-bloomberg-blue');
 
   const fallbackConfidence = data?.performance_metrics?.confidence;
-  const displayConfidence = Number.isFinite(modelConfidence1d)
-    ? `${Math.round(modelConfidence1d)}%`
+  const displayConfidence = Number.isFinite(modelConfidence)
+    ? `${Math.round(modelConfidence)}%`
     : (fallbackConfidence !== undefined && fallbackConfidence !== null
       ? `${Math.round(fallbackConfidence)}%`
       : (data?.confidence || '--'));
@@ -364,7 +368,7 @@ function App() {
               <th className="text-sm">CHG</th>
               <th className="text-sm">%CHG</th>
               <th className="text-sm">VOL</th>
-              <th className="text-sm">ML PRED</th>
+              <th className="text-sm">ML PRED {headlineHorizonLabel}</th>
               <th className="text-sm">ACCURACY</th>
               <th className="text-sm">CONFIDENCE</th>
             </tr>
@@ -431,13 +435,23 @@ function App() {
                  isRealPrediction ? 'PARTIAL ML' :
                  'NO REAL DATA'}
               </span>
+              <span className={`font-medium ${
+                headlineQualityStatus === 'QUALIFIED' ? 'text-bloomberg-positive' :
+                headlineQualityStatus === 'WATCH' ? 'text-bloomberg-alert' :
+                'text-bloomberg-negative'
+              }`}>
+                QUAL {headlineHorizonLabel}: {headlineQualityStatus}
+              </span>
               {(displayAccuracySource !== 'live') && isRealPrediction && (
                 <span className="text-bloomberg-blue font-medium">
-                  {displayAccuracySource === 'blended'
-                    ? `EVAL: BLENDED (${totalEvaluatedPredictions}/${minLiveSamples})`
-                    : (displayAccuracySource === 'backtest'
-                      ? 'EVAL: BACKTEST'
-                      : `EVAL: WARMUP (${totalEvaluatedPredictions}/${minLiveSamples})`)}
+                  {displayAccuracySource === 'backtest'
+                    ? `EVAL: BACKTEST ${headlineHorizonLabel}`
+                    : `EVAL: WARMUP ${headlineHorizonLabel} (${totalEvaluatedPredictions}/${minLiveSamples})`}
+                </span>
+              )}
+              {headlineQualityReasons.length > 0 && (
+                <span className="text-gray-400 font-medium">
+                  {headlineQualityReasons.join(', ').replaceAll('_', ' ')}
                 </span>
               )}
               {fallbackHorizons.length > 0 && (

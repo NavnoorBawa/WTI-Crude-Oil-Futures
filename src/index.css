@@ -1030,6 +1030,25 @@ canvas {
   color: #ef5350;
 }
 
+.tv-forecast-quality {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tv-forecast-quality.tone-up {
+  color: #8ff2c7;
+}
+
+.tv-forecast-quality.tone-neutral {
+  color: #f3c969;
+}
+
+.tv-forecast-quality.tone-down {
+  color: #ff8f8f;
+}
+
 .tv-chart-stage {
   position: relative;
   flex: 1 1 360px;

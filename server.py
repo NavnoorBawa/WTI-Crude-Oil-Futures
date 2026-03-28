@@ -62,6 +62,7 @@ system_state = {
 EAGER_ML_WARMUP = os.getenv('EAGER_ML_WARMUP', 'false').lower() == 'true'
 API_STARTUP_RETRY_SECONDS = max(2, int(os.getenv('API_STARTUP_RETRY_SECONDS', '5')))
 STARTUP_RETRY_COOLDOWN_SECONDS = max(5, int(os.getenv('STARTUP_RETRY_COOLDOWN_SECONDS', '20')))
+PRIMARY_DISPLAY_HORIZON = os.getenv('PRIMARY_DISPLAY_HORIZON', '1d').lower()
 
 
 def json_response(payload, status_code=200, retry_after=None):
@@ -101,6 +102,61 @@ def startup_retry_seconds():
     if _startup_next_retry_at and not _startup_ready.is_set():
         return max(1, int(round(_startup_next_retry_at - time.time())))
     return API_STARTUP_RETRY_SECONDS
+
+
+def _ordered_display_horizons(preferred_horizon):
+    ordered = []
+    for horizon in [preferred_horizon, '1w', '1d', '1h']:
+        if horizon in {'1h', '1d', '1w'} and horizon not in ordered:
+            ordered.append(horizon)
+    return ordered
+
+
+def _build_horizon_metrics(accuracy_metrics, horizon_backtests, horizon_confidence, horizon_quality, min_live_accuracy_samples):
+    by_horizon = {}
+    for horizon in ['1h', '1d', '1w']:
+        live_metrics = accuracy_metrics.get(horizon, {}) if isinstance(accuracy_metrics, dict) else {}
+        backtest_metrics = horizon_backtests.get(horizon, {}) if isinstance(horizon_backtests, dict) else {}
+        quality_metrics = horizon_quality.get(horizon, {}) if isinstance(horizon_quality, dict) else {}
+
+        live_total = int(live_metrics.get('total_predictions', 0) or 0)
+        live_direction_accuracy = float(live_metrics.get('direction_accuracy', 0.0) or 0.0)
+        backtest_direction_accuracy = backtest_metrics.get('direction_accuracy')
+        backtest_samples = int(backtest_metrics.get('samples', 0) or 0) if isinstance(backtest_metrics, dict) else 0
+        confidence_value = float(horizon_confidence.get(horizon, 0.0) or 0.0) if isinstance(horizon_confidence, dict) else 0.0
+
+        display_accuracy = None
+        display_accuracy_source = 'unavailable'
+        if live_total >= min_live_accuracy_samples:
+            display_accuracy = live_direction_accuracy
+            display_accuracy_source = 'live'
+        elif live_total > 0:
+            display_accuracy = live_direction_accuracy
+            display_accuracy_source = 'live_sparse'
+        elif backtest_direction_accuracy is not None:
+            display_accuracy = float(backtest_direction_accuracy)
+            display_accuracy_source = 'backtest'
+
+        by_horizon[horizon] = {
+            'live_direction_accuracy': live_direction_accuracy,
+            'live_total_predictions': live_total,
+            'backtest_direction_accuracy': float(backtest_direction_accuracy) if backtest_direction_accuracy is not None else None,
+            'backtest_samples': backtest_samples,
+            'display_accuracy': float(display_accuracy) if display_accuracy is not None else None,
+            'display_accuracy_source': display_accuracy_source,
+            'confidence': confidence_value,
+            'quality': quality_metrics if isinstance(quality_metrics, dict) else {},
+        }
+
+    preferred_order = _ordered_display_horizons(PRIMARY_DISPLAY_HORIZON)
+    headline_horizon = preferred_order[0]
+    for candidate in preferred_order:
+        quality = by_horizon.get(candidate, {}).get('quality', {})
+        if isinstance(quality, dict) and quality.get('qualified'):
+            headline_horizon = candidate
+            break
+
+    return by_horizon, headline_horizon
 
 def test_ml_system_readiness():
     """Test if ML system is ready by calling oil.py functions"""
@@ -470,38 +526,33 @@ def get_data():
         horizon_drift_scores = predictions.get('horizon_drift_scores', {})
         prediction_intervals = predictions.get('prediction_intervals', {})
         horizon_backtests = predictions.get('horizon_backtests', {})
-
-        confidence_1d = float(horizon_confidence.get('1d', 0.0)) if horizon_confidence else 0.0
-        if confidence_1d <= 0 and accuracy_metrics:
-            confidence_1d = float(min(95, max(50, accuracy_metrics.get('overall', {}).get('direction_accuracy', 0) + 10)))
+        horizon_quality = predictions.get('horizon_quality', {})
+        qualified_horizons = predictions.get('quality_qualified_horizons', [])
 
         overall_metrics = accuracy_metrics.get('overall', {}) if accuracy_metrics else {}
         live_total_predictions = int(overall_metrics.get('total_predictions', 0) or 0)
-        live_correct_directions = int(overall_metrics.get('correct_directions', 0) or 0)
         live_direction_accuracy = float(overall_metrics.get('direction_accuracy', 0.0) or 0.0)
 
         min_live_accuracy_samples = max(6, int(os.getenv('MIN_LIVE_ACCURACY_SAMPLES', '18')))
-        accuracy_prior_strength = max(4, int(os.getenv('ACCURACY_PRIOR_STRENGTH', '18')))
-        backtest_direction_1d = None
-        if isinstance(horizon_backtests, dict):
-            backtest_direction_1d = horizon_backtests.get('1d', {}).get('direction_accuracy')
-
-        display_accuracy = None
-        display_accuracy_source = 'unavailable'
-        if live_total_predictions >= min_live_accuracy_samples:
-            display_accuracy = live_direction_accuracy
-            display_accuracy_source = 'live'
-        elif live_total_predictions > 0 and backtest_direction_1d is not None:
-            prior_correct = float(backtest_direction_1d) * accuracy_prior_strength / 100.0
-            blended = (live_correct_directions + prior_correct) / (live_total_predictions + accuracy_prior_strength)
-            display_accuracy = blended * 100.0
-            display_accuracy_source = 'blended'
-        elif backtest_direction_1d is not None:
-            display_accuracy = float(backtest_direction_1d)
-            display_accuracy_source = 'backtest'
-        elif live_total_predictions > 0:
-            display_accuracy = live_direction_accuracy
-            display_accuracy_source = 'live_sparse'
+        metrics_by_horizon, headline_horizon = _build_horizon_metrics(
+            accuracy_metrics or {},
+            horizon_backtests or {},
+            horizon_confidence or {},
+            horizon_quality or {},
+            min_live_accuracy_samples,
+        )
+        headline_metrics = metrics_by_horizon.get(headline_horizon, {})
+        headline_accuracy = headline_metrics.get('display_accuracy')
+        headline_accuracy_source = headline_metrics.get('display_accuracy_source', 'unavailable')
+        headline_confidence = float(headline_metrics.get('confidence', 0.0) or 0.0)
+        headline_quality = headline_metrics.get('quality', {}) if isinstance(headline_metrics.get('quality', {}), dict) else {}
+        headline_prediction = {
+            '1h': pred_1h,
+            '1d': pred_1d,
+            '1w': pred_1w,
+        }.get(headline_horizon, pred_1d)
+        headline_quality_status = str(headline_quality.get('status', 'unknown')).upper()
+        qualified_horizon_count = len([h for h in qualified_horizons if h in {'1h', '1d', '1w'}])
         
         # Format volume for display
         volume = contract_info.get('volume', 0)
@@ -557,12 +608,16 @@ def get_data():
                 'horizon_confidence': horizon_confidence,
                 'horizon_drift_scores': horizon_drift_scores,
                 'horizon_backtests': horizon_backtests,
+                'horizon_quality': horizon_quality,
+                'quality_qualified_horizons': qualified_horizons,
                 'is_real_prediction': prediction_is_real,
                 'is_full_real_prediction': prediction_is_full_real,
                 'fallbacks': prediction_fallbacks,
                 'processing_time': predictions.get('processing_time', 0) if predictions else 0,
                 'feature_count': predictions.get('feature_count', 0) if predictions else 0,
-                'last_update': predictions.get('timestamp', datetime.now().isoformat()) if predictions else datetime.now().isoformat()
+                'last_update': predictions.get('timestamp', datetime.now().isoformat()) if predictions else datetime.now().isoformat(),
+                'market_data_sources': predictions.get('market_data_sources', {}),
+                'contract_metadata': predictions.get('contract_metadata', {}),
             },
             
             # ML system status
@@ -576,11 +631,21 @@ def get_data():
             # Performance metrics - REAL ONLY
             'performance_metrics': {
                 'direction_accuracy': round(live_direction_accuracy, 1),
-                'display_direction_accuracy': round(display_accuracy, 1) if display_accuracy is not None else None,
-                'display_accuracy_source': display_accuracy_source,
+                'display_direction_accuracy': round(headline_accuracy, 1) if headline_accuracy is not None else None,
+                'display_accuracy_source': headline_accuracy_source,
                 'min_live_accuracy_samples': min_live_accuracy_samples,
-                'confidence': round(confidence_1d, 1),
+                'confidence': round(headline_confidence, 1),
                 'total_predictions': live_total_predictions,
+                'headline': {
+                    'horizon': headline_horizon,
+                    'prediction': round(headline_prediction, 2),
+                    'display_direction_accuracy': round(headline_accuracy, 1) if headline_accuracy is not None else None,
+                    'display_accuracy_source': headline_accuracy_source,
+                    'confidence': round(headline_confidence, 1),
+                    'quality_status': headline_quality_status,
+                    'quality_reasons': headline_quality.get('reasons', []),
+                },
+                'by_horizon': metrics_by_horizon,
             },
             
             # Contract information - REAL ONLY
@@ -589,7 +654,9 @@ def get_data():
                 'description': contract_info['description'],
                 'expiry_date': contract_info.get('expiry_date'),
                 'days_to_expiry': contract_info.get('days_to_expiry'),
-                'security_name': f"{contract_info['symbol']} WTI CRUDE"
+                'security_name': f"{contract_info['symbol']} WTI CRUDE",
+                'quote_symbol': predictions.get('contract_metadata', {}).get('quote_symbol') if predictions else contract_info.get('yfinance_symbol'),
+                'history_symbol': predictions.get('contract_metadata', {}).get('history_symbol') if predictions else contract_info.get('history_symbol'),
             },
             
             # System status
@@ -599,7 +666,9 @@ def get_data():
                 'real_data_only': True,
                 'ml_ready': prediction_is_real,
                 'error_count': system_state['error_count'],
-                'data_points': total_data_points + prediction_count  # Historical + prediction count
+                'data_points': total_data_points + prediction_count,  # Historical + prediction count
+                'quality_status': headline_quality_status,
+                'qualified_horizon_count': qualified_horizon_count,
             },
             
             'feed_status': 'REAL-TIME' if prediction_is_full_real else ('DEGRADED' if prediction_is_real else 'INITIALIZING'),
@@ -609,9 +678,9 @@ def get_data():
             
             # Legacy compatibility fields
             'last_price': round(current_price, 2),
-            'ml_prediction': round(pred_1d, 2),
-            'accuracy': f"{round(display_accuracy)}%" if display_accuracy is not None else '--',
-            'confidence': f"{round(confidence_1d if confidence_1d > 0 else 50)}%",
+            'ml_prediction': round(headline_prediction, 2),
+            'accuracy': f"{round(headline_accuracy)}%" if headline_accuracy is not None else '--',
+            'confidence': f"{round(headline_confidence)}%" if headline_confidence > 0 else '--',
             'timestamp': datetime.now().isoformat()
         })
         
