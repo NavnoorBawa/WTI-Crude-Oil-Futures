@@ -132,11 +132,13 @@ This repo now includes `render.yaml` so frontend/backend service wiring is defin
 
 - `EAGER_ML_WARMUP=false`
 - `API_STARTUP_RETRY_SECONDS=5`
+- `STARTUP_RETRY_COOLDOWN_SECONDS=20`
 
 ### Startup behavior
 
 - `GET /` and `GET /health` report initialization state consistently.
 - `GET /data` can return `SYSTEM_INITIALIZING` with `retry_after_seconds` while Render wakes the free instance.
+- Startup failures are surfaced with the last startup error and a retry schedule instead of leaving the service stuck in a permanent fake "initializing" state.
 - The frontend treats this as a loading/warm-up state and retries instead of showing a hard failure page.
 
 ## Contract Management

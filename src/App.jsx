@@ -94,20 +94,26 @@ function App() {
 
             clearTimeout(timeoutId);
 
-            if (attempt.status === 503) {
-              let startupPayload = null;
-              try {
-                startupPayload = await attempt.json();
-              } catch {
-                startupPayload = null;
-              }
+            let responsePayload = null;
+            const responseType = attempt.headers.get('content-type') || '';
+            const canParseJson = responseType.includes('application/json');
 
-              if (startupPayload?.error === 'SYSTEM_INITIALIZING') {
-                const startupError = new Error(startupPayload.message || 'Backend is waking up');
-                startupError.code = 'SYSTEM_INITIALIZING';
-                startupError.retryAfterSeconds = Number(startupPayload.retry_after_seconds) || (startupRetryMs / 1000);
-                throw startupError;
+            if (!attempt.ok || attempt.status === 503) {
+              if (canParseJson) {
+                try {
+                  responsePayload = await attempt.json();
+                } catch {
+                  responsePayload = null;
+                }
               }
+            }
+
+            const retryAfterHeader = Number(attempt.headers.get('Retry-After'));
+            if (responsePayload?.error === 'SYSTEM_INITIALIZING') {
+              const startupError = new Error(responsePayload.message || 'Backend is waking up');
+              startupError.code = 'SYSTEM_INITIALIZING';
+              startupError.retryAfterSeconds = Number(responsePayload.retry_after_seconds) || retryAfterHeader || (startupRetryMs / 1000);
+              throw startupError;
             }
 
             if (attempt.ok) {
@@ -115,7 +121,8 @@ function App() {
               break;
             }
 
-            lastAttemptError = new Error(`HTTP ${attempt.status}: ${attempt.statusText}`);
+            const errorMessage = responsePayload?.message || responsePayload?.error || attempt.statusText || 'Request failed';
+            lastAttemptError = new Error(`HTTP ${attempt.status}: ${errorMessage}`);
           } catch (attemptErr) {
             clearTimeout(timeoutId);
             lastAttemptError = attemptErr;

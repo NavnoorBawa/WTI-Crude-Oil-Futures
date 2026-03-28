@@ -11,6 +11,8 @@ services:
         value: "false"
       - key: API_STARTUP_RETRY_SECONDS
         value: "5"
+      - key: STARTUP_RETRY_COOLDOWN_SECONDS
+        value: "20"
 
   - type: web
     name: wti-crude-oil-frontend

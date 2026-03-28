@@ -27,6 +27,9 @@ _startup_complete_time = None
 _startup_lock = threading.Lock()
 _startup_thread = None
 _startup_started = False
+_startup_error = None
+_startup_attempts = 0
+_startup_next_retry_at = 0.0
 
 # Import oil.py functions - CRITICAL DEPENDENCY
 try:
@@ -57,6 +60,7 @@ system_state = {
 
 EAGER_ML_WARMUP = os.getenv('EAGER_ML_WARMUP', 'false').lower() == 'true'
 API_STARTUP_RETRY_SECONDS = max(2, int(os.getenv('API_STARTUP_RETRY_SECONDS', '5')))
+STARTUP_RETRY_COOLDOWN_SECONDS = max(5, int(os.getenv('STARTUP_RETRY_COOLDOWN_SECONDS', '20')))
 
 
 def json_response(payload, status_code=200, retry_after=None):
@@ -72,7 +76,7 @@ def json_response(payload, status_code=200, retry_after=None):
 
 def startup_payload(message, retry_after_seconds=None):
     retry_seconds = int(retry_after_seconds or API_STARTUP_RETRY_SECONDS)
-    return {
+    payload = {
         'service': 'WTI Oil Price Prediction API',
         'status': 'INITIALIZING',
         'ready': False,
@@ -83,6 +87,19 @@ def startup_payload(message, retry_after_seconds=None):
         'retry_after_seconds': retry_seconds,
         'server_time': datetime.now().isoformat()
     }
+    if _startup_error:
+        payload['startup_error'] = _startup_error
+    if _startup_attempts:
+        payload['startup_attempts'] = _startup_attempts
+    if _startup_next_retry_at and not _startup_ready.is_set():
+        payload['next_retry_at'] = datetime.fromtimestamp(_startup_next_retry_at).isoformat()
+    return payload
+
+
+def startup_retry_seconds():
+    if _startup_next_retry_at and not _startup_ready.is_set():
+        return max(1, int(round(_startup_next_retry_at - time.time())))
+    return API_STARTUP_RETRY_SECONDS
 
 def test_ml_system_readiness():
     """Test if ML system is ready by calling oil.py functions"""
@@ -100,6 +117,7 @@ def test_ml_system_readiness():
         # Cache the predictions for serving
         system_state['cached_predictions'] = predictions
         system_state['ml_ready'] = True
+        system_state['last_prediction_time'] = time.time()
         
         return True
         
@@ -155,7 +173,8 @@ def initialize_oil_system():
         system_state['initialized'] = True
         system_state['ml_ready'] = False
         system_state['cached_predictions'] = None
-        system_state['last_prediction_time'] = time.time()
+        system_state['cached_accuracy'] = None
+        system_state['last_prediction_time'] = 0
 
         if EAGER_ML_WARMUP:
             logger.info("🔄 EAGER_ML_WARMUP enabled - generating initial predictions...")
@@ -269,11 +288,14 @@ def root():
             'message': 'Server cannot function without oil.py',
             'ready': False,
             'server_time': datetime.now().isoformat()
-        }, 200)
+        }, 503)
 
     if not _startup_ready.is_set():
         return json_response(
-            startup_payload('Background startup in progress. API data will be available shortly.'),
+            startup_payload(
+                'Background startup in progress. API data will be available shortly.',
+                startup_retry_seconds()
+            ),
             200
         )
     
@@ -321,9 +343,9 @@ def get_data():
     # FIX #6: Check if startup is complete before serving (prevents race condition)
     if not _startup_ready.is_set():
         return json_response(
-            startup_payload('Server starting up. Please wait a few seconds...', API_STARTUP_RETRY_SECONDS),
+            startup_payload('Server starting up. Please wait a few seconds...', startup_retry_seconds()),
             503,
-            retry_after=API_STARTUP_RETRY_SECONDS
+            retry_after=startup_retry_seconds()
         )
     
     if not OIL_IMPORTS_AVAILABLE:
@@ -338,9 +360,9 @@ def get_data():
         contract_info = get_current_wti_contract()
         if not contract_info or not contract_info.get('current_price'):
             return json_response(
-                startup_payload('System still initializing - waiting for contract data to become available.', API_STARTUP_RETRY_SECONDS),
+                startup_payload('System still initializing - waiting for contract data to become available.', startup_retry_seconds()),
                 503,
-                retry_after=API_STARTUP_RETRY_SECONDS
+                retry_after=startup_retry_seconds()
             )
         
         # Test ML readiness and get predictions
@@ -417,9 +439,9 @@ def get_data():
         
         if not predictions or not bool(predictions.get('is_real_prediction', False)):
             return json_response(
-                startup_payload('ML predictions are still warming up. Real forecast payload not ready yet.', API_STARTUP_RETRY_SECONDS),
+                startup_payload('ML predictions are still warming up. Real forecast payload not ready yet.', startup_retry_seconds()),
                 503,
-                retry_after=API_STARTUP_RETRY_SECONDS
+                retry_after=startup_retry_seconds()
             )
 
         prediction_is_real = bool(predictions.get('is_real_prediction', False)) if predictions else False
@@ -599,7 +621,7 @@ def health():
                 'ready': False,
                 'message': 'oil.py imports not available',
                 'timestamp': datetime.now().isoformat()
-            }, 200)
+            }, 503)
 
         # Keep platform health checks passing while async startup completes.
         if not _startup_ready.is_set():
@@ -609,7 +631,9 @@ def health():
                 'startup_ready': False,
                 'ml_ready': False,
                 'message': 'Background startup in progress',
-                'retry_after_seconds': API_STARTUP_RETRY_SECONDS,
+                'retry_after_seconds': startup_retry_seconds(),
+                'startup_error': _startup_error,
+                'startup_attempts': _startup_attempts,
                 'timestamp': datetime.now().isoformat()
             }, 200)
         
@@ -618,6 +642,17 @@ def health():
             contract_info = get_current_wti_contract()
         except Exception as contract_error:
             logger.warning(f"Health contract probe failed: {contract_error}")
+            return json_response({
+                'status': 'DEGRADED',
+                'ready': False,
+                'startup_ready': True,
+                'ml_ready': system_state['ml_ready'],
+                'error': 'CONTRACT_DATA_UNAVAILABLE',
+                'message': str(contract_error),
+                'error_count': system_state['error_count'],
+                'data_source': 'oil.py REAL DATA',
+                'timestamp': datetime.now().isoformat()
+            }, 200)
         
         return json_response({
             'status': 'HEALTHY' if system_state['ml_ready'] else 'INITIALIZING',
@@ -642,6 +677,7 @@ def health():
 # Initialize system on startup
 def startup_initialization():
     """Initialize system in background - FIX #6: Add threading event"""
+    global _startup_complete_time, _startup_error, _startup_started, _startup_thread, _startup_next_retry_at
     try:
         logger.info("🚀 Starting oil.py system initialization...")
         time.sleep(2)  # Let server start
@@ -658,20 +694,41 @@ def startup_initialization():
         time.sleep(1)  # Give threads time to start
         
         # FIX #6: Signal that startup is complete (solves race condition)
+        _startup_error = None
+        _startup_next_retry_at = 0.0
+        _startup_complete_time = time.time()
         _startup_ready.set()
         logger.info("✅ Startup sequence complete - system ready to serve requests")
         
     except Exception as e:
         logger.critical(f"❌ System initialization FAILED: {e}")
+        system_state['initialized'] = False
+        system_state['ml_ready'] = False
+        system_state['cached_predictions'] = None
+        system_state['cached_accuracy'] = None
+        system_state['last_prediction_time'] = 0
+        _startup_error = str(e)
+        _startup_complete_time = None
+        _startup_next_retry_at = time.time() + STARTUP_RETRY_COOLDOWN_SECONDS
+        with _startup_lock:
+            _startup_started = False
+            _startup_thread = None
 
 def ensure_startup_started():
     """Start background initialization only once and avoid side effects on import."""
-    global _startup_thread, _startup_started
-    if _startup_started:
+    global _startup_thread, _startup_started, _startup_attempts
+    if _startup_ready.is_set():
         return
     with _startup_lock:
+        if _startup_ready.is_set():
+            return
+        if _startup_thread and _startup_thread.is_alive():
+            return
         if _startup_started:
             return
+        if time.time() < _startup_next_retry_at:
+            return
+        _startup_attempts += 1
         _startup_thread = threading.Thread(target=startup_initialization, daemon=True)
         _startup_thread.start()
         _startup_started = True
