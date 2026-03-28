@@ -415,29 +415,25 @@ def get_data():
         if price_change_percent is None:
             price_change_percent = 0.0
         
+        if not predictions or not bool(predictions.get('is_real_prediction', False)):
+            return json_response(
+                startup_payload('ML predictions are still warming up. Real forecast payload not ready yet.', API_STARTUP_RETRY_SECONDS),
+                503,
+                retry_after=API_STARTUP_RETRY_SECONDS
+            )
+
         prediction_is_real = bool(predictions.get('is_real_prediction', False)) if predictions else False
         prediction_is_full_real = bool(predictions.get('is_full_real_prediction', prediction_is_real)) if predictions else False
         prediction_fallbacks = predictions.get('fallbacks', {}) if predictions else {}
         prediction_data_quality = int(round(float(predictions.get('data_quality_score', 0) or 0))) if predictions else 0
 
-        # Set prediction values based on ML readiness
-        if system_state['ml_ready'] and predictions:
-            pred_1h = predictions['prediction_1h']
-            pred_1d = predictions['prediction_1d'] 
-            pred_1w = predictions['prediction_1w']
-            horizon_confidence = predictions.get('horizon_confidence', {})
-            horizon_drift_scores = predictions.get('horizon_drift_scores', {})
-            prediction_intervals = predictions.get('prediction_intervals', {})
-            horizon_backtests = predictions.get('horizon_backtests', {})
-        else:
-            # ML not ready - use current price as safe baseline
-            pred_1h = current_price
-            pred_1d = current_price
-            pred_1w = current_price
-            horizon_confidence = {}
-            horizon_drift_scores = {}
-            prediction_intervals = {}
-            horizon_backtests = {}
+        pred_1h = predictions['prediction_1h']
+        pred_1d = predictions['prediction_1d'] 
+        pred_1w = predictions['prediction_1w']
+        horizon_confidence = predictions.get('horizon_confidence', {})
+        horizon_drift_scores = predictions.get('horizon_drift_scores', {})
+        prediction_intervals = predictions.get('prediction_intervals', {})
+        horizon_backtests = predictions.get('horizon_backtests', {})
 
         confidence_1d = float(horizon_confidence.get('1d', 0.0)) if horizon_confidence else 0.0
         if confidence_1d <= 0 and accuracy_metrics:
@@ -517,10 +513,10 @@ def get_data():
                     '7d': round(pred_1w, 2)
                 },
                 'percentage_changes': {
-                    '1h': round((pred_1h - current_price) / current_price * 100, 1) if system_state['ml_ready'] else 0.0,
-                    '1d': round((pred_1d - current_price) / current_price * 100, 1) if system_state['ml_ready'] else 0.0,
-                    '1w': round((pred_1w - current_price) / current_price * 100, 1) if system_state['ml_ready'] else 0.0,
-                    '7d': round((pred_1w - current_price) / current_price * 100, 1) if system_state['ml_ready'] else 0.0
+                    '1h': round((pred_1h - current_price) / current_price * 100, 1),
+                    '1d': round((pred_1d - current_price) / current_price * 100, 1),
+                    '1w': round((pred_1w - current_price) / current_price * 100, 1),
+                    '7d': round((pred_1w - current_price) / current_price * 100, 1)
                 },
                 'prediction_intervals': prediction_intervals,
                 'horizon_confidence': horizon_confidence,

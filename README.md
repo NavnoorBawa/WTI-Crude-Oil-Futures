@@ -120,7 +120,7 @@ python backtest_walk_forward.py --period 18mo --min-train 140 --step 5 --estimat
 
 ## Render Deployment
 
-This repo now includes [render.yaml](/Users/navnoorbawa/Downloads/RESUME%20PROJECTS/WTI%20Crude%20Oil%20Futures%20Prediction/WTI-Crude-Oil-Futures-main/render.yaml) so frontend/backend service wiring is defined in code instead of drifting in the Render dashboard.
+This repo now includes `render.yaml` so frontend/backend service wiring is defined in code instead of drifting in the Render dashboard.
 
 ### Frontend environment
 
