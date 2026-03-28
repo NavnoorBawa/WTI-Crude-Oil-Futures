@@ -143,6 +143,8 @@ class HistoricalPayloadTest(unittest.TestCase):
         actual_history = payload["actual"]
         hourly_history = payload["predicted"]["historical_by_horizon"]["1h"]
         daily_history = payload["predicted"]["historical_by_horizon"]["1d"]
+        issued_daily_history = payload["predicted"]["issued_by_horizon"]["1d"]
+        issued_hourly_history = payload["predicted"]["issued_by_horizon"]["1h"]
 
         self.assertEqual(actual_history["timestamps"], [expected_actual_timestamp])
         self.assertEqual(hourly_history["issue_timestamps"], [expected_issue_timestamp])
@@ -150,6 +152,9 @@ class HistoricalPayloadTest(unittest.TestCase):
         self.assertEqual(hourly_history["timestamps"], [expected_target_timestamp])
         self.assertEqual(hourly_history["values"], [101.0])
         self.assertEqual(daily_history["values"], [])
+        self.assertEqual(issued_daily_history["issue_timestamps"], [expected_issue_timestamp])
+        self.assertEqual(issued_daily_history["values"], [110.0])
+        self.assertEqual(len(issued_hourly_history["values"]), 2)
 
 
 if __name__ == "__main__":

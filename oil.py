@@ -3506,6 +3506,11 @@ def get_historical_data(limit=50):
         '1d': {'values': [], 'timestamps': [], 'issue_timestamps': [], 'target_timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
         '1w': {'values': [], 'timestamps': [], 'issue_timestamps': [], 'target_timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
     }
+    issued_by_horizon = {
+        '1h': {'values': [], 'timestamps': [], 'issue_timestamps': [], 'target_timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
+        '1d': {'values': [], 'timestamps': [], 'issue_timestamps': [], 'target_timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
+        '1w': {'values': [], 'timestamps': [], 'issue_timestamps': [], 'target_timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
+    }
 
     for timestamp, pred_data in recent_predictions:
         if not isinstance(pred_data, dict) or 'predictions' not in pred_data:
@@ -3523,12 +3528,21 @@ def get_historical_data(limit=50):
             target_time = None
             if issue_time is not None:
                 target_time = issue_time + horizon_offsets[horizon]
-            if target_time is not None and last_actual_time is not None and target_time > last_actual_time:
-                continue
 
             horizon_interval = prediction_intervals.get(horizon, {}) if isinstance(prediction_intervals, dict) else {}
             normalized_issue_timestamp = _datetime_to_chart_timestamp(issue_time) if issue_time is not None else (_normalize_chart_timestamp(timestamp) or timestamp)
             normalized_target_timestamp = _datetime_to_chart_timestamp(target_time) if target_time is not None else normalized_issue_timestamp
+            issued_by_horizon[horizon]['values'].append(float(pred_value))
+            issued_by_horizon[horizon]['timestamps'].append(normalized_issue_timestamp)
+            issued_by_horizon[horizon]['issue_timestamps'].append(normalized_issue_timestamp)
+            issued_by_horizon[horizon]['target_timestamps'].append(normalized_target_timestamp)
+            issued_by_horizon[horizon]['upper_bound'].append(horizon_interval.get('upper'))
+            issued_by_horizon[horizon]['lower_bound'].append(horizon_interval.get('lower'))
+            issued_by_horizon[horizon]['current_prices'].append(float(current_price) if current_price is not None else None)
+
+            if target_time is not None and last_actual_time is not None and target_time > last_actual_time:
+                continue
+
             historical_by_horizon[horizon]['values'].append(float(pred_value))
             historical_by_horizon[horizon]['timestamps'].append(normalized_target_timestamp)
             historical_by_horizon[horizon]['issue_timestamps'].append(normalized_issue_timestamp)
@@ -3585,6 +3599,7 @@ def get_historical_data(limit=50):
                 'lower_bound': predicted_lower,
             },
             'historical_by_horizon': historical_by_horizon,
+            'issued_by_horizon': issued_by_horizon,
             'future': {
                 'values': future_values,
                 'timestamps': future_timestamps,

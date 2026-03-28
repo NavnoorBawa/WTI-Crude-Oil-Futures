@@ -148,9 +148,12 @@ const buildActualPoints = (actualPayload, actualArray) => {
 
 const buildHistoricalPredictionModel = (predictedPayload, activeHorizon) => {
   const horizonKey = HORIZON_META[activeHorizon]?.key || "1h";
+  const issuedByHorizon = predictedPayload?.issued_by_horizon?.[horizonKey];
   const byHorizon = predictedPayload?.historical_by_horizon?.[horizonKey];
   const fallbackPayload = predictedPayload?.historical || {};
-  const source = byHorizon || fallbackPayload;
+  const source = (Array.isArray(issuedByHorizon?.values) && issuedByHorizon.values.length > 0)
+    ? issuedByHorizon
+    : (byHorizon || fallbackPayload);
 
   const values = Array.isArray(source?.values) ? source.values : [];
   const targetTimestamps = Array.isArray(source?.target_timestamps) && source.target_timestamps.length > 0
@@ -905,7 +908,7 @@ export default function Chart({
 
         <div className="tv-footer-copy">
           <span><i className="tv-dot actual" />Actual</span>
-          <span><i className="tv-dot history" />Pred history</span>
+          <span><i className="tv-dot history" />Pred trail</span>
           <span><i className="tv-dot future" style={{ "--dot-color": HORIZON_META[activeHorizon]?.color }} />Pred future</span>
           <span><i className="tv-dot band" style={{ "--dot-color": rgba(HORIZON_META[activeHorizon]?.color, 0.55) }} />Scenario band</span>
         </div>
