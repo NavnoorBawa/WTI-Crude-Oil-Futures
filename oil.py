@@ -186,6 +186,7 @@ def get_current_wti_contract(force_refresh: bool = False):
             return _cache_and_return({
                 'symbol': contract_symbol,
                 'yfinance_symbol': 'CL=F',
+                'history_symbol': contract_symbol,
                 'current_price': current_price,
                 'volume': volume,
                 'expiry_date': expiry_date.isoformat(),
@@ -240,6 +241,7 @@ def get_current_wti_contract(force_refresh: bool = False):
                 return _cache_and_return({
                     'symbol': contract_symbol,
                     'yfinance_symbol': contract_symbol,
+                    'history_symbol': contract_symbol,
                     'current_price': current_price,
                     'volume': volume,
                     'expiry_date': expiry_date.isoformat(),
@@ -297,6 +299,7 @@ class PremiumWTIPredictor:
         self.contract_info = get_current_wti_contract()
         self.contract_symbol = self.contract_info['symbol']
         self.yfinance_symbol = self.contract_info['yfinance_symbol']
+        self.history_symbol = self.contract_info.get('history_symbol', self.yfinance_symbol)
         
         # Setup data storage paths
         self.data_dir = Path("data")
@@ -348,12 +351,14 @@ class PremiumWTIPredictor:
         self._last_contract_refresh_ts = now_ts
         latest_symbol = latest.get('symbol', self.contract_symbol)
         latest_yf_symbol = latest.get('yfinance_symbol', self.yfinance_symbol)
+        latest_history_symbol = latest.get('history_symbol', latest_yf_symbol)
 
         if latest_symbol != self.contract_symbol:
             logger.info(f"Contract rollover detected: {self.contract_symbol} -> {latest_symbol}")
             self.contract_info = latest
             self.contract_symbol = latest_symbol
             self.yfinance_symbol = latest_yf_symbol
+            self.history_symbol = latest_history_symbol
             self._refresh_contract_storage_paths()
 
             self.stored_predictions = self._load_stored_predictions()
@@ -367,6 +372,7 @@ class PremiumWTIPredictor:
         else:
             self.contract_info = latest
             self.yfinance_symbol = latest_yf_symbol
+            self.history_symbol = latest_history_symbol
 
     def _missing_key_source_payload(self, source_name: str, key_name: str) -> Dict:
         """Return a standardized payload when an optional free API key is missing."""
@@ -549,9 +555,11 @@ class PremiumWTIPredictor:
         """Return target delta and matching window for realized accuracy joins."""
         time_deltas = {'1h': timedelta(hours=1), '1d': timedelta(days=1), '1w': timedelta(weeks=1)}
         search_windows = {
-            '1h': timedelta(hours=4),
-            '1d': timedelta(days=1),
-            '1w': timedelta(weeks=1, days=1),
+            # Use forward-only joins plus slightly wider windows so exchange breaks/weekends
+            # do not suppress otherwise matured forecasts.
+            '1h': timedelta(hours=6),
+            '1d': timedelta(days=3),
+            '1w': timedelta(days=10),
         }
         return time_deltas[horizon], search_windows.get(horizon, timedelta(days=30))
 
@@ -765,32 +773,46 @@ class PremiumWTIPredictor:
         except Exception as e:
             logger.error(f"Failed to get current price: {e}")
             raise Exception(f"Cannot get real price data: {e}")
+
+    def _get_market_symbol_candidates(self):
+        """Prefer the active contract for history, then fall back to the continuous quote."""
+        candidates = []
+        for symbol in [self.history_symbol, self.yfinance_symbol]:
+            if symbol and symbol not in candidates:
+                candidates.append(symbol)
+        return candidates
     
     def get_wti_historical_data(self, period="6mo", interval="1d"):
         """Get historical WTI data from yfinance"""
         try:
-            cache_key = f"historical:{self.yfinance_symbol}:{period}:{interval}"
             now_ts = time.time()
-            cached = self._market_data_mem_cache.get(cache_key)
-            if cached and (now_ts - cached['fetched_at']) <= self.market_data_ttl_seconds:
-                cached_df = cached.get('data')
-                if cached_df is not None and not cached_df.empty:
-                    logger.info(f"Using cached WTI historical data ({len(cached_df)} rows)")
-                    return cached_df.copy()
+            fetch_errors = []
 
-            ticker = yf.Ticker(self.yfinance_symbol)
-            historical_data = ticker.history(period=period, interval=interval, timeout=15)
-            
-            if historical_data.empty:
-                raise Exception(f"No historical data available for {self.yfinance_symbol}")
+            for symbol in self._get_market_symbol_candidates():
+                cache_key = f"historical:{symbol}:{period}:{interval}"
+                cached = self._market_data_mem_cache.get(cache_key)
+                if cached and (now_ts - cached['fetched_at']) <= self.market_data_ttl_seconds:
+                    cached_df = cached.get('data')
+                    if cached_df is not None and not cached_df.empty:
+                        logger.info(f"Using cached WTI historical data for {symbol} ({len(cached_df)} rows)")
+                        return cached_df.copy()
 
-            self._market_data_mem_cache[cache_key] = {
-                'fetched_at': now_ts,
-                'data': historical_data.copy()
-            }
-            
-            logger.info(f"Loaded {len(historical_data)} WTI data points")
-            return historical_data
+                try:
+                    ticker = yf.Ticker(symbol)
+                    historical_data = ticker.history(period=period, interval=interval, timeout=15)
+                    if historical_data.empty:
+                        raise Exception(f"No historical data available for {symbol}")
+
+                    self._market_data_mem_cache[cache_key] = {
+                        'fetched_at': now_ts,
+                        'data': historical_data.copy()
+                    }
+                    logger.info(f"Loaded {len(historical_data)} WTI data points from {symbol}")
+                    return historical_data
+                except Exception as symbol_error:
+                    fetch_errors.append(f"{symbol}: {symbol_error}")
+
+            raise Exception("; ".join(fetch_errors) if fetch_errors else "No WTI history sources available")
             
         except Exception as e:
             logger.error(f"Failed to get historical data: {e}")
@@ -799,31 +821,36 @@ class PremiumWTIPredictor:
     def get_wti_hourly_data(self):
         """Get WTI hourly data from yfinance (last 730 days max)"""
         try:
-            cache_key = f"hourly:{self.yfinance_symbol}:60d:1h"
             now_ts = time.time()
-            cached = self._market_data_mem_cache.get(cache_key)
-            if cached and (now_ts - cached['fetched_at']) <= self.market_data_ttl_seconds:
-                cached_df = cached.get('data')
-                if cached_df is not None and not cached_df.empty:
-                    logger.info(f"Using cached WTI hourly data ({len(cached_df)} rows)")
-                    return cached_df.copy()
 
-            # yfinance allows 1h data for up to 730 days
-            # We fetch 60 days to be safe and efficient for recent trends
-            ticker = yf.Ticker(self.yfinance_symbol)
-            hourly_data = ticker.history(period="60d", interval="1h", timeout=15)
-            
-            if hourly_data.empty:
-                logger.warning(f"No hourly data available for {self.yfinance_symbol}, falling back to daily")
-                return None
+            for symbol in self._get_market_symbol_candidates():
+                cache_key = f"hourly:{symbol}:60d:1h"
+                cached = self._market_data_mem_cache.get(cache_key)
+                if cached and (now_ts - cached['fetched_at']) <= self.market_data_ttl_seconds:
+                    cached_df = cached.get('data')
+                    if cached_df is not None and not cached_df.empty:
+                        logger.info(f"Using cached WTI hourly data for {symbol} ({len(cached_df)} rows)")
+                        return cached_df.copy()
 
-            self._market_data_mem_cache[cache_key] = {
-                'fetched_at': now_ts,
-                'data': hourly_data.copy()
-            }
-            
-            logger.info(f"Loaded {len(hourly_data)} WTI hourly data points")
-            return hourly_data
+                try:
+                    # yfinance allows 1h data for up to 730 days.
+                    ticker = yf.Ticker(symbol)
+                    hourly_data = ticker.history(period="60d", interval="1h", timeout=15)
+                    if hourly_data.empty:
+                        logger.warning(f"No hourly data available for {symbol}")
+                        continue
+
+                    self._market_data_mem_cache[cache_key] = {
+                        'fetched_at': now_ts,
+                        'data': hourly_data.copy()
+                    }
+                    logger.info(f"Loaded {len(hourly_data)} WTI hourly data points from {symbol}")
+                    return hourly_data
+                except Exception as symbol_error:
+                    logger.warning(f"Failed to get hourly data from {symbol}: {symbol_error}")
+
+            logger.warning("No hourly WTI data available from active or continuous symbols")
+            return None
             
         except Exception as e:
             logger.warning(f"Failed to get hourly data: {e}")
@@ -3106,7 +3133,10 @@ def get_historical_data(limit=50):
     sorted_actual_points = sorted(actual_point_map.values(), key=lambda item: item['timestamp'])
     if len(sorted_actual_points) > max_points:
         step = max(1, len(sorted_actual_points) // max_points)
-        sorted_actual_points = sorted_actual_points[::step][-max_points:]
+        sampled_points = sorted_actual_points[::step]
+        if sampled_points and sampled_points[-1]['timestamp'] != sorted_actual_points[-1]['timestamp']:
+            sampled_points.append(sorted_actual_points[-1])
+        sorted_actual_points = sampled_points[-max_points:]
 
     actual_values = [round(point['price'], 4) for point in sorted_actual_points]
     actual_timestamps = [point['timestamp'] for point in sorted_actual_points]
@@ -3151,6 +3181,7 @@ def get_historical_data(limit=50):
     future_timestamps = []
     future_upper = []
     future_lower = []
+    future_by_horizon = {}
     if sorted_predictions:
         latest_ts, latest_pred = sorted_predictions[-1]
         if isinstance(latest_pred, dict):
@@ -3168,6 +3199,12 @@ def get_historical_data(limit=50):
                 future_timestamps.append(horizon_time.isoformat())
                 future_upper.append(horizon_interval.get('upper'))
                 future_lower.append(horizon_interval.get('lower'))
+                future_by_horizon[horizon] = {
+                    'value': float(pred_val),
+                    'timestamp': horizon_time.isoformat(),
+                    'upper': horizon_interval.get('upper'),
+                    'lower': horizon_interval.get('lower'),
+                }
     
     return {
         'actual': {
@@ -3188,6 +3225,7 @@ def get_historical_data(limit=50):
                 'timestamps': future_timestamps,
                 'upper_bound': future_upper,
                 'lower_bound': future_lower,
+                'by_horizon': future_by_horizon,
             }
         }
     }

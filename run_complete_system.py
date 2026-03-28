@@ -12,9 +12,11 @@ import threading
 import subprocess
 import signal
 import os
+import socket
 from datetime import datetime, timedelta
 from pathlib import Path
 import logging
+from werkzeug.serving import make_server
 
 # Configure logging
 logging.basicConfig(
@@ -29,7 +31,6 @@ try:
         get_current_wti_contract,
         get_multi_horizon_wti_predictions,
         get_prediction_accuracy_metrics,
-        store_actual_price_update,
         main as oil_main
     )
     oil_available = True
@@ -39,7 +40,7 @@ except ImportError as e:
 
 # Import server
 try:
-    from server import run_server
+    from server import app as server_app
     server_available = True
 except ImportError as e:
     logger.error(f"❌ CRITICAL: Cannot import server.py: {e}")
@@ -50,7 +51,8 @@ class WTISystemOrchestrator:
     
     def __init__(self):
         self.running = False
-        self.server_process = None
+        self.http_server = None
+        self.server_thread = None
         self.prediction_thread = None
         self.data_validation_thread = None
         self.system_health_thread = None
@@ -69,31 +71,20 @@ class WTISystemOrchestrator:
         
         logger.info("🏗️  WTI System Orchestrator initialized")
     
-    def cleanup_ports(self):
-        """Clean up any processes using required ports"""
-        try:
-            logger.info("🧹 Cleaning up ports...")
-            # Kill any process using port 9000
-            result = subprocess.run(['lsof', '-ti', ':9000'], capture_output=True, text=True)
-            if result.stdout.strip():
-                pids = result.stdout.strip().split('\n')
-                for pid in pids:
-                    try:
-                        subprocess.run(['kill', '-9', pid], check=True)
-                        logger.info(f"   ✅ Killed process {pid} on port 9000")
-                    except subprocess.CalledProcessError:
-                        pass
-            time.sleep(1)  # Give processes time to clean up
-        except Exception as e:
-            logger.warning(f"Port cleanup warning: {e}")
+    def ensure_port_available(self, host, port):
+        """Fail fast if the requested port is already in use."""
+        bind_host = '0.0.0.0' if host in ('0.0.0.0', '::') else host
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind((bind_host, port))
+            except OSError as e:
+                raise Exception(f"Port {port} is already in use on {bind_host}: {e}")
     
     def validate_system_requirements(self):
         """Validate that all system components are available - REAL DATA ONLY"""
         logger.info("🔍 Validating system requirements...")
         logger.info("🚨 REAL DATA ONLY MODE - No fallbacks permitted")
-        
-        # Clean up ports first
-        self.cleanup_ports()
         
         if not oil_available:
             raise Exception("CRITICAL: oil.py module not available - system cannot function")
@@ -164,9 +155,6 @@ class WTISystemOrchestrator:
                 predictions['prediction_1d'] <= 0 or 
                 predictions['prediction_1w'] <= 0):
                 raise Exception("Invalid predictions generated - refusing to store bad data")
-            
-            # Store current actual price for accuracy tracking
-            store_actual_price_update(current_price)
             
             self.last_prediction_time = time.time()
             self.error_count = 0  # Reset error count on success
@@ -348,17 +336,16 @@ class WTISystemOrchestrator:
                 time.sleep(30)
     
     def start_server(self, host='0.0.0.0', port=9000):
-        """Start the Flask server in a separate process"""
+        """Start the Flask server with a clean in-process WSGI server."""
         logger.info(f"🌐 Starting Flask server on {host}:{port}")
         
         try:
-            # Start server in background thread since we're using the function directly
-            server_thread = threading.Thread(
-                target=run_server,
-                args=(host, port, False),  # host, port, debug=False
+            self.http_server = make_server(host, port, server_app)
+            self.server_thread = threading.Thread(
+                target=self.http_server.serve_forever,
                 daemon=True
             )
-            server_thread.start()
+            self.server_thread.start()
             
             # Give server time to start
             time.sleep(2)
@@ -370,10 +357,14 @@ class WTISystemOrchestrator:
     
     def stop_server(self):
         """Stop the Flask server"""
-        if self.server_process:
+        if self.http_server:
             logger.info("🛑 Stopping Flask server...")
-            self.server_process.terminate()
-            self.server_process.wait()
+            self.http_server.shutdown()
+            self.http_server.server_close()
+            self.http_server = None
+            if self.server_thread and self.server_thread.is_alive():
+                self.server_thread.join(timeout=5)
+            self.server_thread = None
             logger.info("✅ Flask server stopped")
     
     def start(self, host='0.0.0.0', port=9000):
@@ -384,6 +375,7 @@ class WTISystemOrchestrator:
         try:
             # Validate system requirements
             self.validate_system_requirements()
+            self.ensure_port_available(host, port)
             
             # Set running flag
             self.running = True

@@ -163,9 +163,26 @@ const buildForecastMap = (futurePayload, multiHorizonPredictions, latestTime, la
   const futureTimestamps = Array.isArray(futurePayload?.timestamps) ? futurePayload.timestamps : [];
   const futureUpper = Array.isArray(futurePayload?.upper_bound) ? futurePayload.upper_bound : [];
   const futureLower = Array.isArray(futurePayload?.lower_bound) ? futurePayload.lower_bound : [];
+  const futureByHorizon = futurePayload?.by_horizon || {};
 
   for (let index = 0; index < FORECAST_HORIZONS.length; index += 1) {
     const horizon = FORECAST_HORIZONS[index];
+    const meta = HORIZON_META[horizon];
+    const keyedFuture = futureByHorizon?.[meta.key];
+    if (keyedFuture) {
+      const keyedTime = toUnixSeconds(keyedFuture.timestamp);
+      const keyedValue = toNum(keyedFuture.value);
+      if (Number.isFinite(keyedTime) && Number.isFinite(keyedValue) && keyedValue > 0) {
+        map[horizon] = {
+          time: keyedTime,
+          value: round2(keyedValue),
+          upper: toNum(keyedFuture.upper),
+          lower: toNum(keyedFuture.lower),
+        };
+        continue;
+      }
+    }
+
     const time = toUnixSeconds(futureTimestamps[index]);
     const value = toNum(futureValues[index]);
     if (Number.isFinite(time) && Number.isFinite(value) && value > 0) {
@@ -313,6 +330,9 @@ export default function Chart({
       : (Number.isFinite(Number(currentPrice)) && Number(currentPrice) > 0
         ? { time: Math.floor(Date.now() / 1000), value: round2(Number(currentPrice)), volume: 0 }
         : null);
+    const resolvedActualPoints = actualPoints.length > 0 || !lastActual
+      ? actualPoints
+      : [lastActual];
 
     const historicalPredictionPoints = buildHistoricalPredictionPoints(predictedPayload, activeHorizon);
     const forecasts = buildForecastMap(
@@ -329,7 +349,7 @@ export default function Chart({
     const lowerScenarioPoints = buildScenarioPath(lastActual, activeForecast?.time, activeForecast?.lower);
 
     return {
-      actualPoints,
+      actualPoints: resolvedActualPoints,
       lastActual,
       historicalPredictionPoints,
       forecasts,
