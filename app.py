@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
-"""
-Production WSGI entry point for WTI Oil Prediction System
-Optimized for Render deployment with Gunicorn
-"""
+"""Compatibility WSGI entry point for the backend package."""
 
-# Import the Flask app from server.py - this is what Gunicorn will use
-from server import app
+from backend.app import app
 
-# Gunicorn will automatically use the 'app' object
+
+__all__ = ["app"]

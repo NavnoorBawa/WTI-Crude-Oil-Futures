@@ -40,12 +40,16 @@ This system provides:
 
 ## Files Structure
 
-- **`oil.py`** - Core prediction engine with ML models
-- **`server.py`** - Flask API server for frontend integration
+- **`backend/`** - Primary Python backend package
+- **`backend/oil.py`** - Core prediction engine with ML models
+- **`backend/server.py`** - Flask API server for frontend integration
+- **`backend/backtest_walk_forward.py`** - Expanding-window walk-forward backtest with baselines
 - **`run_complete_system.py`** - Complete system orchestrator
-- **`backtest_walk_forward.py`** - Expanding-window walk-forward backtest with baselines
+- **`src/`** - Frontend application source
 - **`data/`** - Persistent storage directory
 - **`requirements.txt`** - Python dependencies
+
+Root-level `oil.py`, `server.py`, `app.py`, and `backtest_walk_forward.py` remain as compatibility wrappers so existing commands still work while the real backend code lives under `backend/`.
 
 ## Frontend Data Fields
 

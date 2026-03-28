@@ -9,4 +9,4 @@ echo "🚀 Starting WTI Oil Backend on port $PORT"
 echo "📊 ML components will load in background to avoid timeouts"
 
 # Start Gunicorn from a single shared config so Procfile/Render/local stay aligned.
-exec gunicorn app:app --config gunicorn.conf.py --bind 0.0.0.0:$PORT
+exec gunicorn backend.app:app --config gunicorn.conf.py --bind 0.0.0.0:$PORT

@@ -5,8 +5,8 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from oil import PremiumWTIPredictor, get_historical_data
-from server import _build_horizon_metrics
+from backend.oil import PremiumWTIPredictor, get_historical_data
+from backend.server import _build_horizon_metrics
 
 
 class OilLogicGuardsTest(unittest.TestCase):
@@ -187,7 +187,7 @@ class HistoricalPayloadTest(unittest.TestCase):
             def _safe_parse_iso(self, value):
                 return datetime.fromisoformat(value)
 
-        with patch("oil.get_premium_predictor", return_value=PredictorStub()):
+        with patch("backend.oil.get_premium_predictor", return_value=PredictorStub()):
             payload = get_historical_data(limit=50)
 
         backend_tz = datetime.now().astimezone().tzinfo

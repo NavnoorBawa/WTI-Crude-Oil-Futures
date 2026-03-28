@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 # Import our prediction engine
 try:
-    from oil import (
+    from backend.oil import (
         get_current_wti_contract,
         get_multi_horizon_wti_predictions,
         get_prediction_accuracy_metrics,
@@ -40,7 +40,7 @@ except ImportError as e:
 
 # Import server
 try:
-    from server import app as server_app
+    from backend.server import app as server_app
     server_available = True
 except ImportError as e:
     logger.error(f"❌ CRITICAL: Cannot import server.py: {e}")

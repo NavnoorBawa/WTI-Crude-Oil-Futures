@@ -63,3 +63,4 @@ models/
 # Temporary files
 *.tmp
 *.temp
+temp_repo/
