@@ -99,6 +99,27 @@ const formatLegendTime = (time) => {
   });
 };
 
+const formatTimestampLabel = (value) => {
+  if (!value) return "--";
+  const dateValue = new Date(value);
+  if (Number.isNaN(dateValue.getTime())) return "--";
+  return dateValue.toLocaleString("en-US", {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZoneName: "short",
+  });
+};
+
+const humanizeReason = (value) => {
+  if (!value) return "";
+  return String(value)
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
 const rgba = (hex, alpha) => {
   const clean = hex.replace("#", "");
   const value = clean.length === 3
@@ -378,11 +399,53 @@ const getQualityMeta = (qualityPayload) => {
   return { label: "Low Quality", tone: "down", detail: reasons.length > 0 ? reasons.join(", ").replaceAll("_", " ") : "Forecast not quality qualified" };
 };
 
+const getEvidenceMeta = (metricsPayload, activeQuality) => {
+  const displayAccuracy = toNum(metricsPayload?.display_accuracy);
+  const displaySource = String(metricsPayload?.display_accuracy_source || "unavailable");
+  const liveSamples = Math.max(0, Math.round(toNum(metricsPayload?.live_total_predictions) || 0));
+  const backtestSamples = Math.max(0, Math.round(toNum(metricsPayload?.backtest_samples) || 0));
+  const sourceLabel = displaySource === "live"
+    ? "Live Evidence"
+    : displaySource === "live_sparse"
+      ? "Live Warm-Up"
+      : displaySource === "backtest"
+        ? "Backtest Evidence"
+        : "Evidence Unavailable";
+  const sourceTone = activeQuality?.qualified
+    ? "up"
+    : displaySource === "unavailable"
+      ? "down"
+      : "neutral";
+
+  if (!Number.isFinite(displayAccuracy)) {
+    return {
+      label: sourceLabel,
+      tone: sourceTone,
+      value: "--",
+      detail: "No verified direction-accuracy sample available",
+    };
+  }
+
+  const sampleCount = displaySource === "backtest" ? backtestSamples : liveSamples;
+  const sampleLabel = displaySource === "backtest"
+    ? `${sampleCount} walk-forward samples`
+    : `${sampleCount} realized calls`;
+
+  return {
+    label: sourceLabel,
+    tone: sourceTone,
+    value: `${Math.round(displayAccuracy)}${displaySource === "backtest" ? "%*" : "%"}`,
+    detail: sampleCount > 0 ? sampleLabel : "Sample count unavailable",
+  };
+};
+
 export default function Chart({
   actualArray = [],
   unifiedData = null,
   multiHorizonPredictions = null,
   performanceMetricsByHorizon = {},
+  activeHorizon = DEFAULT_HORIZON,
+  onActiveHorizonChange = null,
   currentPrice = 0,
   contractInfo = null,
   priceChange = 0,
@@ -393,9 +456,9 @@ export default function Chart({
 }) {
   const chartHostRef = useRef(null);
   const [selectedRange, setSelectedRange] = useState(DEFAULT_RANGE);
-  const [activeHorizon, setActiveHorizon] = useState(DEFAULT_HORIZON);
   const [legendSnapshot, setLegendSnapshot] = useState(null);
-  const activeHorizonKey = HORIZON_META[activeHorizon]?.key || activeHorizon;
+  const resolvedActiveHorizon = HORIZON_META[activeHorizon] ? activeHorizon : DEFAULT_HORIZON;
+  const activeHorizonKey = HORIZON_META[resolvedActiveHorizon]?.key || resolvedActiveHorizon;
   const qualityByHorizon = multiHorizonPredictions?.horizon_quality || {};
   const activeQuality = qualityByHorizon?.[activeHorizonKey] || {};
   const activeMetrics = performanceMetricsByHorizon?.[activeHorizonKey] || {};
@@ -428,7 +491,7 @@ export default function Chart({
       ? actualPoints
       : [lastActual];
 
-    const historicalPredictionModel = buildHistoricalPredictionModel(predictedPayload, activeHorizon);
+    const historicalPredictionModel = buildHistoricalPredictionModel(predictedPayload, resolvedActiveHorizon);
     const historicalPredictionPoints = historicalPredictionModel.points;
     const forecasts = buildForecastMap(
       futurePayload,
@@ -437,9 +500,9 @@ export default function Chart({
       lastActual?.value || toNum(currentPrice) || 0
     );
 
-    const activeForecast = forecasts[activeHorizon] || null;
+    const activeForecast = forecasts[resolvedActiveHorizon] || null;
     const projectionPoints = buildProjectionPath(lastActual, activeForecast);
-    const predictionBridge = buildPredictionBridge(historicalPredictionPoints, projectionPoints, lastActual, activeHorizon);
+    const predictionBridge = buildPredictionBridge(historicalPredictionPoints, projectionPoints, lastActual, resolvedActiveHorizon);
     const upperScenarioPoints = buildScenarioPath(lastActual, activeForecast?.time, activeForecast?.upper);
     const lowerScenarioPoints = buildScenarioPath(lastActual, activeForecast?.time, activeForecast?.lower);
 
@@ -455,7 +518,7 @@ export default function Chart({
       upperScenarioPoints,
       lowerScenarioPoints,
     };
-  }, [actualArray, activeHorizon, currentPrice, multiHorizonPredictions, unifiedData]);
+  }, [actualArray, currentPrice, multiHorizonPredictions, resolvedActiveHorizon, unifiedData]);
 
   const investorSummary = useMemo(() => {
     const current = chartModel.lastActual?.value;
@@ -479,7 +542,22 @@ export default function Chart({
       : null;
     const conviction = getConvictionMeta(activeDisplayAccuracyValue, activeConfidenceValue);
     const quality = getQualityMeta(activeQuality);
-    const lens = HORIZON_META[activeHorizon]?.lens || activeHorizon;
+    const evidence = getEvidenceMeta(activeMetrics, activeQuality);
+    const lens = HORIZON_META[resolvedActiveHorizon]?.lens || resolvedActiveHorizon;
+    const quoteSymbol = multiHorizonPredictions?.contract_metadata?.quote_symbol || contractInfo?.quote_symbol || "--";
+    const historySymbol = multiHorizonPredictions?.contract_metadata?.history_symbol || contractInfo?.history_symbol || "--";
+    const forecastUpdatedAt = formatTimestampLabel(multiHorizonPredictions?.last_update);
+    const hourlyRows = toNum(multiHorizonPredictions?.market_data_sources?.hourly_history?.rows);
+    const dailyRows = toNum(multiHorizonPredictions?.market_data_sources?.daily_history?.rows);
+    const provenanceDetail = [
+      Number.isFinite(hourlyRows) ? `Hourly ${Math.round(hourlyRows)} rows` : null,
+      Number.isFinite(dailyRows) ? `Daily ${Math.round(dailyRows)} rows` : null,
+    ].filter(Boolean).join(" • ");
+    const benchmarkDelta = forecast.changePct;
+    const benchmarkCardValue = formatCurrency(current);
+    const qualityReasons = Array.isArray(activeQuality?.reasons)
+      ? activeQuality.reasons.map(humanizeReason)
+      : [];
     const thesisTitle = quality.label === "Low Quality"
       ? `${lens} setup lacks enough evidence for a full conviction call`
       : (bias.tone === "up"
@@ -488,14 +566,15 @@ export default function Chart({
           ? `${lens} setup calls for defensive positioning`
           : `${lens} setup points to a balanced range`);
     const thesisCopy = Number.isFinite(rewardRisk)
-      ? `Base target ${formatCurrency(forecast.value)} with ${formatCurrency(lower ?? forecast.value)} to ${formatCurrency(upper ?? forecast.value)} as the working band. Reward-to-risk is ${rewardRisk.toFixed(2)}x from current spot. ${quality.detail}.`
-      : `Base target ${formatCurrency(forecast.value)} with ${formatCurrency(lower ?? forecast.value)} to ${formatCurrency(upper ?? forecast.value)} as the working band. ${quality.detail}.`;
+      ? `Base target ${formatCurrency(forecast.value)} versus spot ${formatCurrency(current)}. The working band runs from ${formatCurrency(lower ?? forecast.value)} to ${formatCurrency(upper ?? forecast.value)}, with ${rewardRisk.toFixed(2)}x upside-to-downside. Evidence basis: ${evidence.label.toLowerCase()} at ${evidence.value}. ${quality.detail}.`
+      : `Base target ${formatCurrency(forecast.value)} versus spot ${formatCurrency(current)}. The working band runs from ${formatCurrency(lower ?? forecast.value)} to ${formatCurrency(upper ?? forecast.value)}. Evidence basis: ${evidence.label.toLowerCase()} at ${evidence.value}. ${quality.detail}.`;
 
     return {
       bias,
       lens,
       conviction,
       quality,
+      evidence,
       thesisTitle,
       thesisCopy,
       baseTarget: forecast.value,
@@ -506,8 +585,15 @@ export default function Chart({
       upsidePct,
       rewardRisk,
       rangeWidthPct,
+      benchmarkDelta,
+      benchmarkCardValue,
+      forecastUpdatedAt,
+      quoteSymbol,
+      historySymbol,
+      provenanceDetail,
+      qualityReasons,
     };
-  }, [activeDisplayAccuracyValue, activeConfidenceValue, activeHorizon, activeQuality, chartModel.activeForecast, chartModel.lastActual]);
+  }, [activeConfidenceValue, activeDisplayAccuracyValue, resolvedActiveHorizon, activeMetrics, activeQuality, chartModel.activeForecast, chartModel.lastActual, contractInfo?.history_symbol, contractInfo?.quote_symbol, multiHorizonPredictions]);
 
   const displaySpotPrice = Number.isFinite(Number(currentPrice)) && Number(currentPrice) > 0
     ? Number(currentPrice)
@@ -529,7 +615,7 @@ export default function Chart({
     const host = chartHostRef.current;
     if (!host || !chartModel.lastActual || chartModel.actualPoints.length === 0) return undefined;
 
-    const activeMeta = HORIZON_META[activeHorizon];
+    const activeMeta = HORIZON_META[resolvedActiveHorizon];
     const chart = createChart(host, {
       width: host.clientWidth || 800,
       height: host.clientHeight || 540,
@@ -670,7 +756,7 @@ export default function Chart({
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: `${activeHorizon} FC`,
+          title: `${resolvedActiveHorizon} FC`,
         })
       );
     }
@@ -743,7 +829,7 @@ export default function Chart({
       resizeObserver.disconnect();
       chart.remove();
     };
-  }, [activeHorizon, chartModel, selectedRange]);
+  }, [chartModel, resolvedActiveHorizon, selectedRange]);
 
   if (!chartModel.lastActual) {
     return (
@@ -766,8 +852,8 @@ export default function Chart({
               <div className="tv-symbol-title">{contractInfo?.description || "WTI CRUDE OIL FUTURES"}</div>
               <div className="tv-toolbar-meta">
                 <span>{feedStatus}</span>
-                <span>{activeHorizon.toUpperCase()} ACC {activeDisplayAccuracy}</span>
-                <span>{activeHorizon.toUpperCase()} CONF {activeDisplayConfidence}</span>
+                <span>{resolvedActiveHorizon.toUpperCase()} ACC {activeDisplayAccuracy}</span>
+                <span>{resolvedActiveHorizon.toUpperCase()} CONF {activeDisplayConfidence}</span>
               </div>
             </div>
           </div>
@@ -785,7 +871,7 @@ export default function Chart({
           {FORECAST_HORIZONS.map((horizon) => {
             const forecast = chartModel.forecasts[horizon];
             const meta = HORIZON_META[horizon];
-            const isActive = activeHorizon === horizon;
+            const isActive = resolvedActiveHorizon === horizon;
             const qualityMeta = getQualityMeta(qualityByHorizon?.[meta.key]);
 
             return (
@@ -793,7 +879,7 @@ export default function Chart({
                 key={horizon}
                 className={`tv-forecast-card ${isActive ? "is-active" : ""}`}
                 style={{ "--forecast-accent": meta.color }}
-                onClick={() => setActiveHorizon(horizon)}
+                onClick={() => onActiveHorizonChange?.(horizon)}
               >
                 <span className="tv-forecast-label">{horizon} Forecast</span>
                 <span className="tv-forecast-value">
@@ -818,15 +904,32 @@ export default function Chart({
             <div className="tv-thesis-title">{investorSummary.thesisTitle}</div>
             <div className="tv-thesis-text">{investorSummary.thesisCopy}</div>
           </div>
+        <div className="tv-thesis-metrics">
+            <div className="tv-thesis-pill tone-neutral">
+              <span>Active Horizon</span>
+              <strong>{resolvedActiveHorizon}</strong>
+              <small>{investorSummary.lens} lens</small>
+            </div>
+            <div className={`tv-thesis-pill tone-${investorSummary.evidence.tone}`}>
+              <span>{investorSummary.evidence.label}</span>
+              <strong>{investorSummary.evidence.value}</strong>
+              <small>{investorSummary.evidence.detail}</small>
+            </div>
+            <div className={`tv-thesis-pill tone-${investorSummary.quality.tone}`}>
+              <span>Quality Gate</span>
+              <strong>{investorSummary.quality.label}</strong>
+              <small>{investorSummary.quality.detail}</small>
+            </div>
+          </div>
         </div>
       )}
 
       {investorSummary && (
         <div className="tv-investor-rail">
           <div className={`tv-investor-card tone-${investorSummary.bias.tone}`}>
-            <div className="tv-investor-label">{investorSummary.lens} Bias</div>
-            <div className="tv-investor-value">{investorSummary.bias.label}</div>
-            <div className="tv-investor-subvalue">{formatSignedPercent(investorSummary.expectedMovePct)}</div>
+            <div className="tv-investor-label">Expected Return</div>
+            <div className="tv-investor-value">{formatSignedPercent(investorSummary.expectedMovePct)}</div>
+            <div className="tv-investor-subvalue">{investorSummary.bias.label} vs spot</div>
           </div>
 
           <div className="tv-investor-card">
@@ -857,7 +960,7 @@ export default function Chart({
               {Number.isFinite(investorSummary.rewardRisk) ? `${investorSummary.rewardRisk.toFixed(2)}x` : "--"}
             </div>
             <div className="tv-investor-subvalue">
-              {Number.isFinite(investorSummary.rangeWidthPct) ? `${investorSummary.rangeWidthPct.toFixed(2)}% band width` : `${activeHorizon} scenario band`}
+              {Number.isFinite(investorSummary.rangeWidthPct) ? `${investorSummary.rangeWidthPct.toFixed(2)}% band width` : `${resolvedActiveHorizon} scenario band`}
             </div>
           </div>
 
@@ -866,11 +969,41 @@ export default function Chart({
             <div className="tv-investor-value">{investorSummary.conviction.label}</div>
             <div className="tv-investor-subvalue">{investorSummary.conviction.detail}</div>
           </div>
+        </div>
+      )}
 
+      {investorSummary && (
+        <div className="tv-investor-evidence">
           <div className={`tv-investor-card tone-${investorSummary.quality.tone}`}>
             <div className="tv-investor-label">Quality Gate</div>
             <div className="tv-investor-value">{investorSummary.quality.label}</div>
-            <div className="tv-investor-subvalue">{investorSummary.quality.detail}</div>
+            <div className="tv-investor-subvalue">
+              {investorSummary.qualityReasons.length > 0
+                ? investorSummary.qualityReasons.join(", ")
+                : investorSummary.quality.detail}
+            </div>
+          </div>
+
+          <div className={`tv-investor-card tone-${investorSummary.evidence.tone}`}>
+            <div className="tv-investor-label">Evidence Basis</div>
+            <div className="tv-investor-value">{investorSummary.evidence.value}</div>
+            <div className="tv-investor-subvalue">{investorSummary.evidence.detail}</div>
+          </div>
+
+          <div className="tv-investor-card tone-neutral">
+            <div className="tv-investor-label">Benchmark</div>
+            <div className="tv-investor-value">{investorSummary.benchmarkCardValue}</div>
+            <div className="tv-investor-subvalue">{formatSignedPercent(investorSummary.benchmarkDelta)} vs flat spot</div>
+          </div>
+
+          <div className="tv-investor-card tone-neutral">
+            <div className="tv-investor-label">Data Provenance</div>
+            <div className="tv-investor-value">{investorSummary.quoteSymbol} / {investorSummary.historySymbol}</div>
+            <div className="tv-investor-subvalue">
+              {investorSummary.provenanceDetail
+                ? `${investorSummary.provenanceDetail} • ${investorSummary.forecastUpdatedAt}`
+                : investorSummary.forecastUpdatedAt}
+            </div>
           </div>
         </div>
       )}
@@ -882,14 +1015,14 @@ export default function Chart({
             <div className="tv-legend-grid">
               <span>PX {legendSnapshot?.price?.toFixed(2) || "--"}</span>
               <span>VOL {formatCompactVolume(legendSnapshot?.volume)}</span>
-              <span>{activeHorizon} FC {chartModel.activeForecast ? `$${chartModel.activeForecast.value.toFixed(2)}` : "--"}</span>
+              <span>{resolvedActiveHorizon} FC {chartModel.activeForecast ? `$${chartModel.activeForecast.value.toFixed(2)}` : "--"}</span>
             </div>
           </div>
         </div>
 
         <div className="tv-chart-overlay tv-overlay-right">
           <div className="tv-active-forecast-card">
-            <div className="tv-active-forecast-label">{activeHorizon} Target</div>
+            <div className="tv-active-forecast-label">{resolvedActiveHorizon} Target</div>
             <div className="tv-active-forecast-value">
               {chartModel.activeForecast ? formatCurrency(chartModel.activeForecast.value) : "--"}
             </div>
@@ -925,8 +1058,8 @@ export default function Chart({
         <div className="tv-footer-copy">
           <span><i className="tv-dot actual" />Actual</span>
           <span><i className="tv-dot history" />Pred trail</span>
-          <span><i className="tv-dot future" style={{ "--dot-color": HORIZON_META[activeHorizon]?.color }} />Pred future</span>
-          <span><i className="tv-dot band" style={{ "--dot-color": rgba(HORIZON_META[activeHorizon]?.color, 0.55) }} />Scenario band</span>
+          <span><i className="tv-dot future" style={{ "--dot-color": HORIZON_META[resolvedActiveHorizon]?.color }} />Pred future</span>
+          <span><i className="tv-dot band" style={{ "--dot-color": rgba(HORIZON_META[resolvedActiveHorizon]?.color, 0.55) }} />Scenario band</span>
         </div>
       </div>
     </div>

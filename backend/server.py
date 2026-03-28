@@ -157,12 +157,29 @@ def _build_horizon_metrics(accuracy_metrics, horizon_backtests, horizon_confiden
         }
 
     preferred_order = _ordered_display_horizons(PRIMARY_DISPLAY_HORIZON)
-    headline_horizon = preferred_order[0]
-    for candidate in preferred_order:
-        quality = by_horizon.get(candidate, {}).get('quality', {})
-        if isinstance(quality, dict) and quality.get('qualified'):
-            headline_horizon = candidate
-            break
+    def headline_rank(horizon):
+        metrics = by_horizon.get(horizon, {})
+        quality = metrics.get('quality', {}) if isinstance(metrics.get('quality', {}), dict) else {}
+        status = str(quality.get('status', 'unknown')).lower()
+        display_accuracy = metrics.get('display_accuracy')
+        confidence = float(metrics.get('confidence', 0.0) or 0.0)
+        live_samples = int(metrics.get('live_total_predictions', 0) or 0)
+        backtest_samples = int(metrics.get('backtest_samples', 0) or 0)
+        evidence_count = max(live_samples, backtest_samples)
+        accuracy_source = str(metrics.get('display_accuracy_source', 'unavailable'))
+
+        return (
+            1 if bool(quality.get('qualified')) else 0,
+            1 if status == 'watch' else 0,
+            1 if display_accuracy is not None else 0,
+            float(display_accuracy) if display_accuracy is not None else float('-inf'),
+            confidence,
+            1 if accuracy_source in {'live', 'live_sparse'} else 0,
+            evidence_count,
+            -preferred_order.index(horizon),
+        )
+
+    headline_horizon = max(preferred_order, key=headline_rank)
 
     return by_horizon, headline_horizon
 

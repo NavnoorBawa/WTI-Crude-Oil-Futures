@@ -1,6 +1,15 @@
 import React, { useState, useEffect, useRef } from "react";
 import Chart from "./Chart";
 
+const DISPLAY_HORIZONS = ["1H", "1D", "1W"];
+
+const humanizeReason = (value) => {
+  if (!value) return "";
+  return String(value)
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
 function App() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -8,6 +17,7 @@ function App() {
   const [loadingMessage, setLoadingMessage] = useState("Connecting to Real-Time Data Feeds");
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [activeDisplayHorizon, setActiveDisplayHorizon] = useState("1W");
   const pollIntervalMs = Number(import.meta.env.VITE_POLL_INTERVAL_MS || 15000);
   const startupRetryMs = Number(import.meta.env.VITE_STARTUP_RETRY_MS || 5000);
   const configuredApiBase = import.meta.env.VITE_API_BASE_URL;
@@ -270,20 +280,34 @@ function App() {
   const priceChangePercent = data?.price_change_percent || 0;
   const contractInfo = data?.contract || { symbol: 'CLV25', description: 'WTI CRUDE OIL FUTURES' };
   const headlineMetrics = data?.performance_metrics?.headline || {};
-  const headlineHorizonKey = headlineMetrics?.horizon || '1d';
-  const headlineHorizonLabel = String(headlineHorizonKey || '1d').toUpperCase();
+  const headlineHorizonKey = String(headlineMetrics?.horizon || '1d').toLowerCase();
+  const recommendedDisplayHorizon = headlineMetrics?.quality_status === 'QUALIFIED'
+    ? headlineHorizonKey.toUpperCase()
+    : '1W';
+  const resolvedActiveDisplayHorizon = DISPLAY_HORIZONS.includes(activeDisplayHorizon)
+    ? activeDisplayHorizon
+    : recommendedDisplayHorizon;
+  const activeHorizonKey = resolvedActiveDisplayHorizon.toLowerCase();
+  const activeHorizonLabel = resolvedActiveDisplayHorizon;
+  const metricsByHorizon = data?.performance_metrics?.by_horizon || {};
+  const activeMetrics = metricsByHorizon?.[activeHorizonKey] || {};
+  const activeQuality = activeMetrics?.quality || {};
   const currentPrediction = Number(
-    headlineMetrics?.prediction ?? data?.multi_horizon_predictions?.predictions?.[headlineHorizonKey] ?? 0
+    data?.multi_horizon_predictions?.predictions?.[activeHorizonKey]
+    ?? headlineMetrics?.prediction
+    ?? 0
   ) || 0;
 
   const totalEvaluatedPredictions = Number(data?.performance_metrics?.total_predictions || 0);
   const liveDirectionAccuracy = Number(data?.performance_metrics?.direction_accuracy || 0);
-  const displayDirectionAccuracyRaw = headlineMetrics?.display_direction_accuracy ?? data?.performance_metrics?.display_direction_accuracy;
-  const displayAccuracySource = headlineMetrics?.display_accuracy_source || data?.performance_metrics?.display_accuracy_source || 'unavailable';
+  const displayDirectionAccuracyRaw = activeMetrics?.display_accuracy ?? headlineMetrics?.display_direction_accuracy ?? data?.performance_metrics?.display_direction_accuracy;
+  const displayAccuracySource = activeMetrics?.display_accuracy_source || headlineMetrics?.display_accuracy_source || data?.performance_metrics?.display_accuracy_source || 'unavailable';
   const minLiveSamples = Number(data?.performance_metrics?.min_live_accuracy_samples || 18);
-  const modelConfidence = headlineMetrics?.confidence;
-  const headlineQualityStatus = String(headlineMetrics?.quality_status || data?.enterprise_metrics?.quality_status || 'UNKNOWN').toUpperCase();
-  const headlineQualityReasons = Array.isArray(headlineMetrics?.quality_reasons) ? headlineMetrics.quality_reasons : [];
+  const modelConfidence = activeMetrics?.confidence ?? headlineMetrics?.confidence;
+  const headlineQualityStatus = String(activeQuality?.status || headlineMetrics?.quality_status || data?.enterprise_metrics?.quality_status || 'UNKNOWN').toUpperCase();
+  const headlineQualityReasons = Array.isArray(activeQuality?.reasons)
+    ? activeQuality.reasons.map(humanizeReason)
+    : (Array.isArray(headlineMetrics?.quality_reasons) ? headlineMetrics.quality_reasons.map(humanizeReason) : []);
   const isRealPrediction = Boolean(data?.multi_horizon_predictions?.is_real_prediction);
   const isFullRealPrediction = Boolean(data?.multi_horizon_predictions?.is_full_real_prediction);
   const fallbackHorizons = Object.entries(data?.multi_horizon_predictions?.fallbacks || {})
@@ -310,6 +334,12 @@ function App() {
     : (fallbackConfidence !== undefined && fallbackConfidence !== null
       ? `${Math.round(fallbackConfidence)}%`
       : (data?.confidence || '--'));
+
+  useEffect(() => {
+    setActiveDisplayHorizon((previous) => (
+      DISPLAY_HORIZONS.includes(previous) ? previous : recommendedDisplayHorizon
+    ));
+  }, [recommendedDisplayHorizon]);
 
   return (
     <div className="min-h-screen bg-black text-bloomberg-amber font-mono" style={{ display: 'flex', flexDirection: 'column' }}>
@@ -368,7 +398,7 @@ function App() {
               <th className="text-sm">CHG</th>
               <th className="text-sm">%CHG</th>
               <th className="text-sm">VOL</th>
-              <th className="text-sm">ML PRED {headlineHorizonLabel}</th>
+              <th className="text-sm">ML PRED {activeHorizonLabel}</th>
               <th className="text-sm">ACCURACY</th>
               <th className="text-sm">CONFIDENCE</th>
             </tr>
@@ -440,18 +470,18 @@ function App() {
                 headlineQualityStatus === 'WATCH' ? 'text-bloomberg-alert' :
                 'text-bloomberg-negative'
               }`}>
-                QUAL {headlineHorizonLabel}: {headlineQualityStatus}
+                QUAL {activeHorizonLabel}: {headlineQualityStatus}
               </span>
               {(displayAccuracySource !== 'live') && isRealPrediction && (
                 <span className="text-bloomberg-blue font-medium">
                   {displayAccuracySource === 'backtest'
-                    ? `EVAL: BACKTEST ${headlineHorizonLabel}`
-                    : `EVAL: WARMUP ${headlineHorizonLabel} (${totalEvaluatedPredictions}/${minLiveSamples})`}
+                    ? `EVAL: BACKTEST ${activeHorizonLabel}`
+                    : `EVAL: WARMUP ${activeHorizonLabel} (${totalEvaluatedPredictions}/${minLiveSamples})`}
                 </span>
               )}
               {headlineQualityReasons.length > 0 && (
                 <span className="text-gray-400 font-medium">
-                  {headlineQualityReasons.join(', ').replaceAll('_', ' ')}
+                  {headlineQualityReasons.join(', ')}
                 </span>
               )}
               {fallbackHorizons.length > 0 && (
@@ -524,6 +554,8 @@ function App() {
           multiHorizonPredictions={data?.multi_horizon_predictions}
           performanceMetricsByHorizon={data?.performance_metrics?.by_horizon || {}}
           unifiedData={data?.unified_data}
+          activeHorizon={resolvedActiveDisplayHorizon}
+          onActiveHorizonChange={setActiveDisplayHorizon}
           currentPrice={currentPrice}
           contractInfo={contractInfo}
           priceChange={priceChange}

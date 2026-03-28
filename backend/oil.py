@@ -294,8 +294,20 @@ class PremiumWTIPredictor:
         self.storage_timezone = datetime.now().astimezone().tzinfo or timezone.utc
         self.time_series_cv_splits = max(2, int(os.getenv('TIME_SERIES_CV_SPLITS', '2')))
         self.max_hourly_training_samples = max(240, int(os.getenv('MAX_HOURLY_TRAINING_SAMPLES', '720')))
+        self.max_selected_features = max(12, int(os.getenv('MAX_SELECTED_FEATURES', '24')))
         self.external_data_ttl_seconds = max(30, int(os.getenv('EXTERNAL_DATA_TTL_SECONDS', '180')))
         self.market_data_ttl_seconds = max(10, int(os.getenv('MARKET_DATA_TTL_SECONDS', '60')))
+        self.daily_training_period = os.getenv('DAILY_TRAINING_PERIOD', '18mo')
+        self.hourly_training_period = os.getenv('HOURLY_TRAINING_PERIOD', '90d')
+        self.market_context_period = os.getenv('MARKET_CONTEXT_PERIOD', '3y')
+        base_daily_lookback = max(30, int(os.getenv('DAILY_FEATURE_LOOKBACK_BARS', '63')))
+        self.daily_feature_lookback_bars_1d = max(30, int(os.getenv('DAILY_FEATURE_LOOKBACK_BARS_1D', str(base_daily_lookback))))
+        self.daily_feature_lookback_bars_1w = max(self.daily_feature_lookback_bars_1d, int(os.getenv('DAILY_FEATURE_LOOKBACK_BARS_1W', str(base_daily_lookback))))
+        self.daily_feature_lookback_bars = max(base_daily_lookback, self.daily_feature_lookback_bars_1w)
+        self.hourly_feature_lookback_bars = max(24, int(os.getenv('HOURLY_FEATURE_LOOKBACK_BARS', '96')))
+        self.daily_target_mode = os.getenv('DAILY_TARGET_MODE', 'return').strip().lower() or 'return'
+        if self.daily_target_mode not in {'price', 'return'}:
+            self.daily_target_mode = 'return'
         # External API snapshots are point-in-time values; avoid injecting them into historical rows by default.
         self.use_external_features_in_training = os.getenv('USE_EXTERNAL_FEATURES_IN_TRAINING', 'false').lower() == 'true'
         self.contract_refresh_ttl_seconds = max(30, int(os.getenv('CONTRACT_REFRESH_TTL_SECONDS', '120')))
@@ -662,6 +674,102 @@ class PremiumWTIPredictor:
         blended_scores = np.mean(normalized_blocks, axis=0) if normalized_blocks else np.zeros(feature_count, dtype=float)
         return blended_scores, np.ones(feature_count, dtype=float)
 
+    def _compose_model_weight_score(self, regression_score, direction_accuracy):
+        """Blend regression fit with directional skill because the product is judged on both."""
+        regression_component = float(np.clip(regression_score, 0.0, 1.0))
+        direction_component = float(np.clip((float(direction_accuracy or 50.0) / 100.0), 0.0, 1.0))
+        direction_weight = float(np.clip(getattr(self, 'model_direction_weight', 0.6), 0.0, 1.0))
+        regression_weight = 1.0 - direction_weight
+        return float(np.clip(
+            regression_weight * regression_component + direction_weight * direction_component,
+            0.0,
+            1.0,
+        ))
+
+    def _stabilize_ensemble_prediction(self, reference_price, ensemble_prediction, model_predictions, model_scores, model_direction_scores):
+        """
+        Reduce oversized moves when models disagree and lean slightly toward the best directional model
+        when the raw ensemble sign conflicts with stronger directional evidence.
+        """
+        reference_price = float(reference_price)
+        if not np.isfinite(reference_price) or reference_price <= 0:
+            return float(ensemble_prediction), {'direction_consensus': 1.0, 'shrink_factor': 1.0, 'leader_model': None}
+
+        prediction_map = {
+            name: float(pred)
+            for name, pred in (model_predictions or {}).items()
+            if pred is not None and np.isfinite(pred)
+        }
+        if not prediction_map:
+            return float(ensemble_prediction), {'direction_consensus': 1.0, 'shrink_factor': 1.0, 'leader_model': None}
+
+        weighted_direction = 0.0
+        weighted_accuracy = 0.0
+        total_weight = 0.0
+        for model_name, pred in prediction_map.items():
+            weight = max(0.3, min(1.0, float((model_scores or {}).get(model_name, 0.5) or 0.5)))
+            delta = float(pred) - reference_price
+            direction = 0.0 if abs(delta) < 1e-9 else float(np.sign(delta))
+            weighted_direction += direction * weight
+            weighted_accuracy += float((model_direction_scores or {}).get(model_name, 50.0) or 50.0) * weight
+            total_weight += weight
+
+        direction_consensus = abs(weighted_direction) / total_weight if total_weight > 0 else 1.0
+        avg_direction_accuracy = weighted_accuracy / total_weight if total_weight > 0 else 50.0
+        direction_leader = max(
+            prediction_map,
+            key=lambda name: float((model_direction_scores or {}).get(name, 50.0) or 50.0)
+        )
+
+        adjusted_prediction = float(ensemble_prediction)
+        leader_prediction = prediction_map.get(direction_leader, adjusted_prediction)
+        ensemble_sign = float(np.sign(adjusted_prediction - reference_price))
+        leader_sign = float(np.sign(leader_prediction - reference_price))
+        leader_accuracy = float((model_direction_scores or {}).get(direction_leader, 50.0) or 50.0)
+        if ensemble_sign != 0.0 and leader_sign != 0.0 and ensemble_sign != leader_sign and leader_accuracy >= 52.0:
+            leader_blend = 0.2 + 0.35 * float(np.clip((leader_accuracy - 50.0) / 25.0, 0.0, 1.0))
+            adjusted_prediction = ((1.0 - leader_blend) * adjusted_prediction) + (leader_blend * leader_prediction)
+
+        delta = adjusted_prediction - reference_price
+        shrink_floor = float(np.clip(getattr(self, 'model_consensus_shrink_floor', 0.35), 0.1, 0.9))
+        consensus_shrink = shrink_floor + ((1.0 - shrink_floor) * direction_consensus)
+        accuracy_shrink = 0.45 + (0.55 * float(np.clip(avg_direction_accuracy / 100.0, 0.0, 1.0)))
+        shrink_factor = float(np.clip(consensus_shrink * accuracy_shrink, shrink_floor, 1.0))
+        adjusted_prediction = reference_price + (delta * shrink_factor)
+
+        return float(adjusted_prediction), {
+            'direction_consensus': float(direction_consensus),
+            'average_direction_accuracy': float(avg_direction_accuracy),
+            'shrink_factor': float(shrink_factor),
+            'leader_model': direction_leader,
+        }
+
+    def _compute_drift_challenger(self, price_series, reference_price, horizon):
+        """Simple challenger forecast based on recent average step change."""
+        horizon_steps = 1 if horizon == '1d' else 5 if horizon == '1w' else 1
+        series = pd.Series(price_series, dtype=float).dropna()
+        if len(series) < 2:
+            return float(reference_price)
+
+        avg_step_change = float(series.diff().dropna().tail(20).mean())
+        if not np.isfinite(avg_step_change):
+            avg_step_change = 0.0
+        return float(reference_price + (avg_step_change * horizon_steps))
+
+    def _blend_with_drift_challenger(self, reference_price, candidate_prediction, drift_prediction, backtest_metrics, drift_score=0.0, direction_consensus=1.0):
+        """Lean toward a simple drift baseline when the model's directional evidence is weak."""
+        direction_accuracy = float((backtest_metrics or {}).get('direction_accuracy', 50.0) or 50.0)
+        blend_weight = 0.0
+        if direction_accuracy < 50.0:
+            blend_weight += 0.12 + (0.23 * float(np.clip((50.0 - direction_accuracy) / 15.0, 0.0, 1.0)))
+        if float(direction_consensus or 1.0) < 0.55:
+            blend_weight += 0.12
+        if float(drift_score or 0.0) > 2.5:
+            blend_weight += 0.08
+        blend_weight = float(np.clip(blend_weight, 0.0, 0.45))
+        blended_prediction = ((1.0 - blend_weight) * float(candidate_prediction)) + (blend_weight * float(drift_prediction))
+        return float(blended_prediction), blend_weight
+
     def _atomic_write_json(self, file_path: Path, payload):
         """Persist JSON atomically to avoid partial writes on crashes/restarts."""
         temp_path = None
@@ -949,7 +1057,38 @@ class PremiumWTIPredictor:
             'reasons': reasons,
         }
 
-    def _build_training_signature(self, features_df, target_column):
+    def _encode_target_value(self, reference_price, target_price, target_mode='price'):
+        """Map absolute future price into the model target space."""
+        if target_mode == 'return':
+            ref = pd.to_numeric(reference_price, errors='coerce')
+            target = pd.to_numeric(target_price, errors='coerce')
+            if pd.isna(ref) or pd.isna(target) or float(ref) <= 0:
+                return 0.0
+            return float((float(target) / float(ref)) - 1.0)
+        target = pd.to_numeric(target_price, errors='coerce')
+        return float(target) if not pd.isna(target) else 0.0
+
+    def _decode_target_value(self, reference_price, target_value, target_mode='price'):
+        """Convert model outputs back into price space for evaluation and display."""
+        predicted = pd.to_numeric(target_value, errors='coerce')
+        if pd.isna(predicted):
+            return 0.0
+        if target_mode == 'return':
+            ref = pd.to_numeric(reference_price, errors='coerce')
+            if pd.isna(ref) or float(ref) <= 0:
+                return 0.0
+            return float(float(ref) * (1.0 + float(predicted)))
+        return float(predicted)
+
+    def _get_daily_feature_lookback(self, horizon):
+        """Use a shorter context for 1D and a broader one for 1W."""
+        if horizon == '1d':
+            return max(30, int(getattr(self, 'daily_feature_lookback_bars_1d', self.daily_feature_lookback_bars)))
+        if horizon == '1w':
+            return max(30, int(getattr(self, 'daily_feature_lookback_bars_1w', self.daily_feature_lookback_bars)))
+        return max(30, int(getattr(self, 'daily_feature_lookback_bars', 63)))
+
+    def _build_training_signature(self, features_df, target_column, target_mode='price'):
         """Create a compact fingerprint for cache-safe model reuse."""
         tail_values = []
         if target_column in features_df.columns:
@@ -963,6 +1102,7 @@ class PremiumWTIPredictor:
             )
         payload = {
             'target': target_column,
+            'target_mode': str(target_mode),
             'shape': features_df.shape,
             'columns': features_df.columns.tolist(),
             'last_index': str(features_df.index[-1]) if len(features_df.index) > 0 else 'none',
@@ -999,9 +1139,9 @@ class PremiumWTIPredictor:
             'direction_accuracy': float(np.mean(pred_direction == actual_direction) * 100),
         }
 
-    def _train_or_reuse_model_package(self, features_df, target_column, horizon):
+    def _train_or_reuse_model_package(self, features_df, target_column, horizon, target_mode='price'):
         """Train a horizon package once and reuse it while source data fingerprint is unchanged."""
-        signature = self._build_training_signature(features_df, target_column)
+        signature = self._build_training_signature(features_df, target_column, target_mode)
         cached = self.model_cache.get(horizon)
 
         if cached and cached.get('signature') == signature:
@@ -1009,7 +1149,8 @@ class PremiumWTIPredictor:
 
         models, scores, scaler, selector, selected_features, all_feature_names, diagnostics = self.train_prediction_models(
             features_df,
-            target_column
+            target_column,
+            target_mode=target_mode,
         )
         package = {
             'models': models,
@@ -1019,6 +1160,7 @@ class PremiumWTIPredictor:
             'selected_features': selected_features,
             'all_feature_names': all_feature_names,
             'diagnostics': diagnostics,
+            'target_mode': target_mode,
         }
         self.model_cache[horizon] = {
             'signature': signature,
@@ -1041,6 +1183,142 @@ class PremiumWTIPredictor:
             else:
                 feature_frame[feature] = 0.0
         return feature_frame
+
+    def _safe_series(self, values, index=None, fill_value=0.0):
+        """Convert raw values into a finite float series for feature engineering."""
+        series = pd.Series(pd.to_numeric(values, errors='coerce'), index=index, dtype=float)
+        if series.empty:
+            return series
+        series = series.replace([np.inf, -np.inf], np.nan)
+        series = series.ffill().bfill()
+        if series.isna().all():
+            return series.fillna(float(fill_value))
+        return series.fillna(float(fill_value))
+
+    def _safe_pct_change_value(self, series, periods):
+        """Latest percentage change over N bars."""
+        clean = self._safe_series(series)
+        if clean.empty or len(clean) <= periods:
+            return 0.0
+        base_value = float(clean.iloc[-periods - 1])
+        latest_value = float(clean.iloc[-1])
+        if not np.isfinite(base_value) or abs(base_value) < 1e-9 or not np.isfinite(latest_value):
+            return 0.0
+        return float((latest_value / base_value) - 1.0)
+
+    def _safe_diff_value(self, series, periods=1):
+        """Latest absolute difference over N bars."""
+        clean = self._safe_series(series)
+        if clean.empty or len(clean) <= periods:
+            return 0.0
+        return float(clean.iloc[-1] - clean.iloc[-periods - 1])
+
+    def _safe_ratio(self, numerator, denominator, default=0.0):
+        """Finite ratio helper used across normalized features."""
+        num = pd.to_numeric(numerator, errors='coerce')
+        den = pd.to_numeric(denominator, errors='coerce')
+        if pd.isna(num) or pd.isna(den) or abs(float(den)) < 1e-9:
+            return float(default)
+        value = float(num) / float(den)
+        if not np.isfinite(value):
+            return float(default)
+        return float(value)
+
+    def _latest_rolling_zscore(self, series, window):
+        """Latest z-score of a series against its own rolling history."""
+        clean = self._safe_series(series)
+        if clean.empty:
+            return 0.0
+        tail = clean.tail(max(3, int(window)))
+        std = float(tail.std())
+        if not np.isfinite(std) or std < 1e-9:
+            return 0.0
+        return float((tail.iloc[-1] - tail.mean()) / std)
+
+    def _latest_trend_slope(self, series, window):
+        """Normalized log-price slope over the trailing window."""
+        clean = self._safe_series(series)
+        tail = clean[clean > 0].tail(max(3, int(window)))
+        if len(tail) < 3:
+            return 0.0
+        log_values = np.log(np.clip(tail.to_numpy(dtype=float), 1e-9, None))
+        x_axis = np.arange(len(log_values), dtype=float)
+        slope = np.polyfit(x_axis, log_values, 1)[0]
+        return float(slope)
+
+    def _latest_directional_hit_rate(self, series, window):
+        """Share of positive returns in the trailing window."""
+        clean = self._safe_series(series)
+        returns = clean.pct_change().replace([np.inf, -np.inf], np.nan).dropna().tail(max(2, int(window)))
+        if returns.empty:
+            return 0.5
+        return float((returns > 0).mean())
+
+    def _latest_volatility(self, series, window):
+        """Latest realized log-return volatility over N bars."""
+        clean = self._safe_series(series)
+        log_returns = np.log(clean.clip(lower=1e-9)).diff().replace([np.inf, -np.inf], np.nan).dropna()
+        tail = log_returns.tail(max(2, int(window)))
+        if tail.empty:
+            return 0.0
+        return float(tail.std())
+
+    def _latest_atr_percent(self, highs, lows, closes, window):
+        """Average true range normalized by the latest close."""
+        high_series = self._safe_series(highs)
+        low_series = self._safe_series(lows)
+        close_series = self._safe_series(closes)
+        if high_series.empty or low_series.empty or close_series.empty:
+            return 0.0
+
+        true_range = pd.concat(
+            [
+                high_series - low_series,
+                (high_series - close_series.shift(1)).abs(),
+                (low_series - close_series.shift(1)).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
+        atr = float(true_range.tail(max(2, int(window))).mean())
+        latest_close = float(close_series.iloc[-1])
+        if not np.isfinite(atr) or latest_close <= 0:
+            return 0.0
+        return float(atr / latest_close)
+
+    def _latest_drawdown(self, series, window):
+        """Distance from trailing peak, expressed as a negative percentage when below the peak."""
+        clean = self._safe_series(series)
+        if clean.empty:
+            return 0.0
+        tail = clean.tail(max(2, int(window)))
+        rolling_peak = float(tail.max())
+        if rolling_peak <= 0:
+            return 0.0
+        return float((tail.iloc[-1] / rolling_peak) - 1.0)
+
+    def _latest_distance_from_low(self, series, window):
+        """Distance from trailing low, useful for rebound vs breakdown context."""
+        clean = self._safe_series(series)
+        if clean.empty:
+            return 0.0
+        tail = clean.tail(max(2, int(window)))
+        rolling_low = float(tail.min())
+        if rolling_low <= 0:
+            return 0.0
+        return float((tail.iloc[-1] / rolling_low) - 1.0)
+
+    def _latest_correlation(self, left_series, right_series, window):
+        """Rolling correlation helper for cross-asset context."""
+        left = self._safe_series(left_series)
+        right = self._safe_series(right_series)
+        if left.empty or right.empty:
+            return 0.0
+        aligned = pd.concat([left.pct_change(), right.pct_change()], axis=1).replace([np.inf, -np.inf], np.nan).dropna()
+        tail = aligned.tail(max(3, int(window)))
+        if len(tail) < 3:
+            return 0.0
+        corr = float(tail.iloc[:, 0].corr(tail.iloc[:, 1]))
+        return corr if np.isfinite(corr) else 0.0
     
     def get_current_price(self):
         """Get real-time WTI price from yfinance"""
@@ -1064,9 +1342,10 @@ class PremiumWTIPredictor:
                 candidates.append(symbol)
         return candidates
     
-    def get_wti_historical_data(self, period="6mo", interval="1d"):
+    def get_wti_historical_data(self, period=None, interval="1d"):
         """Get historical WTI data from yfinance"""
         try:
+            period = period or self.daily_training_period
             now_ts = time.time()
             fetch_errors = []
 
@@ -1102,13 +1381,14 @@ class PremiumWTIPredictor:
             logger.error(f"Failed to get historical data: {e}")
             raise Exception(f"Cannot get historical data: {e}")
 
-    def get_wti_hourly_data(self):
+    def get_wti_hourly_data(self, period=None):
         """Get WTI hourly data from yfinance (last 730 days max)"""
         try:
+            hourly_period = period or self.hourly_training_period
             now_ts = time.time()
 
             for symbol in self._get_market_symbol_candidates():
-                cache_key = f"hourly:{symbol}:60d:1h"
+                cache_key = f"hourly:{symbol}:{hourly_period}:1h"
                 cached = self._market_data_mem_cache.get(cache_key)
                 if cached and (now_ts - cached['fetched_at']) <= self.market_data_ttl_seconds:
                     cached_df = cached.get('data')
@@ -1120,7 +1400,7 @@ class PremiumWTIPredictor:
                 try:
                     # yfinance allows 1h data for up to 730 days.
                     ticker = yf.Ticker(symbol)
-                    hourly_data = ticker.history(period="60d", interval="1h", timeout=15)
+                    hourly_data = ticker.history(period=hourly_period, interval="1h", timeout=15)
                     if hourly_data.empty:
                         logger.warning(f"No hourly data available for {symbol}")
                         continue
@@ -1211,12 +1491,13 @@ class PremiumWTIPredictor:
 
     def build_market_context_feature_map(self, wti_data):
         """Build date-keyed cross-asset and term-structure features aligned to WTI history."""
-        if wti_data is None or len(wti_data) < 25 or 'Close' not in wti_data.columns:
+        if wti_data is None or len(wti_data) < 10 or 'Close' not in wti_data.columns:
             return {}
 
         date_index = pd.Index([self._date_feature_key(ts) for ts in wti_data.index])
         feature_frame = pd.DataFrame(index=date_index)
         feature_frame['wti_close'] = pd.to_numeric(wti_data['Close'], errors='coerce').values
+        feature_frame['wti_close'] = pd.to_numeric(feature_frame['wti_close'], errors='coerce').ffill().bfill()
 
         context_symbols = {
             'brent_close': 'BZ=F',
@@ -1225,10 +1506,12 @@ class PremiumWTIPredictor:
             'ovx_close': '^OVX',
             'tnx_close': '^TNX',
             'xle_close': 'XLE',
+            'xop_close': 'XOP',
+            'spy_close': 'SPY',
         }
 
         for col_name, symbol in context_symbols.items():
-            series = self._fetch_market_series(symbol, period='2y', interval='1d')
+            series = self._fetch_market_series(symbol, period=self.market_context_period, interval='1d')
             if series is None or len(series) == 0:
                 feature_frame[col_name] = np.nan
                 continue
@@ -1240,7 +1523,7 @@ class PremiumWTIPredictor:
 
         next_contract = self._get_next_wti_contract_symbol()
         if next_contract:
-            next_series = self._fetch_market_series(next_contract, period='2y', interval='1d')
+            next_series = self._fetch_market_series(next_contract, period=self.market_context_period, interval='1d')
             if next_series is not None and len(next_series) > 0:
                 next_index = pd.Index([self._date_feature_key(ts) for ts in next_series.index])
                 next_series_norm = pd.Series(next_series.values, index=next_index)
@@ -1251,22 +1534,64 @@ class PremiumWTIPredictor:
         else:
             feature_frame['next_contract_close'] = np.nan
 
+        for column_name in [
+            'brent_close', 'dxy_close', 'vix_close', 'ovx_close', 'tnx_close',
+            'xle_close', 'xop_close', 'spy_close', 'next_contract_close'
+        ]:
+            feature_frame[column_name] = pd.to_numeric(feature_frame[column_name], errors='coerce').ffill()
+
         feature_frame['wti_return_1d'] = feature_frame['wti_close'].pct_change(1)
+        feature_frame['wti_return_5d'] = feature_frame['wti_close'].pct_change(5)
+        feature_frame['wti_return_20d'] = feature_frame['wti_close'].pct_change(20)
+        feature_frame['wti_return_60d'] = feature_frame['wti_close'].pct_change(60)
+        feature_frame['brent_return_5d'] = feature_frame['brent_close'].pct_change(5)
+        feature_frame['brent_return_20d'] = feature_frame['brent_close'].pct_change(20)
         feature_frame['xle_return_1d'] = feature_frame['xle_close'].pct_change(1)
         feature_frame['brent_wti_spread'] = feature_frame['brent_close'] - feature_frame['wti_close']
         feature_frame['brent_wti_ratio'] = feature_frame['brent_close'] / feature_frame['wti_close'].replace(0, np.nan)
+        feature_frame['brent_wti_spread_change_5d'] = feature_frame['brent_wti_spread'].diff(5)
+        feature_frame['brent_wti_spread_zscore_20d'] = (
+            feature_frame['brent_wti_spread'] - feature_frame['brent_wti_spread'].rolling(20).mean()
+        ) / feature_frame['brent_wti_spread'].rolling(20).std().replace(0, np.nan)
+        feature_frame['dxy_return_1d'] = feature_frame['dxy_close'].pct_change(1)
         feature_frame['dxy_return_5d'] = feature_frame['dxy_close'].pct_change(5)
+        feature_frame['dxy_return_20d'] = feature_frame['dxy_close'].pct_change(20)
         feature_frame['dxy_level'] = feature_frame['dxy_close']
+        feature_frame['dxy_level_zscore_20d'] = (
+            feature_frame['dxy_close'] - feature_frame['dxy_close'].rolling(20).mean()
+        ) / feature_frame['dxy_close'].rolling(20).std().replace(0, np.nan)
         feature_frame['vix_level'] = feature_frame['vix_close']
+        feature_frame['vix_return_5d'] = feature_frame['vix_close'].pct_change(5)
+        feature_frame['vix_zscore_20d'] = (
+            feature_frame['vix_close'] - feature_frame['vix_close'].rolling(20).mean()
+        ) / feature_frame['vix_close'].rolling(20).std().replace(0, np.nan)
         feature_frame['ovx_level'] = feature_frame['ovx_close']
+        feature_frame['ovx_return_5d'] = feature_frame['ovx_close'].pct_change(5)
+        feature_frame['ovx_zscore_20d'] = (
+            feature_frame['ovx_close'] - feature_frame['ovx_close'].rolling(20).mean()
+        ) / feature_frame['ovx_close'].rolling(20).std().replace(0, np.nan)
         feature_frame['ovx_vix_spread'] = feature_frame['ovx_close'] - feature_frame['vix_close']
+        feature_frame['ovx_vix_ratio'] = feature_frame['ovx_close'] / feature_frame['vix_close'].replace(0, np.nan)
         feature_frame['tnx_level'] = feature_frame['tnx_close']
+        feature_frame['tnx_change_1d'] = feature_frame['tnx_close'].diff(1)
         feature_frame['tnx_change_5d'] = feature_frame['tnx_close'].diff(5)
+        feature_frame['tnx_level_zscore_20d'] = (
+            feature_frame['tnx_close'] - feature_frame['tnx_close'].rolling(20).mean()
+        ) / feature_frame['tnx_close'].rolling(20).std().replace(0, np.nan)
         feature_frame['xle_return_5d'] = feature_frame['xle_close'].pct_change(5)
         feature_frame['xle_return_20d'] = feature_frame['xle_close'].pct_change(20)
+        feature_frame['xop_return_5d'] = feature_frame['xop_close'].pct_change(5)
+        feature_frame['xop_return_20d'] = feature_frame['xop_close'].pct_change(20)
+        feature_frame['spy_return_5d'] = feature_frame['spy_close'].pct_change(5)
+        feature_frame['spy_return_20d'] = feature_frame['spy_close'].pct_change(20)
         feature_frame['wti_xle_corr_20d'] = feature_frame['wti_return_1d'].rolling(20).corr(feature_frame['xle_return_1d'])
+        feature_frame['wti_xop_corr_20d'] = feature_frame['wti_return_1d'].rolling(20).corr(feature_frame['xop_close'].pct_change(1))
+        feature_frame['wti_spy_corr_20d'] = feature_frame['wti_return_1d'].rolling(20).corr(feature_frame['spy_close'].pct_change(1))
+        feature_frame['wti_dxy_corr_20d'] = feature_frame['wti_return_1d'].rolling(20).corr(feature_frame['dxy_close'].pct_change(1))
         feature_frame['term_spread_front_next'] = feature_frame['wti_close'] - feature_frame['next_contract_close']
+        feature_frame['term_spread_pct'] = feature_frame['term_spread_front_next'] / feature_frame['wti_close'].replace(0, np.nan)
         feature_frame['is_contango'] = (feature_frame['term_spread_front_next'] < 0).astype(float)
+        feature_frame['term_spread_change_5d'] = feature_frame['term_spread_front_next'].diff(5)
         spread_std = feature_frame['term_spread_front_next'].rolling(20).std().replace(0, np.nan)
         feature_frame['term_spread_zscore_20d'] = (
             feature_frame['term_spread_front_next'] - feature_frame['term_spread_front_next'].rolling(20).mean()
@@ -1274,24 +1599,74 @@ class PremiumWTIPredictor:
         feature_frame['roll_yield_5d_ann'] = (
             (feature_frame['wti_close'] / feature_frame['next_contract_close']) - 1.0
         ) * (252.0 / 5.0)
+        feature_frame['energy_equity_relative_20d'] = feature_frame['xle_return_20d'] - feature_frame['spy_return_20d']
+        feature_frame['exploration_relative_20d'] = feature_frame['xop_return_20d'] - feature_frame['spy_return_20d']
+        feature_frame['wti_vs_brent_gap_20d'] = feature_frame['wti_return_20d'] - feature_frame['brent_return_20d']
+        feature_frame['wti_vs_xle_gap_20d'] = feature_frame['wti_return_20d'] - feature_frame['xle_return_20d']
+        feature_frame['risk_off_pressure_5d'] = (
+            feature_frame['dxy_return_5d'].fillna(0.0)
+            + feature_frame['vix_return_5d'].fillna(0.0)
+            + feature_frame['ovx_return_5d'].fillna(0.0)
+            - feature_frame['xle_return_5d'].fillna(0.0)
+            - feature_frame['spy_return_5d'].fillna(0.0)
+        )
+        feature_frame['macro_stress_score'] = (
+            feature_frame['dxy_level_zscore_20d'].fillna(0.0)
+            + feature_frame['vix_zscore_20d'].fillna(0.0)
+            + feature_frame['ovx_zscore_20d'].fillna(0.0)
+            + feature_frame['tnx_level_zscore_20d'].fillna(0.0)
+            - feature_frame['energy_equity_relative_20d'].fillna(0.0)
+        )
 
         feature_defaults = {
+            'wti_return_5d': 0.0,
+            'wti_return_20d': 0.0,
+            'wti_return_60d': 0.0,
+            'brent_return_5d': 0.0,
+            'brent_return_20d': 0.0,
             'brent_wti_spread': 0.0,
             'brent_wti_ratio': 1.0,
+            'brent_wti_spread_change_5d': 0.0,
+            'brent_wti_spread_zscore_20d': 0.0,
+            'dxy_return_1d': 0.0,
             'dxy_return_5d': 0.0,
+            'dxy_return_20d': 0.0,
             'dxy_level': 100.0,
+            'dxy_level_zscore_20d': 0.0,
             'vix_level': 20.0,
+            'vix_return_5d': 0.0,
+            'vix_zscore_20d': 0.0,
             'ovx_level': 35.0,
+            'ovx_return_5d': 0.0,
+            'ovx_zscore_20d': 0.0,
             'ovx_vix_spread': 0.0,
+            'ovx_vix_ratio': 1.0,
             'tnx_level': 4.0,
+            'tnx_change_1d': 0.0,
             'tnx_change_5d': 0.0,
+            'tnx_level_zscore_20d': 0.0,
             'xle_return_5d': 0.0,
             'xle_return_20d': 0.0,
+            'xop_return_5d': 0.0,
+            'xop_return_20d': 0.0,
+            'spy_return_5d': 0.0,
+            'spy_return_20d': 0.0,
             'wti_xle_corr_20d': 0.0,
+            'wti_xop_corr_20d': 0.0,
+            'wti_spy_corr_20d': 0.0,
+            'wti_dxy_corr_20d': 0.0,
             'term_spread_front_next': 0.0,
+            'term_spread_pct': 0.0,
+            'term_spread_change_5d': 0.0,
             'term_spread_zscore_20d': 0.0,
             'roll_yield_5d_ann': 0.0,
             'is_contango': 0.0,
+            'energy_equity_relative_20d': 0.0,
+            'exploration_relative_20d': 0.0,
+            'wti_vs_brent_gap_20d': 0.0,
+            'wti_vs_xle_gap_20d': 0.0,
+            'risk_off_pressure_5d': 0.0,
+            'macro_stress_score': 0.0,
         }
 
         feature_columns = list(feature_defaults.keys())
@@ -2017,7 +2392,7 @@ class PremiumWTIPredictor:
         logger.info(f"Created {len(features)} premium features")
         return features
     
-    def train_prediction_models(self, features_df, target_column):
+    def train_prediction_models(self, features_df, target_column, target_mode='price'):
         """Train ensemble of ML models for oil prediction"""
         logger.info("Training oil-optimized ML models...")
         training_start = time.perf_counter()
@@ -2032,19 +2407,27 @@ class PremiumWTIPredictor:
             raise ValueError("No input features available for model training")
         if len(y) < 5:
             raise ValueError(f"Insufficient samples for training: {len(y)}")
+
+        target_mode = str(target_mode or 'price').lower()
+        if target_mode not in {'price', 'return'}:
+            target_mode = 'price'
+        reference_prices = None
+        if target_mode == 'return' and 'current_price' in X.columns:
+            reference_prices = X['current_price'].to_numpy(dtype=float)
         
         # Store ALL feature names for prediction phase
         all_feature_names = X.columns.tolist()
         
         # Feature selection
-        # Keep at most 20 features and enforce real reduction when possible.
+        # Allow a broader but still bounded feature set so richer cross-asset/regime signals can survive selection.
         n_features = len(X.columns)
+        max_selected_features = min(self.max_selected_features, n_features)
         if n_features <= 1:
             k_value = 1
         elif n_features <= 3:
             k_value = n_features - 1
         else:
-            k_value = min(20, max(3, int(round(n_features * 0.8))))
+            k_value = min(max_selected_features, max(6, int(round(n_features * 0.65))))
             if k_value >= n_features:
                 k_value = n_features - 1
 
@@ -2146,13 +2529,24 @@ class PremiumWTIPredictor:
                             score = 0.0  # No signal in this fold
                         scores.append(max(0, score))  # Ensure non-negative
 
-                        if len(y_train) > 0:
-                            baseline = np.concatenate(([float(y_train[-1])], y_val[:-1].astype(float)))
+                        if target_mode == 'return':
+                            if reference_prices is not None:
+                                fold_reference = np.maximum(reference_prices[val_idx], 1e-6)
+                            else:
+                                fold_reference = np.ones(len(y_val), dtype=float)
+                            actual_prices = fold_reference * (1.0 + np.asarray(y_val, dtype=float))
+                            predicted_prices = fold_reference * (1.0 + np.asarray(y_pred, dtype=float))
+                            baseline = fold_reference
                         else:
-                            baseline = np.zeros(len(y_val), dtype=float)
+                            actual_prices = np.asarray(y_val, dtype=float)
+                            predicted_prices = np.asarray(y_pred, dtype=float)
+                            if len(y_train) > 0:
+                                baseline = np.concatenate(([float(y_train[-1])], y_val[:-1].astype(float)))
+                            else:
+                                baseline = np.zeros(len(y_val), dtype=float)
 
-                        fold_store[fold_idx]['predictions'][name] = np.asarray(y_pred, dtype=float)
-                        fold_store[fold_idx]['y_true'] = np.asarray(y_val, dtype=float)
+                        fold_store[fold_idx]['predictions'][name] = np.asarray(predicted_prices, dtype=float)
+                        fold_store[fold_idx]['y_true'] = np.asarray(actual_prices, dtype=float)
                         fold_store[fold_idx]['baseline'] = baseline
 
                     avg_score = float(np.mean(scores))
@@ -2171,6 +2565,39 @@ class PremiumWTIPredictor:
                 
             except Exception as e:
                 logger.warning(f"Model {name} training failed: {e}")
+
+        model_validation_scores = dict(model_scores)
+        model_direction_scores = {}
+        model_backtest_metrics = {}
+        if fold_store:
+            for model_name in trained_models:
+                collected_preds = []
+                collected_true = []
+                collected_baseline = []
+                for fold in fold_store:
+                    fold_preds = fold['predictions'].get(model_name)
+                    fold_true = fold.get('y_true')
+                    fold_baseline = fold.get('baseline')
+                    if fold_preds is None or fold_true is None or fold_baseline is None:
+                        continue
+                    collected_preds.extend(np.asarray(fold_preds, dtype=float).tolist())
+                    collected_true.extend(np.asarray(fold_true, dtype=float).tolist())
+                    collected_baseline.extend(np.asarray(fold_baseline, dtype=float).tolist())
+                if not collected_preds:
+                    continue
+                backtest_metrics = self._compute_backtest_metrics(
+                    np.asarray(collected_true, dtype=float),
+                    np.asarray(collected_preds, dtype=float),
+                    np.asarray(collected_baseline, dtype=float),
+                )
+                model_backtest_metrics[model_name] = backtest_metrics
+                model_direction_scores[model_name] = float(backtest_metrics.get('direction_accuracy', 50.0) or 50.0)
+
+        for model_name in trained_models:
+            model_scores[model_name] = self._compose_model_weight_score(
+                model_validation_scores.get(model_name, 0.5),
+                model_direction_scores.get(model_name, 50.0),
+            )
 
         latest_fold_metrics = {
             'samples': 0,
@@ -2204,6 +2631,11 @@ class PremiumWTIPredictor:
             'cv_mode': 'leakage_safe_fold_preprocessing' if cv_splits else 'in_sample_fallback',
             'rows': int(len(features_df)),
             'feature_count': int(len(all_feature_names)),
+            'target_mode': target_mode,
+            'model_validation_scores': model_validation_scores,
+            'model_direction_scores': model_direction_scores,
+            'model_backtest_metrics': model_backtest_metrics,
+            'model_weight_scores': model_scores,
             'latest_fold_backtest': latest_fold_metrics,
         }
         
@@ -2383,96 +2815,157 @@ class PremiumWTIPredictor:
     
     def engineer_technical_features(self, wti_data):
         """Engineer technical features from WTI price data only"""
-        closes = wti_data['Close'].values
-        highs = wti_data['High'].values
-        lows = wti_data['Low'].values
-        volumes = wti_data['Volume'].values
-        
-        # Calculate RSI once and reuse (avoid 3x redundant calls)
+        close_series = self._safe_series(wti_data['Close'], index=wti_data.index)
+        high_series = self._safe_series(wti_data['High'], index=wti_data.index)
+        low_series = self._safe_series(wti_data['Low'], index=wti_data.index)
+        volume_series = self._safe_series(wti_data['Volume'], index=wti_data.index)
+        closes = close_series.to_numpy(dtype=float)
+
+        # Calculate RSI once and reuse (avoid repeated recomputation).
         rsi_value = self.calculate_rsi(closes) if len(closes) >= 14 else 50
-        
+
         # Use the date of the last bar in the window (not datetime.now())
-        # so historical training rows get correct seasonal features
+        # so historical training rows get correct seasonal features.
         bar_date = wti_data.index[-1]
-        
-        # Guard against ZeroDivisionError when price range is zero
-        price_range = closes[-20:].max() - closes[-20:].min() if len(closes) >= 20 else 0
-        
+        latest_close = float(close_series.iloc[-1]) if not close_series.empty else 0.0
+        latest_volume = float(volume_series.iloc[-1]) if not volume_series.empty else 0.0
+        dollar_volume = latest_close * latest_volume if latest_close > 0 and latest_volume > 0 else 0.0
+
+        ma_5 = float(close_series.tail(5).mean()) if len(close_series) >= 5 else latest_close
+        ma_10 = float(close_series.tail(10).mean()) if len(close_series) >= 10 else latest_close
+        ma_20 = float(close_series.tail(20).mean()) if len(close_series) >= 20 else latest_close
+        ma_60 = float(close_series.tail(60).mean()) if len(close_series) >= 60 else ma_20
+        trailing_20 = close_series.tail(20)
+        trailing_60 = close_series.tail(60)
+        price_range_20 = float(trailing_20.max() - trailing_20.min()) if len(trailing_20) >= 2 else 0.0
+        price_range_60 = float(trailing_60.max() - trailing_60.min()) if len(trailing_60) >= 2 else 0.0
+        log_returns = np.log(close_series.clip(lower=1e-9)).diff().replace([np.inf, -np.inf], np.nan).dropna()
+        returns = close_series.pct_change().replace([np.inf, -np.inf], np.nan)
+        true_range = pd.concat(
+            [
+                high_series - low_series,
+                (high_series - close_series.shift(1)).abs(),
+                (low_series - close_series.shift(1)).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
+
+        positive_returns = returns.where(returns > 0)
+        negative_returns = (-returns.where(returns < 0))
+        volume_tail_20 = volume_series.tail(20)
+        dollar_volume_series = close_series * volume_series
+        dollar_volume_tail_20 = dollar_volume_series.tail(20)
+
         features = {
-            'current_price': closes[-1],
-            'price_change': closes[-1] - closes[-2] if len(closes) > 1 else 0,
-            'price_change_pct': ((closes[-1] - closes[-2]) / closes[-2] * 100) if len(closes) > 1 and closes[-2] != 0 else 0,
-            'volume': volumes[-1] if len(volumes) > 0 else 0,
-            
-            # Moving averages
-            'ma_5': closes[-5:].mean() if len(closes) >= 5 else closes[-1],
-            'ma_10': closes[-10:].mean() if len(closes) >= 10 else closes[-1],
-            'ma_20': closes[-20:].mean() if len(closes) >= 20 else closes[-1],
-            
-            # Volatility and standard deviation
-            'volatility': closes[-10:].std() if len(closes) >= 10 else 1.0,
-            'volatility_20': closes[-20:].std() if len(closes) >= 20 else 1.0,
-            
-            # Technical indicators (RSI calculated once above)
+            'current_price': latest_close,
+            'price_change': float(close_series.iloc[-1] - close_series.iloc[-2]) if len(close_series) > 1 else 0.0,
+            'price_change_pct': self._safe_pct_change_value(close_series, 1) * 100.0,
+            'volume': latest_volume,
+            'dollar_volume': float(dollar_volume),
+
+            # Moving averages and relative trend structure.
+            'ma_5': ma_5,
+            'ma_10': ma_10,
+            'ma_20': ma_20,
+            'ma_60': ma_60,
+            'price_to_ma20': self._safe_ratio(latest_close, ma_20, default=1.0),
+            'price_to_ma60': self._safe_ratio(latest_close, ma_60, default=1.0),
+            'ma5_to_ma20': self._safe_ratio(ma_5, ma_20, default=1.0),
+            'ma20_to_ma60': self._safe_ratio(ma_20, ma_60, default=1.0),
+
+            # Multi-horizon momentum.
+            'return_3': self._safe_pct_change_value(close_series, 3),
+            'return_5': self._safe_pct_change_value(close_series, 5),
+            'return_10': self._safe_pct_change_value(close_series, 10),
+            'return_20': self._safe_pct_change_value(close_series, 20),
+            'return_60': self._safe_pct_change_value(close_series, 60),
+            'momentum_accel_5_20': self._safe_pct_change_value(close_series, 5) - self._safe_pct_change_value(close_series, 20),
+            'trend_slope_5': self._latest_trend_slope(close_series, 5),
+            'trend_slope_20': self._latest_trend_slope(close_series, 20),
+            'trend_slope_60': self._latest_trend_slope(close_series, 60),
+            'up_day_ratio_5': self._latest_directional_hit_rate(close_series, 5),
+            'up_day_ratio_20': self._latest_directional_hit_rate(close_series, 20),
+
+            # Regime and volatility structure.
+            'volatility': self._latest_volatility(close_series, 10),
+            'volatility_20': self._latest_volatility(close_series, 20),
+            'volatility_60': self._latest_volatility(close_series, 60),
+            'volatility_ratio_5_20': self._safe_ratio(self._latest_volatility(close_series, 5), self._latest_volatility(close_series, 20), default=1.0),
+            'atr_pct_5': self._latest_atr_percent(high_series, low_series, close_series, 5),
+            'atr_pct_14': self._latest_atr_percent(high_series, low_series, close_series, 14),
+            'atr_pct_20': self._latest_atr_percent(high_series, low_series, close_series, 20),
+            'jump_abs_return_5': float(log_returns.abs().tail(5).max()) if not log_returns.empty else 0.0,
+            'jump_abs_return_20': float(log_returns.abs().tail(20).max()) if not log_returns.empty else 0.0,
+            'upside_vol_20': float(positive_returns.tail(20).std()) if positive_returns.tail(20).notna().any() else 0.0,
+            'downside_vol_20': float(negative_returns.tail(20).std()) if negative_returns.tail(20).notna().any() else 0.0,
+            'downside_upside_vol_ratio': self._safe_ratio(
+                float(negative_returns.tail(20).std()) if negative_returns.tail(20).notna().any() else 0.0,
+                float(positive_returns.tail(20).std()) if positive_returns.tail(20).notna().any() else 0.0,
+                default=1.0,
+            ),
+
+            # Price location and breakout context.
+            'price_position': ((latest_close - float(trailing_20.min())) / price_range_20) if len(trailing_20) >= 2 and price_range_20 > 1e-9 else 0.5,
+            'price_position_60': ((latest_close - float(trailing_60.min())) / price_range_60) if len(trailing_60) >= 2 and price_range_60 > 1e-9 else 0.5,
+            'drawdown_20': self._latest_drawdown(close_series, 20),
+            'drawdown_60': self._latest_drawdown(close_series, 60),
+            'distance_from_low_20': self._latest_distance_from_low(close_series, 20),
+            'distance_from_low_60': self._latest_distance_from_low(close_series, 60),
+            'price_zscore_10': self._latest_rolling_zscore(close_series, 10),
+            'price_zscore_20': self._latest_rolling_zscore(close_series, 20),
+            'price_zscore_60': self._latest_rolling_zscore(close_series, 60),
+            'high_low_ratio': self._safe_ratio(float(high_series.iloc[-1]), float(low_series.iloc[-1]), default=1.0),
+
+            # Technical indicators.
             'rsi': rsi_value,
             'rsi_oversold': 1 if rsi_value < 30 else 0,
             'rsi_overbought': 1 if rsi_value > 70 else 0,
-            
-            # Price position and ranges (guarded against div/0)
-            'price_position': ((closes[-1] - closes[-20:].min()) / price_range) if len(closes) >= 20 and price_range > 0 else 0.5,
-            'high_low_ratio': highs[-1] / lows[-1] if len(highs) > 0 and lows[-1] > 0 else 1.0,
-            
-            # Technical ratios
-            'price_to_ma20': closes[-1] / closes[-20:].mean() if len(closes) >= 20 else 1.0,
-            'ma5_to_ma20': (closes[-5:].mean() / closes[-20:].mean()) if len(closes) >= 20 else 1.0,
-            
-            # Time-based features from the BAR DATE (not now) for correct seasonality learning
+            'rsi_slope_5': float(rsi_value - (self.calculate_rsi(closes[:-5]) if len(closes) > 19 else rsi_value)),
+
+            # Liquidity and participation.
+            'volume_ratio': self._safe_ratio(latest_volume, float(volume_tail_20.mean()) if not volume_tail_20.empty else latest_volume, default=1.0),
+            'volume_trend': self._safe_ratio(float(volume_series.tail(5).mean()), float(volume_tail_20.mean()) if not volume_tail_20.empty else latest_volume, default=1.0),
+            'volume_zscore_20': self._latest_rolling_zscore(volume_series.replace(0.0, np.nan).fillna(0.0), 20),
+            'dollar_volume_zscore_20': self._latest_rolling_zscore(dollar_volume_series, 20),
+
+            # Time-based features from the BAR DATE (not now) for correct seasonality learning.
             'month': bar_date.month,
             'quarter': (bar_date.month - 1) // 3 + 1,
             'day_of_week': bar_date.weekday(),
             'is_quarter_end': 1 if bar_date.month in [3, 6, 9, 12] else 0,
         }
-        
-        # === ADVANCED TECHNICAL INDICATORS ===
-        
-        # Bollinger Bands (20-day, 2 std dev)
-        # Note: bb_upper/bb_lower are raw price-scale values — use bb_position and bb_width only
-        # BUG20 FIX: Handle edge case where all prices are identical (std=0)
-        if len(closes) >= 20:
-            bb_middle = closes[-20:].mean()
-            bb_std = closes[-20:].std()
-            bb_upper = bb_middle + (2 * bb_std)
-            bb_lower = bb_middle - (2 * bb_std)
-            if (bb_upper - bb_lower) > 0:
-                features['bb_position'] = (closes[-1] - bb_lower) / (bb_upper - bb_lower)
-            else:
-                features['bb_position'] = 0.5
-            features['bb_width'] = (bb_upper - bb_lower) / bb_middle if bb_middle > 0 else 0
+
+        # Bollinger Bands (20-bar, 2 std dev).
+        if len(trailing_20) >= 5:
+            bb_middle = float(trailing_20.mean())
+            bb_std = float(trailing_20.std())
+            bb_upper = bb_middle + (2.0 * bb_std)
+            bb_lower = bb_middle - (2.0 * bb_std)
+            band_width = bb_upper - bb_lower
+            features['bb_position'] = ((latest_close - bb_lower) / band_width) if band_width > 1e-9 else 0.5
+            features['bb_width'] = (band_width / bb_middle) if bb_middle > 0 else 0.0
         else:
             features['bb_position'] = 0.5
-            features['bb_width'] = 0
-        
-        # MACD (12, 26, 9) - compute EMA series once and reuse
-        # BUG21 FIX: Document and verify signal line is 9-period EMA of MACD
-        if len(closes) >= 26:
-            close_series = pd.Series(closes)
+            features['bb_width'] = 0.0
+
+        # MACD (12, 26, 9) - compute EMA series once and reuse.
+        if len(close_series) >= 26:
             ema_12_series = close_series.ewm(span=12, adjust=False).mean()
             ema_26_series = close_series.ewm(span=26, adjust=False).mean()
             macd_series = ema_12_series - ema_26_series
-            macd_line = macd_series.iloc[-1]
-            signal_line = macd_series.ewm(span=9, adjust=False).mean().iloc[-1]
+            macd_line = float(macd_series.iloc[-1])
+            signal_line = float(macd_series.ewm(span=9, adjust=False).mean().iloc[-1])
             features['macd'] = macd_line
             features['macd_signal'] = signal_line
             features['macd_histogram'] = macd_line - signal_line
             features['macd_crossover'] = 1 if macd_line > signal_line else -1
         else:
-            features['macd'] = 0
-            features['macd_signal'] = 0
-            features['macd_histogram'] = 0
+            features['macd'] = 0.0
+            features['macd_signal'] = 0.0
+            features['macd_histogram'] = 0.0
             features['macd_crossover'] = 0
-        
-        # RSI Divergence (price vs RSI direction) - reuse rsi_value computed above
-        # BUG13 FIX: Divergence signal must be ±1 to match other momentum signals, not 0/1
+
+        # RSI divergence uses direction, not raw magnitude, to stay stable across timeframes.
         if len(closes) >= 20:
             price_trend = 1 if closes[-1] > closes[-5] else -1
             rsi_prev = self.calculate_rsi(closes[:-5]) if len(closes) > 19 else rsi_value
@@ -2480,16 +2973,11 @@ class PremiumWTIPredictor:
             features['rsi_divergence'] = 1 if price_trend != rsi_trend else -1
         else:
             features['rsi_divergence'] = 0
-        
-        # Volume indicators
-        if len(volumes) >= 20:
-            avg_volume = volumes[-20:].mean()
-            features['volume_ratio'] = volumes[-1] / avg_volume if avg_volume > 0 else 1.0
-            features['volume_trend'] = 1 if volumes[-1] > volumes[-5:].mean() else -1
-        else:
-            features['volume_ratio'] = 1.0
-            features['volume_trend'] = 0
-        
+
+        for key, value in list(features.items()):
+            numeric_value = pd.to_numeric(value, errors='coerce')
+            features[key] = float(numeric_value) if not pd.isna(numeric_value) and np.isfinite(float(numeric_value)) else 0.0
+
         return features
 
     def detect_market_regime(self, data_window):
@@ -2566,6 +3054,7 @@ class PremiumWTIPredictor:
             logger.info("--- PIPELINE A: HOURLY DATA PROCESSING ---")
             hourly_pipeline_start = time.perf_counter()
             hourly_data = self.get_wti_hourly_data()
+            hourly_lookback = max(24, int(self.hourly_feature_lookback_bars))
             
             # If no hourly data, fallback to daily approximation will be handled in Pipeline B
             hourly_model_package = None
@@ -2575,9 +3064,9 @@ class PremiumWTIPredictor:
                 hourly_targets = []
                 
                 # Create hourly training set
-                for i in range(20, len(hourly_data) - 2):
+                for i in range(hourly_lookback - 1, len(hourly_data) - 2):
                     try:
-                        window_data = hourly_data.iloc[i-20:i+1]
+                        window_data = hourly_data.iloc[i - hourly_lookback + 1:i + 1]
                         point_features = self.engineer_technical_features(window_data)
                         if self.use_external_features_in_training:
                             # Optional: merge external snapshots into hourly rows (off by default to avoid leakage/noise).
@@ -2605,7 +3094,8 @@ class PremiumWTIPredictor:
                     hourly_model_package, was_cached = self._train_or_reuse_model_package(
                         features_df_1h,
                         'target_1h',
-                        '1h'
+                        '1h',
+                        target_mode='price',
                     )
                     if was_cached:
                         cache_stats['hits'] += 1
@@ -2623,42 +3113,54 @@ class PremiumWTIPredictor:
             logger.info("--- PIPELINE B: DAILY DATA PROCESSING ---")
             daily_pipeline_start = time.perf_counter()
             logger.info("Fetching WTI historical data...")
-            wti_data = self.get_wti_historical_data()
+            wti_data = self.get_wti_historical_data(period=self.daily_training_period, interval="1d")
+            daily_horizons = ['1d', '1w']
+            daily_lookbacks = {horizon: self._get_daily_feature_lookback(horizon) for horizon in daily_horizons}
+            max_daily_lookback = max(daily_lookbacks.values())
             
             # Use ONLY technical features for consistent ML training
             logger.info("Engineering daily features...")
             market_context_map = self.build_market_context_feature_map(wti_data)
             
             # Process each historical point with consistent feature engineering
-            daily_features = []
+            daily_features_by_horizon = {horizon: [] for horizon in daily_horizons}
             daily_targets = {'1d': [], '1w': []}
             
-            for i in range(20, len(wti_data) - 5):  # Leave room for targets
+            for i in range(max_daily_lookback - 1, len(wti_data) - 5):  # Leave room for targets
                 try:
-                    window_data = wti_data.iloc[i-20:i+1]
-                    point_features = self.engineer_technical_features(window_data)
-                    row_key = self._date_feature_key(window_data.index[-1])
-                    point_features.update(market_context_map.get(row_key, {}))
-                    if self.use_external_features_in_training:
-                        # Optional: merge external snapshots into daily rows (off by default to avoid leakage/noise).
-                        point_features.update(external_features_dict)
-                    
-                    # BUG6 FIX: Only use rows where target is actually available (not clamped)
-                    if i + 1 < len(wti_data) and i + 5 < len(wti_data):
-                        price_1d = wti_data['Close'].iloc[i + 1]   # Next day close
-                        price_1w = wti_data['Close'].iloc[i + 5]   # 5 days ahead
-                        daily_features.append(point_features)
-                        daily_targets['1d'].append(price_1d)
-                        daily_targets['1w'].append(price_1w)
+                    current_close = float(wti_data['Close'].iloc[i])
+                    target_prices = {
+                        '1d': float(wti_data['Close'].iloc[i + 1]),
+                        '1w': float(wti_data['Close'].iloc[i + 5]),
+                    }
+                    for horizon in daily_horizons:
+                        lookback = daily_lookbacks[horizon]
+                        if i < lookback - 1:
+                            continue
+                        window_data = wti_data.iloc[i - lookback + 1:i + 1]
+                        point_features = self.engineer_technical_features(window_data)
+                        row_key = self._date_feature_key(window_data.index[-1])
+                        point_features.update(market_context_map.get(row_key, {}))
+                        if self.use_external_features_in_training:
+                            # Optional: merge external snapshots into daily rows (off by default to avoid leakage/noise).
+                            point_features.update(external_features_dict)
+                        daily_features_by_horizon[horizon].append(point_features)
+                        daily_targets[horizon].append(
+                            self._encode_target_value(current_close, target_prices[horizon], self.daily_target_mode)
+                        )
                     
                 except Exception as e:
                     continue
-            
-            features_df_daily = pd.DataFrame(daily_features)
-            features_df_daily['target_1d'] = daily_targets['1d']
-            features_df_daily['target_1w'] = daily_targets['1w']
-            
-            logger.info(f"Created {len(features_df_daily.columns)} features for daily models")
+
+            features_df_daily_by_horizon = {}
+            for horizon in daily_horizons:
+                horizon_df = pd.DataFrame(daily_features_by_horizon[horizon])
+                horizon_df[f'target_{horizon}'] = daily_targets[horizon]
+                features_df_daily_by_horizon[horizon] = horizon_df
+                logger.info(
+                    f"Created {len(horizon_df.columns)} features for {horizon} model "
+                    f"using lookback={daily_lookbacks[horizon]} bars and rows={len(horizon_df)}"
+                )
             
             # === PREDICTION GENERATION ===
             predictions = {}
@@ -2671,21 +3173,22 @@ class PremiumWTIPredictor:
             horizon_model_counts = {'1h': 0, '1d': 0, '1w': 0}
             reference_price = self._get_prediction_reference_price(wti_data['Close'].iloc[-1])
             total_model_count = 0
-            
-            # 1. 1D and 1W Predictions (Using Pipeline B Models)
-            daily_horizons = ['1d', '1w']
-            
-            # Calculate current daily features once
-            current_window = wti_data.iloc[-21:]
-            current_features_dict = self.engineer_technical_features(current_window)
-            current_key = self._date_feature_key(current_window.index[-1])
-            current_features_dict.update(market_context_map.get(current_key, {}))
-            if self.use_external_features_in_training:
-                # Keep train/inference feature schema aligned when external training features are enabled.
-                current_features_dict.update(external_features_dict)
+
+            # Calculate current daily features per horizon.
+            current_features_by_horizon = {}
+            for horizon in daily_horizons:
+                lookback = daily_lookbacks[horizon]
+                current_window = wti_data.iloc[-lookback:]
+                current_features_dict = self.engineer_technical_features(current_window)
+                current_key = self._date_feature_key(current_window.index[-1])
+                current_features_dict.update(market_context_map.get(current_key, {}))
+                if self.use_external_features_in_training:
+                    # Keep train/inference feature schema aligned when external training features are enabled.
+                    current_features_dict.update(external_features_dict)
+                current_features_by_horizon[horizon] = current_features_dict
             
             # DETECT MARKET REGIME
-            market_regime = self.detect_market_regime(current_window)
+            market_regime = self.detect_market_regime(wti_data.iloc[-max_daily_lookback:])
             logger.info(f"📊 Current Market Regime: {market_regime}")
             
             horizon_models = {}
@@ -2696,10 +3199,12 @@ class PremiumWTIPredictor:
             for horizon in daily_horizons:
                 try:
                     target_col = f'target_{horizon}'
+                    features_df_daily = features_df_daily_by_horizon[horizon]
                     model_package, was_cached = self._train_or_reuse_model_package(
                         features_df_daily,
                         target_col,
-                        horizon
+                        horizon,
+                        target_mode=self.daily_target_mode,
                     )
                     if was_cached:
                         cache_stats['hits'] += 1
@@ -2718,6 +3223,7 @@ class PremiumWTIPredictor:
                         horizon_models[horizon] = model_package
                     
                     # Prepare input
+                    current_features_dict = current_features_by_horizon[horizon]
                     current_features = pd.DataFrame([current_features_dict])
                     current_features = self._apply_feature_defaults(current_features, all_feature_names)
                     
@@ -2726,16 +3232,20 @@ class PremiumWTIPredictor:
                     current_features_scaled = scaler.transform(current_features_selected)
                     drift_score = self._compute_feature_drift_score(current_features_scaled)
                     horizon_drift_scores[horizon] = drift_score
+                    target_mode = model_package.get('target_mode', 'price')
                     
                     h_preds = []
                     h_weights = []
+                    model_pred_map = {}
+                    direction_scores = model_package.get('diagnostics', {}).get('model_direction_scores', {})
                     
                     for name, model in models.items():
-                        pred = model.predict(current_features_scaled)[0]
+                        raw_pred = model.predict(current_features_scaled)[0]
                         # BUG8 FIX: skip NaN predictions (can occur with NaN input features)
-                        if np.isnan(pred):
+                        if np.isnan(raw_pred):
                             logger.warning(f"Model {name} returned NaN prediction — skipping")
                             continue
+                        pred = self._decode_target_value(reference_price, raw_pred, target_mode)
                         
                         # BASE WEIGHT (Validation Score)
                         weight = max(0.3, min(1.0, scores[name]))
@@ -2755,6 +3265,7 @@ class PremiumWTIPredictor:
                         
                         h_preds.append(pred)
                         h_weights.append(weight)
+                        model_pred_map[name] = float(pred)
                         horizon_model_counts[horizon] += 1
                         total_model_count += 1
 
@@ -2771,6 +3282,25 @@ class PremiumWTIPredictor:
                         continue
 
                     final_pred = np.average(h_preds, weights=h_weights)
+                    final_pred, stabilization_meta = self._stabilize_ensemble_prediction(
+                        reference_price,
+                        final_pred,
+                        model_pred_map,
+                        scores,
+                        direction_scores,
+                    )
+                    backtest_metrics = horizon_backtests.get(horizon, {})
+                    lookback = daily_lookbacks[horizon]
+                    drift_window = wti_data.iloc[-lookback:]
+                    drift_challenger = self._compute_drift_challenger(drift_window['Close'], reference_price, horizon)
+                    final_pred, challenger_blend = self._blend_with_drift_challenger(
+                        reference_price,
+                        final_pred,
+                        drift_challenger,
+                        backtest_metrics,
+                        drift_score,
+                        stabilization_meta.get('direction_consensus', 1.0),
+                    )
                     predictions[horizon] = final_pred
                     all_scores[horizon] = np.mean(list(scores.values()))
 
@@ -2779,7 +3309,6 @@ class PremiumWTIPredictor:
                         pred_std = float(np.std(h_preds))
                     else:
                         pred_std = 0.0
-                    backtest_metrics = horizon_backtests.get(horizon, {})
                     ci_margin = self._calibrated_interval_margin(
                         horizon,
                         pred_std,
@@ -2792,6 +3321,10 @@ class PremiumWTIPredictor:
                         'upper': float(final_pred + ci_margin),
                         'std': float(pred_std),
                         'calibrated_margin': float(ci_margin),
+                        'direction_consensus': stabilization_meta.get('direction_consensus'),
+                        'stabilization_shrink': stabilization_meta.get('shrink_factor'),
+                        'drift_challenger': float(drift_challenger),
+                        'drift_challenger_blend': float(challenger_blend),
                     }
                     horizon_confidence[horizon] = self._compose_horizon_confidence(
                         all_scores[horizon],
@@ -2820,7 +3353,7 @@ class PremiumWTIPredictor:
             if hourly_model_package:
                 try:
                     # Generate features from latest HOURLY data
-                    current_hourly_window = hourly_data.iloc[-21:]
+                    current_hourly_window = hourly_data.iloc[-hourly_lookback:]
                     current_hourly_features_dict = self.engineer_technical_features(current_hourly_window)
                     if self.use_external_features_in_training:
                         # Keep train/inference feature schema aligned when external training features are enabled.
@@ -2839,6 +3372,8 @@ class PremiumWTIPredictor:
                     # Predict
                     h1_preds = []
                     h1_weights = []
+                    model_pred_map = {}
+                    direction_scores = hourly_model_package.get('diagnostics', {}).get('model_direction_scores', {})
                     for name, model in hourly_model_package['models'].items():
                         pred = model.predict(h_features_scaled)[0]
                         if np.isnan(pred):
@@ -2846,12 +3381,20 @@ class PremiumWTIPredictor:
                             continue
                         h1_preds.append(pred)
                         h1_weights.append(max(0.3, min(1.0, hourly_model_package['scores'][name])))
+                        model_pred_map[name] = float(pred)
                         horizon_model_counts['1h'] += 1
                         total_model_count += 1
                     
                     # FIX #3-4: Guard against empty pred list before averaging
                     if len(h1_preds) > 0 and len(h1_weights) > 0:
                         predictions['1h'] = np.average(h1_preds, weights=h1_weights)
+                        predictions['1h'], stabilization_meta = self._stabilize_ensemble_prediction(
+                            reference_price,
+                            predictions['1h'],
+                            model_pred_map,
+                            hourly_model_package['scores'],
+                            direction_scores,
+                        )
                         all_scores['1h'] = np.mean(list(hourly_model_package['scores'].values()))
                         if len(h1_preds) >= 2:
                             h1_std = float(np.std(h1_preds))
@@ -2870,6 +3413,8 @@ class PremiumWTIPredictor:
                             'upper': float(predictions['1h'] + h1_margin),
                             'std': h1_std,
                             'calibrated_margin': float(h1_margin),
+                            'direction_consensus': stabilization_meta.get('direction_consensus'),
+                            'stabilization_shrink': stabilization_meta.get('shrink_factor'),
                         }
                         horizon_confidence['1h'] = self._compose_horizon_confidence(
                             all_scores['1h'],
