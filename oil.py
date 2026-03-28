@@ -291,6 +291,7 @@ class PremiumWTIPredictor:
         self.max_quality_drift_score = float(os.getenv('MAX_QUALITY_DRIFT_SCORE', '3.0'))
         self.actual_quote_heartbeat_seconds = max(60, int(os.getenv('ACTUAL_QUOTE_HEARTBEAT_SECONDS', '300')))
         self.market_timezone = ZoneInfo(os.getenv('MARKET_TIMEZONE', 'America/Chicago'))
+        self.storage_timezone = datetime.now().astimezone().tzinfo or timezone.utc
         self.time_series_cv_splits = max(2, int(os.getenv('TIME_SERIES_CV_SPLITS', '2')))
         self.max_hourly_training_samples = max(240, int(os.getenv('MAX_HOURLY_TRAINING_SAMPLES', '720')))
         self.external_data_ttl_seconds = max(30, int(os.getenv('EXTERNAL_DATA_TTL_SECONDS', '180')))
@@ -512,8 +513,17 @@ class PremiumWTIPredictor:
         """Return timestamp-keyed payload items in chronological order."""
         return sorted(
             (payload or {}).items(),
-            key=lambda kv: self._safe_parse_iso(kv[0]) or datetime.min,
+            key=lambda kv: self._sort_timestamp_key(kv[0]),
         )
+
+    def _current_timestamp_iso(self):
+        """Return a canonical UTC timestamp for persisted records."""
+        return datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+
+    def _sort_timestamp_key(self, timestamp_value):
+        """Return a numeric key safe for sorting naive and aware timestamps together."""
+        parsed = self._safe_parse_iso(timestamp_value)
+        return parsed.timestamp() if parsed is not None else float('-inf')
 
     def _record_market_source(self, series_kind, symbol, rows, from_cache=False):
         """Persist the last market data provenance used for model/history fetches."""
@@ -521,7 +531,7 @@ class PremiumWTIPredictor:
             'symbol': symbol,
             'rows': int(rows),
             'from_cache': bool(from_cache),
-            'recorded_at': datetime.now().isoformat(),
+            'recorded_at': self._current_timestamp_iso(),
         }
 
     def _to_market_time(self, timestamp_value=None):
@@ -710,9 +720,32 @@ class PremiumWTIPredictor:
         if not timestamp_str:
             return None
         try:
-            return datetime.fromisoformat(str(timestamp_str).replace('Z', '+00:00'))
+            parsed = pd.Timestamp(str(timestamp_str))
+            if parsed.tzinfo is None:
+                parsed = parsed.tz_localize(self.storage_timezone)
+            else:
+                parsed = parsed.tz_convert('UTC')
+            return parsed.tz_convert('UTC').to_pydatetime()
         except Exception:
-            return None
+            try:
+                fallback = datetime.fromisoformat(str(timestamp_str).replace('Z', '+00:00'))
+                if fallback.tzinfo is None:
+                    fallback = fallback.replace(tzinfo=self.storage_timezone)
+                return fallback.astimezone(timezone.utc)
+            except Exception:
+                return None
+
+    def _get_prediction_reference_price(self, fallback_price):
+        """Use the live contract quote as the forecast baseline when available."""
+        live_price = pd.to_numeric((self.contract_info or {}).get('current_price'), errors='coerce')
+        if not pd.isna(live_price) and float(live_price) > 0:
+            return float(live_price)
+
+        fallback_numeric = pd.to_numeric(fallback_price, errors='coerce')
+        if not pd.isna(fallback_numeric) and float(fallback_numeric) > 0:
+            return float(fallback_numeric)
+
+        return 0.0
 
     def _get_horizon_delta_and_window(self, horizon):
         """Return target delta and matching window for realized accuracy joins."""
@@ -758,7 +791,7 @@ class PremiumWTIPredictor:
         delta, search_window = self._get_horizon_delta_and_window(horizon)
         sorted_preds = sorted(
             horizon_data.items(),
-            key=lambda kv: self._safe_parse_iso(kv[0]) or datetime.min,
+            key=lambda kv: self._sort_timestamp_key(kv[0]),
             reverse=True,
         )
 
@@ -2636,7 +2669,7 @@ class PremiumWTIPredictor:
             horizon_drift_scores = {}
             horizon_fallbacks = {'1h': False, '1d': False, '1w': False}
             horizon_model_counts = {'1h': 0, '1d': 0, '1w': 0}
-            current_price = wti_data['Close'].iloc[-1]
+            reference_price = self._get_prediction_reference_price(wti_data['Close'].iloc[-1])
             total_model_count = 0
             
             # 1. 1D and 1W Predictions (Using Pipeline B Models)
@@ -2728,11 +2761,11 @@ class PremiumWTIPredictor:
                     if not h_preds:
                         logger.warning(f"No valid model outputs for {horizon}; using current price fallback")
                         horizon_fallbacks[horizon] = True
-                        predictions[horizon] = current_price
+                        predictions[horizon] = reference_price
                         all_scores[horizon] = 0.0
                         prediction_intervals[horizon] = {
-                            'lower': float(current_price),
-                            'upper': float(current_price),
+                            'lower': float(reference_price),
+                            'upper': float(reference_price),
                             'std': 0.0,
                         }
                         continue
@@ -2750,7 +2783,7 @@ class PremiumWTIPredictor:
                     ci_margin = self._calibrated_interval_margin(
                         horizon,
                         pred_std,
-                        current_price,
+                        reference_price,
                         backtest_metrics,
                         drift_score,
                     )
@@ -2762,7 +2795,7 @@ class PremiumWTIPredictor:
                     }
                     horizon_confidence[horizon] = self._compose_horizon_confidence(
                         all_scores[horizon],
-                        current_price,
+                        reference_price,
                         prediction_intervals[horizon],
                         drift_score,
                         backtest_metrics,
@@ -2772,12 +2805,12 @@ class PremiumWTIPredictor:
                 except Exception as e:
                     logger.error(f"Failed to predict {horizon}: {e}")
                     horizon_fallbacks[horizon] = True
-                    predictions[horizon] = current_price # Fallback
+                    predictions[horizon] = reference_price  # Fallback
                     all_scores[horizon] = 0.0
                     horizon_drift_scores[horizon] = 0.0
                     prediction_intervals[horizon] = {
-                        'lower': float(current_price),
-                        'upper': float(current_price),
+                        'lower': float(reference_price),
+                        'upper': float(reference_price),
                         'std': 0.0,
                         'calibrated_margin': 0.0,
                     }
@@ -2828,7 +2861,7 @@ class PremiumWTIPredictor:
                         h1_margin = self._calibrated_interval_margin(
                             '1h',
                             h1_std,
-                            current_price,
+                            reference_price,
                             h1_backtest,
                             h1_drift_score,
                         )
@@ -2840,7 +2873,7 @@ class PremiumWTIPredictor:
                         }
                         horizon_confidence['1h'] = self._compose_horizon_confidence(
                             all_scores['1h'],
-                            current_price,
+                            reference_price,
                             prediction_intervals['1h'],
                             h1_drift_score,
                             h1_backtest,
@@ -2855,30 +2888,30 @@ class PremiumWTIPredictor:
                     all_scores['1h'] = 0.0
                     horizon_drift_scores['1h'] = 0.0
                     if '1d' in predictions and isinstance(predictions['1d'], (int, float)) and predictions['1d'] > 0:
-                        predictions['1h'] = current_price + (predictions['1d'] - current_price) * 0.1
+                        predictions['1h'] = reference_price + (predictions['1d'] - reference_price) * 0.1
                         prediction_intervals['1h'] = {
-                            'lower': float(min(predictions['1h'], current_price)),
-                            'upper': float(max(predictions['1h'], current_price)),
-                            'std': float(abs(predictions['1h'] - current_price) / 1.64),
-                            'calibrated_margin': float(abs(predictions['1h'] - current_price)),
+                            'lower': float(min(predictions['1h'], reference_price)),
+                            'upper': float(max(predictions['1h'], reference_price)),
+                            'std': float(abs(predictions['1h'] - reference_price) / 1.64),
+                            'calibrated_margin': float(abs(predictions['1h'] - reference_price)),
                         }
                         horizon_confidence['1h'] = self.confidence_floor
                         logger.info(f"1H: Using 1D fallback: ${predictions['1h']:.2f}")
                     elif '1w' in predictions and isinstance(predictions['1w'], (int, float)) and predictions['1w'] > 0:
-                        predictions['1h'] = current_price + (predictions['1w'] - current_price) * 0.05
+                        predictions['1h'] = reference_price + (predictions['1w'] - reference_price) * 0.05
                         prediction_intervals['1h'] = {
-                            'lower': float(min(predictions['1h'], current_price)),
-                            'upper': float(max(predictions['1h'], current_price)),
-                            'std': float(abs(predictions['1h'] - current_price) / 1.64),
-                            'calibrated_margin': float(abs(predictions['1h'] - current_price)),
+                            'lower': float(min(predictions['1h'], reference_price)),
+                            'upper': float(max(predictions['1h'], reference_price)),
+                            'std': float(abs(predictions['1h'] - reference_price) / 1.64),
+                            'calibrated_margin': float(abs(predictions['1h'] - reference_price)),
                         }
                         horizon_confidence['1h'] = self.confidence_floor
                         logger.info(f"1H: Using 1W fallback: ${predictions['1h']:.2f}")
                     else:
-                        predictions['1h'] = current_price
+                        predictions['1h'] = reference_price
                         prediction_intervals['1h'] = {
-                            'lower': float(current_price),
-                            'upper': float(current_price),
+                            'lower': float(reference_price),
+                            'upper': float(reference_price),
                             'std': 0.0,
                             'calibrated_margin': 0.0,
                         }
@@ -2891,30 +2924,30 @@ class PremiumWTIPredictor:
                 all_scores['1h'] = 0.0
                 horizon_drift_scores['1h'] = 0.0
                 if '1d' in predictions and isinstance(predictions['1d'], (int, float)) and predictions['1d'] > 0:
-                    predictions['1h'] = current_price + (predictions['1d'] - current_price) * 0.1
+                    predictions['1h'] = reference_price + (predictions['1d'] - reference_price) * 0.1
                     prediction_intervals['1h'] = {
-                        'lower': float(min(predictions['1h'], current_price)),
-                        'upper': float(max(predictions['1h'], current_price)),
-                        'std': float(abs(predictions['1h'] - current_price) / 1.64),
-                        'calibrated_margin': float(abs(predictions['1h'] - current_price)),
+                        'lower': float(min(predictions['1h'], reference_price)),
+                        'upper': float(max(predictions['1h'], reference_price)),
+                        'std': float(abs(predictions['1h'] - reference_price) / 1.64),
+                        'calibrated_margin': float(abs(predictions['1h'] - reference_price)),
                     }
                     horizon_confidence['1h'] = self.confidence_floor
                     logger.info(f"1H: Using 1D fallback: ${predictions['1h']:.2f}")
                 elif '1w' in predictions and isinstance(predictions['1w'], (int, float)) and predictions['1w'] > 0:
-                    predictions['1h'] = current_price + (predictions['1w'] - current_price) * 0.05
+                    predictions['1h'] = reference_price + (predictions['1w'] - reference_price) * 0.05
                     prediction_intervals['1h'] = {
-                        'lower': float(min(predictions['1h'], current_price)),
-                        'upper': float(max(predictions['1h'], current_price)),
-                        'std': float(abs(predictions['1h'] - current_price) / 1.64),
-                        'calibrated_margin': float(abs(predictions['1h'] - current_price)),
+                        'lower': float(min(predictions['1h'], reference_price)),
+                        'upper': float(max(predictions['1h'], reference_price)),
+                        'std': float(abs(predictions['1h'] - reference_price) / 1.64),
+                        'calibrated_margin': float(abs(predictions['1h'] - reference_price)),
                     }
                     horizon_confidence['1h'] = self.confidence_floor
                     logger.info(f"1H: Using 1W fallback: ${predictions['1h']:.2f}")
                 else:
-                    predictions['1h'] = current_price  # Last resort
+                    predictions['1h'] = reference_price  # Last resort
                     prediction_intervals['1h'] = {
-                        'lower': float(current_price),
-                        'upper': float(current_price),
+                        'lower': float(reference_price),
+                        'upper': float(reference_price),
                         'std': 0.0,
                         'calibrated_margin': 0.0,
                     }
@@ -2935,7 +2968,7 @@ class PremiumWTIPredictor:
                 if horizon not in horizon_confidence:
                     horizon_confidence[horizon] = self._compose_horizon_confidence(
                         all_scores.get(horizon, 0.0),
-                        current_price,
+                        reference_price,
                         prediction_intervals[horizon],
                         horizon_drift_scores[horizon],
                         horizon_backtests.get(horizon, {}),
@@ -2958,16 +2991,15 @@ class PremiumWTIPredictor:
             
             processing_time = time.time() - start_time
             
-            # Calculate percentage changes using the current features
-            current_price = current_features_dict['current_price']
+            # Calculate percentage changes using the live contract quote baseline.
             percentage_changes = {}
             horizons = ['1h', '1d', '1w']
             for horizon in horizons:
-                change_pct = ((predictions[horizon] - current_price) / current_price) * 100
+                change_pct = ((predictions[horizon] - reference_price) / reference_price) * 100 if reference_price > 0 else 0.0
                 percentage_changes[horizon] = change_pct
             
             # Store predictions with timestamp
-            timestamp = datetime.now().isoformat()
+            timestamp = self._current_timestamp_iso()
             # Get feature count from first available horizon model
             first_horizon = next(iter(horizon_models.values()), None)
             feature_count = len(first_horizon['selected_features']) if first_horizon else 0
@@ -2982,7 +3014,7 @@ class PremiumWTIPredictor:
                 'horizon_confidence': horizon_confidence,
                 'horizon_drift_scores': horizon_drift_scores,
                 'percentage_changes': percentage_changes,
-                'current_price': current_price,
+                'current_price': reference_price,
                 'processing_time': processing_time,
                 'feature_count': feature_count,
                 'model_count': total_model_count,
@@ -3019,7 +3051,7 @@ class PremiumWTIPredictor:
                     'timestamp': timestamp,
                     'prediction': predictions[horizon],
                     'percentage_change': percentage_changes[horizon],
-                    'current_price': current_price,
+                    'current_price': reference_price,
                     'confidence': horizon_confidence_pct,
                     'drift_score': float(horizon_drift_scores.get(horizon, 0.0)),
                     'interval_lower': float(horizon_interval.get('lower', predictions[horizon])),
@@ -3031,7 +3063,7 @@ class PremiumWTIPredictor:
                 self._save_horizon_predictions(horizon, horizon_data)
             
             # Store current actual price with the latest observed contract volume.
-            self.store_actual_price(current_price, self.contract_info.get('volume'))
+            self.store_actual_price(reference_price, self.contract_info.get('volume'))
             
             logger.info(f"Premium multi-horizon predictions completed in {processing_time:.2f}s")
             logger.info(f"1H: {predictions['1h']:.2f} ({percentage_changes['1h']:+.2f}%)")
@@ -3053,7 +3085,7 @@ class PremiumWTIPredictor:
     
     def store_actual_price(self, price, volume=None, force=False):
         """Store actual price with dedupe/session guards so closed-market heartbeats do not pollute evaluation."""
-        timestamp = datetime.now().isoformat()
+        timestamp = self._current_timestamp_iso()
         new_time = self._safe_parse_iso(timestamp)
         normalized_volume = int(volume) if volume is not None else 0
 
@@ -3182,7 +3214,7 @@ class PremiumWTIPredictor:
 
         sorted_predictions = sorted(
             horizon_data.items(),
-            key=lambda kv: self._safe_parse_iso(kv[0]) or datetime.min,
+            key=lambda kv: self._sort_timestamp_key(kv[0]),
         )
         
         for pred_timestamp, pred_data in sorted_predictions:
@@ -3359,7 +3391,7 @@ def store_actual_price_update(price, volume=None):
 def get_historical_data(limit=50):
     """Get historical stored data for chart display"""
     predictor = get_premium_predictor()
-    backend_timezone = datetime.now().astimezone().tzinfo or timezone.utc
+    backend_timezone = getattr(predictor, 'storage_timezone', None) or datetime.now().astimezone().tzinfo or timezone.utc
 
     # Keep enough points for smooth charting even when callers request fewer.
     max_points = max(int(limit or 0), 720)
@@ -3418,6 +3450,10 @@ def get_historical_data(limit=50):
             normalized = datetime_value.astimezone(timezone.utc)
         return normalized.isoformat().replace('+00:00', 'Z')
 
+    def _chart_sort_key(timestamp_value):
+        normalized = _normalized_chart_datetime(timestamp_value)
+        return normalized.timestamp() if normalized is not None else float('-inf')
+
     actual_point_map = {}
 
     def _store_actual_point(timestamp_value, price_value, volume_value=0):
@@ -3470,7 +3506,7 @@ def get_historical_data(limit=50):
     # Overlay the freshest stored live points so the chart reaches the current session.
     sorted_prices = sorted(
         predictor.stored_actual_prices.items(),
-        key=lambda item: _normalized_chart_datetime(item[0]) or datetime.min,
+        key=lambda item: _chart_sort_key(item[0]),
     )
     for timestamp, data in sorted_prices:
         if isinstance(data, dict):
@@ -3478,7 +3514,7 @@ def get_historical_data(limit=50):
 
     sorted_actual_points = sorted(
         actual_point_map.values(),
-        key=lambda item: _normalized_chart_datetime(item.get('timestamp')) or datetime.min,
+        key=lambda item: _chart_sort_key(item.get('timestamp')),
     )
     if len(sorted_actual_points) > max_points:
         step = max(1, len(sorted_actual_points) // max_points)
@@ -3495,7 +3531,7 @@ def get_historical_data(limit=50):
     # Get stored predictions sorted by timestamp
     sorted_predictions = sorted(
         predictor.stored_predictions.items(),
-        key=lambda item: _normalized_chart_datetime(item[0]) or datetime.min,
+        key=lambda item: _chart_sort_key(item[0]),
     )
     prediction_points = max(int(limit or 0), 180)
     recent_predictions = sorted_predictions[-prediction_points:]

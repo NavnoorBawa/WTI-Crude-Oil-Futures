@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
@@ -14,12 +14,14 @@ class OilLogicGuardsTest(unittest.TestCase):
         predictor = PremiumWTIPredictor.__new__(PremiumWTIPredictor)
         predictor.actual_quote_heartbeat_seconds = 300
         predictor.market_timezone = ZoneInfo("America/Chicago")
+        predictor.storage_timezone = timezone.utc
         predictor.min_live_quality_samples = 10
         predictor.min_live_direction_accuracy = 50.0
         predictor.min_backtest_direction_accuracy = 45.0
         predictor.min_backtest_samples = 30
         predictor.min_quality_confidence = 15.0
         predictor.max_quality_drift_score = 3.0
+        predictor.contract_info = {"current_price": 101.25}
         predictor.accuracy_metrics = {
             "1h": {"total_predictions": 15, "direction_accuracy": 53.3},
             "1d": {"total_predictions": 0, "direction_accuracy": 0.0},
@@ -68,6 +70,29 @@ class OilLogicGuardsTest(unittest.TestCase):
 
         self.assertEqual(quality["status"], "qualified")
         self.assertTrue(quality["qualified"])
+
+    def test_sorted_time_items_handles_mixed_naive_and_utc_timestamps(self):
+        predictor = self._make_predictor_stub()
+        payload = {
+            "2026-03-28T10:30:00Z": {"price": 101.0},
+            "2026-03-28T10:00:00": {"price": 100.0},
+            "2026-03-28T10:15:00+00:00": {"price": 100.5},
+        }
+
+        ordered_keys = [timestamp for timestamp, _ in predictor._sorted_time_items(payload)]
+
+        self.assertEqual(
+            ordered_keys,
+            ["2026-03-28T10:00:00", "2026-03-28T10:15:00+00:00", "2026-03-28T10:30:00Z"],
+        )
+
+    def test_prediction_reference_price_prefers_live_contract_quote(self):
+        predictor = self._make_predictor_stub()
+
+        self.assertEqual(predictor._get_prediction_reference_price(99.0), 101.25)
+
+        predictor.contract_info = {"current_price": 0}
+        self.assertEqual(predictor._get_prediction_reference_price(99.0), 99.0)
 
 
 class ServerMetricSelectionTest(unittest.TestCase):
