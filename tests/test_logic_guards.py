@@ -71,6 +71,36 @@ class OilLogicGuardsTest(unittest.TestCase):
 
 
 class ServerMetricSelectionTest(unittest.TestCase):
+    def test_unqualified_sparse_live_accuracy_falls_back_to_backtest_display(self):
+        accuracy_metrics = {
+            "1h": {"total_predictions": 0, "direction_accuracy": 0.0},
+            "1d": {"total_predictions": 3, "direction_accuracy": 100.0},
+            "1w": {"total_predictions": 0, "direction_accuracy": 0.0},
+        }
+        horizon_backtests = {
+            "1h": {"direction_accuracy": 45.4, "samples": 240},
+            "1d": {"direction_accuracy": 39.4, "samples": 33},
+            "1w": {"direction_accuracy": 42.4, "samples": 33},
+        }
+        horizon_confidence = {"1h": 31.7, "1d": 10.0, "1w": 10.0}
+        horizon_quality = {
+            "1h": {"status": "qualified", "qualified": True, "reasons": []},
+            "1d": {"status": "unqualified", "qualified": False, "reasons": ["low_direction_accuracy"]},
+            "1w": {"status": "unqualified", "qualified": False, "reasons": ["low_direction_accuracy"]},
+        }
+
+        metrics_by_horizon, headline_horizon = _build_horizon_metrics(
+            accuracy_metrics,
+            horizon_backtests,
+            horizon_confidence,
+            horizon_quality,
+            min_live_accuracy_samples=18,
+        )
+
+        self.assertEqual(headline_horizon, "1h")
+        self.assertEqual(metrics_by_horizon["1d"]["display_accuracy"], 39.4)
+        self.assertEqual(metrics_by_horizon["1d"]["display_accuracy_source"], "backtest")
+
     def test_headline_horizon_prefers_qualified_horizon(self):
         accuracy_metrics = {
             "1h": {"total_predictions": 15, "direction_accuracy": 53.3},

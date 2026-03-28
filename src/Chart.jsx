@@ -382,6 +382,7 @@ export default function Chart({
   actualArray = [],
   unifiedData = null,
   multiHorizonPredictions = null,
+  performanceMetricsByHorizon = {},
   currentPrice = 0,
   contractInfo = null,
   priceChange = 0,
@@ -394,8 +395,23 @@ export default function Chart({
   const [selectedRange, setSelectedRange] = useState(DEFAULT_RANGE);
   const [activeHorizon, setActiveHorizon] = useState(DEFAULT_HORIZON);
   const [legendSnapshot, setLegendSnapshot] = useState(null);
+  const activeHorizonKey = HORIZON_META[activeHorizon]?.key || activeHorizon;
   const qualityByHorizon = multiHorizonPredictions?.horizon_quality || {};
-  const activeQuality = qualityByHorizon?.[HORIZON_META[activeHorizon]?.key] || {};
+  const activeQuality = qualityByHorizon?.[activeHorizonKey] || {};
+  const activeMetrics = performanceMetricsByHorizon?.[activeHorizonKey] || {};
+  const activeDisplayAccuracyValue = Number.isFinite(Number(activeMetrics?.display_accuracy))
+    ? Number(activeMetrics.display_accuracy)
+    : null;
+  const activeDisplayAccuracySource = activeMetrics?.display_accuracy_source || "unavailable";
+  const activeDisplayAccuracy = activeDisplayAccuracyValue === null
+    ? "--"
+    : `${Math.round(activeDisplayAccuracyValue)}${activeDisplayAccuracySource === "backtest" ? "%*" : "%"}`;
+  const activeConfidenceValue = Number.isFinite(Number(activeMetrics?.confidence))
+    ? Number(activeMetrics.confidence)
+    : null;
+  const activeDisplayConfidence = activeConfidenceValue === null
+    ? "--"
+    : `${Math.round(activeConfidenceValue)}%`;
 
   const chartModel = useMemo(() => {
     const actualPayload = unifiedData?.actual || {};
@@ -461,7 +477,7 @@ export default function Chart({
     const rewardRisk = Number.isFinite(upsidePct) && Number.isFinite(downsidePct) && downsidePct < 0
       ? upsidePct / Math.abs(downsidePct)
       : null;
-    const conviction = getConvictionMeta(displayAccuracy, displayConfidence);
+    const conviction = getConvictionMeta(activeDisplayAccuracyValue, activeConfidenceValue);
     const quality = getQualityMeta(activeQuality);
     const lens = HORIZON_META[activeHorizon]?.lens || activeHorizon;
     const thesisTitle = quality.label === "Low Quality"
@@ -491,7 +507,7 @@ export default function Chart({
       rewardRisk,
       rangeWidthPct,
     };
-  }, [activeHorizon, activeQuality, chartModel.activeForecast, chartModel.lastActual, displayAccuracy, displayConfidence]);
+  }, [activeDisplayAccuracyValue, activeConfidenceValue, activeHorizon, activeQuality, chartModel.activeForecast, chartModel.lastActual]);
 
   const displaySpotPrice = Number.isFinite(Number(currentPrice)) && Number(currentPrice) > 0
     ? Number(currentPrice)
@@ -750,8 +766,8 @@ export default function Chart({
               <div className="tv-symbol-title">{contractInfo?.description || "WTI CRUDE OIL FUTURES"}</div>
               <div className="tv-toolbar-meta">
                 <span>{feedStatus}</span>
-                <span>ACC {displayAccuracy}</span>
-                <span>CONF {displayConfidence}</span>
+                <span>{activeHorizon.toUpperCase()} ACC {activeDisplayAccuracy}</span>
+                <span>{activeHorizon.toUpperCase()} CONF {activeDisplayConfidence}</span>
               </div>
             </div>
           </div>

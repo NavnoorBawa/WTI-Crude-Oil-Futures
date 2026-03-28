@@ -131,8 +131,16 @@ def _build_horizon_metrics(accuracy_metrics, horizon_backtests, horizon_confiden
             display_accuracy = live_direction_accuracy
             display_accuracy_source = 'live'
         elif live_total > 0:
-            display_accuracy = live_direction_accuracy
-            display_accuracy_source = 'live_sparse'
+            use_sparse_live = isinstance(quality_metrics, dict) and bool(quality_metrics.get('qualified'))
+            if use_sparse_live:
+                display_accuracy = live_direction_accuracy
+                display_accuracy_source = 'live_sparse'
+            elif backtest_direction_accuracy is not None:
+                display_accuracy = float(backtest_direction_accuracy)
+                display_accuracy_source = 'backtest'
+            else:
+                display_accuracy = live_direction_accuracy
+                display_accuracy_source = 'live_sparse'
         elif backtest_direction_accuracy is not None:
             display_accuracy = float(backtest_direction_accuracy)
             display_accuracy_source = 'backtest'

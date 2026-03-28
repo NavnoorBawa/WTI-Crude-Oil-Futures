@@ -522,6 +522,7 @@ function App() {
           predictedArray={data?.predicted || []}
           enterpriseMetrics={data?.enterprise_metrics}
           multiHorizonPredictions={data?.multi_horizon_predictions}
+          performanceMetricsByHorizon={data?.performance_metrics?.by_horizon || {}}
           unifiedData={data?.unified_data}
           currentPrice={currentPrice}
           contractInfo={contractInfo}
