@@ -30,6 +30,7 @@ _startup_started = False
 _startup_error = None
 _startup_attempts = 0
 _startup_next_retry_at = 0.0
+_prediction_refresh_lock = threading.Lock()
 
 # Import oil.py functions - CRITICAL DEPENDENCY
 try:
@@ -108,9 +109,18 @@ def test_ml_system_readiness():
         contract_info = get_current_wti_contract()
         if not contract_info or not contract_info.get('current_price'):
             return False
-        
-        # Test if we can get real predictions
-        predictions = get_multi_horizon_wti_predictions()
+
+        current_time = time.time()
+        cached_predictions = system_state.get('cached_predictions')
+        if cached_predictions and current_time - system_state.get('last_prediction_time', 0) < 300:
+            predictions = cached_predictions
+        else:
+            with _prediction_refresh_lock:
+                cached_predictions = system_state.get('cached_predictions')
+                if cached_predictions and current_time - system_state.get('last_prediction_time', 0) < 300:
+                    predictions = cached_predictions
+                else:
+                    predictions = get_multi_horizon_wti_predictions()
         if not predictions or not predictions.get('is_real_prediction'):
             return False
             
@@ -134,13 +144,19 @@ def get_cached_ml_data():
             current_time - system_state['last_prediction_time'] < 300):
             predictions = system_state['cached_predictions']
         else:
-            # Get fresh predictions
-            predictions = get_multi_horizon_wti_predictions()
-            if predictions and predictions.get('is_real_prediction'):
-                system_state['cached_predictions'] = predictions
-                system_state['last_prediction_time'] = current_time
-            else:
-                predictions = None
+            with _prediction_refresh_lock:
+                cached_predictions = system_state.get('cached_predictions')
+                cache_age = current_time - system_state.get('last_prediction_time', 0)
+                if cached_predictions and cache_age < 300:
+                    predictions = cached_predictions
+                else:
+                    # Get fresh predictions
+                    predictions = get_multi_horizon_wti_predictions()
+                    if predictions and predictions.get('is_real_prediction'):
+                        system_state['cached_predictions'] = predictions
+                        system_state['last_prediction_time'] = current_time
+                    else:
+                        predictions = None
         
         # Get accuracy metrics
         accuracy_metrics = None
@@ -374,59 +390,57 @@ def get_data():
         # Calculate all values from REAL data
         current_price = contract_info['current_price']
         
+        historical_data = get_historical_data(limit=240)
+        actual_history = historical_data.get('actual', {}) if historical_data else {}
+        actual_values = actual_history.get('values', []) if isinstance(actual_history, dict) else []
+        actual_timestamps = actual_history.get('timestamps', []) if isinstance(actual_history, dict) else []
+
         # FIX #5: Calculate daily price change with quality indicator
         price_change = None
         price_change_percent = None
         price_change_quality = 'unavailable'
         
         try:
-            # Get historical data to find price from ~24 hours ago
-            historical_data = get_historical_data(limit=100)
-            if historical_data and historical_data.get('actual') and historical_data['actual'].get('values'):
-                actual_values = historical_data['actual']['values']
-                actual_timestamps = historical_data['actual']['timestamps']
+            if len(actual_values) >= 2 and len(actual_timestamps) >= 2:
+                # Find a price point from roughly 24 hours ago (86400 seconds)
+                current_timestamp = datetime.now().timestamp()
+                target_timestamp = current_timestamp - 86400  # 24 hours ago
                 
-                if len(actual_values) >= 2 and len(actual_timestamps) >= 2:
-                    # Find a price point from roughly 24 hours ago (86400 seconds)
-                    current_timestamp = datetime.now().timestamp()
-                    target_timestamp = current_timestamp - 86400  # 24 hours ago
-                    
-                    # Find the closest historical point to 24 hours ago
-                    closest_price = None
-                    min_time_diff = float('inf')
-                    
-                    for i, timestamp_str in enumerate(actual_timestamps):
-                        try:
-                            point_timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00')).timestamp()
-                            time_diff = abs(point_timestamp - target_timestamp)
-                            if time_diff < min_time_diff and i < len(actual_values):
-                                min_time_diff = time_diff
-                                closest_price = actual_values[i]
-                        except:
-                            continue
-                    
-                    # FIX #5: Calculate change with quality indicator
-                    if closest_price is not None and closest_price > 0:
-                        if min_time_diff <= 3600:  # Within 1 hour
-                            price_change_quality = 'precise'
-                        elif min_time_diff <= 3600 * 6:  # Within 6 hours
-                            price_change_quality = 'good'
-                        elif min_time_diff <= 86400 * 2:  # Within 48 hours
-                            price_change_quality = 'approximate'
-                        else:
-                            price_change_quality = 'stale'
-                        
-                        price_change = current_price - closest_price
-                        price_change_percent = (price_change / closest_price * 100)
-                        logger.debug(f"📊 Daily change calculated: {price_change:.3f} ({price_change_percent:.2f}%)")
+                # Find the closest historical point to 24 hours ago
+                closest_price = None
+                min_time_diff = float('inf')
+                
+                for i, timestamp_str in enumerate(actual_timestamps):
+                    try:
+                        point_timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00')).timestamp()
+                        time_diff = abs(point_timestamp - target_timestamp)
+                        if time_diff < min_time_diff and i < len(actual_values):
+                            min_time_diff = time_diff
+                            closest_price = actual_values[i]
+                    except Exception:
+                        continue
+                
+                # FIX #5: Calculate change with quality indicator
+                if closest_price is not None and closest_price > 0:
+                    if min_time_diff <= 3600:  # Within 1 hour
+                        price_change_quality = 'precise'
+                    elif min_time_diff <= 3600 * 6:  # Within 6 hours
+                        price_change_quality = 'good'
+                    elif min_time_diff <= 86400 * 2:  # Within 48 hours
+                        price_change_quality = 'approximate'
                     else:
-                        # Fallback: use oldest available price if 24h data not available
-                        if len(actual_values) > 0:
-                            oldest_price = actual_values[0]
-                            price_change = current_price - oldest_price
-                            price_change_percent = (price_change / oldest_price * 100) if oldest_price > 0 else 0.0
-                            price_change_quality = 'oldest_available'
-                            logger.debug(f"📊 Change vs oldest data: {price_change:.3f} ({price_change_percent:.2f}%)")
+                        price_change_quality = 'stale'
+                    
+                    price_change = current_price - closest_price
+                    price_change_percent = (price_change / closest_price * 100)
+                    logger.debug(f"📊 Daily change calculated: {price_change:.3f} ({price_change_percent:.2f}%)")
+                elif len(actual_values) > 0:
+                    # Fallback: use oldest available price if 24h data not available
+                    oldest_price = actual_values[0]
+                    price_change = current_price - oldest_price
+                    price_change_percent = (price_change / oldest_price * 100) if oldest_price > 0 else 0.0
+                    price_change_quality = 'oldest_available'
+                    logger.debug(f"📊 Change vs oldest data: {price_change:.3f} ({price_change_percent:.2f}%)")
         except Exception as e:
             logger.warning(f"Could not calculate daily price change: {e}")
             price_change_quality = 'error'
@@ -503,10 +517,9 @@ def get_data():
         next_prediction_in = max(0, 180 - time_since_last) if system_state['ml_ready'] else 0
         
         # Calculate total data points for enterprise metrics
-        historical_data = get_historical_data(limit=30)
         total_data_points = 0
-        if historical_data and historical_data.get('actual') and historical_data['actual'].get('values'):
-            total_data_points = len(historical_data['actual']['values'])
+        if actual_values:
+            total_data_points = len(actual_values)
         
         # Add prediction count if available
         prediction_count = live_total_predictions
@@ -521,7 +534,7 @@ def get_data():
             'volume_display': volume_display,
             
             # Chart data - Get real historical data from stored prices
-            'unified_data': get_historical_data(limit=240),  # Deeper history for charting
+            'unified_data': historical_data,  # Deeper history for charting
             'actual': [],  # Legacy field - data now in unified_data
             'predicted': [],  # Legacy field - data now in unified_data  
             'timestamps': [],  # Legacy field - data now in unified_data

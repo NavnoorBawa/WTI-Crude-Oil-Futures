@@ -759,6 +759,21 @@ class PremiumWTIPredictor:
             'updated_at': datetime.now().isoformat(),
         }
         return package, False
+
+    def _apply_feature_defaults(self, feature_frame, feature_names):
+        """Fill missing inference features with the same defaults used across the system."""
+        for feature in feature_names:
+            if feature in feature_frame.columns:
+                continue
+            if 'dollar_strength' in feature:
+                feature_frame[feature] = 100.0
+            elif 'dollar_trend' in feature:
+                feature_frame[feature] = 0.0
+            elif 'trend' in feature or 'momentum' in feature or 'divergence' in feature:
+                feature_frame[feature] = 0.0
+            else:
+                feature_frame[feature] = 0.0
+        return feature_frame
     
     def get_current_price(self):
         """Get real-time WTI price from yfinance"""
@@ -1058,8 +1073,7 @@ class PremiumWTIPredictor:
         
         # Cache external data
         try:
-            with open(self.external_data_cache, 'w') as f:
-                json.dump(external_data, f, indent=2)
+            self._atomic_write_json(self.external_data_cache, external_data)
         except Exception as e:
             logger.warning(f"Could not cache external data: {e}")
 
@@ -2404,19 +2418,7 @@ class PremiumWTIPredictor:
                     
                     # Prepare input
                     current_features = pd.DataFrame([current_features_dict])
-                    
-                    # Standardize features (filling missing cols with feature-specific defaults)
-                    # BUG16 FIX: Use appropriate defaults per feature type, not blanket 0
-                    for feature in all_feature_names:
-                        if feature not in current_features.columns:
-                            if 'dollar_strength' in feature:
-                                current_features[feature] = 100  # USD ~100
-                            elif 'dollar_trend' in feature:
-                                current_features[feature] = 0  # Neutral
-                            elif 'trend' in feature or 'momentum' in feature or 'divergence' in feature:
-                                current_features[feature] = 0  # Neutral for directional
-                            else:
-                                current_features[feature] = 0
+                    current_features = self._apply_feature_defaults(current_features, all_feature_names)
                     
                     # Transform and Predict
                     current_features_selected = selector.transform(current_features[all_feature_names])
@@ -2525,11 +2527,7 @@ class PremiumWTIPredictor:
                     current_hourly_features = pd.DataFrame([current_hourly_features_dict])
                     
                     all_hourly_feats = hourly_model_package['all_feature_names']
-                    
-                    # Ensure feature match
-                    for feature in all_hourly_feats:
-                        if feature not in current_hourly_features.columns:
-                            current_hourly_features[feature] = 0
+                    current_hourly_features = self._apply_feature_defaults(current_hourly_features, all_hourly_feats)
                     
                     # Transform
                     h_features_selected = hourly_model_package['selector'].transform(current_hourly_features[all_hourly_feats])
