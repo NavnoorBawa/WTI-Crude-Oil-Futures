@@ -23,15 +23,27 @@ function App() {
   const pollIntervalMs = Number(import.meta.env.VITE_POLL_INTERVAL_MS || 15000);
   const startupRetryMs = Number(import.meta.env.VITE_STARTUP_RETRY_MS || 5000);
   const configuredApiBase = import.meta.env.VITE_API_BASE_URL;
+  // Static-snapshot mode (GitHub Pages): the React app reads a frozen data.json produced by
+  // freeze.py in CI instead of polling a live backend. BASE_URL handles the Pages sub-path.
+  const staticDataMode = import.meta.env.VITE_STATIC_DATA === "true";
+  const staticDataUrl = `${import.meta.env.BASE_URL}data.json`;
   const latestDataRef = useRef(null);
   const requestInFlightRef = useRef(false);
   const startupRetryPendingRef = useRef(false);
 
   latestDataRef.current = data;
 
+  // In static mode the "endpoint" is just the frozen JSON file shipped alongside the site.
+  const buildRequestUrl = (apiBase) =>
+    apiBase.endsWith(".json") ? apiBase : `${apiBase}/data`;
+
   const getApiBaseCandidates = () => {
     const hostname = window.location.hostname;
     const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1";
+
+    if (staticDataMode) {
+      return [staticDataUrl];
+    }
 
     if (configuredApiBase) {
       return [configuredApiBase];
@@ -108,7 +120,7 @@ function App() {
           const timeoutId = setTimeout(() => controller.abort(), 30000);
 
           try {
-            const attempt = await fetch(`${apiBase}/data`, {
+            const attempt = await fetch(buildRequestUrl(apiBase), {
               signal: controller.signal,
               method: 'GET',
               headers: {
@@ -411,7 +423,9 @@ function App() {
             })} CT (CME)
           </div>
           <div className="text-gray-400">
-            UPDATED {Math.floor((currentTime - lastUpdate) / 1000)}s
+            {data?.frozen_at
+              ? `DATA AS OF ${new Date(data.frozen_at).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} CT`
+              : `UPDATED ${Math.floor((currentTime - lastUpdate) / 1000)}s`}
           </div>
         </div>
         <div className="text-gray-400 text-sm">

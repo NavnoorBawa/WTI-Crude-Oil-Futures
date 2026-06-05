@@ -1,0 +1,81 @@
+name: Refresh frozen dashboard
+
+# Re-freezes the live data into static JSON and redeploys the site to GitHub Pages.
+# No running server required — the published site is pure static HTML/JS + a data.json
+# snapshot. If a run fails (e.g. an upstream API is rate-limited), the previous good
+# snapshot stays live and the next scheduled run retries.
+
+on:
+  schedule:
+    # Hourly, every day (UTC). Fresh enough for a 1-week forecast and breaking-geo
+    # detection, and ~2 NewsAPI calls/run stays well under the free tier's 100/day.
+    # Edit this cron to change cadence (e.g. '0 */3 * * *' for every 3 hours).
+    - cron: '0 * * * *'
+  workflow_dispatch: {}        # allow manual runs from the Actions tab
+  push:
+    branches: [main]
+    paths:                     # rebuild the site when the app or pipeline changes
+      - 'src/**'
+      - 'backend/**'
+      - 'freeze.py'
+      - 'vite.config.js'
+      - '.github/workflows/refresh.yml'
+
+permissions:
+  contents: write              # peaceiris needs write access to push the gh-pages branch
+
+concurrency:
+  group: refresh-pages
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Freeze data snapshot -> public/data.json
+        env:
+          EAGER_ML_WARMUP: 'true'
+          # Optional: add these as repository secrets to use your own keys instead of the
+          # embedded fallbacks. The pipeline runs either way (code reads env first).
+          NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
+          EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
+          FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
+          ALPHA_VANTAGE_KEY: ${{ secrets.ALPHA_VANTAGE_KEY }}
+          USDA_NASS_KEY: ${{ secrets.USDA_NASS_KEY }}
+          NOAA_CDO_KEY: ${{ secrets.NOAA_CDO_KEY }}
+        run: python freeze.py --out public
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install JS dependencies
+        run: npm install
+
+      - name: Build static site (Vite copies public/data.json into dist/)
+        env:
+          VITE_STATIC_DATA: 'true'
+          VITE_BASE_PATH: '/WTI-Crude-Oil-Futures/'
+        run: npm run build
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          publish_branch: gh-pages
+          force_orphan: true     # keep gh-pages as a single clean commit (no history bloat)

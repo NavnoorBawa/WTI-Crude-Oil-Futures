@@ -132,6 +132,40 @@ python -m backend.backtest_walk_forward --period 5y --features price_only  # tec
 
 ---
 
+## Free static hosting (GitHub Pages, no server)
+
+The dashboard can run with **zero running infrastructure** using the "frozen Flask" pattern —
+the same approach behind navnoorbawa.me, adapted for a React + JSON-API app:
+
+1. **`freeze.py`** runs the full pipeline in-memory and renders the `/data` and `/scenario`
+   endpoints (via Flask's `test_client`) to static `public/data.json` / `public/scenario.json`.
+2. **`npm run build`** with `VITE_STATIC_DATA=true` produces a static site that fetches that
+   frozen JSON instead of polling a live backend.
+3. **`.github/workflows/refresh.yml`** runs hourly on GitHub's servers: freeze → build → deploy
+   to the `gh-pages` branch. Your machine never needs to be on.
+
+This permanently removes the failure modes of a live free-tier server (cold starts, spin-downs,
+out-of-memory during model training, and datacenter-IP rate-limiting), at the cost of data being
+as fresh as the last hourly refresh rather than real-time — which is appropriate for a 1-week
+forecast. The UI shows an honest `DATA AS OF <time>` label in this mode.
+
+**One-time setup:**
+- Repo **Settings → Actions → General → Workflow permissions →** enable *Read and write*.
+- Push to `main` (or run the workflow manually) — it creates and deploys the `gh-pages` branch.
+- Repo **Settings → Pages → Source: Deploy from branch → `gh-pages` / (root)**.
+- Site goes live at `https://<user>.github.io/WTI-Crude-Oil-Futures/`.
+- *(Optional)* add API keys as repository **Secrets** (`NEWSAPI_KEY`, `EIA_API_KEY`, …) to use your
+  own instead of the embedded fallbacks; set a custom domain by adding a `CNAME` + `VITE_BASE_PATH=/`.
+
+Run it locally:
+```bash
+python freeze.py                 # writes public/data.json
+VITE_STATIC_DATA=true npm run build
+cd dist && python -m http.server 8000   # open http://localhost:8000
+```
+
+---
+
 ## Honest limitations
 
 - **Single regime.** The 5-year test window (2021–2026) covers COVID recovery, the Russian
