@@ -47,6 +47,11 @@ warnings.filterwarnings('ignore')
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# yfinance emits HTTP 404 ERROR logs while probing future-dated WTI contracts (e.g. CLN26,
+# CLQ26) that are not yet listed during contract discovery. These are expected and handled
+# gracefully downstream, so quiet yfinance's own logger to keep operational output clean.
+logging.getLogger('yfinance').setLevel(logging.CRITICAL)
+
 # Backward-compatible API key fallback: use env vars first, then legacy embedded keys.
 ALLOW_LEGACY_EMBEDDED_KEYS = os.getenv('ALLOW_LEGACY_EMBEDDED_KEYS', 'true').lower() == 'true'
 
@@ -97,6 +102,253 @@ MONTH_CODES = {
 # API calibration constants (FIX: Remove magic numbers)
 FRED_TYPICAL_DAILY_CHANGE = 0.001
 FRED_TYPICAL_VOLATILITY = 0.005
+
+# ── Geopolitical Event Database ───────────────────────────────────────────────
+# Historical Iran/Middle East events with verified WTI price impact data.
+# Used by the scenario engine to find analogues for current geopolitical signals.
+# Fields: peak_pct = max intraday/intraweek spike; settled_pct = price ~2wks later.
+IRAN_GEOPOLITICAL_EVENTS = [
+    {
+        'id': 'abqaiq_2019',
+        'date': '2019-09-14',
+        'event': 'Abqaiq & Khurais Saudi oil facility attack (Iran/Houthi)',
+        'type': 'supply_attack',
+        'drivers': ['conflict', 'iran'],
+        'wti_before': 54.85,
+        'wti_peak': 62.90,
+        'peak_pct': 14.6,
+        'settled_pct': 5.7,
+        'duration_days': 7,
+        'supply_disruption_mbpd': 5.7,
+        'strait_risk': False,
+        'notes': 'Largest single-day supply shock in history; Saudi restored output in weeks',
+    },
+    {
+        'id': 'soleimani_2020',
+        'date': '2020-01-03',
+        'event': 'US airstrike kills IRGC General Soleimani',
+        'type': 'military_escalation',
+        'drivers': ['iran', 'conflict'],
+        'wti_before': 63.05,
+        'wti_peak': 65.47,
+        'peak_pct': 3.8,
+        'settled_pct': -6.4,
+        'duration_days': 14,
+        'supply_disruption_mbpd': 0.0,
+        'strait_risk': True,
+        'notes': 'Geopolitical premium fully reversed in 2 weeks; actual supply unaffected',
+    },
+    {
+        'id': 'jcpoa_exit_2018',
+        'date': '2018-05-08',
+        'event': 'US exits JCPOA Iran nuclear deal; sanctions reimposed',
+        'type': 'sanctions',
+        'drivers': ['sanctions', 'iran'],
+        'wti_before': 70.73,
+        'wti_peak': 76.41,
+        'peak_pct': 8.0,
+        'settled_pct': -8.1,
+        'duration_days': 90,
+        'supply_disruption_mbpd': 1.5,
+        'strait_risk': False,
+        'notes': 'Iranian exports fell ~1.5 mbpd by Nov 2018; WTI peaked Oct then crashed on macro',
+    },
+    {
+        'id': 'eu_iran_embargo_2012',
+        'date': '2012-07-01',
+        'event': 'EU oil embargo on Iran takes effect',
+        'type': 'sanctions',
+        'drivers': ['sanctions', 'iran'],
+        'wti_before': 84.00,
+        'wti_peak': 106.00,
+        'peak_pct': 26.2,
+        'settled_pct': 4.8,
+        'duration_days': 120,
+        'supply_disruption_mbpd': 1.0,
+        'strait_risk': False,
+        'notes': 'Iranian exports dropped from 2.2 to 1.2 mbpd; sustained WTI elevation in 2012',
+    },
+    {
+        'id': 'tanker_attacks_2019',
+        'date': '2019-06-13',
+        'event': 'Iran tanker attacks in Gulf of Oman / Strait of Hormuz standoff',
+        'type': 'strait_tension',
+        'drivers': ['iran', 'conflict'],
+        'wti_before': 52.51,
+        'wti_peak': 54.66,
+        'peak_pct': 4.1,
+        'settled_pct': -4.9,
+        'duration_days': 21,
+        'supply_disruption_mbpd': 0.0,
+        'strait_risk': True,
+        'notes': 'Limpet mine attacks; US-Iran naval standoff; no actual supply cut; premium faded',
+    },
+    {
+        'id': 'iran_israel_strike_2024',
+        'date': '2024-04-13',
+        'event': 'Iran direct missile/drone strike on Israel (first ever direct attack)',
+        'type': 'military_escalation',
+        'drivers': ['iran', 'conflict'],
+        'wti_before': 85.66,
+        'wti_peak': 87.67,
+        'peak_pct': 2.3,
+        'settled_pct': -4.3,
+        'duration_days': 10,
+        'supply_disruption_mbpd': 0.0,
+        'strait_risk': False,
+        'notes': 'Market rapidly de-escalated after limited Israeli retaliation; WTI fell post-event',
+    },
+    {
+        'id': 'houthi_red_sea_2023',
+        'date': '2023-12-18',
+        'event': 'Houthi Red Sea shipping attacks escalate (Iran-backed)',
+        'type': 'strait_tension',
+        'drivers': ['conflict', 'iran'],
+        'wti_before': 71.00,
+        'wti_peak': 79.00,
+        'peak_pct': 11.3,
+        'settled_pct': 5.6,
+        'duration_days': 45,
+        'supply_disruption_mbpd': 0.0,
+        'strait_risk': True,
+        'notes': 'Shipping rerouted via Cape of Good Hope; oil supply unaffected but freight +300%',
+    },
+    {
+        'id': 'gulf_war_1990',
+        'date': '1990-08-02',
+        'event': 'Iraq invades Kuwait — Gulf War I (largest modern supply shock)',
+        'type': 'supply_attack',
+        'drivers': ['conflict', 'opec'],
+        'wti_before': 21.24,
+        'wti_peak': 41.15,
+        'peak_pct': 93.7,
+        'settled_pct': 17.7,
+        'duration_days': 180,
+        'supply_disruption_mbpd': 4.3,
+        'strait_risk': False,
+        'notes': 'Kuwait+Iraq 4.3 mbpd removed; Saudi spare capacity absorbed shock; war ended premium',
+    },
+    {
+        'id': 'iran_nuclear_2012_sanctions',
+        'date': '2012-01-23',
+        'event': 'US/EU tighten Iran nuclear sanctions (central bank + oil)',
+        'type': 'sanctions',
+        'drivers': ['sanctions', 'iran'],
+        'wti_before': 99.00,
+        'wti_peak': 109.77,
+        'peak_pct': 10.9,
+        'settled_pct': 6.5,
+        'duration_days': 60,
+        'supply_disruption_mbpd': 0.5,
+        'strait_risk': True,
+        'notes': 'Iran threatened Strait closure; elevated WTI for months; no actual blockade',
+    },
+    {
+        'id': 'libya_civil_war_2011',
+        'date': '2011-02-17',
+        'event': 'Libya civil war disrupts 1.6 mbpd output (Arab Spring)',
+        'type': 'supply_attack',
+        'drivers': ['conflict'],
+        'wti_before': 88.00,
+        'wti_peak': 113.00,
+        'peak_pct': 28.4,
+        'settled_pct': 9.1,
+        'duration_days': 60,
+        'supply_disruption_mbpd': 1.6,
+        'strait_risk': False,
+        'notes': 'WTI peaked Apr 2011 as Libyan output collapsed; sustained premium for months',
+    },
+    {
+        'id': 'russia_ukraine_2022',
+        'date': '2022-02-24',
+        'event': 'Russia full-scale invasion of Ukraine; Western sanctions on Russian oil',
+        'type': 'supply_attack',
+        'drivers': ['conflict', 'sanctions'],
+        'wti_before': 92.00,
+        'wti_peak': 130.00,
+        'peak_pct': 41.3,
+        'settled_pct': 8.7,
+        'duration_days': 14,
+        'supply_disruption_mbpd': 3.0,
+        'strait_risk': False,
+        'notes': 'Fastest major supply shock in decades; peak held only 2 days; settled ~$100 for months',
+    },
+    {
+        'id': 'opec_cut_2016',
+        'date': '2016-11-30',
+        'event': 'OPEC agrees first production cut in 8 years (1.2 mbpd)',
+        'type': 'supply_cut',
+        'drivers': ['opec'],
+        'wti_before': 44.00,
+        'wti_peak': 55.00,
+        'peak_pct': 25.0,
+        'settled_pct': 13.6,
+        'duration_days': 30,
+        'supply_disruption_mbpd': 1.2,
+        'strait_risk': False,
+        'notes': 'OPEC+ deal after 2-year price war; market bought the announcement; premium sustained',
+    },
+    {
+        'id': 'us_iraq_war_2003',
+        'date': '2003-01-01',
+        'event': 'US Iraq War buildup and invasion — buy rumor, sell news',
+        'type': 'military_escalation',
+        'drivers': ['conflict'],
+        'wti_before': 32.00,
+        'wti_peak': 40.00,
+        'peak_pct': 25.0,
+        'settled_pct': -12.5,
+        'duration_days': 75,
+        'supply_disruption_mbpd': 0.0,
+        'strait_risk': False,
+        'notes': 'Classic buy-the-rumor sell-the-news; WTI collapsed after Baghdad fell; no supply impact',
+    },
+]
+
+# Strait of Hormuz disruption scenarios: ~21 mbpd passes through daily.
+# Price impact estimates derived from IEA supply elasticity and historical analogues.
+HORMUZ_SCENARIOS = [
+    {
+        'name': 'MINOR DISRUPTION',
+        'description': 'Brief incident, shipping delays, no sustained closure (<3 days)',
+        'supply_loss_mbpd': 1.0,
+        'price_impact_low': 3.0,
+        'price_impact_mid': 8.0,
+        'price_impact_high': 15.0,
+        'duration_weeks': 1,
+        'historical_ref': 'tanker_attacks_2019',
+    },
+    {
+        'name': 'PARTIAL CLOSURE',
+        'description': 'Military action forces reduced throughput, rerouting required (1-4 weeks)',
+        'supply_loss_mbpd': 5.0,
+        'price_impact_low': 15.0,
+        'price_impact_mid': 28.0,
+        'price_impact_high': 45.0,
+        'duration_weeks': 4,
+        'historical_ref': 'abqaiq_2019',
+    },
+    {
+        'name': 'EXTENDED BLOCKADE',
+        'description': 'Sustained military conflict blocks major throughput (1-3 months)',
+        'supply_loss_mbpd': 12.0,
+        'price_impact_low': 40.0,
+        'price_impact_mid': 65.0,
+        'price_impact_high': 100.0,
+        'duration_weeks': 12,
+        'historical_ref': 'gulf_war_1990',
+    },
+    {
+        'name': 'FULL CLOSURE',
+        'description': 'Complete blockade of ~21 mbpd (~20% of global supply)',
+        'supply_loss_mbpd': 21.0,
+        'price_impact_low': 60.0,
+        'price_impact_mid': 90.0,
+        'price_impact_high': 150.0,
+        'duration_weeks': 8,
+        'historical_ref': 'gulf_war_1990',
+    },
+]
 
 # Contract discovery cache avoids repeated CL=F metadata fetches in a single run.
 CONTRACT_CACHE_TTL_SECONDS = max(30, int(os.getenv('CONTRACT_CACHE_TTL_SECONDS', '90')))
@@ -311,7 +563,11 @@ class PremiumWTIPredictor:
             self.daily_target_mode = 'return'
         # External API snapshots are point-in-time values; avoid injecting them into historical rows by default.
         self.use_external_features_in_training = os.getenv('USE_EXTERNAL_FEATURES_IN_TRAINING', 'false').lower() == 'true'
-        self.use_historical_external_features_in_training = os.getenv('USE_HISTORICAL_EXTERNAL_FEATURES_IN_TRAINING', 'true').lower() == 'true'
+        # Default OFF: walk-forward backtest showed the FRED/EIA macro family does not improve the
+        # 1W signal (Sharpe 2.07 without macro vs 1.90 with it) AND is the only revision-prone data
+        # source. Deploying without it makes the live model identical to the leakage-proof backtested
+        # configuration. Re-enable via env var only after auditing point-in-time (ALFRED) vintages.
+        self.use_historical_external_features_in_training = os.getenv('USE_HISTORICAL_EXTERNAL_FEATURES_IN_TRAINING', 'false').lower() == 'true'
         self.eia_release_lag_days = max(3, int(os.getenv('EIA_RELEASE_LAG_DAYS', '5')))
         self.fred_daily_release_lag_days = max(1, int(os.getenv('FRED_DAILY_RELEASE_LAG_DAYS', '1')))
         self.fred_monthly_release_lag_days = max(5, int(os.getenv('FRED_MONTHLY_RELEASE_LAG_DAYS', '15')))
@@ -1679,8 +1935,22 @@ class PremiumWTIPredictor:
 
         try:
             url = f"{self.config.FRED_BASE_URL}?id={series_id}&cosd={start_date}&coed={end_date}&fq=Daily&fam=avg&fgst=lin&line_index=1&transformation=lin&vintage_date={end_date}&revision_date={end_date}&nd=1970-01-01&ost=-99999&oet=99999&mma=0&fml=a&fmt=csv"
-            response = requests.get(url, timeout=20)
-            response.raise_for_status()
+            # FRED's graph endpoint is occasionally slow; retry with backoff so a single slow
+            # response doesn't silently disable an entire macro feature family for the whole run.
+            response = None
+            last_error = None
+            for attempt in range(3):
+                try:
+                    response = requests.get(url, timeout=(10, 45))
+                    response.raise_for_status()
+                    break
+                except requests.exceptions.RequestException as req_err:
+                    last_error = req_err
+                    response = None
+                    if attempt < 2:
+                        time.sleep(1.5 * (attempt + 1))
+            if response is None:
+                raise last_error if last_error is not None else RuntimeError('FRED fetch failed')
             frame = pd.read_csv(StringIO(response.text))
             if frame.empty or len(frame.columns) < 2:
                 self._historical_external_mem_cache[cache_key] = None
@@ -1717,13 +1987,19 @@ class PremiumWTIPredictor:
         if normalized.empty:
             return pd.Series(np.nan, index=target_keys, dtype=float)
 
+        # pd.merge_asof requires both keys to share the SAME datetime resolution. Under pandas 2.x,
+        # FRED CSV dates and the yfinance index can parse at different units (e.g. [us] vs [s]),
+        # which raises "incompatible merge keys" and silently drops every FRED/EIA feature to its
+        # zero default. Coerce both sides to nanosecond resolution before the join to prevent this.
+        available_date = pd.to_datetime(
+            normalized.index + pd.to_timedelta(int(lag_days), unit='D')
+        ).astype('datetime64[ns]')
+        left_date_key = pd.to_datetime(pd.Index(target_keys)).astype('datetime64[ns]')
+
         available = pd.DataFrame(
-            {
-                'available_date': normalized.index + pd.to_timedelta(int(lag_days), unit='D'),
-                'value': normalized.values,
-            }
+            {'available_date': available_date, 'value': normalized.values}
         ).sort_values('available_date')
-        left = pd.DataFrame({'date_key': target_keys, '_order': np.arange(len(target_keys))})
+        left = pd.DataFrame({'date_key': left_date_key, '_order': np.arange(len(target_keys))})
         merged = pd.merge_asof(
             left.sort_values('date_key'),
             available,
@@ -2138,6 +2414,7 @@ class PremiumWTIPredictor:
             'news': self.get_news_sentiment,
             'usda': self.get_usda_agricultural_data,
             'noaa': self.get_noaa_weather_data,
+            'geopolitical': self.get_geopolitical_risk,
         }
 
         external_data = {}
@@ -2400,7 +2677,7 @@ class PremiumWTIPredictor:
             
             for symbol in oil_stocks:
                 try:
-                    url = f"https://finnhub.io/api/v1/quote"
+                    url = "https://finnhub.io/api/v1/quote"
                     params = {
                         'symbol': symbol,
                         'token': self.config.FINNHUB_KEY
@@ -2592,6 +2869,408 @@ class PremiumWTIPredictor:
                 'timestamp': datetime.now().isoformat()
             }
     
+    def get_geopolitical_risk(self):
+        """Fetch geopolitical risk signals for WTI: Iran, Strait of Hormuz, OPEC, supply shocks.
+
+        Uses recency-weighted scoring so background noise (week-old Iran oil articles that are
+        always present) registers as ELEVATED, while a genuine breaking crisis (articles published
+        in the last 6 hours) drives HIGH or CRITICAL. This separates signal from noise without
+        needing a historical baseline or extra API calls.
+        """
+        logger.info("Fetching geopolitical risk signals...")
+        if not self.config.NEWSAPI_KEY:
+            return self._missing_key_source_payload('geopolitical', 'NEWSAPI_KEY')
+
+        # 30-minute cache: NewsAPI free tier = 100 req/day; frontend polls every 15s.
+        # Without this cache the free tier exhausts in < 25 minutes of use.
+        now_utc = datetime.now(timezone.utc)
+        cache = getattr(self, '_geo_risk_cache', None)
+        if cache and (now_utc - cache['ts']).total_seconds() < 1800:
+            logger.info("✅ Geopolitical risk: serving from 30-min cache")
+            return cache['data']
+
+        try:
+            url = "https://newsapi.org/v2/everything"
+            params = {
+                'q': (
+                    'Iran oil OR Strait Hormuz OR OPEC production cut OR '
+                    'oil sanctions OR Middle East conflict OR oil supply disruption OR '
+                    'Iraq oil OR Houthi tanker OR Saudi Arabia oil supply'
+                ),
+                'language': 'en',
+                'sortBy': 'publishedAt',
+                'pageSize': 30,
+                'apiKey': self.config.NEWSAPI_KEY,
+            }
+            response = requests.get(url, params=params, timeout=10)
+            if response.status_code != 200:
+                return {
+                    'data_quality': 0,
+                    'geo_risk_score': 0,
+                    'regime': 'UNKNOWN',
+                    'dominant_driver': 'unknown',
+                    'iran_articles': 0,
+                    'opec_articles': 0,
+                    'conflict_articles': 0,
+                    'sanctions_articles': 0,
+                    'risk_breakdown': {},
+                    'top_headlines': [],
+                    'total_articles_scanned': 0,
+                    'recent_24h_articles': 0,
+                    'novelty_spike': False,
+                    'source': 'newsapi_geopolitical_failed',
+                    'timestamp': datetime.now().isoformat(),
+                }
+
+            articles = response.json().get('articles', [])
+
+            risk_keywords = {
+                'iran': ['iran', 'hormuz', 'tehran', 'iranian', 'persian gulf', 'irgc'],
+                'opec': ['opec', 'opec+', 'saudi', 'riyadh', 'aramco', 'production cut', 'quota'],
+                'conflict': ['conflict', 'attack', 'strike', 'houthi', 'tanker', 'blockade', 'militia', 'war'],
+                'sanctions': ['sanction', 'embargo', 'restriction', 'tariff', 'export ban'],
+            }
+
+            def _recency_weight(published_at_str: str) -> float:
+                """Breaking news < 6h counts 20x more than week-old background articles."""
+                try:
+                    pub = datetime.fromisoformat(published_at_str.replace('Z', '+00:00'))
+                    age_h = (now_utc - pub).total_seconds() / 3600
+                    if age_h < 6:   return 2.0   # breaking
+                    if age_h < 24:  return 1.0   # today
+                    if age_h < 72:  return 0.5   # this week
+                    if age_h < 168: return 0.25  # last 7 days
+                    return 0.1                   # stale
+                except Exception:
+                    return 0.25
+
+            risk_counts = {k: 0 for k in risk_keywords}     # unweighted, for display
+            risk_weighted = {k: 0.0 for k in risk_keywords}  # recency-weighted, for scoring
+            top_headlines = []
+            recent_24h = 0
+            novelty_spike = False
+
+            for article in articles:
+                title = article.get('title', '').lower()
+                desc = (article.get('description', '') or '').lower()
+                text = f"{title} {desc}"
+                pub_at = article.get('publishedAt', '')
+                w = _recency_weight(pub_at)
+
+                matched_categories = []
+                for category, keywords in risk_keywords.items():
+                    if any(kw in text for kw in keywords):
+                        risk_counts[category] += 1
+                        risk_weighted[category] += w
+                        matched_categories.append(category)
+
+                if matched_categories:
+                    if w >= 1.0:
+                        recent_24h += 1
+                    if w >= 2.0:
+                        novelty_spike = True
+
+                if len(top_headlines) < 5 and matched_categories:
+                    raw_title = article.get('title', '')
+                    if raw_title:
+                        top_headlines.append({
+                            'headline': raw_title,
+                            'published_at': pub_at,
+                            'source': article.get('source', {}).get('name', ''),
+                            'category': matched_categories[0],
+                            'is_breaking': w >= 2.0,
+                        })
+
+            # Recency-weighted score: background noise (all articles old) = ~25 (ELEVATED).
+            # Active crisis with articles in last 6h easily reaches 65+ (CRITICAL).
+            # Normalizer 10.0 = approximate max weighted score at sustained crisis level.
+            category_weights = {'iran': 0.40, 'opec': 0.30, 'conflict': 0.20, 'sanctions': 0.10}
+            raw_score = sum(
+                min(1.0, risk_weighted.get(k, 0) / 10.0) * w
+                for k, w in category_weights.items()
+            )
+            geo_risk_score = round(raw_score * 100, 1)
+
+            if geo_risk_score >= 65:
+                regime = 'CRITICAL'
+            elif geo_risk_score >= 40:
+                regime = 'HIGH'
+            elif geo_risk_score >= 15:
+                regime = 'ELEVATED'
+            else:
+                regime = 'LOW'
+
+            dominant_driver = max(risk_counts, key=risk_counts.get) if any(risk_counts.values()) else 'none'
+
+            logger.info(
+                f"✅ Geopolitical risk: score={geo_risk_score}, regime={regime}, "
+                f"driver={dominant_driver}, recent_24h={recent_24h}, spike={novelty_spike}"
+            )
+            result = {
+                'data_quality': min(100, len(articles) * 3),
+                'geo_risk_score': geo_risk_score,
+                'regime': regime,
+                'dominant_driver': dominant_driver,
+                'iran_articles': risk_counts['iran'],
+                'opec_articles': risk_counts['opec'],
+                'conflict_articles': risk_counts['conflict'],
+                'sanctions_articles': risk_counts['sanctions'],
+                'risk_breakdown': risk_counts,
+                'top_headlines': top_headlines,
+                'total_articles_scanned': len(articles),
+                'recent_24h_articles': recent_24h,
+                'novelty_spike': novelty_spike,
+                'source': 'newsapi_geopolitical',
+                'timestamp': datetime.now().isoformat(),
+            }
+            self._geo_risk_cache = {'data': result, 'ts': now_utc}
+            return result
+
+        except Exception as e:
+            logger.warning(f"Geopolitical risk fetch failed: {e}")
+            return {
+                'data_quality': 0,
+                'geo_risk_score': 0,
+                'regime': 'UNKNOWN',
+                'dominant_driver': 'unknown',
+                'iran_articles': 0,
+                'opec_articles': 0,
+                'conflict_articles': 0,
+                'sanctions_articles': 0,
+                'risk_breakdown': {},
+                'top_headlines': [],
+                'total_articles_scanned': 0,
+                'recent_24h_articles': 0,
+                'novelty_spike': False,
+                'error': str(e),
+                'source': 'geopolitical_error',
+                'timestamp': datetime.now().isoformat(),
+            }
+
+    def get_geopolitical_scenario_analysis(self, geo_data: dict, current_price: float) -> dict:
+        """
+        Match current geopolitical signals against historical Iran/Middle East events.
+        Returns top analogues, implied price ranges, and Strait of Hormuz scenarios.
+        Designed for hedge fund use: acknowledges ML model limitations in tail-risk regimes.
+        """
+        regime = str(geo_data.get('regime', 'LOW'))
+        dominant_driver = str(geo_data.get('dominant_driver', 'none'))
+        risk_breakdown = geo_data.get('risk_breakdown', {})
+        geo_score = float(geo_data.get('geo_risk_score', 0) or 0)
+        iran_count = int(risk_breakdown.get('iran', 0))
+        strait_risk = iran_count >= 2 or dominant_driver == 'iran'
+
+        def _event_similarity(event: dict) -> float:
+            score = 0.0
+            # Driver overlap
+            event_drivers = set(event.get('drivers', []))
+            if dominant_driver in event_drivers:
+                score += 0.35
+            for cat, count in risk_breakdown.items():
+                if cat in event_drivers and count > 0:
+                    score += 0.10
+
+            # Regime match
+            event_severity = event.get('peak_pct', 0)
+            if regime == 'CRITICAL' and event_severity >= 10:
+                score += 0.30
+            elif regime == 'HIGH' and 3 <= event_severity < 20:
+                score += 0.25
+            elif regime == 'ELEVATED' and 1 <= event_severity < 10:
+                score += 0.20
+            elif regime == 'LOW' and event_severity < 5:
+                score += 0.15
+
+            # Strait risk match
+            if strait_risk and event.get('strait_risk', False):
+                score += 0.15
+
+            # Supply disruption relevance
+            if event.get('supply_disruption_mbpd', 0) > 0 and geo_score >= 40:
+                score += 0.10
+
+            return round(score, 3)
+
+        # Rank events
+        scored = sorted(
+            [{'similarity': _event_similarity(e), **e} for e in IRAN_GEOPOLITICAL_EVENTS],
+            key=lambda x: x['similarity'],
+            reverse=True,
+        )
+        top_analogues = scored[:3]
+
+        # Implied price range from top 2 analogues (weighted by similarity)
+        implied_low = current_price
+        implied_high = current_price
+        implied_mid = current_price
+        if top_analogues and top_analogues[0]['similarity'] > 0:
+            weights = [a['similarity'] for a in top_analogues[:2]]
+            total_w = sum(weights) or 1.0
+            weighted_peak = sum(a['peak_pct'] * w for a, w in zip(top_analogues[:2], weights)) / total_w
+            weighted_settled = sum(a['settled_pct'] * w for a, w in zip(top_analogues[:2], weights)) / total_w
+            implied_high = round(current_price * (1 + weighted_peak / 100), 2)
+            implied_mid = round(current_price * (1 + weighted_settled / 100), 2)
+            implied_low = round(current_price * (1 - abs(weighted_settled) * 0.5 / 100), 2)
+
+        # Illustrative escalation odds for the 4 Hormuz scenarios, conditioned on geo_score
+        # + strait_risk. These are SUBJECTIVE priors (a closure has never actually occurred,
+        # so there is no empirical base rate to fit) chosen to reflect the consensus that
+        # minor incidents are common and full closure is a rare tail. They are decision-support
+        # weights for scenario P&L, NOT a calibrated statistical forecast.
+        def _scenario_probs(score: float, has_strait: bool) -> list:
+            """Returns [p_minor, p_partial, p_extended, p_full], sums to 1.0 (illustrative priors)."""
+            if score >= 85:
+                p = [0.10, 0.26, 0.37, 0.27]
+            elif score >= 65:
+                p = [0.20, 0.33, 0.30, 0.17]
+            elif score >= 40:
+                p = [0.38, 0.37, 0.18, 0.07]
+            elif score >= 15:
+                p = [0.60, 0.28, 0.09, 0.03]
+            else:
+                p = [0.80, 0.15, 0.04, 0.01]
+            if has_strait:
+                # Strait risk shifts 10pp from MINOR to PARTIAL/EXTENDED
+                shift = min(p[0], 0.10)
+                p[0] -= shift
+                p[1] += shift * 0.55
+                p[2] += shift * 0.45
+            total = sum(p)
+            return [round(x / total, 4) for x in p]
+
+        all_probs = _scenario_probs(geo_score, strait_risk)
+
+        # Probability-weighted expected price impact: E[ΔP] = Σ(prob_i × impact_mid_i)
+        # This is the number a risk manager uses for P&L scenario weighting.
+        ev_impact_usd = round(
+            sum(all_probs[i] * HORMUZ_SCENARIOS[i]['price_impact_mid']
+                for i in range(len(HORMUZ_SCENARIOS))), 2
+        )
+
+        # Select which scenarios to surface based on regime
+        if regime == 'CRITICAL':
+            active_scenarios = HORMUZ_SCENARIOS[1:]
+        elif regime == 'HIGH':
+            active_scenarios = HORMUZ_SCENARIOS[:3]
+        elif regime == 'ELEVATED':
+            active_scenarios = HORMUZ_SCENARIOS[:2]
+        else:
+            active_scenarios = HORMUZ_SCENARIOS[:1]
+
+        # Attach dollar prices and probability to each displayed scenario
+        scenario_name_to_idx = {s['name']: i for i, s in enumerate(HORMUZ_SCENARIOS)}
+        scenarios_with_price = []
+        for s in active_scenarios:
+            s_idx = scenario_name_to_idx.get(s['name'], 0)
+            scenarios_with_price.append({
+                **s,
+                'price_target_low':  round(current_price + s['price_impact_low'], 2),
+                'price_target_mid':  round(current_price + s['price_impact_mid'], 2),
+                'price_target_high': round(current_price + s['price_impact_high'], 2),
+                'probability': all_probs[s_idx],
+            })
+
+        # Edge = analogue-implied base-case price minus current market price.
+        # Positive = geopolitical risk premium not yet priced in (upside).
+        # Negative = market over-pricing vs historical precedent (mean-reversion risk).
+        edge_usd = round(implied_mid - current_price, 2)
+        edge_pct = round(edge_usd / current_price * 100, 2) if current_price > 0 else 0.0
+
+        # Expected resolution timeline from similarity-weighted analogues
+        valid = [a for a in top_analogues[:3] if a['similarity'] > 0]
+        if valid:
+            total_sim = sum(a['similarity'] for a in valid)
+            expected_resolution_days = round(
+                sum(a['duration_days'] * a['similarity'] for a in valid) / total_sim
+            )
+        else:
+            expected_resolution_days = 0
+
+        # Signal strength: geo score + analogue confidence + strait risk premium
+        top_sim_score = top_analogues[0]['similarity'] if top_analogues else 0.0
+        signal_strength = min(100, round(
+            geo_score * 0.50 + top_sim_score * 50 + (15 if strait_risk else 0)
+        ))
+
+        # Trade signal
+        if regime == 'CRITICAL' and dominant_driver in ('iran', 'conflict'):
+            signal = 'LONG_BIAS'
+            signal_basis = (
+                f'Analogues imply +{abs(edge_usd):.1f}/bbl unpriced upside '
+                f'(base: ${implied_mid:.2f}, current: ${current_price:.2f}). '
+                f'CRITICAL Iran/conflict regime; EV +${ev_impact_usd:.1f}/bbl probability-weighted.'
+            )
+        elif regime == 'HIGH' and strait_risk:
+            signal = 'LONG_BIAS'
+            signal_basis = (
+                f'Strait risk active. Analogue base case ${implied_mid:.2f} '
+                f'vs current ${current_price:.2f} ({edge_pct:+.1f}%). '
+                f'EV +${ev_impact_usd:.1f}/bbl probability-weighted Hormuz impact.'
+            )
+        elif regime in ('HIGH', 'ELEVATED') and dominant_driver == 'opec':
+            signal = 'LONG_BIAS'
+            signal_basis = (
+                f'OPEC supply-cut regime. Historical OPEC cuts average +13–25% over 30 days. '
+                f'EV +${ev_impact_usd:.1f}/bbl.'
+            )
+        elif regime == 'LOW' or dominant_driver == 'none':
+            signal = 'NEUTRAL'
+            signal_basis = 'No dominant geopolitical driver. ML ensemble is the primary signal in this regime.'
+        else:
+            signal = 'WATCH'
+            signal_basis = (
+                f'Elevated risk ({regime}) but no confirmed supply disruption yet. '
+                f'Edge vs analogues: {edge_pct:+.1f}%. Monitor for escalation.'
+            )
+
+        ml_caveat = None
+        if regime in ('HIGH', 'CRITICAL'):
+            ml_caveat = (
+                'WARNING: ML ensemble trained on normal-market data. '
+                'In HIGH/CRITICAL geopolitical regimes, model may significantly underestimate '
+                'upside tail risk. Historical analogue signal should take precedence.'
+            )
+
+        return {
+            'top_analogues': [
+                {
+                    'id': a['id'],
+                    'date': a['date'],
+                    'event': a['event'],
+                    'type': a['type'],
+                    'peak_pct': a['peak_pct'],
+                    'settled_pct': a['settled_pct'],
+                    'duration_days': a['duration_days'],
+                    'supply_disruption_mbpd': a['supply_disruption_mbpd'],
+                    'strait_risk': a['strait_risk'],
+                    'similarity': a['similarity'],
+                    'notes': a['notes'],
+                }
+                for a in top_analogues
+            ],
+            'implied_price_range': {
+                'low':   implied_low,
+                'mid':   implied_mid,
+                'high':  implied_high,
+                'basis': f'Similarity-weighted avg of top {min(2, len(top_analogues))} historical analogues',
+            },
+            'hormuz_scenarios': scenarios_with_price,
+            'geo_signal': {
+                'signal':                  signal,
+                'basis':                   signal_basis,
+                'regime':                  regime,
+                'strait_risk':             strait_risk,
+                'signal_strength':         signal_strength,
+                'edge_usd':                edge_usd,
+                'edge_pct':                edge_pct,
+                'ev_impact_usd':           ev_impact_usd,
+                'expected_resolution_days': expected_resolution_days,
+            },
+            'ml_caveat': ml_caveat,
+            'current_price': current_price,
+            'timestamp': datetime.now().isoformat(),
+        }
+
     def get_usda_agricultural_data(self):
         """Fetch USDA agricultural data"""
         logger.info("Fetching USDA agricultural data...")
@@ -2631,7 +3310,7 @@ class PremiumWTIPredictor:
                         agricultural_impact = min(100, max(0, avg_corn_price * 10))
                         biofuel_demand = agricultural_impact  # Higher corn price -> higher biofuel cost
                         
-                        logger.info(f"✅ USDA: Agricultural data loaded")
+                        logger.info("✅ USDA: Agricultural data loaded")
                         return {
                             'data_quality': 100,
                             'agricultural_impact': agricultural_impact,
@@ -2695,7 +3374,7 @@ class PremiumWTIPredictor:
                         temp_anomaly = abs(avg_temp - 20)  # Deviation from 20°C baseline
                         weather_impact = min(100, temp_anomaly * 2)
                         
-                        logger.info(f"✅ Weather data loaded")
+                        logger.info("✅ Weather data loaded")
                         return {
                             'data_quality': 100,
                             'weather_impact': weather_impact,
@@ -2745,8 +3424,6 @@ class PremiumWTIPredictor:
         
         # Technical indicators from WTI data
         closes = wti_data['Close'].values
-        highs = wti_data['High'].values
-        lows = wti_data['Low'].values
         volumes = wti_data['Volume'].values
         
         # Price-based features
@@ -2788,7 +3465,8 @@ class PremiumWTIPredictor:
             'finnhub': ['data_quality', 'sector_strength', 'sector_momentum'],
             'news': ['data_quality', 'market_buzz', 'sentiment_score', 'sentiment_momentum', 'bullish_ratio', 'uncertainty_score', 'forwardness_score', 'intensity_score', 'news_volume'],
             'usda': ['data_quality', 'agricultural_impact', 'corn_price_level', 'biofuel_demand'],
-            'noaa': ['data_quality', 'weather_impact', 'temperature_anomaly', 'seasonal_demand']
+            'noaa': ['data_quality', 'weather_impact', 'temperature_anomaly', 'seasonal_demand'],
+            'geopolitical': ['data_quality', 'geo_risk_score', 'iran_articles', 'opec_articles', 'conflict_articles'],
         }
         
         for source, expected_features in expected_external_features.items():
@@ -3244,7 +3922,12 @@ class PremiumWTIPredictor:
             'noaa_data_quality': 0,
             'noaa_weather_impact': 30,
             'noaa_temperature_anomaly': 5,
-            'noaa_seasonal_demand': 60
+            'noaa_seasonal_demand': 60,
+            'geopolitical_data_quality': 0,
+            'geopolitical_geo_risk_score': 0,
+            'geopolitical_iran_articles': 0,
+            'geopolitical_opec_articles': 0,
+            'geopolitical_conflict_articles': 0,
         }
         
         # Start with defaults
@@ -3311,7 +3994,6 @@ class PremiumWTIPredictor:
         negative_returns = (-returns.where(returns < 0))
         volume_tail_20 = volume_series.tail(20)
         dollar_volume_series = close_series * volume_series
-        dollar_volume_tail_20 = dollar_volume_series.tail(20)
         latest_true_range = float(true_range.iloc[-1]) if not true_range.empty else 0.0
         range_pct = self._safe_ratio(latest_true_range, latest_close, default=0.0)
         prev_close = float(close_series.iloc[-2]) if len(close_series) > 1 else latest_close
@@ -3646,7 +4328,8 @@ class PremiumWTIPredictor:
                             )
                         )
                     
-                except Exception as e:
+                except Exception as exc:
+                    logger.debug(f"Skipping daily prediction row due to: {exc}")
                     continue
 
             features_df_daily_by_horizon = {}
@@ -3714,7 +4397,6 @@ class PremiumWTIPredictor:
                     scores = model_package['scores']
                     scaler = model_package['scaler']
                     selector = model_package['selector']
-                    selected_features = model_package['selected_features']
                     all_feature_names = model_package['all_feature_names']
                     horizon_backtests[horizon] = model_package.get('diagnostics', {}).get('latest_fold_backtest', {})
                     
@@ -4087,6 +4769,11 @@ class PremiumWTIPredictor:
                     'quote_symbol': self.yfinance_symbol,
                     'history_symbol': self.history_symbol,
                 },
+                'geopolitical_risk': external_data.get('geopolitical', {}),
+                'scenario_analysis': self.get_geopolitical_scenario_analysis(
+                    external_data.get('geopolitical', {}),
+                    reference_price,
+                ),
             }
             
             # Store in main predictions file
@@ -4420,6 +5107,8 @@ def get_multi_horizon_wti_predictions():
             'cache_stats': result.get('cache_stats', {}),
             'market_data_sources': result.get('market_data_sources', {}),
             'contract_metadata': result.get('contract_metadata', {}),
+            'geopolitical_risk': result.get('geopolitical_risk', {}),
+            'scenario_analysis': result.get('scenario_analysis', {}),
             'timestamp': result['timestamp']
         }
         

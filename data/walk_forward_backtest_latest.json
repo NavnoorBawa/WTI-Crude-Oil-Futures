@@ -1,0 +1,168 @@
+{
+  "timestamp": "2026-06-05T20:43:04.305024Z",
+  "config": {
+    "period": "5y",
+    "min_train": 200,
+    "step": 5,
+    "estimators": 40,
+    "feature_mode": "no_macro",
+    "rows_by_horizon": {
+      "1d": 1195,
+      "1w": 1191
+    },
+    "feature_count_by_horizon": {
+      "1d": 143,
+      "1w": 143
+    }
+  },
+  "results": {
+    "1d": {
+      "horizon": "1d",
+      "samples": 199,
+      "walk_forward_step": 5,
+      "metrics": {
+        "ensemble": {
+          "samples": 199,
+          "mae": 1.4784191514367766,
+          "rmse": 2.2024432651871866,
+          "mape": 1.8653988281557372,
+          "direction_accuracy": 45.22613065326633,
+          "direction_p_value": 0.922,
+          "direction_ci_95": [
+            38.5,
+            52.2
+          ],
+          "is_significant_5pct": false
+        },
+        "naive_last_price": {
+          "samples": 199,
+          "mae": 1.4620604970347342,
+          "rmse": 2.188579121367798,
+          "mape": 1.8458561760947467,
+          "direction_accuracy": 0.0,
+          "direction_p_value": 1.0,
+          "direction_ci_95": [
+            0.0,
+            1.9
+          ],
+          "is_significant_5pct": false
+        },
+        "drift": {
+          "samples": 199,
+          "mae": 1.4657385867067765,
+          "rmse": 2.192088816728725,
+          "mape": 1.8497448594832873,
+          "direction_accuracy": 51.75879396984925,
+          "direction_p_value": 0.3354,
+          "direction_ci_95": [
+            44.8,
+            58.6
+          ],
+          "is_significant_5pct": false
+        },
+        "seasonal_5d": {
+          "samples": 199,
+          "mae": 3.3810050427614144,
+          "rmse": 4.707684075406472,
+          "mape": 4.324694068867687,
+          "direction_accuracy": 48.24120603015075,
+          "direction_p_value": 0.7146,
+          "direction_ci_95": [
+            41.4,
+            55.2
+          ],
+          "is_significant_5pct": false
+        }
+      },
+      "best_baseline": "naive_last_price",
+      "mae_improvement_vs_best_baseline_pct": -1.1188767109993119,
+      "pnl_metrics": {
+        "n_trades": 199,
+        "total_pnl_usd": -46950.0,
+        "mean_pnl_per_trade_usd": -235.93,
+        "std_pnl_per_trade_usd": 2189.86,
+        "sharpe_ratio_annualized": -1.71,
+        "win_rate_pct": 40.7,
+        "max_drawdown_usd": 71699.99,
+        "profit_factor": 0.724,
+        "transaction_cost_per_trade": 100.0
+      },
+      "first_prediction_timestamp": "2022-06-21 00:00:00-04:00",
+      "last_prediction_timestamp": "2026-05-29 00:00:00-04:00"
+    },
+    "1w": {
+      "horizon": "1w",
+      "samples": 199,
+      "walk_forward_step": 5,
+      "metrics": {
+        "ensemble": {
+          "samples": 199,
+          "mae": 2.6511264266368264,
+          "rmse": 3.480646691832114,
+          "mape": 3.4366206328231668,
+          "direction_accuracy": 62.8140703517588,
+          "direction_p_value": 0.0002,
+          "direction_ci_95": [
+            55.9,
+            69.2
+          ],
+          "is_significant_5pct": true
+        },
+        "naive_last_price": {
+          "samples": 199,
+          "mae": 2.9633667145542164,
+          "rmse": 3.858054492080461,
+          "mape": 3.829920354086621,
+          "direction_accuracy": 0.0,
+          "direction_p_value": 1.0,
+          "direction_ci_95": [
+            0.0,
+            1.9
+          ],
+          "is_significant_5pct": false
+        },
+        "drift": {
+          "samples": 199,
+          "mae": 2.9844193029056014,
+          "rmse": 3.902817105318873,
+          "mape": 3.8579550936959057,
+          "direction_accuracy": 44.221105527638194,
+          "direction_p_value": 0.9557,
+          "direction_ci_95": [
+            37.5,
+            51.2
+          ],
+          "is_significant_5pct": false
+        },
+        "seasonal_5d": {
+          "samples": 199,
+          "mae": 3.8138691504396984,
+          "rmse": 5.14878630599949,
+          "mape": 4.921284883561127,
+          "direction_accuracy": 56.78391959798995,
+          "direction_p_value": 0.0325,
+          "direction_ci_95": [
+            49.8,
+            63.5
+          ],
+          "is_significant_5pct": true
+        }
+      },
+      "best_baseline": "naive_last_price",
+      "mae_improvement_vs_best_baseline_pct": 10.53667392509539,
+      "pnl_metrics": {
+        "n_trades": 199,
+        "total_pnl_usd": 210550.02,
+        "mean_pnl_per_trade_usd": 1058.04,
+        "std_pnl_per_trade_usd": 3689.43,
+        "sharpe_ratio_annualized": 2.068,
+        "win_rate_pct": 62.8,
+        "max_drawdown_usd": 19900.0,
+        "profit_factor": 2.126,
+        "transaction_cost_per_trade": 100.0
+      },
+      "first_prediction_timestamp": "2022-06-21 00:00:00-04:00",
+      "last_prediction_timestamp": "2026-05-29 00:00:00-04:00"
+    }
+  }
+}

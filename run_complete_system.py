@@ -159,7 +159,7 @@ class WTISystemOrchestrator:
             self.last_prediction_time = time.time()
             self.error_count = 0  # Reset error count on success
             
-            logger.info(f"✅ REAL prediction cycle completed:")
+            logger.info("✅ REAL prediction cycle completed:")
             logger.info(f"   1H: ${predictions['prediction_1h']:.2f} ({((predictions['prediction_1h']-current_price)/current_price*100):+.1f}%)")
             logger.info(f"   1D: ${predictions['prediction_1d']:.2f} ({((predictions['prediction_1d']-current_price)/current_price*100):+.1f}%)")
             logger.info(f"   1W: ${predictions['prediction_1w']:.2f} ({((predictions['prediction_1w']-current_price)/current_price*100):+.1f}%)")

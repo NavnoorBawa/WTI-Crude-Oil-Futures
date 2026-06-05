@@ -9,7 +9,9 @@ Serves only real ML predictions and stored data
 import time
 import threading
 import os
+import json
 from datetime import datetime
+from pathlib import Path
 import logging
 from flask import Flask, jsonify, make_response
 from flask_cors import CORS
@@ -112,17 +114,67 @@ def _ordered_display_horizons(preferred_horizon):
     return ordered
 
 
+def _load_walk_forward_stats() -> dict:
+    """Load the walk-forward backtest JSON and return per-horizon ensemble metrics.
+    Returns {} if file is missing or malformed — callers treat missing stats as unavailable.
+    """
+    try:
+        path = Path(__file__).parent.parent / 'data' / 'walk_forward_backtest_latest.json'
+        if not path.exists():
+            return {}
+        data = json.loads(path.read_text(encoding='utf-8'))
+        results = data.get('results', {})
+        out = {}
+        for horizon, hr in results.items():
+            ens = hr.get('metrics', {}).get('ensemble', {})
+            if not ens or not ens.get('samples'):
+                continue
+            pnl = hr.get('pnl_metrics', {})
+            out[horizon] = {
+                'direction_accuracy':  float(ens.get('direction_accuracy', 0)),
+                'samples':             int(ens.get('samples', 0)),
+                'direction_p_value':   float(ens.get('direction_p_value', 1.0)),
+                'direction_ci_95':     ens.get('direction_ci_95', [0.0, 100.0]),
+                'is_significant_5pct': bool(ens.get('is_significant_5pct', False)),
+                'mae':                 float(ens.get('mae', 0)),
+                'mae_improvement_pct': float(hr.get('mae_improvement_vs_best_baseline_pct', 0)),
+                'pnl_sharpe':          float(pnl['sharpe_ratio_annualized']) if pnl.get('sharpe_ratio_annualized') is not None else None,
+                'pnl_mean_per_trade':  float(pnl['mean_pnl_per_trade_usd']) if pnl.get('mean_pnl_per_trade_usd') is not None else None,
+                'pnl_win_rate':        float(pnl['win_rate_pct']) if pnl.get('win_rate_pct') is not None else None,
+                'pnl_max_drawdown':    float(pnl['max_drawdown_usd']) if pnl.get('max_drawdown_usd') is not None else None,
+                'pnl_total':           float(pnl['total_pnl_usd']) if pnl.get('total_pnl_usd') is not None else None,
+                'pnl_profit_factor':   float(pnl['profit_factor']) if pnl.get('profit_factor') is not None else None,
+                'pnl_n_trades':        int(pnl['n_trades']) if pnl.get('n_trades') else 0,
+            }
+        return out
+    except Exception as e:
+        logger.warning(f'Could not load walk-forward backtest stats: {e}')
+        return {}
+
+
 def _build_horizon_metrics(accuracy_metrics, horizon_backtests, horizon_confidence, horizon_quality, min_live_accuracy_samples):
+    # Merge in the rigorous walk-forward backtest stats (5y, 199 OOS samples) so the
+    # frontend can show real p-values and confidence intervals, not just in-training diagnostics.
+    wf_stats = _load_walk_forward_stats()
+
     by_horizon = {}
     for horizon in ['1h', '1d', '1w']:
         live_metrics = accuracy_metrics.get(horizon, {}) if isinstance(accuracy_metrics, dict) else {}
         backtest_metrics = horizon_backtests.get(horizon, {}) if isinstance(horizon_backtests, dict) else {}
         quality_metrics = horizon_quality.get(horizon, {}) if isinstance(horizon_quality, dict) else {}
+        wf = wf_stats.get(horizon, {})
 
         live_total = int(live_metrics.get('total_predictions', 0) or 0)
         live_direction_accuracy = float(live_metrics.get('direction_accuracy', 0.0) or 0.0)
-        backtest_direction_accuracy = backtest_metrics.get('direction_accuracy')
-        backtest_samples = int(backtest_metrics.get('samples', 0) or 0) if isinstance(backtest_metrics, dict) else 0
+
+        # Prefer walk-forward stats (rigorous, 199 OOS samples) over in-training diagnostics
+        wf_direction_accuracy = wf.get('direction_accuracy')
+        wf_samples = int(wf.get('samples', 0) or 0)
+        backtest_direction_accuracy = wf_direction_accuracy if wf_direction_accuracy is not None \
+            else backtest_metrics.get('direction_accuracy')
+        backtest_samples = wf_samples if wf_samples > 0 \
+            else (int(backtest_metrics.get('samples', 0) or 0) if isinstance(backtest_metrics, dict) else 0)
+
         confidence_value = float(horizon_confidence.get(horizon, 0.0) or 0.0) if isinstance(horizon_confidence, dict) else 0.0
 
         display_accuracy = None
@@ -154,6 +206,20 @@ def _build_horizon_metrics(accuracy_metrics, horizon_backtests, horizon_confiden
             'display_accuracy_source': display_accuracy_source,
             'confidence': confidence_value,
             'quality': quality_metrics if isinstance(quality_metrics, dict) else {},
+            # Walk-forward significance stats — only present for horizons with a completed backtest
+            'wf_p_value':           float(wf['direction_p_value']) if wf.get('direction_p_value') is not None else None,
+            'wf_ci_95':             wf.get('direction_ci_95'),
+            'wf_is_significant':    bool(wf['is_significant_5pct']) if 'is_significant_5pct' in wf else None,
+            'wf_samples':           wf_samples if wf_samples > 0 else None,
+            'wf_mae_improvement_pct': float(wf['mae_improvement_pct']) if wf.get('mae_improvement_pct') is not None else None,
+            # Dollar P&L stats (1 contract, $100 round-trip cost)
+            'wf_pnl_sharpe':        wf.get('pnl_sharpe'),
+            'wf_pnl_mean_per_trade': wf.get('pnl_mean_per_trade'),
+            'wf_pnl_win_rate':      wf.get('pnl_win_rate'),
+            'wf_pnl_max_drawdown':  wf.get('pnl_max_drawdown'),
+            'wf_pnl_total':         wf.get('pnl_total'),
+            'wf_pnl_profit_factor': wf.get('pnl_profit_factor'),
+            'wf_pnl_n_trades':      wf.get('pnl_n_trades', 0),
         }
 
     preferred_order = _ordered_display_horizons(PRIMARY_DISPLAY_HORIZON)
@@ -278,7 +344,7 @@ def initialize_oil_system():
             predictions = get_multi_horizon_wti_predictions()
             if not predictions.get('is_real_prediction'):
                 raise Exception("CRITICAL: System not generating real predictions")
-            logger.info(f"✅ Initial predictions generated:")
+            logger.info("✅ Initial predictions generated:")
             logger.info(f"   1H: ${predictions['prediction_1h']:.2f}")
             logger.info(f"   1D: ${predictions['prediction_1d']:.2f}")
             logger.info(f"   1W: ${predictions['prediction_1w']:.2f}")
@@ -539,6 +605,19 @@ def get_data():
                 retry_after=startup_retry_seconds()
             )
 
+        geo_raw = predictions.get('geopolitical_risk', {}) if predictions else {}
+        geopolitical_risk = {
+            'score': float(geo_raw.get('geo_risk_score', 0) or 0),
+            'regime': str(geo_raw.get('regime', 'UNKNOWN')),
+            'dominant_driver': str(geo_raw.get('dominant_driver', 'unknown')),
+            'risk_breakdown': geo_raw.get('risk_breakdown', {}),
+            'top_headlines': geo_raw.get('top_headlines', []),
+            'total_articles_scanned': int(geo_raw.get('total_articles_scanned', 0) or 0),
+            'recent_24h_articles': int(geo_raw.get('recent_24h_articles', 0) or 0),
+            'novelty_spike': bool(geo_raw.get('novelty_spike', False)),
+        }
+        scenario_analysis = predictions.get('scenario_analysis', {}) if predictions else {}
+
         prediction_is_real = bool(predictions.get('is_real_prediction', False)) if predictions else False
         prediction_is_full_real = bool(predictions.get('is_full_real_prediction', prediction_is_real)) if predictions else False
         prediction_fallbacks = predictions.get('fallbacks', {}) if predictions else {}
@@ -696,6 +775,9 @@ def get_data():
                 'qualified_horizon_count': qualified_horizon_count,
             },
             
+            'geopolitical_risk': geopolitical_risk,
+            'scenario_analysis': scenario_analysis,
+
             'feed_status': 'REAL-TIME' if prediction_is_full_real else ('DEGRADED' if prediction_is_real else 'INITIALIZING'),
             'status': 'ACTIVE' if prediction_is_full_real else ('DEGRADED' if prediction_is_real else 'INITIALIZING'),
             'data_source': 'oil.py ML ENGINE',
@@ -716,6 +798,53 @@ def get_data():
             'message': f'Cannot get real data from oil.py: {str(e)}',
             'server_time': datetime.now().isoformat()
         }, 500)
+
+@app.route('/scenario')
+def get_scenario():
+    """
+    Standalone geopolitical scenario endpoint.
+    Returns historical event analogues, Hormuz disruption scenarios, and trade signal.
+    Useful for hedge fund risk desks during high-geopolitical-risk regimes.
+    """
+    ensure_startup_started()
+    if not _startup_ready.is_set():
+        return json_response(startup_payload('Server starting up.', startup_retry_seconds()), 503)
+
+    try:
+        from .oil import IRAN_GEOPOLITICAL_EVENTS, HORMUZ_SCENARIOS, PremiumWTIPredictor
+        contract_info = get_current_wti_contract()
+        current_price = float(contract_info.get('current_price', 0) or 0)
+
+        # Use cached predictions if available for geo data
+        predictions = system_state.get('cached_predictions') or {}
+        geo_raw = predictions.get('geopolitical_risk', {})
+        scenario = predictions.get('scenario_analysis', {})
+
+        # If no cached scenario, build a minimal one with neutral geo data
+        if not scenario:
+            predictor = PremiumWTIPredictor.__new__(PremiumWTIPredictor)
+            scenario = predictor.get_geopolitical_scenario_analysis(geo_raw, current_price)
+
+        return json_response({
+            'current_price': round(current_price, 2),
+            'contract': contract_info.get('symbol'),
+            'geopolitical_risk': {
+                'score': float(geo_raw.get('geo_risk_score', 0) or 0),
+                'regime': str(geo_raw.get('regime', 'UNKNOWN')),
+                'dominant_driver': str(geo_raw.get('dominant_driver', 'unknown')),
+                'risk_breakdown': geo_raw.get('risk_breakdown', {}),
+                'recent_24h_articles': int(geo_raw.get('recent_24h_articles', 0) or 0),
+                'novelty_spike': bool(geo_raw.get('novelty_spike', False)),
+            },
+            'scenario_analysis': scenario,
+            'event_database_size': len(IRAN_GEOPOLITICAL_EVENTS),
+            'timestamp': datetime.now().isoformat(),
+        })
+
+    except Exception as e:
+        logger.error(f'Scenario endpoint error: {e}')
+        return json_response({'error': str(e)}, 500)
+
 
 @app.route('/health')
 def health():
