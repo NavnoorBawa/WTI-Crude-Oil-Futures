@@ -104,7 +104,7 @@ def _yf_history_with_retry(symbol, *, period, interval, timeout, max_attempts=3,
             time.sleep(base_delay * (2 ** attempt))  # 2s, then 4s
 
 # Backward-compatible API key fallback: use env vars first, then legacy embedded keys.
-ALLOW_LEGACY_EMBEDDED_KEYS = os.getenv('ALLOW_LEGACY_EMBEDDED_KEYS', 'true').lower() == 'true'
+ALLOW_LEGACY_EMBEDDED_KEYS = os.getenv('ALLOW_LEGACY_EMBEDDED_KEYS', 'false').lower() == 'true'
 
 
 def _resolve_api_key(env_name: str, legacy_value: str) -> str:
@@ -116,12 +116,14 @@ def _resolve_api_key(env_name: str, legacy_value: str) -> str:
 # Premium API Configuration - Load from environment variables (FIX #1)
 @dataclass
 class PremiumAPIConfig:
-    USDA_NASS_KEY: str = field(default_factory=lambda: _resolve_api_key('USDA_NASS_KEY', '1BD3CF79-9B2C-39CA-84B1-F518F91E31AB'))
-    NOAA_CDO_KEY: str = field(default_factory=lambda: _resolve_api_key('NOAA_CDO_KEY', 'AcuEiAKYmSOgvwKNlNiDlnvPTfiYjiJf'))
-    ALPHA_VANTAGE_KEY: str = field(default_factory=lambda: _resolve_api_key('ALPHA_VANTAGE_KEY', 'TZ7IDJ2AYBD94IK0'))
-    NEWSAPI_KEY: str = field(default_factory=lambda: _resolve_api_key('NEWSAPI_KEY', 'f7fe9d092c0b486ab1829dd94d45ba79'))
-    FINNHUB_KEY: str = field(default_factory=lambda: _resolve_api_key('FINNHUB_KEY', 'd1ueli1r01qiiuq7p5q0d1ueli1r01qiiuq7p5qg'))
-    EIA_API_KEY: str = field(default_factory=lambda: _resolve_api_key('EIA_API_KEY', 'ynoQL6PQrPbw2LU790EUZew8jqEVWnw5maO6hKcw'))
+    # Keys are read ONLY from environment variables (locally: .env; in CI: GitHub Actions
+    # Secrets). No credentials are committed to source — required so the repo can be public.
+    USDA_NASS_KEY: str = field(default_factory=lambda: _resolve_api_key('USDA_NASS_KEY', ''))
+    NOAA_CDO_KEY: str = field(default_factory=lambda: _resolve_api_key('NOAA_CDO_KEY', ''))
+    ALPHA_VANTAGE_KEY: str = field(default_factory=lambda: _resolve_api_key('ALPHA_VANTAGE_KEY', ''))
+    NEWSAPI_KEY: str = field(default_factory=lambda: _resolve_api_key('NEWSAPI_KEY', ''))
+    FINNHUB_KEY: str = field(default_factory=lambda: _resolve_api_key('FINNHUB_KEY', ''))
+    EIA_API_KEY: str = field(default_factory=lambda: _resolve_api_key('EIA_API_KEY', ''))
     EIA_BASE_URL: str = "https://api.eia.gov/v2"
     FRED_BASE_URL: str = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 
