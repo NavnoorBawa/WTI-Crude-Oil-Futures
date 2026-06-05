@@ -52,6 +52,57 @@ logger = logging.getLogger(__name__)
 # gracefully downstream, so quiet yfinance's own logger to keep operational output clean.
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
 
+
+def _build_yf_session():
+    """Browser-impersonation session for yfinance.
+
+    Yahoo Finance aggressively rate-limits datacenter IPs (Render, AWS, etc.) when the default
+    python-requests User-Agent is used, returning HTTP 429 "Too Many Requests". A curl_cffi
+    session that impersonates a real Chrome browser dramatically reduces these failures, which
+    is the single most common cause of "No valid WTI contracts found" on cloud hosts. Falls
+    back to no custom session if curl_cffi is unavailable.
+    """
+    try:
+        from curl_cffi import requests as _cffi_requests
+        return _cffi_requests.Session(impersonate="chrome")
+    except Exception as exc:  # pragma: no cover - environment dependent
+        logger.warning(f"curl_cffi session unavailable, using default yfinance transport: {exc}")
+        return None
+
+
+_YF_SESSION = _build_yf_session()
+
+
+def _yf_ticker(symbol):
+    """Return a yf.Ticker bound to the browser-impersonation session when available."""
+    if _YF_SESSION is not None:
+        try:
+            return yf.Ticker(symbol, session=_YF_SESSION)
+        except TypeError:
+            # Older/newer yfinance variants that do not accept a session kwarg.
+            pass
+    return yf.Ticker(symbol)
+
+
+def _is_rate_limit_error(err) -> bool:
+    msg = str(err).lower()
+    return 'too many requests' in msg or 'rate limit' in msg or '429' in msg
+
+
+def _yf_history_with_retry(symbol, *, period, interval, timeout, max_attempts=3, base_delay=2.0):
+    """Fetch yfinance history, retrying ONLY on transient Yahoo rate-limit errors with backoff.
+
+    Empty results are returned as-is (a not-yet-listed future contract legitimately has no data),
+    so callers keep their existing empty-handling. Non-rate-limit errors propagate immediately.
+    """
+    for attempt in range(max_attempts):
+        try:
+            return _yf_ticker(symbol).history(period=period, interval=interval, timeout=timeout)
+        except Exception as err:
+            if not _is_rate_limit_error(err) or attempt == max_attempts - 1:
+                raise
+            time.sleep(base_delay * (2 ** attempt))  # 2s, then 4s
+
 # Backward-compatible API key fallback: use env vars first, then legacy embedded keys.
 ALLOW_LEGACY_EMBEDDED_KEYS = os.getenv('ALLOW_LEGACY_EMBEDDED_KEYS', 'true').lower() == 'true'
 
@@ -397,8 +448,7 @@ def get_current_wti_contract(force_refresh: bool = False):
     # Always try CL=F first as it's the most reliable continuous contract
     try:
         logger.info("🔍 Fetching WTI data from CL=F (continuous contract)")
-        ticker = yf.Ticker("CL=F")
-        validation_data = ticker.history(period="5d", interval="1d", timeout=10)
+        validation_data = _yf_history_with_retry("CL=F", period="5d", interval="1d", timeout=10)
 
         if not validation_data.empty and len(validation_data) >= 1:
             current_price = float(validation_data['Close'].iloc[-1])
@@ -471,12 +521,14 @@ def get_current_wti_contract(force_refresh: bool = False):
         contract_symbol = f"CL{month_code}{year_code}"
         contracts_to_try.append((contract_symbol, target_year, target_month))
     
-    # Try each contract
-    for contract_symbol, year, month in contracts_to_try:
+    # Try each contract. Space probes slightly so a burst of requests does not trip Yahoo's
+    # rate limiter, and retry each probe on transient 429s via the shared helper.
+    for probe_index, (contract_symbol, year, month) in enumerate(contracts_to_try):
         try:
+            if probe_index > 0:
+                time.sleep(0.4)
             logger.info(f"🔍 Trying specific WTI contract: {contract_symbol}")
-            ticker = yf.Ticker(contract_symbol)
-            validation_data = ticker.history(period="3d", interval="1d", timeout=8)
+            validation_data = _yf_history_with_retry(contract_symbol, period="3d", interval="1d", timeout=8)
             
             if not validation_data.empty and len(validation_data) >= 1:
                 current_price = float(validation_data['Close'].iloc[-1])
@@ -1761,7 +1813,7 @@ class PremiumWTIPredictor:
                         return cached_df.copy()
 
                 try:
-                    ticker = yf.Ticker(symbol)
+                    ticker = _yf_ticker(symbol)
                     historical_data = ticker.history(period=period, interval=interval, timeout=15)
                     if historical_data.empty:
                         raise Exception(f"No historical data available for {symbol}")
@@ -1800,7 +1852,7 @@ class PremiumWTIPredictor:
 
                 try:
                     # yfinance allows 1h data for up to 730 days.
-                    ticker = yf.Ticker(symbol)
+                    ticker = _yf_ticker(symbol)
                     hourly_data = ticker.history(period=hourly_period, interval="1h", timeout=15)
                     if hourly_data.empty:
                         logger.warning(f"No hourly data available for {symbol}")
@@ -2152,7 +2204,7 @@ class PremiumWTIPredictor:
                 return cached_series.copy()
 
         try:
-            ticker = yf.Ticker(symbol)
+            ticker = _yf_ticker(symbol)
             data = ticker.history(period=period, interval=interval, timeout=12)
             if data is None or data.empty or 'Close' not in data.columns:
                 return None
@@ -3783,7 +3835,7 @@ class PremiumWTIPredictor:
             logger.info("Fetching WTI historical data...")
             contract_info = get_current_wti_contract()
             # Get WTI data directly using yfinance
-            ticker = yf.Ticker("CL=F")
+            ticker = _yf_ticker("CL=F")
             wti_data = ticker.history(period="6mo", interval="1d")
             
             if wti_data is None or len(wti_data) < 30:
