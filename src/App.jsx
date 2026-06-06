@@ -59,7 +59,7 @@ function App() {
 
   useEffect(() => {
     // Set title
-    document.title = "Bloomberg Terminal - WTI Crude Oil";
+    document.title = "WTI Crude Oil Futures · Quant Forecast & Geo Risk";
     let isDisposed = false;
     let retryTimeoutId = null;
 
@@ -252,11 +252,11 @@ function App() {
   // Loading screen
   if (loading && !data) {
     return (
-      <div className="min-h-screen bg-black text-bloomberg-amber font-mono flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-xl mb-3">BLOOMBERG TERMINAL</div>
-          <div className="text-lg mb-4">INITIALIZING MARKET DATA SYSTEMS...</div>
-          <div className="text-sm text-gray-500 mt-4">{loadingMessage}</div>
+      <div className="tv-app tv-center">
+        <div style={{ textAlign: 'center' }}>
+          <div className="tv-spinner" />
+          <div style={{ color: '#f0f3fa', fontSize: 15, fontWeight: 700, marginTop: 18 }}>WTI Crude Oil Futures</div>
+          <div style={{ color: '#6e7681', fontSize: 12, marginTop: 6 }}>{loadingMessage}</div>
         </div>
       </div>
     );
@@ -265,19 +265,11 @@ function App() {
   // Error screen - System designed to fail rather than show placeholder data
   if (error && !data) {
     return (
-      <div className="min-h-screen bg-black text-bloomberg-amber font-mono flex items-center justify-center">
-        <div className="text-center">
-          <div className="bg-bloomberg-red text-white px-6 py-3 mb-4 text-base">
-            REAL DATA CONNECTION FAILURE
-          </div>
-          <div className="text-xl mb-4 text-bloomberg-red">SYSTEM CANNOT OPERATE WITHOUT REAL DATA</div>
-          <div className="text-gray-400 text-base">ERROR: {error}</div>
-          <div className="text-sm text-gray-500 mt-3">
-            System is configured to fail rather than use placeholder data
-          </div>
-          <div className="text-sm text-gray-400 mt-2">
-            ❌ NO FALLBACK DATA | ✅ REAL DATA ONLY
-          </div>
+      <div className="tv-app tv-center">
+        <div style={{ textAlign: 'center', maxWidth: 460, padding: 24 }}>
+          <div style={{ color: '#f85149', fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Data connection unavailable</div>
+          <div style={{ color: '#8b949e', fontSize: 12.5, lineHeight: 1.5 }}>{error}</div>
+          <div style={{ color: '#565d68', fontSize: 11, marginTop: 12 }}>Real data only — no placeholder values are shown.</div>
         </div>
       </div>
     );
@@ -286,17 +278,11 @@ function App() {
   // Check if data indicates system error
   if (data?.error) {
     return (
-      <div className="min-h-screen bg-black text-bloomberg-amber font-mono flex items-center justify-center">
-        <div className="text-center">
-          <div className="bg-bloomberg-red text-white px-6 py-3 mb-4 text-base">
-            SYSTEM ERROR - REAL DATA UNAVAILABLE
-          </div>
-          <div className="text-xl mb-4 text-bloomberg-red">NO PLACEHOLDER DATA ALLOWED</div>
-          <div className="text-gray-400 text-base">ERROR: {data.error}</div>
-          <div className="text-sm text-gray-500 mt-3">{data.message}</div>
-          <div className="text-sm text-gray-400 mt-2">
-            System Status: {data.system_status || 'ERROR'}
-          </div>
+      <div className="tv-app tv-center">
+        <div style={{ textAlign: 'center', maxWidth: 460, padding: 24 }}>
+          <div style={{ color: '#f85149', fontSize: 16, fontWeight: 700, marginBottom: 8 }}>System error</div>
+          <div style={{ color: '#8b949e', fontSize: 12.5, lineHeight: 1.5 }}>{data.error}</div>
+          {data.message && <div style={{ color: '#565d68', fontSize: 11, marginTop: 8 }}>{data.message}</div>}
         </div>
       </div>
     );
@@ -406,449 +392,244 @@ function App() {
       : (data?.confidence || '--'));
 
   return (
-    <div className="min-h-screen bg-black text-bloomberg-amber font-mono" style={{ display: 'flex', flexDirection: 'column' }}>
-      {/* BLOOMBERG TERMINAL HEADER */}
-      <div className="bloomberg-titlebar">
-        BLOOMBERG PROFESSIONAL
-      </div>
-
-      {/* BLOOMBERG STATUS BAR */}
-      <div className="bg-black p-2 flex justify-between items-center border-b border-bloomberg-amber">
-        <div className="flex items-center gap-6 text-sm">
-          <div className="text-bloomberg-amber">LIVE</div>
-          <div className="text-white">
-            {currentTime.toLocaleTimeString('en-US', { 
-              hour12: false, 
-              timeZone: 'America/Chicago' 
-            })} CT (CME)
-          </div>
-          <div className="text-gray-400">
+    <div className="tv-app">
+      {/* Top bar */}
+      <div className="tv-topbar">
+        <div className="tv-brand">
+          <span className="tv-brand-mark">WTI</span>
+          <span className="tv-brand-text">
+            <span className="tv-brand-title">WTI Crude Oil Futures</span>
+            <span className="tv-brand-sub">Quant Forecast · Geopolitical Risk</span>
+          </span>
+        </div>
+        <div className="tv-topbar-right">
+          <span className="tv-live"><span className="tv-live-dot" />LIVE</span>
+          <span className="tv-topbar-time tv-num">
+            {currentTime.toLocaleTimeString('en-US', { hour12: false, timeZone: 'America/Chicago' })} CT
+          </span>
+          <span className="tv-topbar-asof">
             {data?.frozen_at
-              ? `DATA AS OF ${new Date(data.frozen_at).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} CT`
-              : `UPDATED ${Math.floor((currentTime - lastUpdate) / 1000)}s`}
-          </div>
-        </div>
-        <div className="text-gray-400 text-sm">
-          USER: PROFESSIONAL
+              ? `Data as of ${new Date(data.frozen_at).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} CT`
+              : `Updated ${Math.floor((currentTime - lastUpdate) / 1000)}s ago`}
+          </span>
         </div>
       </div>
 
-      {/* BLOOMBERG COMMAND LINE */}
-      <div className="bg-black border-b border-bloomberg-amber p-2">
-        <div className="flex items-center gap-4 text-sm">
-          <span className="text-bloomberg-amber">COMMAND:</span>
-          <span className="bg-bloomberg-alert text-black px-2 py-1 font-bold">{contractInfo.symbol || 'CLV25'}</span>
-          <span className="text-bloomberg-amber">&lt;COMDTY&gt;</span>
-          <span className="bg-bloomberg-alert text-black px-2 py-1 font-bold">GP</span>
-          <span className="text-bloomberg-amber">&lt;GO&gt;</span>
-          <span className="bloomberg-cursor"></span>
-          <span className="text-gray-400 ml-4">{contractInfo.description || 'WTI CRUDE OIL FUTURES NYMEX'}</span>
-        </div>
-      </div>
+      {mlCaveat && <div className="tv-caveat">⚠ {mlCaveat}</div>}
 
       {error && data && (
-        <div className="bg-black border-b border-bloomberg-red px-3 py-2 text-sm">
-          <span className="text-bloomberg-red font-semibold">LIVE SNAPSHOT WARNING:</span>
-          <span className="text-gray-300 ml-2">{error}</span>
-        </div>
+        <div className="tv-caveat info">{error}</div>
       )}
 
-      {/* BLOOMBERG TERMINAL DATA DASHBOARD */}
-      <div className="bg-black border-b border-gray-700 p-2">
-        {/* BLOOMBERG DATA TABLE - ALL REAL VALUES */}
-        <table className="bloomberg-table w-full text-sm">
-          <thead>
-            <tr>
-              <th className="text-left text-sm">SECURITY</th>
-              <th className="text-sm">LAST</th>
-              <th className="text-sm">CHG</th>
-              <th className="text-sm">%CHG</th>
-              <th className="text-sm">VOL</th>
-              <th className="text-sm">ML PRED {activeHorizonLabel}</th>
-              <th className="text-sm">ACCURACY</th>
-              <th className="text-sm">CONFIDENCE</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="price-row">
-              <td className="text-bloomberg-amber text-left text-sm">
-                {contractInfo.security_name || `${contractInfo.symbol} WTI CRUDE`}
-              </td>
-              <td className="text-white font-bold text-lg">
-                {currentPrice > 0 ? currentPrice.toFixed(2) : '--'}
-              </td>
-              <td className={`text-sm ${priceChange >= 0 ? 'price-up' : 'price-down'}`}>
-                {currentPrice > 0 ? `${priceChange >= 0 ? '+' : ''}${priceChange.toFixed(3)}` : '--'}
-              </td>
-              <td className={`text-sm ${priceChange >= 0 ? 'price-up' : 'price-down'}`}>
-                {currentPrice > 0 ? `${priceChangePercent >= 0 ? '+' : ''}${priceChangePercent.toFixed(2)}%` : '--'}
-              </td>
-              <td className="text-bloomberg-blue text-sm">
-                {data?.volume_display || 'N/A'}
-              </td>
-              <td className="text-bloomberg-cyan text-sm">
-                {currentPrediction > 0 ? currentPrediction.toFixed(2) : '--'}
-              </td>
-              <td className={`text-sm ${accuracyClassName}`}>
-                {wfIsSignificant === false
-                  ? 'BELOW RND'
-                  : displayAccuracy}
-                {wfCi95 && wfIsSignificant === true && (
-                  <span className="text-gray-500 text-xs ml-1">[{wfCi95[0]}-{wfCi95[1]}%]</span>
-                )}
-              </td>
-              <td className="text-bloomberg-positive text-sm">
-                {wfIsSignificant === true && wfMaeImprovement !== null
-                  ? `MAE +${wfMaeImprovement.toFixed(1)}%`
-                  : displayConfidence}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      {/* Market hero */}
+      <div className="tv-market">
+        <div className="tv-market-id">
+          <div className="tv-market-symbol">
+            <span className="tv-chip">{contractInfo.symbol || 'CLN26'}</span>
+            <span className="tv-market-name">{contractInfo.description || 'WTI Crude Oil Futures · NYMEX'}</span>
+          </div>
+          <div className="tv-market-pricewrap">
+            <span className="tv-market-price">{currentPrice > 0 ? `$${currentPrice.toFixed(2)}` : '--'}</span>
+            <span className={`tv-market-change ${priceChange >= 0 ? 'is-up' : 'is-down'}`}>
+              <span>{currentPrice > 0 ? `${priceChange >= 0 ? '+' : ''}${priceChange.toFixed(2)}` : '--'}</span>
+              <span>{currentPrice > 0 ? `${priceChangePercent >= 0 ? '+' : ''}${priceChangePercent.toFixed(2)}%` : '--'}</span>
+            </span>
+          </div>
+          <div className="tv-market-meta">
+            Vol {data?.volume_display || 'N/A'} · ML {activeHorizonLabel} {currentPrediction > 0 ? `$${currentPrediction.toFixed(2)}` : '--'} · {data?.feed_status || 'REAL-TIME'}
+          </div>
+        </div>
 
-        {/* SYSTEM STATUS BAR - ALL REAL VALUES */}
-        <div className="bg-black p-2 mt-2">
-          <div className="flex justify-between items-center text-sm">
-            <div className="flex gap-6">
-              <span className="text-bloomberg-amber font-medium">DATA POINTS:</span>
-              <span className="text-white font-medium">
-                {data?.enterprise_metrics?.data_points || '--'}
-              </span>
-              <span className="text-bloomberg-amber font-medium">FEED:</span>
-              <span className={`font-medium ${
-                data?.feed_status === 'REAL-TIME' ? 'text-bloomberg-positive' : 'text-bloomberg-red'
-              }`}>
-                {data?.feed_status || 'UNKNOWN'}
-              </span>
-              <span className="text-bloomberg-amber font-medium">NEXT ML:</span>
-              <span className="text-bloomberg-blue font-medium">
-                {data?.ml_prediction_timer?.minutes_remaining !== undefined && data?.ml_prediction_timer?.seconds_remaining !== undefined ? 
-                  `${data.ml_prediction_timer.minutes_remaining}:${String(data.ml_prediction_timer.seconds_remaining).padStart(2, '0')}` : 
-                  '--:--'}
-              </span>
-              <span className="text-bloomberg-amber font-medium">STATUS:</span>
-              <span className={`font-medium ${
-                data?.ml_prediction_timer?.currently_processing ? 'text-bloomberg-alert animate-pulse' :
-                isFullRealPrediction ? 'text-bloomberg-positive' :
-                isRealPrediction ? 'text-bloomberg-alert' :
-                'text-bloomberg-red'
-              }`}>
-                {data?.ml_prediction_timer?.currently_processing ? 'PROCESSING' :
-                 isFullRealPrediction ? 'REAL ML' :
-                 isRealPrediction ? 'PARTIAL ML' :
-                 'NO REAL DATA'}
-              </span>
-              {wfIsSignificant === true && wfPValue !== null && (
-                <>
-                  <span className="font-medium text-bloomberg-positive">
-                    {activeHorizonLabel} WF: {Math.round(effectiveAccuracy)}% DIR | p={wfPValue < 0.001 ? '<0.001' : wfPValue?.toFixed(4)} | n={wfSamples} ✓
-                  </span>
-                  {wfSharpe !== null && (
-                    <span className="font-medium text-bloomberg-cyan">
-                      SHARPE {wfSharpe?.toFixed(2)} | E[PnL] ${wfMeanPnl?.toFixed(0)}/trade | WR {wfWinRate?.toFixed(0)}%
-                    </span>
-                  )}
-                </>
+        <div className="tv-stats">
+          {wfIsSignificant === true ? (
+            <>
+              <div className="tv-stat up">
+                <span className="tv-stat-label">1W Direction</span>
+                <span className="tv-stat-value">{Number.isFinite(effectiveAccuracy) ? `${Math.round(effectiveAccuracy)}%` : '--'}</span>
+                <span className="tv-stat-sub">p={wfPValue < 0.001 ? '<0.001' : wfPValue?.toFixed(3)} · n={wfSamples}</span>
+              </div>
+              {wfSharpe !== null && (
+                <div className="tv-stat accent">
+                  <span className="tv-stat-label">Sharpe (ann.)</span>
+                  <span className="tv-stat-value">{wfSharpe.toFixed(2)}</span>
+                  <span className="tv-stat-sub">after costs</span>
+                </div>
               )}
-              {wfIsSignificant === false && (
-                <span className="font-medium text-bloomberg-negative">
-                  {activeHorizonLabel}: BELOW RANDOM (p={wfPValue?.toFixed(2)}, n={wfSamples}) — not for directional use
-                </span>
+              {wfMeanPnl !== null && (
+                <div className="tv-stat">
+                  <span className="tv-stat-label">E[PnL]/trade</span>
+                  <span className="tv-stat-value">${Math.round(wfMeanPnl).toLocaleString()}</span>
+                  <span className="tv-stat-sub">win rate {wfWinRate?.toFixed(0)}%</span>
+                </div>
               )}
-              {wfIsSignificant === null && (headlineQualityStatus === 'QUALIFIED' || headlineQualityStatus === 'WATCH') && (
-                <span className={`font-medium ${headlineQualityStatus === 'QUALIFIED' ? 'text-bloomberg-positive' : 'text-bloomberg-alert'}`}>
-                  QUAL {activeHorizonLabel}: {headlineQualityStatus}
-                </span>
-              )}
-              {geoNoveltySpike && (
-                <span className="font-bold text-bloomberg-red animate-pulse">
-                  ⚡ BREAKING GEO NEWS
-                </span>
-              )}
-              {(displayAccuracySource !== 'live') && isRealPrediction && (
-                <span className="text-bloomberg-blue font-medium">
-                  {displayAccuracySource === 'backtest'
-                    ? `EVAL: BACKTEST ${activeHorizonLabel}`
-                    : `EVAL: WARMUP ${activeHorizonLabel} (${totalEvaluatedPredictions}/${minLiveSamples})`}
-                </span>
-              )}
-              {headlineQualityReasons.length > 0 && (
-                <span className="text-gray-400 font-medium">
-                  {headlineQualityReasons.join(', ')}
-                </span>
-              )}
-              {fallbackHorizons.length > 0 && (
-                <span className="text-bloomberg-orange font-medium">
-                  FALLBACKS: {fallbackHorizons.join(', ')}
-                </span>
-              )}
+            </>
+          ) : (
+            <div className="tv-stat down">
+              <span className="tv-stat-label">{activeHorizonLabel} Signal</span>
+              <span className="tv-stat-value">Below random</span>
+              <span className="tv-stat-sub">not directional</span>
             </div>
-            <div className="flex gap-6">
-              {(() => {
-                const predictions = data?.multi_horizon_predictions?.predictions;
-                const percentChanges = data?.multi_horizon_predictions?.percentage_changes;
-                
-                // Only show real calculated values, no fallback
-                if (!predictions || !percentChanges || !isRealPrediction) {
-                  return [
-                    { period: '1H', value: '--' },
-                    { period: '1D', value: '--' },
-                    { period: '1W', value: '--' }
-                  ].map(({ period, value }) => (
-                    <span key={period}>
-                      <span className="text-bloomberg-amber font-medium">{period}:</span>
-                      <span className="text-gray-400 font-medium">{value}%</span>
-                    </span>
-                  ));
-                }
-                
-                const horizons = ['1h', '1d', '1w'];
-                const labels = ['1H', '1D', '1W'];
-                
-                return horizons.map((horizon, i) => {
-                  const change = percentChanges[horizon];
-                  if (change !== undefined && change !== null) {
-                    const isPositive = change >= 0;
-                    const colorClass = isPositive ? 'text-bloomberg-positive' : 'text-bloomberg-negative';
-                    return (
-                      <span key={horizon}>
-                        <span className="text-bloomberg-amber font-medium">{labels[i]}:</span>
-                        <span className={`${colorClass} font-medium`}>
-                          {isPositive ? '+' : ''}{change.toFixed(1)}%
-                        </span>
-                      </span>
-                    );
-                  }
-                  return (
-                    <span key={horizon}>
-                      <span className="text-bloomberg-amber font-medium">{labels[i]}:</span>
-                      <span className="text-gray-400 font-medium">--%</span>
-                    </span>
-                  );
-                });
-              })()}
-            </div>
+          )}
+          <div className="tv-stat">
+            <span className="tv-stat-label">Data Points</span>
+            <span className="tv-stat-value">{data?.enterprise_metrics?.data_points || '--'}</span>
+            <span className="tv-stat-sub">{wfSamples ? `${wfSamples} OOS samples` : 'walk-forward'}</span>
           </div>
         </div>
       </div>
 
-      {/* GEOPOLITICAL RISK + SCENARIO ENGINE PANEL */}
+      {/* Geopolitical intelligence */}
       {data && (
-        <div className="bg-black border-b border-gray-700 text-sm">
+        <div className="tv-section">
+          <div className="tv-section-head">
+            <span className="tv-section-title">Geopolitical Intelligence</span>
+            <span className="tv-section-rule" />
+          </div>
+          <div className="tv-geo-grid">
 
-          {/* ML caveat banner */}
-          {mlCaveat && (
-            <div className="bg-bloomberg-red text-white text-xs px-3 py-1 font-medium">
-              ⚠ {mlCaveat}
-            </div>
-          )}
-
-          {/* ROW 1: responsive grid — auto-fit columns wrap instead of overlapping */}
-          <div className="grid gap-px bg-gray-800 border-b border-gray-800" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))' }}>
-
-            {/* GEO RISK INDEX */}
-            <div className="bg-black flex flex-col justify-start px-3 py-2 min-w-0 overflow-hidden">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-bloomberg-amber font-medium text-xs">GEO RISK INDEX</span>
-                {geoNoveltySpike && (
-                  <span className="text-bloomberg-red text-xs font-bold animate-pulse">⚡ BREAKING</span>
-                )}
+            {/* Regime */}
+            <div className="tv-card">
+              <div className="tv-card-label">
+                Geo Risk Regime
+                {geoNoveltySpike && <span className="tv-flash">⚡ BREAKING</span>}
               </div>
-              <div className="flex items-baseline gap-2">
-                <span className="text-white font-bold text-2xl">{geoScore.toFixed(0)}</span>
-                <span className="text-gray-500 text-xs">/100</span>
-                <span className="font-bold text-sm" style={{ color: geoScoreBarColor }}>{geoRegime}</span>
+              <div className="tv-geo-score">
+                <span className="tv-big">{geoScore.toFixed(0)}</span>
+                <span className="tv-geo-max">/100</span>
+                <span className="tv-regime-pill" style={{ color: geoScoreBarColor, background: `${geoScoreBarColor}22` }}>{geoRegime}</span>
               </div>
-              <div className="w-full bg-gray-800 h-2 mt-1 rounded">
-                <div className="h-2 rounded" style={{ width: `${Math.min(100, geoScore)}%`, backgroundColor: geoScoreBarColor }} />
-              </div>
-              <div className="flex gap-3 mt-1">
+              <div className="tv-bar"><div className="tv-bar-fill" style={{ width: `${Math.min(100, geoScore)}%`, background: geoScoreBarColor }} /></div>
+              <div className="tv-geo-breakdown">
                 {Object.entries(geoBreakdown).filter(([,v]) => v > 0).map(([cat, count]) => (
-                  <span key={cat} className="text-xs">
-                    <span className="text-gray-500 uppercase">{cat[0]}</span>
-                    <span className="text-white ml-0.5">{count}</span>
-                  </span>
+                  <span key={cat}>{cat[0].toUpperCase()}<b>{count}</b></span>
                 ))}
-                {geoRecent24h > 0 && (
-                  <span className="text-xs">
-                    <span className="text-gray-500">24H</span>
-                    <span className="text-bloomberg-alert ml-0.5 font-bold">{geoRecent24h}</span>
-                  </span>
-                )}
+                {geoRecent24h > 0 && <span>24H<b>{geoRecent24h}</b></span>}
               </div>
             </div>
 
-            {/* GEO SIGNAL */}
-            <div className="bg-black flex flex-col justify-start px-3 py-2 min-w-0 overflow-hidden">
-              <div className="text-bloomberg-amber font-medium text-xs mb-1">GEO TRADE SIGNAL</div>
-              <div className="flex items-baseline gap-3">
-                <span className={`font-bold text-xl ${
-                  geoSignal.signal === 'LONG_BIAS' ? 'text-bloomberg-positive' :
-                  geoSignal.signal === 'WATCH'     ? 'text-bloomberg-alert' : 'text-gray-400'
-                }`}>
-                  {geoSignal.signal || 'NEUTRAL'}
-                </span>
-                {signalStrength > 0 && (
-                  <span className="text-gray-500 text-xs">STR {signalStrength}/100</span>
-                )}
+            {/* Trade signal */}
+            <div className="tv-card">
+              <div className="tv-card-label">Trade Signal</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '9px' }}>
+                <span className={`tv-signal ${
+                  geoSignal.signal === 'LONG_BIAS' ? 'tone-up' :
+                  geoSignal.signal === 'WATCH' ? 'tone-watch' : 'tone-neutral'
+                }`}>{(geoSignal.signal || 'NEUTRAL').replace('_', ' ')}</span>
+                {signalStrength > 0 && <span className="tv-strength">STR {signalStrength}/100</span>}
               </div>
-              {geoSignal.strait_risk && (
-                <div className="text-bloomberg-red text-xs font-bold mt-0.5">⚑ HORMUZ RISK ACTIVE</div>
-              )}
-              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5">
+              {geoSignal.strait_risk && <div className="tv-flag">⚑ Hormuz risk active</div>}
+              <div className="tv-mini-stats">
                 {evImpactUsd > 0 && (
-                  <div className="flex flex-col">
-                    <span className="text-gray-500 text-xs">EV IMPACT</span>
-                    <span className="text-bloomberg-positive font-bold text-sm whitespace-nowrap">+${evImpactUsd.toFixed(1)}/bbl</span>
-                  </div>
+                  <div><span>EV Impact</span><strong className="up">+${evImpactUsd.toFixed(1)}/bbl</strong></div>
                 )}
                 {edgeUsd !== 0 && (
-                  <div className="flex flex-col">
-                    <span className="text-gray-500 text-xs">UNPRICED EDGE</span>
-                    <span className={`font-bold text-sm whitespace-nowrap ${edgeUsd >= 0 ? 'text-bloomberg-positive' : 'text-bloomberg-negative'}`}>
-                      {edgeUsd >= 0 ? '+' : ''}${edgeUsd.toFixed(2)} ({edgePct >= 0 ? '+' : ''}{edgePct.toFixed(1)}%)
-                    </span>
-                  </div>
+                  <div><span>Unpriced Edge</span><strong className={edgeUsd >= 0 ? 'up' : 'down'}>{edgeUsd >= 0 ? '+' : ''}${edgeUsd.toFixed(2)} ({edgePct >= 0 ? '+' : ''}{edgePct.toFixed(1)}%)</strong></div>
                 )}
                 {expectedResolutionDays > 0 && (
-                  <div className="flex flex-col">
-                    <span className="text-gray-500 text-xs">AVG DURATION</span>
-                    <span className="text-bloomberg-blue font-bold text-sm">{expectedResolutionDays}d</span>
-                  </div>
+                  <div><span>Avg Duration</span><strong className="blue">{expectedResolutionDays}d</strong></div>
                 )}
               </div>
             </div>
 
-            {/* HISTORICAL ANALOGUES */}
-            <div className="bg-black flex flex-col justify-start px-3 py-2 min-w-0 overflow-hidden">
-              <div className="text-bloomberg-amber font-medium text-xs mb-1">CLOSEST HISTORICAL ANALOGUES</div>
-              <div className="flex flex-col gap-1.5">
-                {topAnalogues.slice(0, 2).map((a, i) => (
-                  <div key={a.id} className="flex flex-col border-l-2 pl-2 min-w-0" style={{ borderColor: i === 0 ? '#ffaa00' : '#555' }}>
-                    <div className="text-white text-xs font-medium leading-tight truncate">
-                      {a.date} · {a.event}
-                    </div>
-                    <div className="flex gap-3 text-xs mt-0.5">
-                      <span className="text-bloomberg-positive font-bold">Peak +{a.peak_pct}%</span>
-                      <span className={`font-medium ${a.settled_pct >= 0 ? 'text-bloomberg-positive' : 'text-bloomberg-negative'}`}>
-                        Settled {a.settled_pct >= 0 ? '+' : ''}{a.settled_pct}%
-                      </span>
-                      <span className="text-gray-500">{a.duration_days}d</span>
-                    </div>
-                    <div className="text-gray-500 text-xs mt-0.5 leading-tight truncate">
-                      {a.notes || ''}
-                    </div>
+            {/* Analogues */}
+            <div className="tv-card">
+              <div className="tv-card-label">Closest Historical Analogues</div>
+              {topAnalogues.slice(0, 2).map((a) => (
+                <div key={a.id} className="tv-analogue">
+                  <div className="tv-analogue-title">{a.date} · {a.event}</div>
+                  <div className="tv-analogue-stats">
+                    <span className="up">Peak +{a.peak_pct}%</span>
+                    <span className={a.settled_pct >= 0 ? 'up2' : 'down'}>Settled {a.settled_pct >= 0 ? '+' : ''}{a.settled_pct}%</span>
+                    <span className="muted">{a.duration_days}d</span>
                   </div>
-                ))}
-                {topAnalogues.length === 0 && <div className="text-gray-500 text-xs">Awaiting data</div>}
-              </div>
+                </div>
+              ))}
+              {topAnalogues.length === 0 && <div className="tv-headline-text">Awaiting data</div>}
             </div>
 
-            {/* LATEST HEADLINES */}
+            {/* Headlines */}
             {geoHeadlines.length > 0 && (
-              <div className="bg-black flex flex-col justify-start px-3 py-2 min-w-0 overflow-hidden">
-                <div className="text-bloomberg-amber font-medium text-xs mb-1">
-                  LIVE HEADLINES
-                  {geoRecent24h > 0 && (
-                    <span className="text-bloomberg-alert ml-2">{geoRecent24h} in last 24h</span>
-                  )}
+              <div className="tv-card">
+                <div className="tv-card-label">
+                  Live Headlines
+                  {geoRecent24h > 0 && <span className="muted">{geoRecent24h} in 24h</span>}
                 </div>
                 {geoHeadlines.slice(0, 3).map((h, i) => (
-                  <div key={i} className="flex gap-2 text-xs mb-0.5 items-baseline min-w-0">
-                    {h.is_breaking ? (
-                      <span className="text-bloomberg-red font-bold shrink-0 w-12">BRKNG</span>
-                    ) : (
-                      <span className="text-gray-600 shrink-0 w-12">
-                        {h.published_at ? new Date(h.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '--'}
-                      </span>
-                    )}
-                    <span className="text-gray-300 truncate flex-1 min-w-0">{h.headline}</span>
+                  <div key={i} className="tv-headline">
+                    <span className={`tv-headline-date ${h.is_breaking ? 'brk' : ''}`}>
+                      {h.is_breaking ? 'BRK' : (h.published_at ? new Date(h.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '--')}
+                    </span>
+                    <span className="tv-headline-text">{h.headline}</span>
                   </div>
                 ))}
               </div>
             )}
-          </div>
 
-          {/* ROW 2: responsive grid */}
-          {(impliedRange.high || hormuzScenarios.length > 0) && (
-            <div className="grid gap-px bg-gray-800" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
-
-              {/* ANALOGUE-IMPLIED PRICE RANGE */}
-              {impliedRange.high && (
-                <div className="bg-black flex flex-col justify-start px-3 py-2 min-w-0 overflow-hidden">
-                  <div className="text-bloomberg-amber font-medium text-xs mb-1">ANALOGUE-IMPLIED PRICE RANGE</div>
-                  <div className="flex gap-4 flex-wrap">
-                    <div className="flex flex-col">
-                      <span className="text-gray-500 text-xs">BULL CASE</span>
-                      <span className="text-bloomberg-positive font-bold text-lg">${impliedRange.high?.toFixed(2)}</span>
-                      <span className="text-gray-500 text-xs">+{((impliedRange.high - currentPrice) / currentPrice * 100).toFixed(1)}%</span>
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-gray-500 text-xs">BASE CASE</span>
-                      <span className="text-white font-bold text-lg">${impliedRange.mid?.toFixed(2)}</span>
-                      <span className={`text-xs ${impliedRange.mid >= currentPrice ? 'text-bloomberg-positive' : 'text-bloomberg-negative'}`}>
-                        {impliedRange.mid >= currentPrice ? '+' : ''}{((impliedRange.mid - currentPrice) / currentPrice * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-gray-500 text-xs">BEAR CASE</span>
-                      <span className="text-bloomberg-negative font-bold text-lg">${impliedRange.low?.toFixed(2)}</span>
-                      <span className="text-bloomberg-negative text-xs">{((impliedRange.low - currentPrice) / currentPrice * 100).toFixed(1)}%</span>
-                    </div>
+            {/* Implied range */}
+            {impliedRange.high && (
+              <div className="tv-card">
+                <div className="tv-card-label">Analogue-Implied Price Range</div>
+                <div className="tv-range">
+                  <div>
+                    <span>Bull</span>
+                    <strong className="up">${impliedRange.high?.toFixed(2)}</strong>
+                    <small className="up">+{((impliedRange.high - currentPrice) / currentPrice * 100).toFixed(1)}%</small>
                   </div>
-                  <div className="text-gray-600 text-xs mt-1">{impliedRange.basis}</div>
-                  {edgeUsd !== 0 && (
-                    <div className={`text-xs mt-1 font-medium ${edgeUsd >= 0 ? 'text-bloomberg-alert' : 'text-bloomberg-negative'}`}>
-                      {edgeUsd >= 0
-                        ? `+$${edgeUsd.toFixed(2)} unpriced vs current market`
-                        : `−$${Math.abs(edgeUsd).toFixed(2)} premium above analogue fair value`}
-                    </div>
-                  )}
+                  <div>
+                    <span>Base</span>
+                    <strong>${impliedRange.mid?.toFixed(2)}</strong>
+                    <small className={impliedRange.mid >= currentPrice ? 'up' : 'down'}>{impliedRange.mid >= currentPrice ? '+' : ''}{((impliedRange.mid - currentPrice) / currentPrice * 100).toFixed(1)}%</small>
+                  </div>
+                  <div>
+                    <span>Bear</span>
+                    <strong className="down">${impliedRange.low?.toFixed(2)}</strong>
+                    <small className="down">{((impliedRange.low - currentPrice) / currentPrice * 100).toFixed(1)}%</small>
+                  </div>
                 </div>
-              )}
-
-              {/* STRAIT OF HORMUZ SCENARIOS */}
-              {hormuzScenarios.length > 0 && (
-                <div className="bg-black flex flex-col justify-start px-3 py-2 min-w-0 overflow-hidden">
-                  <div className="text-bloomberg-amber font-medium text-xs mb-1">
-                    STRAIT OF HORMUZ DISRUPTION SCENARIOS  ·  ~21 mbpd transits daily
-                    <span className="text-gray-600 ml-2 font-normal">
-                      P = illustrative escalation odds · $ impact from EIA/IEA elasticity refs
-                    </span>
+                {edgeUsd !== 0 && (
+                  <div className={`tv-range-note ${edgeUsd >= 0 ? 'up' : 'down'}`}>
+                    {edgeUsd >= 0 ? `+$${edgeUsd.toFixed(2)} unpriced vs market` : `−$${Math.abs(edgeUsd).toFixed(2)} premium above fair value`}
                   </div>
-                  <div className="flex gap-3">
-                    {hormuzScenarios.map((s) => (
-                      <div key={s.name} className="flex flex-col border border-gray-700 px-2 py-1.5" style={{ minWidth: 150 }}>
-                        <div className="flex items-center justify-between">
-                          <span className="text-bloomberg-cyan text-xs font-bold">{s.name}</span>
-                          {s.probability > 0 && (
-                            <span className="text-bloomberg-alert text-xs font-bold">P={Math.round(s.probability * 100)}%</span>
-                          )}
-                        </div>
-                        <div className="text-gray-500 text-xs">{s.supply_loss_mbpd} mbpd disrupted</div>
-                        <div className="flex gap-1 items-baseline mt-0.5">
-                          <span className="text-bloomberg-positive font-bold text-sm">${s.price_target_mid?.toFixed(0)}</span>
-                          <span className="text-gray-500 text-xs">mid</span>
-                        </div>
-                        <div className="text-gray-400 text-xs">${s.price_target_low?.toFixed(0)}–${s.price_target_high?.toFixed(0)}</div>
-                        <div className="text-bloomberg-positive text-xs">+${s.price_impact_low}–${s.price_impact_high}/bbl</div>
+                )}
+              </div>
+            )}
+
+            {/* Hormuz scenarios */}
+            {hormuzScenarios.length > 0 && (
+              <div className="tv-card tv-card-wide">
+                <div className="tv-card-label">
+                  Strait of Hormuz Disruption Scenarios
+                  <span className="muted">~21 mbpd/day · P = illustrative odds · $ impact from EIA/IEA refs</span>
+                </div>
+                <div className="tv-scenarios">
+                  {hormuzScenarios.map((s) => (
+                    <div key={s.name} className="tv-scenario">
+                      <div className="tv-scenario-head">
+                        <span className="tv-scenario-name">{s.name}</span>
+                        {s.probability > 0 && <span className="tv-prob">P={Math.round(s.probability * 100)}%</span>}
                       </div>
-                    ))}
-                  </div>
+                      <div className="muted">{s.supply_loss_mbpd} mbpd disrupted</div>
+                      <div className="tv-scenario-price">
+                        <strong>${s.price_target_mid?.toFixed(0)}</strong>
+                        <span className="muted">mid · ${s.price_target_low?.toFixed(0)}–${s.price_target_high?.toFixed(0)}</span>
+                      </div>
+                      <div className="impact">+${s.price_impact_low}–${s.price_impact_high}/bbl</div>
+                    </div>
+                  ))}
                 </div>
-              )}
+              </div>
+            )}
 
-            </div>
-          )}
+          </div>
         </div>
       )}
 
-      {/* BLOOMBERG MAIN CHART DISPLAY */}
+      {/* Main chart */}
       <div className="bloomberg-window" style={{
         flex: '1 1 auto',
         minHeight: '680px',
         height: 'calc(100vh - 150px)',
-        borderTop: '1px solid var(--bloomberg-amber)',
+        borderTop: '1px solid #1c2230',
         margin: '0'
       }}>
         <Chart 
