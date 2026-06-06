@@ -899,55 +899,8 @@ export default function Chart({
 
       {/* Thesis banner removed — the Desk Call header now carries the verdict. */}
 
-      {investorSummary && (
-        <div className="tv-investor-rail">
-          <div className={`tv-investor-card tone-${investorSummary.bias.tone}`}>
-            <div className="tv-investor-label">Expected Return</div>
-            <div className="tv-investor-value">{formatSignedPercent(investorSummary.expectedMovePct)}</div>
-            <div className="tv-investor-subvalue">{investorSummary.bias.label} vs spot</div>
-          </div>
-
-          <div className="tv-investor-card">
-            <div className="tv-investor-label">Base Target</div>
-            <div className="tv-investor-value">{formatCurrency(investorSummary.baseTarget)}</div>
-            <div className="tv-investor-subvalue">vs spot {formatCurrency(chartModel.lastActual?.value)}</div>
-          </div>
-
-          <div className="tv-investor-card tone-up">
-            <div className="tv-investor-label">Upside Case</div>
-            <div className="tv-investor-value">{formatCurrency(investorSummary.upper ?? investorSummary.baseTarget)}</div>
-            <div className="tv-investor-subvalue">
-              {Number.isFinite(investorSummary.upsidePct) ? formatSignedPercent(investorSummary.upsidePct) : "Range unavailable"}
-            </div>
-          </div>
-
-          <div className="tv-investor-card tone-down">
-            <div className="tv-investor-label">Downside Case</div>
-            <div className="tv-investor-value">{formatCurrency(investorSummary.lower ?? investorSummary.baseTarget)}</div>
-            <div className="tv-investor-subvalue">
-              {Number.isFinite(investorSummary.downsidePct) ? formatSignedPercent(investorSummary.downsidePct) : "Range unavailable"}
-            </div>
-          </div>
-
-          <div className="tv-investor-card">
-            <div className="tv-investor-label">Reward / Risk</div>
-            <div className="tv-investor-value">
-              {Number.isFinite(investorSummary.rewardRisk) ? `${investorSummary.rewardRisk.toFixed(2)}x` : "--"}
-            </div>
-            <div className="tv-investor-subvalue">
-              {Number.isFinite(investorSummary.rangeWidthPct) ? `${investorSummary.rangeWidthPct.toFixed(2)}% band width` : `${resolvedActiveHorizon} scenario band`}
-            </div>
-          </div>
-
-          <div className={`tv-investor-card tone-${investorSummary.conviction.tone}`}>
-            <div className="tv-investor-label">Conviction</div>
-            <div className="tv-investor-value">{investorSummary.conviction.label}</div>
-            <div className="tv-investor-subvalue">{investorSummary.conviction.detail}</div>
-          </div>
-        </div>
-      )}
-
-      {/* Evidence/provenance rail removed — track record + quality live in the Desk Call header. */}
+      {/* Scenario rail removed for minimalism — the chart overlay already shows the
+          1-week target and scenario band; the Desk Call header carries the verdict. */}
 
       <div className="tv-chart-stage">
         <div className="tv-chart-overlay tv-overlay-left">

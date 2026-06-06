@@ -378,6 +378,18 @@ html, body {
 .tv-record-grid b { color: #f0f3fa; font-size: 17px; font-weight: 700; font-family: "JetBrains Mono", ui-monospace, monospace; }
 .tv-record-grid span { color: #6e7681; font-size: 10px; }
 .tv-record-note { color: #565d68; font-size: 10px; margin-top: 9px; font-family: "JetBrains Mono", ui-monospace, monospace; }
+
+/* ---- Collapsible geopolitical bar (minimal by default) ---- */
+.tv-geo-bar { width: 100%; display: flex; align-items: center; gap: 16px; background: none;
+  border: none; cursor: pointer; padding: 2px 0 12px; text-align: left; }
+.tv-geo-bar-title { color: #8b949e; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.13em; white-space: nowrap; }
+.tv-geo-bar-summary { color: #9aa3b2; font-size: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tv-geo-bar-summary b { font-weight: 700; }
+.tv-geo-bar-summary .dot { color: #3a3a3d; }
+.tv-geo-bar-summary .up { color: #16c784; }
+.tv-geo-bar-summary .down { color: #ff7a7a; }
+.tv-geo-bar-toggle { margin-left: auto; color: #6e7681; font-size: 11px; white-space: nowrap; font-family: "JetBrains Mono", ui-monospace, monospace; }
+.tv-geo-bar:hover .tv-geo-bar-toggle { color: #16c784; }
 @media (max-width: 920px) {
   .tv-desk { grid-template-columns: 1fr; }
   .tv-desk-call { border-left: none; border-right: none; border-top: 1px solid #161618; border-bottom: 1px solid #161618; }

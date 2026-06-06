@@ -19,6 +19,7 @@ function App() {
   const [loadingMessage, setLoadingMessage] = useState("Connecting to Real-Time Data Feeds");
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [geoOpen, setGeoOpen] = useState(false);
   const [activeDisplayHorizon, setActiveDisplayHorizon] = useState("1W");
   const pollIntervalMs = Number(import.meta.env.VITE_POLL_INTERVAL_MS || 15000);
   const startupRetryMs = Number(import.meta.env.VITE_STARTUP_RETRY_MS || 5000);
@@ -488,10 +489,25 @@ function App() {
       {/* Geopolitical intelligence */}
       {data && (
         <div className="tv-section">
-          <div className="tv-section-head">
-            <span className="tv-section-title">Geopolitical Intelligence</span>
-            <span className="tv-section-rule" />
-          </div>
+          <button className="tv-geo-bar" onClick={() => setGeoOpen((o) => !o)}>
+            <span className="tv-geo-bar-title">Geopolitical</span>
+            <span className="tv-geo-bar-summary">
+              <b style={{ color: geoScoreBarColor }}>{geoRegime}</b>
+              <span className="dot">·</span>
+              {(geoSignal.signal || 'NEUTRAL').replace('_', ' ')}
+              {edgeUsd !== 0 && (
+                <>
+                  <span className="dot">·</span>
+                  <span className={edgeUsd >= 0 ? 'up' : 'down'}>
+                    {edgeUsd >= 0 ? `+$${edgeUsd.toFixed(2)} unpriced upside` : `${Math.round(edgePct)}% above analogue fair value (priced in)`}
+                  </span>
+                </>
+              )}
+              {geoNoveltySpike && <span className="tv-flash">⚡ breaking</span>}
+            </span>
+            <span className="tv-geo-bar-toggle">{geoOpen ? 'Hide —' : 'Detail +'}</span>
+          </button>
+          {geoOpen && (
           <div className="tv-geo-grid">
 
             {/* Regime */}
@@ -628,6 +644,7 @@ function App() {
             )}
 
           </div>
+          )}
         </div>
       )}
 
