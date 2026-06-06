@@ -621,8 +621,8 @@ export default function Chart({
       height: host.clientHeight || 540,
       attributionLogo: true,
       layout: {
-        background: { type: ColorType.Solid, color: "#111317" },
-        textColor: "#9aa3b2",
+        background: { type: ColorType.Solid, color: "#000000" },
+        textColor: "#8b8b92",
         fontFamily: "'IBM Plex Mono', 'JetBrains Mono', monospace",
       },
       grid: {
@@ -633,12 +633,12 @@ export default function Chart({
         mode: CrosshairMode.Normal,
         vertLine: {
           color: "rgba(255,255,255,0.18)",
-          labelBackgroundColor: "#1d222d",
+          labelBackgroundColor: "#16c784",
           width: 1,
         },
         horzLine: {
           color: "rgba(255,255,255,0.18)",
-          labelBackgroundColor: "#1d222d",
+          labelBackgroundColor: "#16c784",
           width: 1,
         },
       },

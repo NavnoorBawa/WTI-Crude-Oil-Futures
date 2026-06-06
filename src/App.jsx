@@ -317,10 +317,10 @@ function App() {
     geoRegime === 'LOW'      ? 'text-bloomberg-positive' :
                                'text-gray-400';
   const geoScoreBarColor =
-    geoRegime === 'CRITICAL' ? '#ff0000' :
-    geoRegime === 'HIGH'     ? '#ff6600' :
-    geoRegime === 'ELEVATED' ? '#ffaa00' :
-    geoRegime === 'LOW'      ? '#00cc44' : '#666';
+    geoRegime === 'CRITICAL' ? '#ff5c5c' :
+    geoRegime === 'HIGH'     ? '#ff8c42' :
+    geoRegime === 'ELEVATED' ? '#d6a93a' :
+    geoRegime === 'LOW'      ? '#16c784' : '#6e7681';
 
   const currentPrice = data?.current_price || 0;
   const priceChange = data?.price_change || 0;
