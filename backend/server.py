@@ -537,7 +537,7 @@ def get_data():
         # Calculate all values from REAL data
         current_price = contract_info['current_price']
         
-        historical_data = get_historical_data(limit=240)
+        historical_data = get_historical_data(limit=1200)
         actual_history = historical_data.get('actual', {}) if historical_data else {}
         actual_values = actual_history.get('values', []) if isinstance(actual_history, dict) else []
         actual_timestamps = actual_history.get('timestamps', []) if isinstance(actual_history, dict) else []

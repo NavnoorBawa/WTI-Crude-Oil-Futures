@@ -5190,7 +5190,7 @@ def get_historical_data(limit=50):
     backend_timezone = getattr(predictor, 'storage_timezone', None) or datetime.now().astimezone().tzinfo or timezone.utc
 
     # Keep enough points for smooth charting even when callers request fewer.
-    max_points = max(int(limit or 0), 720)
+    max_points = max(int(limit or 0), 1600)
 
     def _normalized_chart_datetime(timestamp_value):
         try:
@@ -5272,7 +5272,7 @@ def get_historical_data(limit=50):
     intraday_history = None
 
     try:
-        broad_history = predictor.get_wti_historical_data(period="6mo", interval="1d")
+        broad_history = predictor.get_wti_historical_data(period="2y", interval="1d")
     except Exception as e:
         logger.warning(f"Daily chart history unavailable: {e}")
 
