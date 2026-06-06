@@ -48,6 +48,9 @@ jobs:
       - name: Freeze data snapshot -> public/data.json
         env:
           EAGER_ML_WARMUP: 'true'
+          # Tolerate missing external APIs so a deploy never fails on a transient API outage;
+          # the price/ML/scenario core still produces a valid snapshot.
+          MIN_REQUIRED_EXTERNAL_SOURCES: '0'
           # Optional: add these as repository secrets to use your own keys instead of the
           # embedded fallbacks. The pipeline runs either way (code reads env first).
           NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}

@@ -582,7 +582,9 @@ class PremiumWTIPredictor:
         self.config = PremiumAPIConfig()
         # Free-API mode by default: run with available real sources unless strict mode is explicitly enabled.
         self.strict_premium_api_required = os.getenv('STRICT_PREMIUM_API_REQUIRED', 'false').lower() == 'true'
-        self.min_required_external_sources = max(1, int(os.getenv('MIN_REQUIRED_EXTERNAL_SOURCES', '1')))
+        # Floor of 0 (not 1) so a public auto-refresh deploy can produce a snapshot even when
+        # every keyed external API is unavailable — the core price/ML/scenario engine still runs.
+        self.min_required_external_sources = max(0, int(os.getenv('MIN_REQUIRED_EXTERNAL_SOURCES', '1')))
         self.external_fetch_workers = max(2, int(os.getenv('EXTERNAL_FETCH_WORKERS', '4')))
         self.model_n_estimators = max(20, int(os.getenv('MODEL_N_ESTIMATORS', '60')))
         self.model_cpu_workers = max(1, int(os.getenv('MODEL_CPU_WORKERS', '1')))
