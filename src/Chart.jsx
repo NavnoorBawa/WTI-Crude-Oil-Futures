@@ -897,32 +897,7 @@ export default function Chart({
         </div>
       </div>
 
-      {investorSummary && (
-        <div className="tv-thesis-banner">
-          <div className="tv-thesis-copy">
-            <div className="tv-thesis-kicker">Investor View</div>
-            <div className="tv-thesis-title">{investorSummary.thesisTitle}</div>
-            <div className="tv-thesis-text">{investorSummary.thesisCopy}</div>
-          </div>
-        <div className="tv-thesis-metrics">
-            <div className="tv-thesis-pill tone-neutral">
-              <span>Active Horizon</span>
-              <strong>{resolvedActiveHorizon}</strong>
-              <small>{investorSummary.lens} lens</small>
-            </div>
-            <div className={`tv-thesis-pill tone-${investorSummary.evidence.tone}`}>
-              <span>{investorSummary.evidence.label}</span>
-              <strong>{investorSummary.evidence.value}</strong>
-              <small>{investorSummary.evidence.detail}</small>
-            </div>
-            <div className={`tv-thesis-pill tone-${investorSummary.quality.tone}`}>
-              <span>Quality Gate</span>
-              <strong>{investorSummary.quality.label}</strong>
-              <small>{investorSummary.quality.detail}</small>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Thesis banner removed — the Desk Call header now carries the verdict. */}
 
       {investorSummary && (
         <div className="tv-investor-rail">
@@ -972,41 +947,7 @@ export default function Chart({
         </div>
       )}
 
-      {investorSummary && (
-        <div className="tv-investor-evidence">
-          <div className={`tv-investor-card tone-${investorSummary.quality.tone}`}>
-            <div className="tv-investor-label">Quality Gate</div>
-            <div className="tv-investor-value">{investorSummary.quality.label}</div>
-            <div className="tv-investor-subvalue">
-              {investorSummary.qualityReasons.length > 0
-                ? investorSummary.qualityReasons.join(", ")
-                : investorSummary.quality.detail}
-            </div>
-          </div>
-
-          <div className={`tv-investor-card tone-${investorSummary.evidence.tone}`}>
-            <div className="tv-investor-label">Evidence Basis</div>
-            <div className="tv-investor-value">{investorSummary.evidence.value}</div>
-            <div className="tv-investor-subvalue">{investorSummary.evidence.detail}</div>
-          </div>
-
-          <div className="tv-investor-card tone-neutral">
-            <div className="tv-investor-label">Benchmark</div>
-            <div className="tv-investor-value">{investorSummary.benchmarkCardValue}</div>
-            <div className="tv-investor-subvalue">{formatSignedPercent(investorSummary.benchmarkDelta)} vs flat spot</div>
-          </div>
-
-          <div className="tv-investor-card tone-neutral">
-            <div className="tv-investor-label">Data Provenance</div>
-            <div className="tv-investor-value">{investorSummary.quoteSymbol} / {investorSummary.historySymbol}</div>
-            <div className="tv-investor-subvalue">
-              {investorSummary.provenanceDetail
-                ? `${investorSummary.provenanceDetail} • ${investorSummary.forecastUpdatedAt}`
-                : investorSummary.forecastUpdatedAt}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Evidence/provenance rail removed — track record + quality live in the Desk Call header. */}
 
       <div className="tv-chart-stage">
         <div className="tv-chart-overlay tv-overlay-left">

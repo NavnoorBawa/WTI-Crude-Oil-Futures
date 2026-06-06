@@ -352,6 +352,37 @@ html, body {
   font-family: "Inter", -apple-system, sans-serif;
 }
 
+/* ---- Desk header: the one-glance decision view ---- */
+.tv-desk {
+  display: grid;
+  grid-template-columns: minmax(200px, 0.85fr) minmax(330px, 1.7fr) minmax(230px, 1fr);
+  border-bottom: 1px solid #161618;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.012), transparent), #060607;
+}
+.tv-desk > div { padding: 16px 22px; min-width: 0; }
+.tv-desk-call { border-left: 1px solid #161618; border-right: 1px solid #161618; }
+.tv-desk-label { color: #6e7681; font-size: 10px; text-transform: uppercase; letter-spacing: 0.11em; margin-bottom: 9px; }
+.tv-desk-pricewrap { display: flex; align-items: baseline; gap: 12px; }
+.tv-desk-px { font-size: 33px; font-weight: 700; color: #fff; line-height: 1;
+  font-family: "JetBrains Mono", ui-monospace, monospace; }
+.tv-desk-chg { font-size: 15px; font-weight: 600; font-family: "JetBrains Mono", ui-monospace, monospace; }
+.tv-desk-chg.is-up { color: #16c784; }
+.tv-desk-chg.is-down { color: #ff5c5c; }
+.tv-desk-stance { font-size: 23px; font-weight: 800; letter-spacing: 0.01em; line-height: 1; margin-bottom: 9px; }
+.tv-desk-stance.tone-up { color: #16c784; }
+.tv-desk-stance.tone-down { color: #ff5c5c; }
+.tv-desk-stance.tone-neutral { color: #cfd3da; }
+.tv-desk-text { color: #9aa3b2; font-size: 12.5px; line-height: 1.55; max-width: 580px; }
+.tv-record-grid { display: grid; grid-template-columns: repeat(2, auto); gap: 9px 26px; justify-content: start; }
+.tv-record-grid > div { display: flex; flex-direction: column; gap: 1px; }
+.tv-record-grid b { color: #f0f3fa; font-size: 17px; font-weight: 700; font-family: "JetBrains Mono", ui-monospace, monospace; }
+.tv-record-grid span { color: #6e7681; font-size: 10px; }
+.tv-record-note { color: #565d68; font-size: 10px; margin-top: 9px; font-family: "JetBrains Mono", ui-monospace, monospace; }
+@media (max-width: 920px) {
+  .tv-desk { grid-template-columns: 1fr; }
+  .tv-desk-call { border-left: none; border-right: none; border-top: 1px solid #161618; border-bottom: 1px solid #161618; }
+}
+
 /* Spacing */
 .p-0 { padding: 0; }
 .p-1 { padding: 4px; }

@@ -391,6 +391,30 @@ function App() {
       ? `${Math.round(fallbackConfidence)}%`
       : (data?.confidence || '--'));
 
+  // Synthesize the one thing a PM needs: the desk call (stance + plain-English why).
+  const fc1wPct = Number(data?.multi_horizon_predictions?.percentage_changes?.['1w'] ?? 0);
+  const deskCall = (() => {
+    const regimeWord = (geoRegime && geoRegime !== 'UNKNOWN') ? geoRegime.toLowerCase() : 'normal';
+    const edgePos = edgeUsd > 1.5;
+    const edgeNeg = edgeUsd < -1.5;
+    const bits = [];
+    if (edgePos) bits.push(`geopolitical risk is ${regimeWord} and historical analogues imply ~${Math.round(Math.abs(edgePct))}% of upside is not yet priced in`);
+    else if (edgeNeg) bits.push(`geopolitical risk is ${regimeWord}, but it already looks priced in — WTI sits ~${Math.round(Math.abs(edgePct))}% above analogue fair value`);
+    else bits.push(`geopolitical risk is ${regimeWord} and roughly fairly priced`);
+    if (!wfIsSignificant) bits.push('the 1-week model shows low directional conviction here');
+
+    let stance = 'NEUTRAL', tone = 'neutral';
+    if (geoSignal.signal === 'LONG_BIAS' && edgePos) { stance = 'LONG BIAS'; tone = 'up'; }
+    else if (edgeNeg || !wfIsSignificant) { stance = 'NEUTRAL'; tone = 'neutral'; }
+    else if (fc1wPct > 0.6) { stance = 'LONG LEAN'; tone = 'up'; }
+    else if (fc1wPct < -0.6) { stance = 'SHORT LEAN'; tone = 'down'; }
+
+    const action = stance.includes('LONG') ? 'Lean long into the supply-risk premium, sized small.'
+      : stance.includes('SHORT') ? 'Modest tactical short; keep it small.'
+      : 'No unpriced edge to chase today — watch, don’t force it.';
+    return { stance, tone, text: `${bits.join('; ')}. ${action}` };
+  })();
+
   return (
     <div className="tv-app">
       {/* Top bar */}
@@ -421,60 +445,43 @@ function App() {
         <div className="tv-caveat info">{error}</div>
       )}
 
-      {/* Market hero */}
-      <div className="tv-market">
-        <div className="tv-market-id">
+      {/* Desk header — price · the call · the track record */}
+      <div className="tv-desk">
+        <div>
           <div className="tv-market-symbol">
             <span className="tv-chip">{contractInfo.symbol || 'CLN26'}</span>
-            <span className="tv-market-name">{contractInfo.description || 'WTI Crude Oil Futures · NYMEX'}</span>
+            <span className="tv-market-name">WTI Crude · NYMEX</span>
           </div>
-          <div className="tv-market-pricewrap">
-            <span className="tv-market-price">{currentPrice > 0 ? `$${currentPrice.toFixed(2)}` : '--'}</span>
-            <span className={`tv-market-change ${priceChange >= 0 ? 'is-up' : 'is-down'}`}>
-              <span>{currentPrice > 0 ? `${priceChange >= 0 ? '+' : ''}${priceChange.toFixed(2)}` : '--'}</span>
-              <span>{currentPrice > 0 ? `${priceChangePercent >= 0 ? '+' : ''}${priceChangePercent.toFixed(2)}%` : '--'}</span>
+          <div className="tv-desk-pricewrap">
+            <span className="tv-desk-px">{currentPrice > 0 ? `$${currentPrice.toFixed(2)}` : '--'}</span>
+            <span className={`tv-desk-chg ${priceChange >= 0 ? 'is-up' : 'is-down'}`}>
+              {currentPrice > 0 ? `${priceChangePercent >= 0 ? '+' : ''}${priceChangePercent.toFixed(2)}%` : '--'}
             </span>
           </div>
-          <div className="tv-market-meta">
-            Vol {data?.volume_display || 'N/A'} · ML {activeHorizonLabel} {currentPrediction > 0 ? `$${currentPrediction.toFixed(2)}` : '--'} · {data?.feed_status || 'REAL-TIME'}
-          </div>
+          <div className="tv-market-meta">Vol {data?.volume_display || 'N/A'} · 1W model {currentPrediction > 0 ? `$${currentPrediction.toFixed(2)}` : '--'}</div>
         </div>
 
-        <div className="tv-stats">
+        <div className="tv-desk-call">
+          <div className="tv-desk-label">Desk Call · 1 Week</div>
+          <div className={`tv-desk-stance tone-${deskCall.tone}`}>{deskCall.stance}</div>
+          <div className="tv-desk-text">{deskCall.text}</div>
+        </div>
+
+        <div>
+          <div className="tv-desk-label">1-Week Track Record</div>
           {wfIsSignificant === true ? (
             <>
-              <div className="tv-stat up">
-                <span className="tv-stat-label">1W Direction</span>
-                <span className="tv-stat-value">{Number.isFinite(effectiveAccuracy) ? `${Math.round(effectiveAccuracy)}%` : '--'}</span>
-                <span className="tv-stat-sub">p={wfPValue < 0.001 ? '<0.001' : wfPValue?.toFixed(3)} · n={wfSamples}</span>
+              <div className="tv-record-grid">
+                <div><b>{Number.isFinite(effectiveAccuracy) ? `${Math.round(effectiveAccuracy)}%` : '--'}</b><span>hit rate</span></div>
+                <div><b>{wfSharpe?.toFixed(2)}</b><span>Sharpe</span></div>
+                <div><b>${Math.round(wfMeanPnl || 0).toLocaleString()}</b><span>per trade</span></div>
+                <div><b>{wfSamples}</b><span>OOS samples</span></div>
               </div>
-              {wfSharpe !== null && (
-                <div className="tv-stat accent">
-                  <span className="tv-stat-label">Sharpe (ann.)</span>
-                  <span className="tv-stat-value">{wfSharpe.toFixed(2)}</span>
-                  <span className="tv-stat-sub">after costs</span>
-                </div>
-              )}
-              {wfMeanPnl !== null && (
-                <div className="tv-stat">
-                  <span className="tv-stat-label">E[PnL]/trade</span>
-                  <span className="tv-stat-value">${Math.round(wfMeanPnl).toLocaleString()}</span>
-                  <span className="tv-stat-sub">win rate {wfWinRate?.toFixed(0)}%</span>
-                </div>
-              )}
+              <div className="tv-record-note">walk-forward · p&lt;0.001 · after costs</div>
             </>
           ) : (
-            <div className="tv-stat down">
-              <span className="tv-stat-label">{activeHorizonLabel} Signal</span>
-              <span className="tv-stat-value">Below random</span>
-              <span className="tv-stat-sub">not directional</span>
-            </div>
+            <div className="tv-desk-text">1-week is the validated horizon; the active horizon isn’t statistically reliable.</div>
           )}
-          <div className="tv-stat">
-            <span className="tv-stat-label">Data Points</span>
-            <span className="tv-stat-value">{data?.enterprise_metrics?.data_points || '--'}</span>
-            <span className="tv-stat-sub">{wfSamples ? `${wfSamples} OOS samples` : 'walk-forward'}</span>
-          </div>
         </div>
       </div>
 
