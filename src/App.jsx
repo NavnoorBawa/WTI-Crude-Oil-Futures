@@ -643,11 +643,11 @@ function App() {
             </div>
           )}
 
-          {/* ROW 1: Risk index | Signal | Analogues */}
-          <div className="flex border-b border-gray-800" style={{ minHeight: 80 }}>
+          {/* ROW 1: responsive grid — auto-fit columns wrap instead of overlapping */}
+          <div className="grid gap-px bg-gray-800 border-b border-gray-800" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))' }}>
 
             {/* GEO RISK INDEX */}
-            <div className="flex flex-col justify-center px-3 py-2 border-r border-gray-700" style={{ minWidth: 170 }}>
+            <div className="bg-black flex flex-col justify-start px-3 py-2 min-w-0 overflow-hidden">
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-bloomberg-amber font-medium text-xs">GEO RISK INDEX</span>
                 {geoNoveltySpike && (
@@ -679,7 +679,7 @@ function App() {
             </div>
 
             {/* GEO SIGNAL */}
-            <div className="flex flex-col justify-center px-3 py-2 border-r border-gray-700" style={{ minWidth: 230 }}>
+            <div className="bg-black flex flex-col justify-start px-3 py-2 min-w-0 overflow-hidden">
               <div className="text-bloomberg-amber font-medium text-xs mb-1">GEO TRADE SIGNAL</div>
               <div className="flex items-baseline gap-3">
                 <span className={`font-bold text-xl ${
@@ -695,17 +695,17 @@ function App() {
               {geoSignal.strait_risk && (
                 <div className="text-bloomberg-red text-xs font-bold mt-0.5">⚑ HORMUZ RISK ACTIVE</div>
               )}
-              <div className="flex gap-4 mt-1.5">
+              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5">
                 {evImpactUsd > 0 && (
                   <div className="flex flex-col">
                     <span className="text-gray-500 text-xs">EV IMPACT</span>
-                    <span className="text-bloomberg-positive font-bold text-sm">+${evImpactUsd.toFixed(1)}/bbl</span>
+                    <span className="text-bloomberg-positive font-bold text-sm whitespace-nowrap">+${evImpactUsd.toFixed(1)}/bbl</span>
                   </div>
                 )}
                 {edgeUsd !== 0 && (
                   <div className="flex flex-col">
                     <span className="text-gray-500 text-xs">UNPRICED EDGE</span>
-                    <span className={`font-bold text-sm ${edgeUsd >= 0 ? 'text-bloomberg-positive' : 'text-bloomberg-negative'}`}>
+                    <span className={`font-bold text-sm whitespace-nowrap ${edgeUsd >= 0 ? 'text-bloomberg-positive' : 'text-bloomberg-negative'}`}>
                       {edgeUsd >= 0 ? '+' : ''}${edgeUsd.toFixed(2)} ({edgePct >= 0 ? '+' : ''}{edgePct.toFixed(1)}%)
                     </span>
                   </div>
@@ -720,13 +720,13 @@ function App() {
             </div>
 
             {/* HISTORICAL ANALOGUES */}
-            <div className="flex flex-col justify-center px-3 py-2 flex-1 border-r border-gray-700">
+            <div className="bg-black flex flex-col justify-start px-3 py-2 min-w-0 overflow-hidden">
               <div className="text-bloomberg-amber font-medium text-xs mb-1">CLOSEST HISTORICAL ANALOGUES</div>
-              <div className="flex gap-4">
+              <div className="flex flex-col gap-1.5">
                 {topAnalogues.slice(0, 2).map((a, i) => (
-                  <div key={a.id} className="flex flex-col border-l-2 pl-2" style={{ borderColor: i === 0 ? '#ffaa00' : '#555', minWidth: 220 }}>
-                    <div className="text-white text-xs font-medium leading-tight">
-                      {a.date} · {a.event.length > 45 ? a.event.slice(0, 45) + '…' : a.event}
+                  <div key={a.id} className="flex flex-col border-l-2 pl-2 min-w-0" style={{ borderColor: i === 0 ? '#ffaa00' : '#555' }}>
+                    <div className="text-white text-xs font-medium leading-tight truncate">
+                      {a.date} · {a.event}
                     </div>
                     <div className="flex gap-3 text-xs mt-0.5">
                       <span className="text-bloomberg-positive font-bold">Peak +{a.peak_pct}%</span>
@@ -735,8 +735,8 @@ function App() {
                       </span>
                       <span className="text-gray-500">{a.duration_days}d</span>
                     </div>
-                    <div className="text-gray-500 text-xs mt-0.5 leading-tight">
-                      {(a.notes || '').slice(0, 55)}{(a.notes || '').length > 55 ? '…' : ''}
+                    <div className="text-gray-500 text-xs mt-0.5 leading-tight truncate">
+                      {a.notes || ''}
                     </div>
                   </div>
                 ))}
@@ -746,7 +746,7 @@ function App() {
 
             {/* LATEST HEADLINES */}
             {geoHeadlines.length > 0 && (
-              <div className="flex flex-col justify-center px-3 py-2" style={{ minWidth: 300 }}>
+              <div className="bg-black flex flex-col justify-start px-3 py-2 min-w-0 overflow-hidden">
                 <div className="text-bloomberg-amber font-medium text-xs mb-1">
                   LIVE HEADLINES
                   {geoRecent24h > 0 && (
@@ -754,30 +754,30 @@ function App() {
                   )}
                 </div>
                 {geoHeadlines.slice(0, 3).map((h, i) => (
-                  <div key={i} className="flex gap-2 text-xs mb-0.5 items-start">
+                  <div key={i} className="flex gap-2 text-xs mb-0.5 items-baseline min-w-0">
                     {h.is_breaking ? (
-                      <span className="text-bloomberg-red font-bold shrink-0 w-14">BRKNG</span>
+                      <span className="text-bloomberg-red font-bold shrink-0 w-12">BRKNG</span>
                     ) : (
-                      <span className="text-gray-600 shrink-0 w-14">
+                      <span className="text-gray-600 shrink-0 w-12">
                         {h.published_at ? new Date(h.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '--'}
                       </span>
                     )}
-                    <span className="text-gray-300 truncate" style={{ maxWidth: 230 }}>{h.headline}</span>
+                    <span className="text-gray-300 truncate flex-1 min-w-0">{h.headline}</span>
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* ROW 2: Implied range | Hormuz scenarios */}
+          {/* ROW 2: responsive grid */}
           {(impliedRange.high || hormuzScenarios.length > 0) && (
-            <div className="flex">
+            <div className="grid gap-px bg-gray-800" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
 
               {/* ANALOGUE-IMPLIED PRICE RANGE */}
               {impliedRange.high && (
-                <div className="flex flex-col justify-center px-3 py-2 border-r border-gray-700" style={{ minWidth: 280 }}>
+                <div className="bg-black flex flex-col justify-start px-3 py-2 min-w-0 overflow-hidden">
                   <div className="text-bloomberg-amber font-medium text-xs mb-1">ANALOGUE-IMPLIED PRICE RANGE</div>
-                  <div className="flex gap-6">
+                  <div className="flex gap-4 flex-wrap">
                     <div className="flex flex-col">
                       <span className="text-gray-500 text-xs">BULL CASE</span>
                       <span className="text-bloomberg-positive font-bold text-lg">${impliedRange.high?.toFixed(2)}</span>
@@ -809,7 +809,7 @@ function App() {
 
               {/* STRAIT OF HORMUZ SCENARIOS */}
               {hormuzScenarios.length > 0 && (
-                <div className="flex flex-col justify-center px-3 py-2 flex-1">
+                <div className="bg-black flex flex-col justify-start px-3 py-2 min-w-0 overflow-hidden">
                   <div className="text-bloomberg-amber font-medium text-xs mb-1">
                     STRAIT OF HORMUZ DISRUPTION SCENARIOS  ·  ~21 mbpd transits daily
                     <span className="text-gray-600 ml-2 font-normal">

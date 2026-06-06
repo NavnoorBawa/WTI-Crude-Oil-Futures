@@ -149,6 +149,31 @@ html, body {
 .grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .grid-cols-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 
+/* Flex/layout utilities used by the geopolitical panel and other views.
+   These standard utilities were absent from this hand-written stylesheet,
+   so any element using them (e.g. `flex flex-col`) was silently mis-laid-out. */
+.flex-col { flex-direction: column; }
+.flex-row { flex-direction: row; }
+.flex-wrap { flex-wrap: wrap; }
+.flex-1 { flex: 1 1 0%; }
+.shrink-0 { flex-shrink: 0; }
+.min-w-0 { min-width: 0; }
+.items-start { align-items: flex-start; }
+.items-baseline { align-items: baseline; }
+.justify-start { justify-content: flex-start; }
+.gap-px { gap: 1px; }
+.gap-1\.5 { gap: 6px; }
+.gap-x-4 { column-gap: 16px; }
+.gap-y-1 { row-gap: 4px; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.whitespace-nowrap { white-space: nowrap; }
+.w-12 { width: 48px; }
+.w-14 { width: 56px; }
+.leading-tight { line-height: 1.25; }
+.mt-0\.5 { margin-top: 2px; }
+.mt-1\.5 { margin-top: 6px; }
+.py-1\.5 { padding-top: 6px; padding-bottom: 6px; }
+
 /* Spacing */
 .p-0 { padding: 0; }
 .p-1 { padding: 4px; }
