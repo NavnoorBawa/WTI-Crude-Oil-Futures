@@ -42,7 +42,7 @@ const HISTORY_BRIDGE_MAX_GAP_SEC = {
   "1W": 10 * 24 * 60 * 60,
 };
 
-const DEFAULT_RANGE = "1M";
+const DEFAULT_RANGE = "ALL";
 const DEFAULT_HORIZON = "1W";
 
 const toNum = (value) => {
