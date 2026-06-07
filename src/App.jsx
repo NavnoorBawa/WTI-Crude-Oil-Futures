@@ -507,19 +507,25 @@ function App() {
           {wfIsSignificant === true ? (
             <>
               <div className="tv-record-grid">
-                <div><b>{wfSamples ? `${Math.round(Number(wfSamples) / 52 * 10) / 10}y` : '--'}</b><span>test span</span></div>
                 <div><b>{Number.isFinite(effectiveAccuracy) ? `${Math.round(effectiveAccuracy)}%` : '--'}</b><span>direction</span></div>
+                <div><b>{wfCi95 ? `[${wfCi95[0]}, ${wfCi95[1]}]` : '--'}</b><span>95% CI</span></div>
                 <div><b>{wfSharpe?.toFixed(2)}</b><span>Sharpe</span></div>
                 <div><b>{wfSamples}</b><span>OOS trades</span></div>
               </div>
               <div className="tv-record-note">walk-forward expanding window · p&lt;0.001 · $100/trade cost · no macro features</div>
               <div className="tv-record-live">
-                Live predictions: <b>{totalEvaluatedPredictions}</b>
-                {totalEvaluatedPredictions > 0 && totalEvaluatedPredictions < 18
-                  ? <span className="muted"> — too early to validate (need ≥18)</span>
-                  : totalEvaluatedPredictions >= 18
-                  ? <span> · {Math.round(liveDirectionAccuracy)}% live hit rate</span>
-                  : <span className="muted"> — accumulating</span>}
+                {(() => {
+                  const n1w = Number(activeMetrics?.live_total_predictions ?? 0);
+                  const acc1w = Number(activeMetrics?.live_direction_accuracy ?? 0);
+                  return <>
+                    1W live evaluated: <b>{n1w}</b>
+                    {n1w === 0
+                      ? <span className="muted"> — none yet (each prediction resolves after 1 week)</span>
+                      : n1w < 18
+                      ? <span className="muted"> — {Math.round(acc1w)}% · too early to validate (need ≥18)</span>
+                      : <span> · {Math.round(acc1w)}% hit rate</span>}
+                  </>;
+                })()}
               </div>
             </>
           ) : (
