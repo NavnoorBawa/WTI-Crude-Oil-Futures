@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import Chart from "./Chart";
 
-// 1H removed: direction accuracy is definitively below random (not statistically significant).
-// 1W is the validated signal: 62.8% direction accuracy, p=0.0002, n=199 OOS samples.
-const DISPLAY_HORIZONS = ["1D", "1W"];
+// 1W is the only walk-forward validated signal: 62.8% direction accuracy, p=0.0002, n=199 OOS.
+// 1D: dead (p=0.92). 1H: same feature class, never walk-forward tested. Both removed.
 
 const humanizeReason = (value) => {
   if (!value) return "";
@@ -20,7 +19,6 @@ function App() {
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [currentTime, setCurrentTime] = useState(new Date());
   const [geoOpen, setGeoOpen] = useState(false);
-  const [activeDisplayHorizon, setActiveDisplayHorizon] = useState("1W");
   const pollIntervalMs = Number(import.meta.env.VITE_POLL_INTERVAL_MS || 15000);
   const startupRetryMs = Number(import.meta.env.VITE_STARTUP_RETRY_MS || 5000);
   const configuredApiBase = import.meta.env.VITE_API_BASE_URL;
@@ -236,19 +234,6 @@ function App() {
   }, [configuredApiBase, pollIntervalMs, startupRetryMs]);
 
   const headlineMetrics = data?.performance_metrics?.headline || {};
-  const headlineHorizonKey = String(headlineMetrics?.horizon || "1d").toLowerCase();
-  const recommendedDisplayHorizon = headlineMetrics?.quality_status === "QUALIFIED"
-    ? headlineHorizonKey.toUpperCase()
-    : "1W";
-  const resolvedActiveDisplayHorizon = DISPLAY_HORIZONS.includes(activeDisplayHorizon)
-    ? activeDisplayHorizon
-    : recommendedDisplayHorizon;
-
-  useEffect(() => {
-    setActiveDisplayHorizon((previous) => (
-      DISPLAY_HORIZONS.includes(previous) ? previous : recommendedDisplayHorizon
-    ));
-  }, [recommendedDisplayHorizon]);
 
   // Loading screen
   if (loading && !data) {
@@ -328,8 +313,7 @@ function App() {
   const priceChange = data?.price_change || 0;
   const priceChangePercent = data?.price_change_percent || 0;
   const contractInfo = data?.contract || { symbol: 'CLV25', description: 'WTI CRUDE OIL FUTURES' };
-  const activeHorizonKey = resolvedActiveDisplayHorizon.toLowerCase();
-  const activeHorizonLabel = resolvedActiveDisplayHorizon;
+  const activeHorizonKey = '1w';
   const metricsByHorizon = data?.performance_metrics?.by_horizon || {};
   const activeMetrics = metricsByHorizon?.[activeHorizonKey] || {};
   const activeQuality = activeMetrics?.quality || {};
@@ -763,8 +747,7 @@ function App() {
           multiHorizonPredictions={data?.multi_horizon_predictions}
           performanceMetricsByHorizon={data?.performance_metrics?.by_horizon || {}}
           unifiedData={data?.unified_data}
-          activeHorizon={resolvedActiveDisplayHorizon}
-          onActiveHorizonChange={setActiveDisplayHorizon}
+          activeHorizon="1W"
           currentPrice={currentPrice}
           contractInfo={contractInfo}
           priceChange={priceChange}

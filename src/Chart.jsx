@@ -8,12 +8,12 @@ import {
   LineStyle,
 } from "lightweight-charts";
 
-const FORECAST_HORIZONS = ["1H", "1D", "1W"];
+// 1W is the only walk-forward validated signal (62.8%, p=0.0002, Sharpe 2.07, n=199 OOS).
+// 1D: dead (p=0.92). 1H: never walk-forward tested. Both removed from display.
+const FORECAST_HORIZONS = ["1W"];
 
 const HORIZON_META = {
-  "1H": { key: "1h", color: "#4f8cff", softFill: "rgba(79, 140, 255, 0.18)", lens: "Tactical" },
-  "1D": { key: "1d", color: "#e2a14a", softFill: "rgba(226, 161, 74, 0.18)", lens: "Swing" },
-  "1W": { key: "1w", color: "#e1729c", softFill: "rgba(225, 114, 156, 0.18)", lens: "Investor" },
+  "1W": { key: "1w", color: "#e1729c", softFill: "rgba(225, 114, 156, 0.18)", lens: "1W Walk-Forward" },
 };
 
 const RANGE_PRESETS = {
@@ -458,7 +458,7 @@ export default function Chart({
   const chartHostRef = useRef(null);
   const [selectedRange, setSelectedRange] = useState(DEFAULT_RANGE);
   const [legendSnapshot, setLegendSnapshot] = useState(null);
-  const resolvedActiveHorizon = HORIZON_META[activeHorizon] ? activeHorizon : DEFAULT_HORIZON;
+  const resolvedActiveHorizon = "1W"; // hard-locked: only validated horizon
   const activeHorizonKey = HORIZON_META[resolvedActiveHorizon]?.key || resolvedActiveHorizon;
   const qualityByHorizon = multiHorizonPredictions?.horizon_quality || {};
   const activeQuality = qualityByHorizon?.[activeHorizonKey] || {};
@@ -559,13 +559,13 @@ export default function Chart({
     const qualityReasons = Array.isArray(activeQuality?.reasons)
       ? activeQuality.reasons.map(humanizeReason)
       : [];
-    const thesisTitle = quality.label === "Low Quality"
-      ? `${lens} setup lacks enough evidence for a full conviction call`
+    const thesisTitle = evidence.tone !== "up"
+      ? `1W signal lacks statistical confidence — no directional edge`
       : (bias.tone === "up"
-        ? `${lens} setup favors upside follow-through`
+        ? `1W walk-forward signal leans bullish`
         : bias.tone === "down"
-          ? `${lens} setup calls for defensive positioning`
-          : `${lens} setup points to a balanced range`);
+          ? `1W walk-forward signal leans bearish`
+          : `1W walk-forward signal — directionally flat`);
     const thesisCopy = Number.isFinite(rewardRisk)
       ? `Base target ${formatCurrency(forecast.value)} versus spot ${formatCurrency(current)}. The working band runs from ${formatCurrency(lower ?? forecast.value)} to ${formatCurrency(upper ?? forecast.value)}, with ${rewardRisk.toFixed(2)}x upside-to-downside. Evidence basis: ${evidence.label.toLowerCase()} at ${evidence.value}. ${quality.detail}.`
       : `Base target ${formatCurrency(forecast.value)} versus spot ${formatCurrency(current)}. The working band runs from ${formatCurrency(lower ?? forecast.value)} to ${formatCurrency(upper ?? forecast.value)}. Evidence basis: ${evidence.label.toLowerCase()} at ${evidence.value}. ${quality.detail}.`;
@@ -853,8 +853,7 @@ export default function Chart({
               <div className="tv-symbol-title">{contractInfo?.description || "WTI CRUDE OIL FUTURES"}</div>
               <div className="tv-toolbar-meta">
                 <span>{feedStatus}</span>
-                <span>{resolvedActiveHorizon.toUpperCase()} ACC {activeDisplayAccuracy}</span>
-                <span>{resolvedActiveHorizon.toUpperCase()} CONF {activeDisplayConfidence}</span>
+                <span>1W ACC {activeDisplayAccuracy}</span>
               </div>
             </div>
           </div>
@@ -868,33 +867,17 @@ export default function Chart({
           </div>
         </div>
 
-        <div className="tv-forecast-strip">
-          {FORECAST_HORIZONS.map((horizon) => {
-            const forecast = chartModel.forecasts[horizon];
-            const meta = HORIZON_META[horizon];
-            const isActive = resolvedActiveHorizon === horizon;
-            const qualityMeta = getQualityMeta(qualityByHorizon?.[meta.key]);
-
-            return (
-              <button
-                key={horizon}
-                className={`tv-forecast-card ${isActive ? "is-active" : ""}`}
-                style={{ "--forecast-accent": meta.color }}
-                onClick={() => onActiveHorizonChange?.(horizon)}
-              >
-                <span className="tv-forecast-label">{horizon} Forecast</span>
-                <span className="tv-forecast-value">
-                  {forecast ? `$${forecast.value.toFixed(2)}` : "--"}
-                </span>
-                <span className={`tv-forecast-change ${forecast?.changePct >= 0 ? "is-up" : "is-down"}`}>
-                  {forecast ? formatSignedPercent(forecast.changePct) : "--"}
-                </span>
-                <span className={`tv-forecast-quality tone-${qualityMeta.tone}`}>
-                  {qualityMeta.label}
-                </span>
-              </button>
-            );
-          })}
+        <div className="tv-1w-strip">
+          <span className="tv-1w-horizon">1W</span>
+          <span className="tv-1w-target">
+            {chartModel.forecasts["1W"] ? `$${chartModel.forecasts["1W"].value.toFixed(2)}` : "--"}
+          </span>
+          {chartModel.forecasts["1W"]?.changePct != null && (
+            <span className={`tv-1w-change ${chartModel.forecasts["1W"].changePct >= 0 ? "is-up" : "is-down"}`}>
+              {formatSignedPercent(chartModel.forecasts["1W"].changePct)}
+            </span>
+          )}
+          <span className="tv-1w-meta">walk-forward validated · {activeDisplayAccuracy} direction · Sharpe 2.07 · p&lt;0.001</span>
         </div>
       </div>
 
