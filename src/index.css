@@ -270,12 +270,10 @@ html, body {
 /* Monospace numerics — the quant terminal signature */
 .tv-num, .tv-market-price, .tv-stat-value, .tv-stat-sub,
 .tv-topbar-time, .tv-market-change, .tv-market-meta, .tv-chip,
-.tv-investor-value, .tv-1w-target, .tv-1w-change, .tv-price-main,
-.tv-price-change {
+.tv-1w-target, .tv-1w-change, .tv-price-main, .tv-price-change {
   font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
-.tv-section-title, .tv-card-label, .tv-stat-label,
-.tv-investor-label, .tv-brand-sub {
+.tv-section-title, .tv-card-label, .tv-stat-label, .tv-brand-sub {
   font-family: "Inter", -apple-system, sans-serif;
 }
 
@@ -307,7 +305,6 @@ html, body {
 .tv-record-note { color: #565d68; font-size: 10px; margin-top: 9px; font-family: "JetBrains Mono", ui-monospace, monospace; }
 .tv-record-live { color: #8b949e; font-size: 11px; margin-top: 7px; }
 .tv-record-live b { color: #c9d1d9; font-weight: 700; }
-.tv-desk-disclaimer { color: #484f58; font-size: 10.5px; margin-top: 6px; font-style: italic; }
 .tv-sizing { margin-top: 14px; padding-top: 12px; border-top: 1px solid #1c1c1f; }
 .tv-sizing-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #8b949e; margin-top: 6px; flex-wrap: wrap; }
 .tv-sizing-row b { color: #c9d1d9; font-weight: 700; }
@@ -906,183 +903,6 @@ canvas {
   flex-wrap: wrap;
 }
 
-.tv-thesis-banner {
-  display: flex;
-  align-items: stretch;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 10px 16px 0;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
-    #000000;
-}
-
-.tv-thesis-copy {
-  flex: 1 1 auto;
-  padding: 12px 16px;
-  border: 1px solid #1c1c1f;
-  border-radius: 14px;
-  background:
-    radial-gradient(circle at top right, rgba(22, 199, 132, 0.08), transparent 34%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0.005)),
-    #0b0b0d;
-}
-
-.tv-thesis-kicker {
-  color: #868993;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  margin-bottom: 7px;
-}
-
-.tv-thesis-title {
-  color: #ffffff;
-  font-size: 18px;
-  line-height: 1.15;
-  font-weight: 700;
-  margin-bottom: 5px;
-}
-
-.tv-thesis-text {
-  color: #aeb4c0;
-  font-size: 11px;
-  line-height: 1.45;
-  max-width: 860px;
-}
-
-.tv-thesis-metrics {
-  display: flex;
-  align-items: stretch;
-  gap: 10px;
-}
-
-.tv-thesis-pill {
-  min-width: 132px;
-  padding: 12px 14px;
-  border: 1px solid #1c1c1f;
-  border-radius: 14px;
-  background: #0b0b0d;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 8px;
-}
-
-.tv-thesis-pill span {
-  color: #868993;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-}
-
-.tv-thesis-pill strong {
-  color: #ffffff;
-  font-size: 15px;
-  line-height: 1.15;
-}
-
-.tv-thesis-pill small {
-  color: #9aa3b2;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.35;
-}
-
-.tv-thesis-pill.tone-up {
-  border-color: rgba(38, 166, 154, 0.35);
-}
-
-.tv-thesis-pill.tone-up strong {
-  color: #4dffb0;
-}
-
-.tv-thesis-pill.tone-down {
-  border-color: rgba(239, 83, 80, 0.35);
-}
-
-.tv-thesis-pill.tone-down strong {
-  color: #ff7a7a;
-}
-
-.tv-thesis-pill.tone-neutral {
-  border-color: rgba(134, 137, 147, 0.3);
-}
-
-.tv-investor-rail {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 10px;
-  padding: 8px 16px 0;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0)),
-    #000000;
-}
-
-.tv-investor-evidence {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  padding: 8px 16px 0;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.01), rgba(255, 255, 255, 0)),
-    #000000;
-}
-
-.tv-investor-card {
-  min-height: 68px;
-  padding: 10px 12px;
-  border: 1px solid #1c1c1f;
-  border-radius: 12px;
-  background:
-    radial-gradient(circle at top right, rgba(255, 255, 255, 0.04), transparent 54%),
-    #0b0b0d;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
-}
-
-.tv-investor-card.tone-up {
-  border-color: rgba(38, 166, 154, 0.35);
-}
-
-.tv-investor-card.tone-down {
-  border-color: rgba(239, 83, 80, 0.35);
-}
-
-.tv-investor-card.tone-neutral {
-  border-color: rgba(134, 137, 147, 0.28);
-}
-
-.tv-investor-label {
-  color: #868993;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  margin-bottom: 6px;
-}
-
-.tv-investor-value {
-  color: #ffffff;
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1.05;
-}
-
-.tv-investor-subvalue {
-  margin-top: 5px;
-  color: #9aa3b2;
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.tv-investor-card.tone-up .tv-investor-subvalue,
-.tv-investor-card.tone-up .tv-investor-value {
-  color: #4dffb0;
-}
-
-.tv-investor-card.tone-down .tv-investor-subvalue,
-.tv-investor-card.tone-down .tv-investor-value {
-  color: #ff7a7a;
-}
 
 .tv-toolbar-main {
   display: flex;
@@ -1391,26 +1211,6 @@ canvas {
 }
 
 @media (max-width: 960px) {
-  .tv-thesis-banner {
-    flex-direction: column;
-  }
-
-  .tv-thesis-metrics {
-    width: 100%;
-  }
-
-  .tv-thesis-pill {
-    flex: 1 1 0;
-  }
-
-  .tv-investor-rail {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .tv-investor-evidence {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .tv-chart-toolbar {
     gap: 12px;
   }
@@ -1429,64 +1229,10 @@ canvas {
   }
 }
 
-@media (max-width: 640px) {
-  .tv-thesis-metrics {
-    flex-direction: column;
-  }
-
-  .tv-investor-rail {
-    grid-template-columns: 1fr;
-  }
-
-  .tv-investor-evidence {
-    grid-template-columns: 1fr;
-  }
-}
 
 @media (max-height: 860px) {
   .tv-chart-toolbar {
     padding: 8px 16px;
-  }
-
-  .tv-thesis-banner {
-    padding-top: 6px;
-  }
-
-  .tv-thesis-copy {
-    padding: 10px 14px;
-  }
-
-  .tv-thesis-title {
-    font-size: 16px;
-    margin-bottom: 2px;
-  }
-
-  .tv-thesis-text {
-    display: none;
-  }
-
-  .tv-investor-rail {
-    gap: 8px;
-    padding-top: 6px;
-  }
-
-  .tv-investor-evidence {
-    gap: 8px;
-    padding-top: 6px;
-  }
-
-  .tv-investor-card {
-    min-height: 58px;
-    padding: 8px 10px;
-  }
-
-  .tv-investor-value {
-    font-size: 15px;
-  }
-
-  .tv-investor-subvalue {
-    margin-top: 3px;
-    font-size: 9px;
   }
 
   .tv-chart-stage {

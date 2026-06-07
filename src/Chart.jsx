@@ -43,7 +43,6 @@ const HISTORY_BRIDGE_MAX_GAP_SEC = {
 };
 
 const DEFAULT_RANGE = "ALL";
-const DEFAULT_HORIZON = "1W";
 
 const toNum = (value) => {
   const numeric = Number(value);

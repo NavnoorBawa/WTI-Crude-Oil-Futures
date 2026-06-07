@@ -4,12 +4,6 @@ import Chart from "./Chart";
 // 1W is the only walk-forward validated signal: 62.8% direction accuracy, p=0.0002, n=199 OOS.
 // 1D: dead (p=0.92). 1H: same feature class, never walk-forward tested. Both removed.
 
-const humanizeReason = (value) => {
-  if (!value) return "";
-  return String(value)
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-};
 
 function App() {
   const [data, setData] = useState(null);
@@ -281,101 +275,37 @@ function App() {
   const scenario = data?.scenario_analysis || {};
   const mlCaveat = scenario?.ml_caveat || null;
 
-  // EIA-sourced supply-shock playbook (replaces old fake scenario engine)
+  // EIA-sourced supply-shock playbook
   const playbook = data?.supply_shock_playbook || {};
-  const playbookAnalogues = Array.isArray(playbook.analogues) ? playbook.analogues : [];
   const playbookDist = playbook.distributions || {};
   const playbookEventCount = Number(playbook.event_count || 0);
   const playbookPricedIn = playbook.priced_in_stats || {};
-
-  const geoRisk = data?.geopolitical_risk || {};
-  const geoScore = Number(geoRisk.score || 0);
-  const geoRegime = String(geoRisk.regime || 'UNKNOWN');
-  const geoDominantDriver = String(geoRisk.dominant_driver || 'unknown').toUpperCase();
-  const geoBreakdown = geoRisk.risk_breakdown || {};
-  const geoHeadlines = Array.isArray(geoRisk.top_headlines) ? geoRisk.top_headlines : [];
-  const geoArticles = Number(geoRisk.total_articles_scanned || 0);
-  const geoRecent24h = Number(geoRisk.recent_24h_articles || 0);
-  const geoNoveltySpike = Boolean(geoRisk.novelty_spike);
-  const geoRegimeColor =
-    geoRegime === 'CRITICAL' ? 'text-bloomberg-red' :
-    geoRegime === 'HIGH'     ? '#ff6600' :
-    geoRegime === 'ELEVATED' ? 'text-bloomberg-alert' :
-    geoRegime === 'LOW'      ? 'text-bloomberg-positive' :
-                               'text-gray-400';
-  const geoScoreBarColor =
-    geoRegime === 'CRITICAL' ? '#ff5c5c' :
-    geoRegime === 'HIGH'     ? '#ff8c42' :
-    geoRegime === 'ELEVATED' ? '#d6a93a' :
-    geoRegime === 'LOW'      ? '#16c784' : '#6e7681';
+  const geoNoveltySpike = Boolean(data?.geopolitical_risk?.novelty_spike);
 
   const currentPrice = data?.current_price || 0;
   const priceChange = data?.price_change || 0;
   const priceChangePercent = data?.price_change_percent || 0;
   const contractInfo = data?.contract || { symbol: 'CLV25', description: 'WTI CRUDE OIL FUTURES' };
-  const activeHorizonKey = '1w';
-  const metricsByHorizon = data?.performance_metrics?.by_horizon || {};
-  const activeMetrics = metricsByHorizon?.[activeHorizonKey] || {};
-  const activeQuality = activeMetrics?.quality || {};
-  const currentPrediction = Number(
-    data?.multi_horizon_predictions?.predictions?.[activeHorizonKey]
-    ?? headlineMetrics?.prediction
-    ?? 0
-  ) || 0;
+  const activeMetrics = data?.performance_metrics?.by_horizon?.['1w'] || {};
 
+  // Effective direction accuracy: prefer walk-forward display_accuracy, fallback to live
+  const displayDirectionAccuracyRaw = activeMetrics?.display_accuracy
+    ?? headlineMetrics?.display_direction_accuracy
+    ?? data?.performance_metrics?.display_direction_accuracy;
   const totalEvaluatedPredictions = Number(data?.performance_metrics?.total_predictions || 0);
   const liveDirectionAccuracy = Number(data?.performance_metrics?.direction_accuracy || 0);
-  const displayDirectionAccuracyRaw = activeMetrics?.display_accuracy ?? headlineMetrics?.display_direction_accuracy ?? data?.performance_metrics?.display_direction_accuracy;
-  const displayAccuracySource = activeMetrics?.display_accuracy_source || headlineMetrics?.display_accuracy_source || data?.performance_metrics?.display_accuracy_source || 'unavailable';
-  const minLiveSamples = Number(data?.performance_metrics?.min_live_accuracy_samples || 18);
-  const modelConfidence = activeMetrics?.confidence ?? headlineMetrics?.confidence;
-  const headlineQualityStatus = String(activeQuality?.status || headlineMetrics?.quality_status || data?.enterprise_metrics?.quality_status || 'UNKNOWN').toUpperCase();
-  const headlineQualityReasons = Array.isArray(activeQuality?.reasons)
-    ? activeQuality.reasons.map(humanizeReason)
-    : (Array.isArray(headlineMetrics?.quality_reasons) ? headlineMetrics.quality_reasons.map(humanizeReason) : []);
-  const isRealPrediction = Boolean(data?.multi_horizon_predictions?.is_real_prediction);
-  const isFullRealPrediction = Boolean(data?.multi_horizon_predictions?.is_full_real_prediction);
-  const fallbackHorizons = Object.entries(data?.multi_horizon_predictions?.fallbacks || {})
-    .filter(([, used]) => Boolean(used))
-    .map(([horizon]) => horizon.toUpperCase());
-
   const effectiveAccuracy = (displayDirectionAccuracyRaw !== undefined && displayDirectionAccuracyRaw !== null)
     ? Number(displayDirectionAccuracyRaw)
     : (totalEvaluatedPredictions > 0 ? liveDirectionAccuracy : null);
 
-  // Walk-forward significance stats for the active horizon
-  const wfPValue          = activeMetrics?.wf_p_value ?? null;
-  const wfCi95            = activeMetrics?.wf_ci_95 ?? null;
-  const wfIsSignificant   = activeMetrics?.wf_is_significant ?? null;
-  const wfSamples         = activeMetrics?.wf_samples ?? null;
-  const wfMaeImprovement  = activeMetrics?.wf_mae_improvement_pct ?? null;
-  const wfSharpe          = activeMetrics?.wf_pnl_sharpe ?? null;
-  const wfMeanPnl         = activeMetrics?.wf_pnl_mean_per_trade ?? null;
-  const wfWinRate         = activeMetrics?.wf_pnl_win_rate ?? null;
-  const wfMaxDrawdown     = activeMetrics?.wf_pnl_max_drawdown ?? null;
-  const wfProfitFactor    = activeMetrics?.wf_pnl_profit_factor ?? null;
-  const wfNTrades         = activeMetrics?.wf_pnl_n_trades ?? null;
-
-  const displayAccuracy = !Number.isFinite(effectiveAccuracy)
-    ? '--'
-    : `${Math.round(effectiveAccuracy)}${displayAccuracySource === 'backtest' ? '%*' : '%'}`;
-
-  const accuracyClassName = wfIsSignificant === true
-    ? 'text-bloomberg-positive'
-    : wfIsSignificant === false
-    ? 'text-bloomberg-negative'
-    : headlineQualityStatus === 'UNQUALIFIED'
-    ? 'text-bloomberg-negative'
-    : ((displayAccuracySource === 'live' || displayAccuracySource === 'live_sparse')
-      ? 'text-bloomberg-positive'
-      : 'text-bloomberg-blue');
-
-  const fallbackConfidence = data?.performance_metrics?.confidence;
-  const displayConfidence = Number.isFinite(modelConfidence)
-    ? `${Math.round(modelConfidence)}%`
-    : (fallbackConfidence !== undefined && fallbackConfidence !== null
-      ? `${Math.round(fallbackConfidence)}%`
-      : (data?.confidence || '--'));
+  // Walk-forward stats (1W validated signal)
+  const wfIsSignificant = activeMetrics?.wf_is_significant ?? null;
+  const wfCi95          = activeMetrics?.wf_ci_95 ?? null;
+  const wfSharpe        = activeMetrics?.wf_pnl_sharpe ?? null;
+  const wfSamples       = activeMetrics?.wf_samples ?? null;
+  const wfWinRate       = activeMetrics?.wf_pnl_win_rate ?? null;
+  const wfProfitFactor  = activeMetrics?.wf_pnl_profit_factor ?? null;
+  const wfMeanPnl       = activeMetrics?.wf_pnl_mean_per_trade ?? null;
 
   const fc1wPct = Number(data?.multi_horizon_predictions?.percentage_changes?.['1w'] ?? 0);
   const deskCall = (() => {
