@@ -457,11 +457,11 @@ function App() {
           <span className="tv-brand-mark">WTI</span>
           <span className="tv-brand-text">
             <span className="tv-brand-title">WTI Crude Oil Futures</span>
-            <span className="tv-brand-sub">Quant Forecast · Geopolitical Risk</span>
+            <span className="tv-brand-sub">Walk-forward Research · Geopolitical Risk</span>
           </span>
         </div>
         <div className="tv-topbar-right">
-          <span className="tv-live"><span className="tv-live-dot" />LIVE</span>
+          <span className="tv-snapshot">SNAPSHOT</span>
           <span className="tv-topbar-time tv-num">
             {currentTime.toLocaleTimeString('en-US', { hour12: false, timeZone: 'America/Chicago' })} CT
           </span>
@@ -496,25 +496,34 @@ function App() {
         </div>
 
         <div className="tv-desk-call">
-          <div className="tv-desk-label">Desk Call · 1 Week</div>
+          <div className="tv-desk-label">Research Signal · 1 Week</div>
           <div className={`tv-desk-stance tone-${deskCall.tone}`}>{deskCall.stance}</div>
           <div className="tv-desk-text">{deskCall.text}</div>
+          <div className="tv-desk-disclaimer">Frozen snapshot — not a live trading signal. No execution infrastructure.</div>
         </div>
 
         <div>
-          <div className="tv-desk-label">1-Week Track Record</div>
+          <div className="tv-desk-label">5-Year Backtest (OOS)</div>
           {wfIsSignificant === true ? (
             <>
               <div className="tv-record-grid">
-                <div><b>{Number.isFinite(effectiveAccuracy) ? `${Math.round(effectiveAccuracy)}%` : '--'}</b><span>hit rate</span></div>
+                <div><b>{wfSamples ? `${Math.round(Number(wfSamples) / 52 * 10) / 10}y` : '--'}</b><span>test span</span></div>
+                <div><b>{Number.isFinite(effectiveAccuracy) ? `${Math.round(effectiveAccuracy)}%` : '--'}</b><span>direction</span></div>
                 <div><b>{wfSharpe?.toFixed(2)}</b><span>Sharpe</span></div>
-                <div><b>${Math.round(wfMeanPnl || 0).toLocaleString()}</b><span>per trade</span></div>
-                <div><b>{wfSamples}</b><span>OOS samples</span></div>
+                <div><b>{wfSamples}</b><span>OOS trades</span></div>
               </div>
-              <div className="tv-record-note">walk-forward · p&lt;0.001 · after costs</div>
+              <div className="tv-record-note">walk-forward expanding window · p&lt;0.001 · $100/trade cost · no macro features</div>
+              <div className="tv-record-live">
+                Live predictions: <b>{totalEvaluatedPredictions}</b>
+                {totalEvaluatedPredictions > 0 && totalEvaluatedPredictions < 18
+                  ? <span className="muted"> — too early to validate (need ≥18)</span>
+                  : totalEvaluatedPredictions >= 18
+                  ? <span> · {Math.round(liveDirectionAccuracy)}% live hit rate</span>
+                  : <span className="muted"> — accumulating</span>}
+              </div>
             </>
           ) : (
-            <div className="tv-desk-text">1-week is the validated horizon; the active horizon isn't statistically reliable.</div>
+            <div className="tv-desk-text">1-week is the validated horizon; the active horizon is not statistically reliable.</div>
           )}
         </div>
       </div>
