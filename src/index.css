@@ -1,5 +1,6 @@
-/* BLOOMBERG TERMINAL PROFESSIONAL CSS - $24,000 AESTHETIC */
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&family=Courier+Prime:wght@400;700&family=Source+Code+Pro:wght@300;400;500;600;700&display=swap');
+/* WTI Quant Terminal — minimalist black design system.
+   Monochrome canvas · green = gain · red = loss · one cool accent = the model. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 /* Global Reset */
 * {
@@ -9,10 +10,10 @@
 }
 
 html, body {
-  font-family: 'Source Code Pro', 'JetBrains Mono', 'IBM Plex Mono', 'SF Mono', 'Monaco', 'Consolas', 'Courier New', monospace;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background-color: #000000;
-  color: #FF8C00; /* Classic Bloomberg amber/orange */
-  line-height: 1.2;
+  color: #c8ccd2;
+  line-height: 1.4;
   font-size: 14px;
   font-weight: 400;
   font-variant-numeric: tabular-nums;
@@ -22,7 +23,7 @@ html, body {
   overflow-x: hidden;
   width: 100%;
   height: 100%;
-  letter-spacing: 0.015em;
+  letter-spacing: -0.005em;
 }
 
 #root {
@@ -196,7 +197,7 @@ html, body {
 /* ---- Top bar ---- */
 .tv-topbar {
   display: flex; align-items: center; justify-content: space-between;
-  gap: 16px; padding: 11px 20px; flex-wrap: wrap;
+  gap: 16px; padding: 13px 28px; flex-wrap: wrap;
   border-bottom: 1px solid #161618; background: #000000;
 }
 .tv-brand { display: flex; align-items: center; gap: 11px; }
@@ -218,9 +219,9 @@ html, body {
 .tv-topbar-asof { color: #6e7681; font-size: 11px; }
 
 /* ---- Caveat / warning banners ---- */
-.tv-caveat { padding: 7px 20px; font-size: 11px; font-weight: 600; color: #ffb4b0;
+.tv-caveat { padding: 8px 28px; font-size: 11px; font-weight: 600; color: #ffb4b0;
   background: rgba(248,81,73,0.08); border-bottom: 1px solid rgba(248,81,73,0.22); }
-.tv-caveat.info { color: #d6a93a; background: rgba(214,169,58,0.07); border-bottom-color: rgba(214,169,58,0.2); }
+.tv-caveat.info { color: #5cb0d6; background: rgba(92,176,214,0.06); border-bottom-color: rgba(92,176,214,0.18); }
 
 /* ---- Market hero ---- */
 .tv-market {
@@ -237,7 +238,7 @@ html, body {
 .tv-market-price { color: #fff; font-size: 33px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
 .tv-market-change { display: flex; flex-direction: column; font-size: 13px; font-weight: 600; line-height: 1.25; font-variant-numeric: tabular-nums; }
 .tv-market-change.is-up { color: #16c784; }
-.tv-market-change.is-down { color: #ff5c5c; }
+.tv-market-change.is-down { color: #ef5a63; }
 .tv-market-meta { color: #6e7681; font-size: 11px; font-variant-numeric: tabular-nums; }
 
 /* ---- Signal stat strip ---- */
@@ -252,10 +253,10 @@ html, body {
 .tv-stat.up { border-color: rgba(46,160,67,0.4); }
 .tv-stat.up .tv-stat-value { color: #16c784; }
 .tv-stat.down { border-color: rgba(248,81,73,0.4); }
-.tv-stat.down .tv-stat-value { color: #ff5c5c; }
+.tv-stat.down .tv-stat-value { color: #ef5a63; }
 
 /* ---- Section wrapper ---- */
-.tv-section { padding: 14px 20px 6px; background: #000000; }
+.tv-section { padding: 16px 28px 10px; background: #000000; }
 .tv-section-head { display: flex; align-items: center; gap: 12px; margin-bottom: 11px; }
 .tv-section-title { color: #8b949e; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.13em; white-space: nowrap; }
 .tv-section-rule { flex: 1; height: 1px; background: linear-gradient(90deg, #161618, transparent); }
@@ -280,11 +281,11 @@ html, body {
 /* ---- Desk header: the one-glance decision view ---- */
 .tv-desk {
   display: grid;
-  grid-template-columns: minmax(200px, 0.85fr) minmax(330px, 1.7fr) minmax(230px, 1fr);
+  grid-template-columns: minmax(200px, 0.82fr) minmax(330px, 1.7fr) minmax(230px, 1fr);
   border-bottom: 1px solid #161618;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.012), transparent), #060607;
+  background: #060608;
 }
-.tv-desk > div { padding: 16px 22px; min-width: 0; }
+.tv-desk > div { padding: 24px 28px; min-width: 0; }
 .tv-desk-call { border-left: 1px solid #161618; border-right: 1px solid #161618; }
 .tv-desk-label { color: #6e7681; font-size: 10px; text-transform: uppercase; letter-spacing: 0.11em; margin-bottom: 9px; }
 .tv-desk-pricewrap { display: flex; align-items: baseline; gap: 12px; }
@@ -292,10 +293,10 @@ html, body {
   font-family: "JetBrains Mono", ui-monospace, monospace; }
 .tv-desk-chg { font-size: 15px; font-weight: 600; font-family: "JetBrains Mono", ui-monospace, monospace; }
 .tv-desk-chg.is-up { color: #16c784; }
-.tv-desk-chg.is-down { color: #ff5c5c; }
+.tv-desk-chg.is-down { color: #ef5a63; }
 .tv-desk-stance { font-size: 23px; font-weight: 800; letter-spacing: 0.01em; line-height: 1; margin-bottom: 9px; }
 .tv-desk-stance.tone-up { color: #16c784; }
-.tv-desk-stance.tone-down { color: #ff5c5c; }
+.tv-desk-stance.tone-down { color: #ef5a63; }
 .tv-desk-stance.tone-neutral { color: #cfd3da; }
 .tv-desk-text { color: #9aa3b2; font-size: 12.5px; line-height: 1.55; max-width: 580px; }
 .tv-desk-text.muted { color: #565d68; }
@@ -311,19 +312,19 @@ html, body {
 /* ---- Performance tear sheet (full-width OOS factsheet) ---- */
 .tv-tearsheet {
   border-bottom: 1px solid #161618;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.012), transparent), #060607;
-  padding: 15px 22px 17px;
+  background: #050507;
+  padding: 22px 28px 24px;
 }
 .tv-tearsheet-head { display: flex; align-items: baseline; justify-content: space-between;
-  gap: 16px; flex-wrap: wrap; margin-bottom: 13px; }
+  gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
 .tv-tearsheet-head .tv-desk-label { margin-bottom: 0; }
 .tv-tearsheet-live { color: #8b949e; font-size: 11px; font-variant-numeric: tabular-nums; }
-.tv-tearsheet-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px 20px; }
-.tv-tearsheet-grid > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.tv-tearsheet-grid b { color: #f0f3fa; font-size: 23px; font-weight: 700; line-height: 1;
-  letter-spacing: -0.01em; font-family: "JetBrains Mono", ui-monospace, monospace; }
+.tv-tearsheet-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 18px 26px; }
+.tv-tearsheet-grid > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.tv-tearsheet-grid b { color: #f4f6f8; font-size: 27px; font-weight: 700; line-height: 1;
+  letter-spacing: -0.02em; font-family: "JetBrains Mono", ui-monospace, monospace; }
 .tv-tearsheet-grid b.up { color: #16c784; }
-.tv-tearsheet-grid b.down { color: #ff5c5c; }
+.tv-tearsheet-grid b.down { color: #ef5a63; }
 .tv-tearsheet-grid span { color: #6e7681; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; }
 .tv-tearsheet-foot { margin-top: 13px; color: #565d68; font-size: 10.5px;
   font-family: "JetBrains Mono", ui-monospace, monospace; }
@@ -589,8 +590,8 @@ canvas {
 * { -ms-overflow-style: none; scrollbar-width: none; }
 
 /* Selection */
-::selection { background: #FF8C00; color: #000000; }
-::-moz-selection { background: #FF8C00; color: #000000; }
+::selection { background: rgba(92,176,214,0.28); color: #f3f4f6; }
+::-moz-selection { background: rgba(92,176,214,0.28); color: #f3f4f6; }
 
 /* Bloomberg Terminal Authentic Elements */
 .bloomberg-ticker {
@@ -1014,19 +1015,19 @@ canvas {
   flex-wrap: wrap;
 }
 .tv-1w-horizon {
-  color: #e1729c;
+  color: #5cb0d6;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  border: 1px solid rgba(225, 114, 156, 0.3);
+  border: 1px solid rgba(92, 176, 214, 0.3);
   padding: 2px 7px;
   border-radius: 3px;
 }
 .tv-1w-target { color: #ffffff; font-size: 15px; font-weight: 700; }
 .tv-1w-change { font-size: 13px; font-weight: 600; }
 .tv-1w-change.is-up { color: #16c784; }
-.tv-1w-change.is-down { color: #ff5c5c; }
+.tv-1w-change.is-down { color: #ef5a63; }
 .tv-1w-meta { color: #565d68; font-size: 11px; }
 
 .tv-chart-stage {
@@ -1191,7 +1192,7 @@ canvas {
 }
 
 .tv-dot.actual {
-  --dot-color: #4dffb0;
+  --dot-color: #5cd6a6;
 }
 
 .tv-dot.history {
@@ -1269,7 +1270,7 @@ canvas {
 
 
 /* Supply Risk Context section */
-.tv-supply-section { padding: 14px 16px 16px; }
+.tv-supply-section { padding: 16px 0 8px; }
 .tv-supply-section .tv-card-label { margin-bottom: 4px; }
 
 /* Synthesized takeaway — the insight, stated plainly */
@@ -1286,8 +1287,8 @@ canvas {
 }
 .tv-supply-takeaway strong { font-variant-numeric: tabular-nums; }
 .tv-supply-takeaway .up  { color: #16c784; }
-.tv-supply-takeaway .up2 { color: #4dffb0; }
-.tv-supply-takeaway .down { color: #ff5c5c; }
+.tv-supply-takeaway .up2 { color: #5cd6a6; }
+.tv-supply-takeaway .down { color: #ef5a63; }
 
 /* Supply structure distribution table */
 .tv-supply-table { margin-top: 10px; font-size: 11px; font-variant-numeric: tabular-nums; }
@@ -1320,8 +1321,8 @@ canvas {
   font-variant-numeric: tabular-nums;
 }
 .tv-supply-table .up    { color: #16c784; font-weight: 700; }
-.tv-supply-table .up2   { color: #4dffb0; font-weight: 600; }
-.tv-supply-table .down  { color: #ff5c5c; font-weight: 600; }
+.tv-supply-table .up2   { color: #5cd6a6; font-weight: 600; }
+.tv-supply-table .down  { color: #ef5a63; font-weight: 600; }
 .tv-supply-table .muted { color: #6e7681; }
 
 /* Priced-in footnote */

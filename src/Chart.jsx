@@ -13,7 +13,7 @@ import {
 const FORECAST_HORIZONS = ["1W"];
 
 const HORIZON_META = {
-  "1W": { key: "1w", color: "#e1729c", softFill: "rgba(225, 114, 156, 0.18)", lens: "1W Walk-Forward" },
+  "1W": { key: "1w", color: "#5cb0d6", softFill: "rgba(92, 176, 214, 0.16)", lens: "1W Walk-Forward" },
 };
 
 const RANGE_PRESETS = {
@@ -419,23 +419,23 @@ export default function Chart({
       attributionLogo: true,
       layout: {
         background: { type: ColorType.Solid, color: "#000000" },
-        textColor: "#8b8b92",
-        fontFamily: "'IBM Plex Mono', 'JetBrains Mono', monospace",
+        textColor: "#7d8088",
+        fontFamily: "'JetBrains Mono', ui-monospace, monospace",
       },
       grid: {
-        vertLines: { color: "rgba(255,255,255,0.045)" },
-        horzLines: { color: "rgba(255,255,255,0.045)" },
+        vertLines: { color: "rgba(255,255,255,0.035)" },
+        horzLines: { color: "rgba(255,255,255,0.035)" },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
         vertLine: {
-          color: "rgba(255,255,255,0.18)",
-          labelBackgroundColor: "#16c784",
+          color: "rgba(255,255,255,0.16)",
+          labelBackgroundColor: "#26262c",
           width: 1,
         },
         horzLine: {
-          color: "rgba(255,255,255,0.18)",
-          labelBackgroundColor: "#16c784",
+          color: "rgba(255,255,255,0.16)",
+          labelBackgroundColor: "#26262c",
           width: 1,
         },
       },
@@ -471,16 +471,16 @@ export default function Chart({
     });
 
     const actualSeries = chart.addSeries(AreaSeries, {
-      lineColor: "#8ff2c7",
-      topColor: "rgba(80, 185, 138, 0.26)",
-      bottomColor: "rgba(80, 185, 138, 0.02)",
+      lineColor: "#d4d7dd",
+      topColor: "rgba(255, 255, 255, 0.05)",
+      bottomColor: "rgba(255, 255, 255, 0.004)",
       lineWidth: 2,
       lastValueVisible: true,
       priceLineVisible: true,
       crosshairMarkerVisible: true,
       crosshairMarkerRadius: 4,
-      crosshairMarkerBorderColor: "#8ff2c7",
-      crosshairMarkerBackgroundColor: "#111317",
+      crosshairMarkerBorderColor: "#d4d7dd",
+      crosshairMarkerBackgroundColor: "#0c0c0e",
     });
     actualSeries.setData(chartModel.actualPoints.map((point) => ({ time: point.time, value: point.value })));
 
@@ -537,7 +537,7 @@ export default function Chart({
 
     const currentPriceLine = actualSeries.createPriceLine({
       price: chartModel.lastActual.value,
-      color: "rgba(143, 242, 199, 0.5)",
+      color: "rgba(212, 215, 221, 0.4)",
       lineWidth: 1,
       lineStyle: LineStyle.Dotted,
       axisLabelVisible: false,
