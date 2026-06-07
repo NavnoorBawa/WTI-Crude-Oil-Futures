@@ -290,14 +290,11 @@ function App() {
   }
 
   // Main interface - USE REAL API DATA ONLY
+  // scenario_analysis is kept only for mlCaveat; all geo signal numbers from it
+  // (edge_usd, edge_pct, ev_impact_usd, signal, signal_strength) were computed from
+  // fake hand-entered IRAN_GEOPOLITICAL_EVENTS in oil.py and are NOT displayed.
   const scenario = data?.scenario_analysis || {};
-  const geoSignal = scenario?.geo_signal || {};
   const mlCaveat = scenario?.ml_caveat || null;
-  const evImpactUsd = Number(geoSignal?.ev_impact_usd || 0);
-  const edgeUsd = Number(geoSignal?.edge_usd || 0);
-  const edgePct = Number(geoSignal?.edge_pct || 0);
-  const signalStrength = Number(geoSignal?.signal_strength || 0);
-  const expectedResolutionDays = Number(geoSignal?.expected_resolution_days || 0);
 
   // EIA-sourced supply-shock playbook (replaces old fake scenario engine)
   const playbook = data?.supply_shock_playbook || {};
@@ -396,27 +393,59 @@ function App() {
       ? `${Math.round(fallbackConfidence)}%`
       : (data?.confidence || '--'));
 
-  // Synthesize the one thing a PM needs: the desk call (stance + plain-English why).
+  // Desk call — built entirely from real data sources:
+  //   geoRegime / geoBreakdown / geoDominantDriver  → real (NewsAPI scoring)
+  //   playbookDist                                  → real (EIA-computed)
+  //   fc1wPct / wfIsSignificant                     → real (walk-forward OOS)
   const fc1wPct = Number(data?.multi_horizon_predictions?.percentage_changes?.['1w'] ?? 0);
   const deskCall = (() => {
-    const regimeWord = (geoRegime && geoRegime !== 'UNKNOWN') ? geoRegime.toLowerCase() : 'normal';
-    const edgePos = edgeUsd > 1.5;
-    const edgeNeg = edgeUsd < -1.5;
+    const regimeWord = geoRegime !== 'UNKNOWN' ? geoRegime.toLowerCase() : 'normal';
+
+    // Pick the most relevant playbook distribution for current geo drivers
+    const domDriver = geoDominantDriver.toLowerCase();
+    const breakdownKeys = Object.keys(geoBreakdown).map(k => k.toLowerCase());
+    const hasIran     = domDriver.includes('iran')     || breakdownKeys.some(k => k.includes('iran'));
+    const hasConflict = domDriver.includes('conflict') || breakdownKeys.some(k => k.includes('conflict'));
+    const hasOpec     = domDriver.includes('opec')     || breakdownKeys.some(k => k.includes('opec'));
+
+    let relevantDist = null, distLabel = 'geopolitical';
+    if (hasIran     && playbookDist.iran_driven) { relevantDist = playbookDist.iran_driven; distLabel = 'Iran-driven'; }
+    else if (hasConflict && playbookDist.conflict)   { relevantDist = playbookDist.conflict;   distLabel = 'conflict'; }
+    else if (hasOpec     && playbookDist.opec_cut)   { relevantDist = playbookDist.opec_cut;   distLabel = 'OPEC'; }
+
     const bits = [];
-    if (edgePos) bits.push(`geopolitical risk is ${regimeWord} and historical analogues imply ~${Math.round(Math.abs(edgePct))}% of upside is not yet priced in`);
-    else if (edgeNeg) bits.push(`geopolitical risk is ${regimeWord}, but it already looks priced in — WTI sits ~${Math.round(Math.abs(edgePct))}% above analogue fair value`);
-    else bits.push(`geopolitical risk is ${regimeWord} and roughly fairly priced`);
-    if (!wfIsSignificant) bits.push('the 1-week model shows low directional conviction here');
 
+    // Geo regime + EIA playbook context
+    if (relevantDist?.peak) {
+      const sl = playbookDist.supply_lost?.peak?.median;
+      const th = playbookDist.threat_only?.peak?.median;
+      bits.push(
+        `geo risk is ${regimeWord} (${distLabel}); ${distLabel} events peak at median +${relevantDist.peak.median}% (n=${relevantDist.n})` +
+        (sl != null && th != null ? ` — physical supply loss +${sl}% vs threat-only +${th}%` : '')
+      );
+    } else {
+      bits.push(`geo risk is ${regimeWord}`);
+    }
+
+    // ML 1W signal (only speak if statistically validated)
+    if (wfIsSignificant === true) {
+      if (Math.abs(fc1wPct) < 0.3) bits.push('1W model is flat — no directional conviction');
+      else bits.push(`1W model points ${fc1wPct > 0 ? 'up' : 'down'} ${fc1wPct > 0 ? '+' : ''}${fc1wPct.toFixed(1)}% (p<0.001, validated)`);
+    } else {
+      bits.push('1W model shows no statistically significant directional edge here');
+    }
+
+    // Stance: real ML + real regime only, no fake edge numbers
     let stance = 'NEUTRAL', tone = 'neutral';
-    if (geoSignal.signal === 'LONG_BIAS' && edgePos) { stance = 'LONG BIAS'; tone = 'up'; }
-    else if (edgeNeg || !wfIsSignificant) { stance = 'NEUTRAL'; tone = 'neutral'; }
-    else if (fc1wPct > 0.6) { stance = 'LONG LEAN'; tone = 'up'; }
-    else if (fc1wPct < -0.6) { stance = 'SHORT LEAN'; tone = 'down'; }
+    if (wfIsSignificant === true && fc1wPct > 0.6) { stance = 'LONG LEAN'; tone = 'up'; }
+    else if (wfIsSignificant === true && fc1wPct < -0.6) { stance = 'SHORT LEAN'; tone = 'down'; }
 
-    const action = stance.includes('LONG') ? 'Lean long into the supply-risk premium, sized small.'
-      : stance.includes('SHORT') ? 'Modest tactical short; keep it small.'
-      : 'No unpriced edge to chase today — watch, don’t force it.';
+    const action = stance === 'LONG LEAN'
+      ? 'Model leans long. Size small — no live trading record yet.'
+      : stance === 'SHORT LEAN'
+      ? 'Model leans short. Size small — no live trading record yet.'
+      : 'No clear statistical edge today — watch, don\'t force it.';
+
     return { stance, tone, text: `${bits.join('; ')}. ${action}` };
   })();
 
@@ -485,7 +514,7 @@ function App() {
               <div className="tv-record-note">walk-forward · p&lt;0.001 · after costs</div>
             </>
           ) : (
-            <div className="tv-desk-text">1-week is the validated horizon; the active horizon isn’t statistically reliable.</div>
+            <div className="tv-desk-text">1-week is the validated horizon; the active horizon isn't statistically reliable.</div>
           )}
         </div>
       </div>
@@ -497,15 +526,12 @@ function App() {
             <span className="tv-geo-bar-title">Geopolitical</span>
             <span className="tv-geo-bar-summary">
               <b style={{ color: geoScoreBarColor }}>{geoRegime}</b>
-              <span className="dot">·</span>
-              {(geoSignal.signal || 'NEUTRAL').replace('_', ' ')}
-              {edgeUsd !== 0 && (
-                <>
-                  <span className="dot">·</span>
-                  <span className={edgeUsd >= 0 ? 'up' : 'down'}>
-                    {edgeUsd >= 0 ? `+$${edgeUsd.toFixed(2)} unpriced upside` : `${Math.round(edgePct)}% above analogue fair value (priced in)`}
-                  </span>
-                </>
+              {geoDominantDriver !== 'UNKNOWN' && <><span className="dot">·</span><span>{geoDominantDriver}</span></>}
+              {deskCall.stance !== 'NEUTRAL' && (
+                <><span className="dot">·</span><span className={deskCall.tone === 'up' ? 'up' : 'down'}>{deskCall.stance}</span></>
+              )}
+              {playbookDist.supply_lost && playbookDist.threat_only && (
+                <><span className="dot">·</span><span className="muted">hist: physical loss +{playbookDist.supply_lost.peak?.median}% / threat-only +{playbookDist.threat_only.peak?.median}%</span></>
               )}
               {geoNoveltySpike && <span className="tv-flash">⚡ breaking</span>}
             </span>
@@ -534,26 +560,25 @@ function App() {
               </div>
             </div>
 
-            {/* Trade signal */}
+            {/* ML Signal + Playbook — all real data */}
             <div className="tv-card">
-              <div className="tv-card-label">Trade Signal</div>
+              <div className="tv-card-label">ML Signal · 1W Validated</div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: '9px' }}>
-                <span className={`tv-signal ${
-                  geoSignal.signal === 'LONG_BIAS' ? 'tone-up' :
-                  geoSignal.signal === 'WATCH' ? 'tone-watch' : 'tone-neutral'
-                }`}>{(geoSignal.signal || 'NEUTRAL').replace('_', ' ')}</span>
-                {signalStrength > 0 && <span className="tv-strength">STR {signalStrength}/100</span>}
+                <span className={`tv-signal tone-${deskCall.tone}`}>{deskCall.stance}</span>
+                <span className="tv-strength">{wfIsSignificant === true ? 'p<0.001' : wfIsSignificant === false ? 'n.s.' : ''}</span>
               </div>
-              {geoSignal.strait_risk && <div className="tv-flag">⚑ Hormuz risk active</div>}
               <div className="tv-mini-stats">
-                {evImpactUsd > 0 && (
-                  <div><span>EV Impact</span><strong className="up">+${evImpactUsd.toFixed(1)}/bbl</strong></div>
+                <div>
+                  <span>1W forecast</span>
+                  <strong className={fc1wPct > 0.3 ? 'up' : fc1wPct < -0.3 ? 'down' : ''}>
+                    {fc1wPct > 0 ? '+' : ''}{fc1wPct.toFixed(2)}%
+                  </strong>
+                </div>
+                {playbookDist.supply_lost?.peak && (
+                  <div><span>Physical loss hist.</span><strong className="up">+{playbookDist.supply_lost.peak.median}% peak</strong></div>
                 )}
-                {edgeUsd !== 0 && (
-                  <div><span>Unpriced Edge</span><strong className={edgeUsd >= 0 ? 'up' : 'down'}>{edgeUsd >= 0 ? '+' : ''}${edgeUsd.toFixed(2)} ({edgePct >= 0 ? '+' : ''}{edgePct.toFixed(1)}%)</strong></div>
-                )}
-                {expectedResolutionDays > 0 && (
-                  <div><span>Avg Duration</span><strong className="blue">{expectedResolutionDays}d</strong></div>
+                {playbookDist.threat_only?.peak && (
+                  <div><span>Threat-only hist.</span><strong>+{playbookDist.threat_only.peak.median}% peak</strong></div>
                 )}
               </div>
             </div>
