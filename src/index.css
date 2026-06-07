@@ -298,17 +298,37 @@ html, body {
 .tv-desk-stance.tone-down { color: #ff5c5c; }
 .tv-desk-stance.tone-neutral { color: #cfd3da; }
 .tv-desk-text { color: #9aa3b2; font-size: 12.5px; line-height: 1.55; max-width: 580px; }
-.tv-record-grid { display: grid; grid-template-columns: repeat(2, auto); gap: 9px 26px; justify-content: start; }
-.tv-record-grid > div { display: flex; flex-direction: column; gap: 1px; }
-.tv-record-grid b { color: #f0f3fa; font-size: 17px; font-weight: 700; font-family: "JetBrains Mono", ui-monospace, monospace; }
-.tv-record-grid span { color: #6e7681; font-size: 10px; }
-.tv-record-note { color: #565d68; font-size: 10px; margin-top: 9px; font-family: "JetBrains Mono", ui-monospace, monospace; }
-.tv-record-live { color: #8b949e; font-size: 11px; margin-top: 7px; }
-.tv-record-live b { color: #c9d1d9; font-weight: 700; }
-.tv-sizing { margin-top: 14px; padding-top: 12px; border-top: 1px solid #1c1c1f; }
-.tv-sizing-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #8b949e; margin-top: 6px; flex-wrap: wrap; }
-.tv-sizing-row b { color: #c9d1d9; font-weight: 700; }
-.tv-sizing-note { font-size: 11px; color: #565d68; margin-top: 5px; }
+.tv-desk-text.muted { color: #565d68; }
+/* Position sizing (desk col 3) */
+.tv-sizing-kelly { display: flex; gap: 24px; margin-bottom: 9px; }
+.tv-sizing-kelly > div { display: flex; flex-direction: column; gap: 2px; }
+.tv-sizing-kelly b { color: #f0f3fa; font-size: 21px; font-weight: 700; line-height: 1;
+  font-family: "JetBrains Mono", ui-monospace, monospace; }
+.tv-sizing-kelly span { color: #6e7681; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; }
+.tv-sizing-note { font-size: 11px; color: #8b949e; line-height: 1.5; }
+.tv-sizing-note .muted { color: #565d68; }
+
+/* ---- Performance tear sheet (full-width OOS factsheet) ---- */
+.tv-tearsheet {
+  border-bottom: 1px solid #161618;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.012), transparent), #060607;
+  padding: 15px 22px 17px;
+}
+.tv-tearsheet-head { display: flex; align-items: baseline; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; margin-bottom: 13px; }
+.tv-tearsheet-head .tv-desk-label { margin-bottom: 0; }
+.tv-tearsheet-live { color: #8b949e; font-size: 11px; font-variant-numeric: tabular-nums; }
+.tv-tearsheet-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px 20px; }
+.tv-tearsheet-grid > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tv-tearsheet-grid b { color: #f0f3fa; font-size: 23px; font-weight: 700; line-height: 1;
+  letter-spacing: -0.01em; font-family: "JetBrains Mono", ui-monospace, monospace; }
+.tv-tearsheet-grid b.up { color: #16c784; }
+.tv-tearsheet-grid b.down { color: #ff5c5c; }
+.tv-tearsheet-grid span { color: #6e7681; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; }
+.tv-tearsheet-foot { margin-top: 13px; color: #565d68; font-size: 10.5px;
+  font-family: "JetBrains Mono", ui-monospace, monospace; }
+@media (max-width: 860px) { .tv-tearsheet-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 520px) { .tv-tearsheet-grid { grid-template-columns: repeat(2, 1fr); } }
 
 /* ---- Collapsible geopolitical bar (minimal by default) ---- */
 .tv-geo-bar { width: 100%; display: flex; align-items: center; gap: 16px; background: none;
@@ -1251,6 +1271,23 @@ canvas {
 /* Supply Risk Context section */
 .tv-supply-section { padding: 14px 16px 16px; }
 .tv-supply-section .tv-card-label { margin-bottom: 4px; }
+
+/* Synthesized takeaway — the insight, stated plainly */
+.tv-supply-takeaway {
+  margin: 9px 0 2px;
+  padding: 9px 13px;
+  border-left: 2px solid #2a2a2d;
+  background: rgba(255, 255, 255, 0.015);
+  border-radius: 0 8px 8px 0;
+  font-size: 12px;
+  color: #aeb4c0;
+  line-height: 1.55;
+  max-width: 760px;
+}
+.tv-supply-takeaway strong { font-variant-numeric: tabular-nums; }
+.tv-supply-takeaway .up  { color: #16c784; }
+.tv-supply-takeaway .up2 { color: #4dffb0; }
+.tv-supply-takeaway .down { color: #ff5c5c; }
 
 /* Supply structure distribution table */
 .tv-supply-table { margin-top: 10px; font-size: 11px; font-variant-numeric: tabular-nums; }

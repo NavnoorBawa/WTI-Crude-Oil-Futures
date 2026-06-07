@@ -337,7 +337,6 @@ export default function Chart({
   actualArray = [],
   unifiedData = null,
   multiHorizonPredictions = null,
-  performanceMetricsByHorizon = {},
   currentPrice = 0,
   contractInfo = null,
   priceChange = 0,
@@ -348,15 +347,6 @@ export default function Chart({
   const [selectedRange, setSelectedRange] = useState(DEFAULT_RANGE);
   const [legendSnapshot, setLegendSnapshot] = useState(null);
   const resolvedActiveHorizon = "1W"; // hard-locked: only validated horizon
-  const activeHorizonKey = HORIZON_META[resolvedActiveHorizon]?.key || resolvedActiveHorizon;
-  const activeMetrics = performanceMetricsByHorizon?.[activeHorizonKey] || {};
-  const activeDisplayAccuracyValue = Number.isFinite(Number(activeMetrics?.display_accuracy))
-    ? Number(activeMetrics.display_accuracy)
-    : null;
-  const activeDisplayAccuracySource = activeMetrics?.display_accuracy_source || "unavailable";
-  const activeDisplayAccuracy = activeDisplayAccuracyValue === null
-    ? "--"
-    : `${Math.round(activeDisplayAccuracyValue)}${activeDisplayAccuracySource === "backtest" ? "%*" : "%"}`;
 
   const chartModel = useMemo(() => {
     const actualPayload = unifiedData?.actual || {};
@@ -659,14 +649,14 @@ export default function Chart({
               <div className="tv-symbol-title">{contractInfo?.description || "WTI CRUDE OIL FUTURES"}</div>
               <div className="tv-toolbar-meta">
                 <span>{feedStatus}</span>
-                <span>1W ACC {activeDisplayAccuracy}</span>
+                {contractInfo?.quote_symbol && <span>{contractInfo.quote_symbol}</span>}
               </div>
             </div>
           </div>
 
           <div className="tv-price-block">
             <div className="tv-price-main">${displaySpotPrice.toFixed(2)}</div>
-            <div className={`tv-price-change ${Number(priceChange) >= 0 ? "is-up" : "is-down"}`}>
+            <div className={`tv-price-change ${Number(priceChange) > 0 ? "is-up" : Number(priceChange) < 0 ? "is-down" : ""}`}>
               <span>{formatSignedPrice(Number(priceChange) || 0)}</span>
               <span>{formatSignedPercent(Number(priceChangePercent) || 0)}</span>
             </div>
@@ -674,7 +664,7 @@ export default function Chart({
         </div>
 
         <div className="tv-1w-strip">
-          <span className="tv-1w-horizon">1W</span>
+          <span className="tv-1w-horizon">1W TARGET</span>
           <span className="tv-1w-target">
             {chartModel.forecasts["1W"] ? `$${chartModel.forecasts["1W"].value.toFixed(2)}` : "--"}
           </span>
@@ -683,7 +673,7 @@ export default function Chart({
               {formatSignedPercent(chartModel.forecasts["1W"].changePct)}
             </span>
           )}
-          <span className="tv-1w-meta">walk-forward validated · {activeDisplayAccuracy} direction · Sharpe 2.07 · p&lt;0.001</span>
+          <span className="tv-1w-meta">walk-forward validated signal — full stats above</span>
         </div>
       </div>
 
@@ -741,9 +731,9 @@ export default function Chart({
 
         <div className="tv-footer-copy">
           <span><i className="tv-dot actual" />Actual</span>
-          <span><i className="tv-dot history" />Pred trail</span>
-          <span><i className="tv-dot future" style={{ "--dot-color": HORIZON_META[resolvedActiveHorizon]?.color }} />Pred future</span>
-          <span><i className="tv-dot band" style={{ "--dot-color": rgba(HORIZON_META[resolvedActiveHorizon]?.color, 0.55) }} />Scenario band</span>
+          <span><i className="tv-dot history" />Past predictions</span>
+          <span><i className="tv-dot future" style={{ "--dot-color": HORIZON_META[resolvedActiveHorizon]?.color }} />1W forecast</span>
+          <span><i className="tv-dot band" style={{ "--dot-color": rgba(HORIZON_META[resolvedActiveHorizon]?.color, 0.55) }} />Forecast band</span>
         </div>
       </div>
     </div>

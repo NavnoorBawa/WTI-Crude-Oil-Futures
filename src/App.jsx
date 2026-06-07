@@ -227,8 +227,6 @@ function App() {
     };
   }, [configuredApiBase, pollIntervalMs, startupRetryMs]);
 
-  const headlineMetrics = data?.performance_metrics?.headline || {};
-
   // Loading screen
   if (loading && !data) {
     return (
@@ -282,23 +280,29 @@ function App() {
   const playbookPricedIn = playbook.priced_in_stats || {};
   const geoNoveltySpike = Boolean(data?.geopolitical_risk?.novelty_spike);
 
+  // Event-study rows: every driver with a computed move, sorted by peak magnitude.
+  const SUPPLY_LABELS = {
+    supply_lost: 'Physical supply loss >0.5 mbpd',
+    opec_cut:    'OPEC production cut',
+    conflict:    'Armed conflict',
+    sanctions:   'Sanctions',
+    iran_driven: 'Iran-driven',
+    strait_risk: 'Hormuz / transit-strait risk',
+    weather:     'Weather / hurricane',
+    threat_only: 'Threat only — no physical loss',
+  };
+  const supplyRows = Object.entries(playbookDist)
+    .filter(([k, v]) => SUPPLY_LABELS[k] && v?.peak?.median != null)
+    .map(([k, v]) => ({ key: k, label: SUPPLY_LABELS[k], n: v.n, peak: v.peak.median, settle: v.settle?.median ?? null }))
+    .sort((a, b) => b.peak - a.peak);
+
   const currentPrice = data?.current_price || 0;
   const priceChange = data?.price_change || 0;
   const priceChangePercent = data?.price_change_percent || 0;
   const contractInfo = data?.contract || { symbol: 'CLV25', description: 'WTI CRUDE OIL FUTURES' };
   const activeMetrics = data?.performance_metrics?.by_horizon?.['1w'] || {};
 
-  // Effective direction accuracy: prefer walk-forward display_accuracy, fallback to live
-  const displayDirectionAccuracyRaw = activeMetrics?.display_accuracy
-    ?? headlineMetrics?.display_direction_accuracy
-    ?? data?.performance_metrics?.display_direction_accuracy;
-  const totalEvaluatedPredictions = Number(data?.performance_metrics?.total_predictions || 0);
-  const liveDirectionAccuracy = Number(data?.performance_metrics?.direction_accuracy || 0);
-  const effectiveAccuracy = (displayDirectionAccuracyRaw !== undefined && displayDirectionAccuracyRaw !== null)
-    ? Number(displayDirectionAccuracyRaw)
-    : (totalEvaluatedPredictions > 0 ? liveDirectionAccuracy : null);
-
-  // Walk-forward stats (1W validated signal)
+  // Walk-forward out-of-sample stats (1W validated signal)
   const wfIsSignificant = activeMetrics?.wf_is_significant ?? null;
   const wfCi95          = activeMetrics?.wf_ci_95 ?? null;
   const wfSharpe        = activeMetrics?.wf_pnl_sharpe ?? null;
@@ -306,17 +310,47 @@ function App() {
   const wfWinRate       = activeMetrics?.wf_pnl_win_rate ?? null;
   const wfProfitFactor  = activeMetrics?.wf_pnl_profit_factor ?? null;
   const wfMeanPnl       = activeMetrics?.wf_pnl_mean_per_trade ?? null;
+  const wfMaxDrawdown   = activeMetrics?.wf_pnl_max_drawdown ?? null;
 
-  const fc1wPct = Number(data?.multi_horizon_predictions?.percentage_changes?.['1w'] ?? 0);
+  // Live record — each 1W call resolves after a week; 0 until they settle
+  const liveN   = Number(activeMetrics?.live_total_predictions ?? 0);
+  const liveAcc = Number(activeMetrics?.live_direction_accuracy ?? 0);
+  const liveRecord = liveN === 0
+    ? 'Live: 0 evaluated — none resolved yet (each call settles after 1 week)'
+    : liveN < 18
+    ? `Live: ${liveN} evaluated · ${Math.round(liveAcc)}% — too few to validate (need ≥18)`
+    : `Live: ${liveN} evaluated · ${Math.round(liveAcc)}% hit rate`;
+
+  // Kelly position sizing from walk-forward win rate + profit factor
+  const sizing = (wfIsSignificant === true && wfWinRate && wfProfitFactor && wfMeanPnl)
+    ? (() => {
+        const p = wfWinRate / 100;
+        const pf = wfProfitFactor;
+        const b = pf * (1 - p) / p;
+        const fullKelly = p - (1 - p) / b;
+        const avgLoss = Math.abs(wfMeanPnl / ((pf - 1) * (1 - p)));
+        return {
+          fullKelly: Math.round(fullKelly * 100),
+          halfKelly: Math.round(fullKelly * 50),
+          avgLoss: Math.round(avgLoss),
+          acctPer1: Math.round(avgLoss / 0.02 / 5000) * 5000,
+        };
+      })()
+    : null;
+
+  const fmtPct = (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)}%`;
+  const fc1wRaw = Number(data?.multi_horizon_predictions?.percentage_changes?.['1w'] ?? 0);
+  const fc1wPct = Math.abs(fc1wRaw) < 0.05 ? 0 : fc1wRaw;
   const deskCall = (() => {
     let stance = 'NEUTRAL', tone = 'neutral';
     if (wfIsSignificant === true && fc1wPct > 0.6)  { stance = 'LONG LEAN';  tone = 'up'; }
     if (wfIsSignificant === true && fc1wPct < -0.6) { stance = 'SHORT LEAN'; tone = 'down'; }
+    const hk = sizing ? `~${sizing.halfKelly}% of capital` : 'half-Kelly';
     const text = stance === 'LONG LEAN'
-      ? `1W forecast: +${fc1wPct.toFixed(1)}%. Model leans long — size to half-Kelly (~17% of capital). No live track record yet.`
+      ? `1W forecast ${fmtPct(fc1wPct)}. Model leans long — size to half-Kelly (${hk}). No live track record yet.`
       : stance === 'SHORT LEAN'
-      ? `1W forecast: ${fc1wPct.toFixed(1)}%. Model leans short — size to half-Kelly (~17% of capital). No live track record yet.`
-      : `1W forecast: ${fc1wPct >= 0 ? '+' : ''}${fc1wPct.toFixed(1)}%. No directional edge — signal activates when model conviction exceeds ±0.6%.`;
+      ? `1W forecast ${fmtPct(fc1wPct)}. Model leans short — size to half-Kelly (${hk}). No live track record yet.`
+      : `1W forecast ${fmtPct(fc1wPct)}. No directional edge — the signal only fires when model conviction exceeds ±0.6%.`;
     return { stance, tone, text };
   })();
 
@@ -349,7 +383,7 @@ function App() {
         <div className="tv-caveat info">{error}</div>
       )}
 
-      {/* Desk header — price · the call · the track record */}
+      {/* Desk header — price · the call · sizing */}
       <div className="tv-desk">
         <div>
           <div className="tv-market-symbol">
@@ -358,11 +392,15 @@ function App() {
           </div>
           <div className="tv-desk-pricewrap">
             <span className="tv-desk-px">{currentPrice > 0 ? `$${currentPrice.toFixed(2)}` : '--'}</span>
-            <span className={`tv-desk-chg ${priceChange >= 0 ? 'is-up' : 'is-down'}`}>
-              {currentPrice > 0 ? `${priceChangePercent >= 0 ? '+' : ''}${priceChangePercent.toFixed(2)}%` : '--'}
+            <span className={`tv-desk-chg ${priceChange > 0 ? 'is-up' : priceChange < 0 ? 'is-down' : ''}`}>
+              {currentPrice > 0 ? `${priceChangePercent > 0 ? '+' : ''}${priceChangePercent.toFixed(2)}%` : '--'}
             </span>
           </div>
-          <div className="tv-market-meta">Vol {data?.volume_display || 'N/A'}</div>
+          <div className="tv-market-meta">
+            {contractInfo.days_to_expiry != null && <>{contractInfo.days_to_expiry}d to expiry</>}
+            {contractInfo.days_to_expiry != null && data?.volume_display && ' · '}
+            {data?.volume_display && <>Vol {data.volume_display}</>}
+          </div>
         </div>
 
         <div className="tv-desk-call">
@@ -372,62 +410,44 @@ function App() {
         </div>
 
         <div>
-          <div className="tv-desk-label">5-Year Backtest (OOS)</div>
-          {wfIsSignificant === true ? (
+          <div className="tv-desk-label">Position Sizing</div>
+          {sizing ? (
             <>
-              <div className="tv-record-grid">
-                <div><b>{Number.isFinite(effectiveAccuracy) ? `${Math.round(effectiveAccuracy)}%` : '--'}</b><span>direction</span></div>
-                <div><b>{wfCi95 ? `[${wfCi95[0]}, ${wfCi95[1]}]` : '--'}</b><span>95% CI</span></div>
-                <div><b>{wfSharpe?.toFixed(2)}</b><span>Sharpe</span></div>
-                <div><b>{wfSamples}</b><span>OOS trades</span></div>
+              <div className="tv-sizing-kelly">
+                <div><b>{sizing.halfKelly}%</b><span>Half-Kelly</span></div>
+                <div><b>{sizing.fullKelly}%</b><span>Full Kelly</span></div>
               </div>
-              <div className="tv-record-note">walk-forward expanding window · p&lt;0.001 · $100/trade cost · no macro features</div>
-              <div className="tv-record-live">
-                {(() => {
-                  const n1w = Number(activeMetrics?.live_total_predictions ?? 0);
-                  const acc1w = Number(activeMetrics?.live_direction_accuracy ?? 0);
-                  return <>
-                    1W live evaluated: <b>{n1w}</b>
-                    {n1w === 0
-                      ? <span className="muted"> — none yet (each prediction resolves after 1 week)</span>
-                      : n1w < 18
-                      ? <span className="muted"> — {Math.round(acc1w)}% · too early to validate (need ≥18)</span>
-                      : <span> · {Math.round(acc1w)}% hit rate</span>}
-                  </>;
-                })()}
+              <div className="tv-sizing-note">
+                1 contract per ~${sizing.acctPer1.toLocaleString()} account at 2% risk
+                <span className="muted"> · ${sizing.avgLoss.toLocaleString()} avg loss/contract · backtest basis</span>
               </div>
             </>
           ) : (
-            <div className="tv-desk-text">1-week is the validated horizon; the active horizon is not statistically reliable.</div>
+            <div className="tv-desk-text muted">Sized only when the model shows a directional edge.</div>
           )}
         </div>
-
-        {wfIsSignificant === true && wfWinRate && wfProfitFactor && wfMeanPnl && (() => {
-          const p = wfWinRate / 100;
-          const pf = wfProfitFactor;
-          const b = pf * (1 - p) / p;
-          const fullKelly = p - (1 - p) / b;
-          const halfKelly = fullKelly / 2;
-          const avgLoss = Math.abs(wfMeanPnl / ((pf - 1) * (1 - p)));
-          const acctPer1 = Math.round(avgLoss / 0.02 / 5000) * 5000;
-          return (
-            <div className="tv-sizing">
-              <div className="tv-desk-label">Position Sizing (Walk-Forward Basis)</div>
-              <div className="tv-sizing-row">
-                <span>Full Kelly <b>{(fullKelly * 100).toFixed(0)}%</b></span>
-                <span className="dot">·</span>
-                <span>Half-Kelly <b>{(halfKelly * 100).toFixed(0)}%</b></span>
-                <span className="dot">·</span>
-                <span>avg loss <b>${Math.round(avgLoss).toLocaleString()}</b>/contract</span>
-              </div>
-              <div className="tv-sizing-note">
-                Conservative 2% risk: 1 CL contract per ~${acctPer1.toLocaleString()} account
-                <span className="muted"> · backtest distribution only — no live record yet</span>
-              </div>
-            </div>
-          );
-        })()}
       </div>
+
+      {/* Performance tear sheet — out-of-sample walk-forward */}
+      {wfIsSignificant === true && (
+        <div className="tv-tearsheet">
+          <div className="tv-tearsheet-head">
+            <span className="tv-desk-label">5-Year Walk-Forward Backtest · Out-of-Sample</span>
+            <span className="tv-tearsheet-live">{liveRecord}</span>
+          </div>
+          <div className="tv-tearsheet-grid">
+            <div><b>{wfWinRate?.toFixed(1)}%</b><span>Hit Rate</span></div>
+            <div><b>{wfSharpe?.toFixed(2)}</b><span>Sharpe</span></div>
+            <div><b>{wfProfitFactor?.toFixed(2)}×</b><span>Profit Factor</span></div>
+            <div><b className="up">+${Math.round(wfMeanPnl).toLocaleString()}</b><span>Expectancy / trade</span></div>
+            <div><b className="down">−${Math.round(wfMaxDrawdown).toLocaleString()}</b><span>Max Drawdown</span></div>
+            <div><b>{wfSamples}</b><span>OOS Trades</span></div>
+          </div>
+          <div className="tv-tearsheet-foot">
+            95% CI [{wfCi95?.[0]}, {wfCi95?.[1]}] · p &lt; 0.001 · expanding-window walk-forward · $100/trade costs · no macro features
+          </div>
+        </div>
+      )}
 
       {/* Supply Risk Context — EIA historical price response data */}
       {data && (playbookDist.supply_lost || playbookDist.threat_only) && (
@@ -452,63 +472,41 @@ function App() {
             <div className="tv-supply-section">
               <div className="tv-card-label">
                 Historical WTI Price Response by Supply Event Type
-                <span className="muted">median of {playbookEventCount} events · price moves from EIA daily spot data</span>
+                <span className="muted">median move across {playbookEventCount} events 1990–2024 · computed from EIA daily spot</span>
               </div>
+
+              {playbookDist.supply_lost?.settle && playbookDist.threat_only?.settle != null && (
+                <div className="tv-supply-takeaway">
+                  Physical supply losses hold their gains
+                  {' '}(<strong className="up">+{playbookDist.supply_lost.settle.median}%</strong> median settle);
+                  {' '}pure threats with no barrels lost fade
+                  {' '}(<strong className={playbookDist.threat_only.settle.median >= 0 ? 'up2' : 'down'}>{playbookDist.threat_only.settle.median >= 0 ? '+' : ''}{playbookDist.threat_only.settle.median}%</strong>)
+                  {' '}— the market pays for real disruption, not headlines.
+                </div>
+              )}
+
               <div className="tv-supply-table">
                 <div className="tv-supply-row tv-supply-header">
-                  <span>Category</span><span>Events</span><span>Peak</span><span>Settled</span>
+                  <span>Event type</span><span>Events</span><span>Peak</span><span>Settled</span>
                 </div>
-                {playbookDist.supply_lost && (
-                  <div className="tv-supply-row">
-                    <span className="tv-supply-cat">Physical loss &gt;0.5 mbpd</span>
-                    <span className="muted">{playbookDist.supply_lost.n}</span>
-                    <span className="up">+{playbookDist.supply_lost.peak?.median}%</span>
-                    <span className="up2">+{playbookDist.supply_lost.settle?.median}%</span>
-                  </div>
-                )}
-                {playbookDist.threat_only && (
-                  <div className="tv-supply-row">
-                    <span className="tv-supply-cat">Threat / no physical loss</span>
-                    <span className="muted">{playbookDist.threat_only.n}</span>
-                    <span className={playbookDist.threat_only.peak?.median >= 0 ? 'up' : 'down'}>
-                      {playbookDist.threat_only.peak?.median >= 0 ? '+' : ''}{playbookDist.threat_only.peak?.median}%
-                    </span>
-                    <span className={playbookDist.threat_only.settle?.median >= 0 ? 'up2' : 'down'}>
-                      {playbookDist.threat_only.settle?.median >= 0 ? '+' : ''}{playbookDist.threat_only.settle?.median}%
+                {supplyRows.map((r) => (
+                  <div className="tv-supply-row" key={r.key}>
+                    <span className="tv-supply-cat">{r.label}</span>
+                    <span className="muted">{r.n}</span>
+                    <span className={r.peak >= 0 ? 'up' : 'down'}>{r.peak >= 0 ? '+' : ''}{r.peak}%</span>
+                    <span className={r.settle == null ? 'muted' : r.settle >= 0 ? 'up2' : 'down'}>
+                      {r.settle == null ? '—' : `${r.settle >= 0 ? '+' : ''}${r.settle}%`}
                     </span>
                   </div>
-                )}
-                {playbookDist.strait_risk && (
-                  <div className="tv-supply-row">
-                    <span className="tv-supply-cat">Hormuz risk events</span>
-                    <span className="muted">{playbookDist.strait_risk.n}</span>
-                    <span className={playbookDist.strait_risk.peak?.median >= 0 ? 'up' : 'down'}>
-                      {playbookDist.strait_risk.peak?.median >= 0 ? '+' : ''}{playbookDist.strait_risk.peak?.median}%
-                    </span>
-                    <span className={playbookDist.strait_risk.settle?.median >= 0 ? 'up2' : 'down'}>
-                      {playbookDist.strait_risk.settle?.median >= 0 ? '+' : ''}{playbookDist.strait_risk.settle?.median}%
-                    </span>
-                  </div>
-                )}
-                {playbookDist.iran_driven && (
-                  <div className="tv-supply-row">
-                    <span className="tv-supply-cat">Iran-driven</span>
-                    <span className="muted">{playbookDist.iran_driven.n}</span>
-                    <span className={playbookDist.iran_driven.peak?.median >= 0 ? 'up' : 'down'}>
-                      {playbookDist.iran_driven.peak?.median >= 0 ? '+' : ''}{playbookDist.iran_driven.peak?.median}%
-                    </span>
-                    <span className={playbookDist.iran_driven.settle?.median >= 0 ? 'up2' : 'down'}>
-                      {playbookDist.iran_driven.settle?.median >= 0 ? '+' : ''}{playbookDist.iran_driven.settle?.median}%
-                    </span>
-                  </div>
-                )}
+                ))}
               </div>
+
               {playbookPricedIn.strong_day0_n > 0 && (
                 <div className="tv-pricedin-note">
-                  Priced-in check: strong day-0 reaction (≥+3%) → median eventual peak{' '}
+                  Momentum, not fade: a strong day-0 reaction (≥+3%) leads to a median eventual peak of{' '}
                   <strong className="up">+{playbookPricedIn.strong_day0_median_peak}%</strong>
-                  {' '}vs weak day-0 → <strong>+{playbookPricedIn.weak_day0_median_peak}%</strong>
-                  {' '}(n={playbookPricedIn.strong_day0_n} / {playbookPricedIn.weak_day0_n})
+                  {' '}vs <strong>+{playbookPricedIn.weak_day0_median_peak}%</strong> for a muted open
+                  {' '}(n={playbookPricedIn.strong_day0_n} / {playbookPricedIn.weak_day0_n}).
                 </div>
               )}
             </div>
@@ -527,7 +525,6 @@ function App() {
         <Chart
           actualArray={data?.actual || []}
           multiHorizonPredictions={data?.multi_horizon_predictions}
-          performanceMetricsByHorizon={data?.performance_metrics?.by_horizon || {}}
           unifiedData={data?.unified_data}
           currentPrice={currentPrice}
           contractInfo={contractInfo}
