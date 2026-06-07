@@ -411,7 +411,8 @@ const getEvidenceMeta = (metricsPayload, activeQuality) => {
       : displaySource === "backtest"
         ? "Backtest Evidence"
         : "Evidence Unavailable";
-  const sourceTone = activeQuality?.qualified
+  const wfSignificant = metricsPayload?.wf_is_significant;
+  const sourceTone = (wfSignificant === true || activeQuality?.qualified)
     ? "up"
     : displaySource === "unavailable"
       ? "down"
