@@ -61,6 +61,27 @@ jobs:
           NOAA_CDO_KEY: ${{ secrets.NOAA_CDO_KEY }}
         run: python freeze.py --out public
 
+      - name: Check 1W signal and send alert on stance change
+        env:
+          # Add GMAIL_APP_PASSWORD as a GitHub Secret to enable email alerts.
+          # Generate at: myaccount.google.com > Security > App passwords
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GMAIL_USER: navnoorquant@gmail.com
+          ALERT_EMAIL: navnoorquant@gmail.com
+        run: python backend/signal_alert.py --data public/data.json
+
+      - name: Persist signal state to main branch
+        run: |
+          git config user.name "WTI Signal Bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/signal_state.json
+          if git diff --staged --quiet; then
+            echo "Signal state unchanged — no commit"
+          else
+            git commit -m "chore: update 1W signal state [skip ci]"
+            git push origin HEAD:main
+          fi
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:

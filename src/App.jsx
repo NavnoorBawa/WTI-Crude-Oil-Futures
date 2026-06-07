@@ -532,6 +532,32 @@ function App() {
             <div className="tv-desk-text">1-week is the validated horizon; the active horizon is not statistically reliable.</div>
           )}
         </div>
+
+        {wfIsSignificant === true && wfWinRate && wfProfitFactor && wfMeanPnl && (() => {
+          const p = wfWinRate / 100;
+          const pf = wfProfitFactor;
+          const b = pf * (1 - p) / p;
+          const fullKelly = p - (1 - p) / b;
+          const halfKelly = fullKelly / 2;
+          const avgLoss = Math.abs(wfMeanPnl / ((pf - 1) * (1 - p)));
+          const acctPer1 = Math.round(avgLoss / 0.02 / 5000) * 5000;
+          return (
+            <div className="tv-sizing">
+              <div className="tv-desk-label">Position Sizing (Walk-Forward Basis)</div>
+              <div className="tv-sizing-row">
+                <span>Full Kelly <b>{(fullKelly * 100).toFixed(0)}%</b></span>
+                <span className="dot">·</span>
+                <span>Half-Kelly <b>{(halfKelly * 100).toFixed(0)}%</b></span>
+                <span className="dot">·</span>
+                <span>avg loss <b>${Math.round(avgLoss).toLocaleString()}</b>/contract</span>
+              </div>
+              <div className="tv-sizing-note">
+                Conservative 2% risk: 1 CL contract per ~${acctPer1.toLocaleString()} account
+                <span className="muted"> · backtest distribution only — no live record yet</span>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Geopolitical intelligence */}
