@@ -292,15 +292,19 @@ function App() {
   // Main interface - USE REAL API DATA ONLY
   const scenario = data?.scenario_analysis || {};
   const geoSignal = scenario?.geo_signal || {};
-  const topAnalogues = Array.isArray(scenario?.top_analogues) ? scenario.top_analogues : [];
-  const impliedRange = scenario?.implied_price_range || {};
-  const hormuzScenarios = Array.isArray(scenario?.hormuz_scenarios) ? scenario.hormuz_scenarios : [];
   const mlCaveat = scenario?.ml_caveat || null;
   const evImpactUsd = Number(geoSignal?.ev_impact_usd || 0);
   const edgeUsd = Number(geoSignal?.edge_usd || 0);
   const edgePct = Number(geoSignal?.edge_pct || 0);
   const signalStrength = Number(geoSignal?.signal_strength || 0);
   const expectedResolutionDays = Number(geoSignal?.expected_resolution_days || 0);
+
+  // EIA-sourced supply-shock playbook (replaces old fake scenario engine)
+  const playbook = data?.supply_shock_playbook || {};
+  const playbookAnalogues = Array.isArray(playbook.analogues) ? playbook.analogues : [];
+  const playbookDist = playbook.distributions || {};
+  const playbookEventCount = Number(playbook.event_count || 0);
+  const playbookPricedIn = playbook.priced_in_stats || {};
 
   const geoRisk = data?.geopolitical_risk || {};
   const geoScore = Number(geoRisk.score || 0);
@@ -554,20 +558,38 @@ function App() {
               </div>
             </div>
 
-            {/* Analogues */}
+            {/* Analogues — EIA-sourced, computed from real price data */}
             <div className="tv-card">
-              <div className="tv-card-label">Closest Historical Analogues</div>
-              {topAnalogues.slice(0, 2).map((a) => (
+              <div className="tv-card-label">
+                Driver-Matched Analogues
+                {playbookEventCount > 0 && <span className="muted">EIA · {playbookEventCount} events · 1990–2024</span>}
+              </div>
+              {playbookAnalogues.slice(0, 3).map((a) => (
                 <div key={a.id} className="tv-analogue">
-                  <div className="tv-analogue-title">{a.date} · {a.event}</div>
+                  <div className="tv-analogue-title">
+                    {a.date} · {a.event}
+                  </div>
+                  <div className="tv-analogue-supply">
+                    {a.supply_mbpd > 0
+                      ? <span className="tv-supply-loss">{a.supply_mbpd} mbpd removed</span>
+                      : <span className="muted">threat / no supply loss</span>}
+                    {a.strait_risk && <span className="tv-flag-inline">⚑ Hormuz</span>}
+                  </div>
                   <div className="tv-analogue-stats">
-                    <span className="up">Peak +{a.peak_pct}%</span>
-                    <span className={a.settled_pct >= 0 ? 'up2' : 'down'}>Settled {a.settled_pct >= 0 ? '+' : ''}{a.settled_pct}%</span>
-                    <span className="muted">{a.duration_days}d</span>
+                    {a.peak_pct != null && (
+                      <span className={a.peak_pct >= 0 ? 'up' : 'down'}>
+                        Peak {a.peak_pct >= 0 ? '+' : ''}{a.peak_pct}%{a.peak_day != null ? ` @d${a.peak_day}` : ''}
+                      </span>
+                    )}
+                    {a.settle_pct != null && (
+                      <span className={a.settle_pct >= 0 ? 'up2' : 'down'}>
+                        Settled {a.settle_pct >= 0 ? '+' : ''}{a.settle_pct}%
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}
-              {topAnalogues.length === 0 && <div className="tv-headline-text">Awaiting data</div>}
+              {playbookAnalogues.length === 0 && <div className="tv-headline-text">EIA data loading</div>}
             </div>
 
             {/* Headlines */}
@@ -588,58 +610,70 @@ function App() {
               </div>
             )}
 
-            {/* Implied range */}
-            {impliedRange.high && (
-              <div className="tv-card">
-                <div className="tv-card-label">Analogue-Implied Price Range</div>
-                <div className="tv-range">
-                  <div>
-                    <span>Bull</span>
-                    <strong className="up">${impliedRange.high?.toFixed(2)}</strong>
-                    <small className="up">+{((impliedRange.high - currentPrice) / currentPrice * 100).toFixed(1)}%</small>
-                  </div>
-                  <div>
-                    <span>Base</span>
-                    <strong>${impliedRange.mid?.toFixed(2)}</strong>
-                    <small className={impliedRange.mid >= currentPrice ? 'up' : 'down'}>{impliedRange.mid >= currentPrice ? '+' : ''}{((impliedRange.mid - currentPrice) / currentPrice * 100).toFixed(1)}%</small>
-                  </div>
-                  <div>
-                    <span>Bear</span>
-                    <strong className="down">${impliedRange.low?.toFixed(2)}</strong>
-                    <small className="down">{((impliedRange.low - currentPrice) / currentPrice * 100).toFixed(1)}%</small>
-                  </div>
-                </div>
-                {edgeUsd !== 0 && (
-                  <div className={`tv-range-note ${edgeUsd >= 0 ? 'up' : 'down'}`}>
-                    {edgeUsd >= 0 ? `+$${edgeUsd.toFixed(2)} unpriced vs market` : `−$${Math.abs(edgeUsd).toFixed(2)} premium above fair value`}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Hormuz scenarios */}
-            {hormuzScenarios.length > 0 && (
+            {/* Supply Structure — the key insight: physical loss vs threat-only */}
+            {(playbookDist.supply_lost || playbookDist.threat_only) && (
               <div className="tv-card tv-card-wide">
                 <div className="tv-card-label">
-                  Strait of Hormuz Disruption Scenarios
-                  <span className="muted">~21 mbpd/day · P = illustrative odds · $ impact from EIA/IEA refs</span>
+                  Supply Structure · Historical WTI Response
+                  <span className="muted">median of {playbookEventCount} events · moves computed from EIA daily spot</span>
                 </div>
-                <div className="tv-scenarios">
-                  {hormuzScenarios.map((s) => (
-                    <div key={s.name} className="tv-scenario">
-                      <div className="tv-scenario-head">
-                        <span className="tv-scenario-name">{s.name}</span>
-                        {s.probability > 0 && <span className="tv-prob">P={Math.round(s.probability * 100)}%</span>}
-                      </div>
-                      <div className="muted">{s.supply_loss_mbpd} mbpd disrupted</div>
-                      <div className="tv-scenario-price">
-                        <strong>${s.price_target_mid?.toFixed(0)}</strong>
-                        <span className="muted">mid · ${s.price_target_low?.toFixed(0)}–${s.price_target_high?.toFixed(0)}</span>
-                      </div>
-                      <div className="impact">+${s.price_impact_low}–${s.price_impact_high}/bbl</div>
+                <div className="tv-supply-table">
+                  <div className="tv-supply-row tv-supply-header">
+                    <span>Category</span><span>Events</span><span>Peak</span><span>Settled</span>
+                  </div>
+                  {playbookDist.supply_lost && (
+                    <div className="tv-supply-row">
+                      <span className="tv-supply-cat">Physical loss &gt;0.5 mbpd</span>
+                      <span className="muted">{playbookDist.supply_lost.n}</span>
+                      <span className="up">+{playbookDist.supply_lost.peak?.median}%</span>
+                      <span className="up2">+{playbookDist.supply_lost.settle?.median}%</span>
                     </div>
-                  ))}
+                  )}
+                  {playbookDist.threat_only && (
+                    <div className="tv-supply-row">
+                      <span className="tv-supply-cat">Threat / no physical loss</span>
+                      <span className="muted">{playbookDist.threat_only.n}</span>
+                      <span className={playbookDist.threat_only.peak?.median >= 0 ? 'up' : 'down'}>
+                        {playbookDist.threat_only.peak?.median >= 0 ? '+' : ''}{playbookDist.threat_only.peak?.median}%
+                      </span>
+                      <span className={playbookDist.threat_only.settle?.median >= 0 ? 'up2' : 'down'}>
+                        {playbookDist.threat_only.settle?.median >= 0 ? '+' : ''}{playbookDist.threat_only.settle?.median}%
+                      </span>
+                    </div>
+                  )}
+                  {playbookDist.strait_risk && (
+                    <div className="tv-supply-row">
+                      <span className="tv-supply-cat">⚑ Hormuz risk events</span>
+                      <span className="muted">{playbookDist.strait_risk.n}</span>
+                      <span className={playbookDist.strait_risk.peak?.median >= 0 ? 'up' : 'down'}>
+                        {playbookDist.strait_risk.peak?.median >= 0 ? '+' : ''}{playbookDist.strait_risk.peak?.median}%
+                      </span>
+                      <span className={playbookDist.strait_risk.settle?.median >= 0 ? 'up2' : 'down'}>
+                        {playbookDist.strait_risk.settle?.median >= 0 ? '+' : ''}{playbookDist.strait_risk.settle?.median}%
+                      </span>
+                    </div>
+                  )}
+                  {playbookDist.iran_driven && (
+                    <div className="tv-supply-row">
+                      <span className="tv-supply-cat">Iran-driven</span>
+                      <span className="muted">{playbookDist.iran_driven.n}</span>
+                      <span className={playbookDist.iran_driven.peak?.median >= 0 ? 'up' : 'down'}>
+                        {playbookDist.iran_driven.peak?.median >= 0 ? '+' : ''}{playbookDist.iran_driven.peak?.median}%
+                      </span>
+                      <span className={playbookDist.iran_driven.settle?.median >= 0 ? 'up2' : 'down'}>
+                        {playbookDist.iran_driven.settle?.median >= 0 ? '+' : ''}{playbookDist.iran_driven.settle?.median}%
+                      </span>
+                    </div>
+                  )}
                 </div>
+                {playbookPricedIn.strong_day0_n > 0 && (
+                  <div className="tv-pricedin-note">
+                    Priced-in check: strong day-0 reaction (≥+3%) → median eventual peak{' '}
+                    <strong className="up">+{playbookPricedIn.strong_day0_median_peak}%</strong>
+                    {' '}vs weak day-0 → <strong>+{playbookPricedIn.weak_day0_median_peak}%</strong>
+                    {' '}(n={playbookPricedIn.strong_day0_n} / {playbookPricedIn.weak_day0_n})
+                  </div>
+                )}
               </div>
             )}
 

@@ -62,6 +62,7 @@ system_state = {
 }
 
 EAGER_ML_WARMUP = os.getenv('EAGER_ML_WARMUP', 'false').lower() == 'true'
+_PLAYBOOK_CACHE: dict = {"data": None, "built_at": 0.0}
 API_STARTUP_RETRY_SECONDS = max(2, int(os.getenv('API_STARTUP_RETRY_SECONDS', '5')))
 STARTUP_RETRY_COOLDOWN_SECONDS = max(5, int(os.getenv('STARTUP_RETRY_COOLDOWN_SECONDS', '20')))
 PRIMARY_DISPLAY_HORIZON = os.getenv('PRIMARY_DISPLAY_HORIZON', '1d').lower()
@@ -150,6 +151,23 @@ def _load_walk_forward_stats() -> dict:
     except Exception as e:
         logger.warning(f'Could not load walk-forward backtest stats: {e}')
         return {}
+
+
+def _load_supply_shock_playbook(current_drivers=None):
+    """Load the EIA-sourced supply-shock playbook (cache-first, 6h TTL)."""
+    global _PLAYBOOK_CACHE
+    if _PLAYBOOK_CACHE["data"] is not None and time.time() - _PLAYBOOK_CACHE["built_at"] < 21600:
+        return _PLAYBOOK_CACHE["data"]
+    try:
+        from .supply_shock_playbook import get_playbook_for_api
+        result = get_playbook_for_api(current_drivers=current_drivers)
+        if result:
+            _PLAYBOOK_CACHE["data"] = result
+            _PLAYBOOK_CACHE["built_at"] = time.time()
+        return result
+    except Exception as e:
+        logger.debug(f'Supply-shock playbook unavailable: {e}')
+        return _PLAYBOOK_CACHE.get("data")
 
 
 def _build_horizon_metrics(accuracy_metrics, horizon_backtests, horizon_confidence, horizon_quality, min_live_accuracy_samples):
@@ -606,6 +624,15 @@ def get_data():
             )
 
         geo_raw = predictions.get('geopolitical_risk', {}) if predictions else {}
+
+        # Infer active drivers from geo breakdown + dominant driver for playbook analogue ranking.
+        _geo_breakdown = geo_raw.get('risk_breakdown', {})
+        _active_drivers = [k.lower() for k, v in _geo_breakdown.items() if v and int(v) > 0]
+        _dominant = str(geo_raw.get('dominant_driver', '')).lower()
+        if _dominant and _dominant not in _active_drivers:
+            _active_drivers.insert(0, _dominant)
+        supply_shock_playbook = _load_supply_shock_playbook(current_drivers=_active_drivers)
+
         geopolitical_risk = {
             'score': float(geo_raw.get('geo_risk_score', 0) or 0),
             'regime': str(geo_raw.get('regime', 'UNKNOWN')),
@@ -777,6 +804,7 @@ def get_data():
             
             'geopolitical_risk': geopolitical_risk,
             'scenario_analysis': scenario_analysis,
+            'supply_shock_playbook': supply_shock_playbook,
 
             'feed_status': 'REAL-TIME' if prediction_is_full_real else ('DEGRADED' if prediction_is_real else 'INITIALIZING'),
             'status': 'ACTIVE' if prediction_is_full_real else ('DEGRADED' if prediction_is_real else 'INITIALIZING'),
