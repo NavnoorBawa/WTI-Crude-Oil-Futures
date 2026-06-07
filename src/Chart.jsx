@@ -64,12 +64,6 @@ const formatSignedPercent = (value) => {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 };
 
-const parsePercentValue = (value) => {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value !== "string") return null;
-  const match = value.match(/-?\d+(\.\d+)?/);
-  return match ? Number(match[0]) : null;
-};
 
 const formatSignedPrice = (value) => {
   if (!Number.isFinite(value)) return "--";
@@ -99,26 +93,6 @@ const formatLegendTime = (time) => {
   });
 };
 
-const formatTimestampLabel = (value) => {
-  if (!value) return "--";
-  const dateValue = new Date(value);
-  if (Number.isNaN(dateValue.getTime())) return "--";
-  return dateValue.toLocaleString("en-US", {
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZoneName: "short",
-  });
-};
-
-const humanizeReason = (value) => {
-  if (!value) return "";
-  return String(value)
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-};
 
 const rgba = (hex, alpha) => {
   const clean = hex.replace("#", "");
@@ -359,100 +333,16 @@ const buildScenarioPath = (lastActual, forecastTime, scenarioValue) => {
   });
 };
 
-const getBiasTone = (changePct) => {
-  if (!Number.isFinite(changePct)) return { label: "Unclear", tone: "neutral" };
-  if (changePct >= 1.25) return { label: "Bullish", tone: "up" };
-  if (changePct >= 0.2) return { label: "Constructive", tone: "up" };
-  if (changePct <= -1.25) return { label: "Bearish", tone: "down" };
-  if (changePct <= -0.2) return { label: "Defensive", tone: "down" };
-  return { label: "Range-bound", tone: "neutral" };
-};
-
-const getConvictionMeta = (accuracyValue, confidenceValue) => {
-  const accuracy = parsePercentValue(accuracyValue);
-  const confidence = parsePercentValue(confidenceValue);
-  const combined = [accuracy, confidence].filter(Number.isFinite);
-
-  if (combined.length === 0) {
-    return { label: "Unscored", tone: "neutral", detail: "Accuracy/confidence unavailable" };
-  }
-
-  const score = combined.reduce((sum, value) => sum + value, 0) / combined.length;
-  if (score >= 65) {
-    return { label: "High Conviction", tone: "up", detail: `Composite ${score.toFixed(0)}%` };
-  }
-  if (score >= 45) {
-    return { label: "Moderate Conviction", tone: "neutral", detail: `Composite ${score.toFixed(0)}%` };
-  }
-  return { label: "Low Conviction", tone: "down", detail: `Composite ${score.toFixed(0)}%` };
-};
-
-const getQualityMeta = (qualityPayload) => {
-  const status = String(qualityPayload?.status || "unknown").toLowerCase();
-  const reasons = Array.isArray(qualityPayload?.reasons) ? qualityPayload.reasons : [];
-  if (status === "qualified") {
-    return { label: "Qualified", tone: "up", detail: "Supported by current evidence" };
-  }
-  if (status === "watch") {
-    return { label: "Watch", tone: "neutral", detail: reasons.length > 0 ? reasons.join(", ").replaceAll("_", " ") : "Limited evaluation evidence" };
-  }
-  return { label: "Low Quality", tone: "down", detail: reasons.length > 0 ? reasons.join(", ").replaceAll("_", " ") : "Forecast not quality qualified" };
-};
-
-const getEvidenceMeta = (metricsPayload, activeQuality) => {
-  const displayAccuracy = toNum(metricsPayload?.display_accuracy);
-  const displaySource = String(metricsPayload?.display_accuracy_source || "unavailable");
-  const liveSamples = Math.max(0, Math.round(toNum(metricsPayload?.live_total_predictions) || 0));
-  const backtestSamples = Math.max(0, Math.round(toNum(metricsPayload?.backtest_samples) || 0));
-  const sourceLabel = displaySource === "live"
-    ? "Live Evidence"
-    : displaySource === "live_sparse"
-      ? "Live Warm-Up"
-      : displaySource === "backtest"
-        ? "Backtest Evidence"
-        : "Evidence Unavailable";
-  const wfSignificant = metricsPayload?.wf_is_significant;
-  const sourceTone = (wfSignificant === true || activeQuality?.qualified)
-    ? "up"
-    : displaySource === "unavailable"
-      ? "down"
-      : "neutral";
-
-  if (!Number.isFinite(displayAccuracy)) {
-    return {
-      label: sourceLabel,
-      tone: sourceTone,
-      value: "--",
-      detail: "No verified direction-accuracy sample available",
-    };
-  }
-
-  const sampleCount = displaySource === "backtest" ? backtestSamples : liveSamples;
-  const sampleLabel = displaySource === "backtest"
-    ? `${sampleCount} walk-forward samples`
-    : `${sampleCount} realized calls`;
-
-  return {
-    label: sourceLabel,
-    tone: sourceTone,
-    value: `${Math.round(displayAccuracy)}${displaySource === "backtest" ? "%*" : "%"}`,
-    detail: sampleCount > 0 ? sampleLabel : "Sample count unavailable",
-  };
-};
 
 export default function Chart({
   actualArray = [],
   unifiedData = null,
   multiHorizonPredictions = null,
   performanceMetricsByHorizon = {},
-  activeHorizon = DEFAULT_HORIZON,
-  onActiveHorizonChange = null,
   currentPrice = 0,
   contractInfo = null,
   priceChange = 0,
   priceChangePercent = 0,
-  displayAccuracy = "--",
-  displayConfidence = "--",
   feedStatus = "UNKNOWN",
 }) {
   const chartHostRef = useRef(null);
@@ -460,8 +350,6 @@ export default function Chart({
   const [legendSnapshot, setLegendSnapshot] = useState(null);
   const resolvedActiveHorizon = "1W"; // hard-locked: only validated horizon
   const activeHorizonKey = HORIZON_META[resolvedActiveHorizon]?.key || resolvedActiveHorizon;
-  const qualityByHorizon = multiHorizonPredictions?.horizon_quality || {};
-  const activeQuality = qualityByHorizon?.[activeHorizonKey] || {};
   const activeMetrics = performanceMetricsByHorizon?.[activeHorizonKey] || {};
   const activeDisplayAccuracyValue = Number.isFinite(Number(activeMetrics?.display_accuracy))
     ? Number(activeMetrics.display_accuracy)
@@ -470,12 +358,6 @@ export default function Chart({
   const activeDisplayAccuracy = activeDisplayAccuracyValue === null
     ? "--"
     : `${Math.round(activeDisplayAccuracyValue)}${activeDisplayAccuracySource === "backtest" ? "%*" : "%"}`;
-  const activeConfidenceValue = Number.isFinite(Number(activeMetrics?.confidence))
-    ? Number(activeMetrics.confidence)
-    : null;
-  const activeDisplayConfidence = activeConfidenceValue === null
-    ? "--"
-    : `${Math.round(activeConfidenceValue)}%`;
 
   const chartModel = useMemo(() => {
     const actualPayload = unifiedData?.actual || {};
@@ -520,81 +402,6 @@ export default function Chart({
       lowerScenarioPoints,
     };
   }, [actualArray, currentPrice, multiHorizonPredictions, resolvedActiveHorizon, unifiedData]);
-
-  const investorSummary = useMemo(() => {
-    const current = chartModel.lastActual?.value;
-    const forecast = chartModel.activeForecast;
-    if (!Number.isFinite(current) || !forecast) return null;
-
-    const bias = getBiasTone(forecast.changePct);
-    const lower = Number.isFinite(forecast.lower) ? forecast.lower : null;
-    const upper = Number.isFinite(forecast.upper) ? forecast.upper : null;
-    const rangeWidthPct = lower !== null && upper !== null && current > 0
-      ? ((upper - lower) / current) * 100
-      : null;
-    const downsidePct = lower !== null && current > 0
-      ? ((lower - current) / current) * 100
-      : null;
-    const upsidePct = upper !== null && current > 0
-      ? ((upper - current) / current) * 100
-      : null;
-    const rewardRisk = Number.isFinite(upsidePct) && Number.isFinite(downsidePct) && downsidePct < 0
-      ? upsidePct / Math.abs(downsidePct)
-      : null;
-    const conviction = getConvictionMeta(activeDisplayAccuracyValue, activeConfidenceValue);
-    const quality = getQualityMeta(activeQuality);
-    const evidence = getEvidenceMeta(activeMetrics, activeQuality);
-    const lens = HORIZON_META[resolvedActiveHorizon]?.lens || resolvedActiveHorizon;
-    const quoteSymbol = multiHorizonPredictions?.contract_metadata?.quote_symbol || contractInfo?.quote_symbol || "--";
-    const historySymbol = multiHorizonPredictions?.contract_metadata?.history_symbol || contractInfo?.history_symbol || "--";
-    const forecastUpdatedAt = formatTimestampLabel(multiHorizonPredictions?.last_update);
-    const hourlyRows = toNum(multiHorizonPredictions?.market_data_sources?.hourly_history?.rows);
-    const dailyRows = toNum(multiHorizonPredictions?.market_data_sources?.daily_history?.rows);
-    const provenanceDetail = [
-      Number.isFinite(hourlyRows) ? `Hourly ${Math.round(hourlyRows)} rows` : null,
-      Number.isFinite(dailyRows) ? `Daily ${Math.round(dailyRows)} rows` : null,
-    ].filter(Boolean).join(" • ");
-    const benchmarkDelta = forecast.changePct;
-    const benchmarkCardValue = formatCurrency(current);
-    const qualityReasons = Array.isArray(activeQuality?.reasons)
-      ? activeQuality.reasons.map(humanizeReason)
-      : [];
-    const thesisTitle = evidence.tone !== "up"
-      ? `1W signal lacks statistical confidence — no directional edge`
-      : (bias.tone === "up"
-        ? `1W walk-forward signal leans bullish`
-        : bias.tone === "down"
-          ? `1W walk-forward signal leans bearish`
-          : `1W walk-forward signal — directionally flat`);
-    const thesisCopy = Number.isFinite(rewardRisk)
-      ? `Base target ${formatCurrency(forecast.value)} versus spot ${formatCurrency(current)}. The working band runs from ${formatCurrency(lower ?? forecast.value)} to ${formatCurrency(upper ?? forecast.value)}, with ${rewardRisk.toFixed(2)}x upside-to-downside. Evidence basis: ${evidence.label.toLowerCase()} at ${evidence.value}. ${quality.detail}.`
-      : `Base target ${formatCurrency(forecast.value)} versus spot ${formatCurrency(current)}. The working band runs from ${formatCurrency(lower ?? forecast.value)} to ${formatCurrency(upper ?? forecast.value)}. Evidence basis: ${evidence.label.toLowerCase()} at ${evidence.value}. ${quality.detail}.`;
-
-    return {
-      bias,
-      lens,
-      conviction,
-      quality,
-      evidence,
-      thesisTitle,
-      thesisCopy,
-      baseTarget: forecast.value,
-      expectedMovePct: forecast.changePct,
-      lower,
-      upper,
-      downsidePct,
-      upsidePct,
-      rewardRisk,
-      rangeWidthPct,
-      benchmarkDelta,
-      benchmarkCardValue,
-      forecastUpdatedAt,
-      quoteSymbol,
-      historySymbol,
-      provenanceDetail,
-      qualityReasons,
-    };
-  }, [activeConfidenceValue, activeDisplayAccuracyValue, resolvedActiveHorizon, activeMetrics, activeQuality, chartModel.activeForecast, chartModel.lastActual, contractInfo?.history_symbol, contractInfo?.quote_symbol, multiHorizonPredictions]);
 
   const displaySpotPrice = Number.isFinite(Number(currentPrice)) && Number(currentPrice) > 0
     ? Number(currentPrice)

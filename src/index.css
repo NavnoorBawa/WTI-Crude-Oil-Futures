@@ -214,7 +214,6 @@ html, body {
 .tv-live { display: flex; align-items: center; gap: 7px; color: #8b949e; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; }
 .tv-live-dot { width: 7px; height: 7px; border-radius: 50%; background: #16c784; box-shadow: 0 0 0 3px rgba(46,160,67,0.18); animation: tvpulse 2.4s ease-in-out infinite; }
 @keyframes tvpulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
-.tv-snapshot { color: #565d68; font-size: 10px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; border: 1px solid #2a2a2a; padding: 2px 7px; border-radius: 3px; }
 .tv-topbar-time { color: #c9d1d9; font-size: 11px; }
 .tv-topbar-asof { color: #6e7681; font-size: 11px; }
 
@@ -261,95 +260,22 @@ html, body {
 .tv-section-title { color: #8b949e; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.13em; white-space: nowrap; }
 .tv-section-rule { flex: 1; height: 1px; background: linear-gradient(90deg, #161618, transparent); }
 
-/* ---- Card grid + cards ---- */
-.tv-geo-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(258px, 1fr)); }
-.tv-card { padding: 12px 14px; border: 1px solid #1c1c1f; border-radius: 13px; min-width: 0; overflow: hidden;
-  background: radial-gradient(circle at top right, rgba(255,255,255,0.025), transparent 55%), #0b0b0d; }
-.tv-card-wide { grid-column: 1 / -1; }
+/* ---- Card label (used in supply section) ---- */
 .tv-card-label { color: #6e7681; font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em;
   margin-bottom: 9px; display: flex; align-items: center; gap: 8px; }
 .tv-card-label .muted { color: #565d68; text-transform: none; letter-spacing: 0; font-size: 10px; }
 .tv-flash { color: #ff6b6b; font-weight: 700; font-size: 9.5px; letter-spacing: 0.05em; animation: tvpulse 1.4s ease-in-out infinite; }
 
-/* Regime card */
-.tv-geo-score { display: flex; align-items: baseline; gap: 9px; }
-.tv-big { color: #fff; font-size: 27px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
-.tv-geo-max { color: #565d68; font-size: 11px; }
-.tv-regime-pill { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; padding: 2px 9px; border-radius: 999px; }
-.tv-bar { height: 6px; border-radius: 999px; background: #17171a; margin: 9px 0 8px; overflow: hidden; }
-.tv-bar-fill { height: 100%; border-radius: 999px; }
-.tv-geo-breakdown { display: flex; flex-wrap: wrap; gap: 12px; }
-.tv-geo-breakdown span { font-size: 10px; color: #8b949e; font-variant-numeric: tabular-nums; }
-.tv-geo-breakdown b { color: #d1d4dc; margin-left: 3px; }
-
-/* Trade signal card */
-.tv-signal { font-size: 21px; font-weight: 800; letter-spacing: 0.01em; line-height: 1; }
-.tv-signal.tone-up { color: #16c784; }
-.tv-signal.tone-watch { color: #d6a93a; }
-.tv-signal.tone-neutral { color: #8b949e; }
-.tv-strength { color: #6e7681; font-size: 10px; margin-left: 9px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.tv-flag { color: #ff7a7a; font-size: 10.5px; font-weight: 700; margin-top: 5px; }
-.tv-mini-stats { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 11px; }
-.tv-mini-stats > div { display: flex; flex-direction: column; gap: 3px; }
-.tv-mini-stats span { color: #6e7681; font-size: 9px; text-transform: uppercase; letter-spacing: 0.07em; }
-.tv-mini-stats strong { color: #d1d4dc; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.tv-mini-stats strong.up { color: #16c784; }
-.tv-mini-stats strong.down { color: #ff5c5c; }
-.tv-mini-stats strong.blue { color: #cfd3da; }
-
-/* Analogues */
-.tv-analogue { padding: 6px 0; border-top: 1px solid #17171a; }
-.tv-analogue:first-of-type { border-top: none; padding-top: 2px; }
-.tv-analogue-title { color: #e6e9f0; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tv-analogue-stats { display: flex; gap: 12px; margin-top: 3px; font-size: 11px; font-variant-numeric: tabular-nums; }
-.tv-analogue-stats .up { color: #16c784; font-weight: 700; }
-.tv-analogue-stats .down { color: #ff5c5c; font-weight: 600; }
-.tv-analogue-stats .up2 { color: #4dffb0; font-weight: 600; }
-.tv-analogue-stats .muted { color: #6e7681; }
-
-/* Headlines */
-.tv-headline { display: flex; gap: 9px; align-items: baseline; padding: 3px 0; }
-.tv-headline-date { flex-shrink: 0; width: 44px; color: #565d68; font-size: 10px; font-variant-numeric: tabular-nums; }
-.tv-headline-date.brk { color: #ff6b6b; font-weight: 700; }
-.tv-headline-text { flex: 1; min-width: 0; color: #aeb4c0; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-/* Implied range */
-.tv-range { display: flex; gap: 20px; flex-wrap: wrap; }
-.tv-range > div { display: flex; flex-direction: column; gap: 2px; }
-.tv-range span { color: #6e7681; font-size: 9px; text-transform: uppercase; letter-spacing: 0.07em; }
-.tv-range strong { color: #f0f3fa; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.tv-range strong.up { color: #16c784; }
-.tv-range strong.down { color: #ff5c5c; }
-.tv-range small { font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.tv-range small.up { color: #16c784; }
-.tv-range small.down { color: #ff5c5c; }
-.tv-range-note { margin-top: 9px; font-size: 11px; font-weight: 600; }
-.tv-range-note.up { color: #d6a93a; }
-.tv-range-note.down { color: #ff5c5c; }
-
-/* Hormuz scenarios */
-.tv-scenarios { display: flex; flex-wrap: wrap; gap: 9px; }
-.tv-scenario { min-width: 138px; padding: 9px 11px; border: 1px solid #1c1c1f; border-radius: 10px; background: #0b0b0d; }
-.tv-scenario-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.tv-scenario-name { color: #cfd3da; font-size: 11px; font-weight: 700; white-space: nowrap; }
-.tv-prob { color: #d6a93a; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.tv-scenario .muted { color: #6e7681; font-size: 10px; font-variant-numeric: tabular-nums; }
-.tv-scenario-price { display: flex; align-items: baseline; gap: 5px; margin-top: 4px; }
-.tv-scenario-price strong { color: #16c784; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.tv-scenario .impact { color: #16c784; font-size: 10.5px; font-variant-numeric: tabular-nums; }
 
 /* Monospace numerics — the quant terminal signature */
-.tv-num, .tv-market-price, .tv-big, .tv-stat-value, .tv-stat-sub,
-.tv-range strong, .tv-range small, .tv-scenario-price strong, .tv-scenario .muted,
-.tv-mini-stats strong, .tv-analogue-stats, .tv-headline-date, .tv-geo-breakdown,
-.tv-prob, .tv-strength, .tv-regime-pill, .tv-geo-max, .tv-topbar-time,
-.tv-market-change, .tv-market-meta, .tv-scenario .impact, .tv-chip,
+.tv-num, .tv-market-price, .tv-stat-value, .tv-stat-sub,
+.tv-topbar-time, .tv-market-change, .tv-market-meta, .tv-chip,
 .tv-investor-value, .tv-1w-target, .tv-1w-change, .tv-price-main,
-.tv-price-change, .tv-thesis-pill strong {
+.tv-price-change {
   font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
-.tv-section-title, .tv-card-label, .tv-stat-label, .tv-mini-stats span,
-.tv-range span, .tv-investor-label, .tv-brand-sub {
+.tv-section-title, .tv-card-label, .tv-stat-label,
+.tv-investor-label, .tv-brand-sub {
   font-family: "Inter", -apple-system, sans-serif;
 }
 
@@ -1575,17 +1501,10 @@ canvas {
 
 /* ── Supply-shock playbook UI ─────────────────────────────────────────── */
 
-/* Analogue sub-row: supply amount */
-.tv-analogue-supply {
-  font-size: 10px;
-  color: #6e7681;
-  margin-top: 2px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.tv-supply-loss { color: #d6a93a; font-weight: 600; }
-.tv-flag-inline { color: #ff5c5c; font-size: 10px; font-weight: 700; }
+
+/* Supply Risk Context section */
+.tv-supply-section { padding: 14px 16px 16px; }
+.tv-supply-section .tv-card-label { margin-bottom: 4px; }
 
 /* Supply structure distribution table */
 .tv-supply-table { margin-top: 10px; font-size: 11px; font-variant-numeric: tabular-nums; }
