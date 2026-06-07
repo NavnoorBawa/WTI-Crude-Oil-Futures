@@ -1655,7 +1655,8 @@ canvas {
   border-top: none;
   padding-bottom: 4px;
 }
-.tv-supply-row > span:first-child {
+.tv-supply-row > span:first-child,
+.tv-supply-cat {
   flex: 1 1 0%;
   min-width: 0;
   color: #d1d4dc;
