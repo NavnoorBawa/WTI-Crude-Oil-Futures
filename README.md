@@ -37,10 +37,12 @@ The result was **stress-tested against the obvious failure modes** before being 
    reports naive-last-price, drift, and seasonal baselines alongside the ensemble.
 2. **Not concentrated in one event.** Momentum loses in *every* calendar year 2021–2026, so
    the edge is not a single 2022 war spike.
-3. **Not look-ahead leakage from revised macro data.** The signal was re-run with **all
-   FRED/EIA macro features removed** (the only revision-prone data source). It did not
-   weaken — it *improved* (Sharpe 2.07 vs 1.90). The deployed model therefore uses the lean,
-   leakage-proof feature set (price/technical + point-in-time market data only).
+3. **Not dependent on revision-prone macro data.** The deployed model excludes FRED/EIA
+   macro entirely; the headline Sharpe 2.07 comes from price/technical + point-in-time
+   market features alone. A side-by-side rerun shows adding latest-vintage macro *raises*
+   the backtest further (Sharpe ~2.98) — but those series are revised after publication,
+   so that uplift cannot be distinguished from look-ahead without a point-in-time (ALFRED)
+   vintage audit. It is therefore neither claimed nor deployed.
    Comparison artifact: [`data/macro_leakage_test.json`](data/macro_leakage_test.json).
 
 Reproduce:
