@@ -365,6 +365,14 @@ function App() {
               ? `Data as of ${new Date(data.frozen_at).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} CT`
               : `Updated ${Math.floor((currentTime - lastUpdate) / 1000)}s ago`}
           </span>
+          <a
+            className="tv-topbar-link"
+            href="https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub ↗
+          </a>
         </div>
       </div>
 

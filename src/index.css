@@ -217,6 +217,9 @@ html, body {
 @keyframes tvpulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
 .tv-topbar-time { color: #c9d1d9; font-size: 11px; }
 .tv-topbar-asof { color: #6e7681; font-size: 11px; }
+.tv-topbar-link { color: #8b949e; font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+  text-decoration: none; transition: color 0.15s ease; }
+.tv-topbar-link:hover { color: #5cb0d6; }
 
 /* ---- Caveat / warning banners ---- */
 .tv-caveat { padding: 8px 28px; font-size: 11px; font-weight: 600; color: #ffb4b0;
