@@ -303,14 +303,40 @@ function App() {
   const wfMeanPnl       = activeMetrics?.wf_pnl_mean_per_trade ?? null;
   const wfMaxDrawdown   = activeMetrics?.wf_pnl_max_drawdown ?? null;
 
-  // Live record — each 1W call resolves after a week; 0 until they settle
-  const liveN   = Number(activeMetrics?.live_total_predictions ?? 0);
-  const liveAcc = Number(activeMetrics?.live_direction_accuracy ?? 0);
+  // Live record — git-committed daily calls, resolved after 1 week (backend/live_record.py).
+  // Every entry/resolution is timestamped by a bot commit, so the record can't be back-dated.
+  const lr = data?.live_record || null;
+  const liveN   = lr ? Number(lr.n_resolved_directional ?? 0) : Number(activeMetrics?.live_total_predictions ?? 0);
+  const liveAcc = lr ? Number(lr.hit_rate_pct ?? 0) : Number(activeMetrics?.live_direction_accuracy ?? 0);
+  const livePending = lr ? Number(lr.n_pending ?? 0) : 0;
   const liveRecord = liveN === 0
-    ? 'Live: 0 evaluated — none resolved yet (each call settles after 1 week)'
+    ? `Live: 0 resolved${livePending > 0 ? ` · ${livePending} pending` : ''} — each call settles after 1 week`
     : liveN < 18
-    ? `Live: ${liveN} evaluated · ${Math.round(liveAcc)}% — too few to validate (need ≥18)`
-    : `Live: ${liveN} evaluated · ${Math.round(liveAcc)}% hit rate`;
+    ? `Live: ${liveN} resolved · ${Math.round(liveAcc)}% — too few to validate (need ≥18)`
+    : `Live: ${liveN} resolved · ${Math.round(liveAcc)}% hit rate`;
+
+  // OOS equity curve from the walk-forward per-trade series (cumulative net P&L).
+  const wfTrades = Array.isArray(activeMetrics?.wf_pnl_trades) ? activeMetrics.wf_pnl_trades : [];
+  const equityCurve = (() => {
+    if (wfTrades.length < 10) return null;
+    let cum = 0;
+    const pts = wfTrades.map((t) => { cum += Number(t.pnl) || 0; return cum; });
+    const lo = Math.min(0, ...pts);
+    const hi = Math.max(...pts);
+    const span = hi - lo || 1;
+    const W = 560, H = 64;
+    const x = (i) => (i / (pts.length - 1)) * W;
+    const y = (v) => H - ((v - lo) / span) * H;
+    const line = pts.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    const area = `${line} L${W},${H} L0,${H} Z`;
+    return {
+      line, area, W, H,
+      zeroY: y(0),
+      first: wfTrades[0].t,
+      last: wfTrades[wfTrades.length - 1].t,
+      total: pts[pts.length - 1],
+    };
+  })();
 
   // Kelly position sizing from walk-forward win rate + profit factor
   const sizing = (wfIsSignificant === true && wfWinRate && wfProfitFactor && wfMeanPnl)
@@ -442,6 +468,28 @@ function App() {
             <div><b className="down">−${Math.round(wfMaxDrawdown).toLocaleString()}</b><span>Max Drawdown</span></div>
             <div><b>{wfSamples}</b><span>OOS Trades</span></div>
           </div>
+          {equityCurve && (
+            <div className="tv-equity">
+              <div className="tv-equity-head">
+                <span>OOS equity curve · {wfTrades.length} trades · {equityCurve.first} → {equityCurve.last}</span>
+                <span className={equityCurve.total >= 0 ? 'up' : 'down'}>
+                  {equityCurve.total >= 0 ? '+' : '−'}${Math.abs(Math.round(equityCurve.total)).toLocaleString()} net
+                </span>
+              </div>
+              <svg
+                viewBox={`0 0 ${equityCurve.W} ${equityCurve.H}`}
+                preserveAspectRatio="none"
+                className="tv-equity-svg"
+                role="img"
+                aria-label="Cumulative out-of-sample P&L"
+              >
+                <path d={equityCurve.area} fill="rgba(92,176,214,0.10)" />
+                <line x1="0" y1={equityCurve.zeroY} x2={equityCurve.W} y2={equityCurve.zeroY}
+                      stroke="#30363d" strokeWidth="1" strokeDasharray="3,4" />
+                <path d={equityCurve.line} fill="none" stroke="#5cb0d6" strokeWidth="1.6" />
+              </svg>
+            </div>
+          )}
           <div className="tv-tearsheet-foot">
             95% CI [{wfCi95?.[0]}, {wfCi95?.[1]}] · p &lt; 0.001 · expanding-window walk-forward · $100/trade costs · no macro features
           </div>

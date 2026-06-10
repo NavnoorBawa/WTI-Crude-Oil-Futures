@@ -114,7 +114,7 @@ def compute_metrics(actuals, predictions, references):
     }
 
 
-def prepare_daily_dataset(predictor, wti_data, horizon, feature_mode="all"):
+def prepare_daily_dataset(predictor, wti_data, horizon, feature_mode="all", lag_context_days=0):
     """Rebuild the per-horizon daily feature matrix used by the production predictor.
 
     feature_mode controls which feature families are included — used to test for
@@ -123,6 +123,11 @@ def prepare_daily_dataset(predictor, wti_data, horizon, feature_mode="all"):
       - "no_macro":   technical + market-context, NO FRED/EIA  (leakage test — macro is the
                       only family subject to post-hoc revisions, so dropping it isolates the risk)
       - "price_only": technical features only (purest; market data is point-in-time but external)
+
+    lag_context_days shifts ALL cross-asset context features back N trading days
+    (timing-leakage test): the backtest enters at the WTI settlement (~14:30 ET) but
+    equity/vol context closes print at 16:00 ET, so same-day context contains ~90 min
+    of post-entry information. Lagging one full day is strictly conservative.
     """
     include_market = feature_mode in ("all", "no_macro")
     include_macro = feature_mode == "all"
@@ -140,7 +145,12 @@ def prepare_daily_dataset(predictor, wti_data, horizon, feature_mode="all"):
         row_features = predictor.engineer_technical_features(window_data)
         row_key = predictor._date_feature_key(window_data.index[-1])
         if include_market:
-            row_features.update(market_context_map.get(row_key, {}))
+            context_key = (
+                predictor._date_feature_key(wti_data.index[i - lag_context_days])
+                if lag_context_days > 0 and i - lag_context_days >= 0
+                else row_key
+            )
+            row_features.update(market_context_map.get(context_key, {}))
         if include_macro:
             row_features.update(historical_external_map.get(row_key, historical_external_defaults))
         reference_close = float(wti_data["Close"].iloc[i])
@@ -245,6 +255,7 @@ def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step)
     references = []
     timestamps = []
     trade_pnls = []       # net P&L per trade after transaction costs
+    trade_records = []    # timestamped per-trade series for the OOS equity curve
 
     for end_idx in range(min_train, len(dataset), step):
         train_df = dataset.iloc[:end_idx].copy()
@@ -307,7 +318,13 @@ def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step)
         pred_dir = float(np.sign(ensemble_pred - ref_price))
         if pred_dir != 0:
             gross = pred_dir * (actual_price - ref_price) * CONTRACT_BARRELS
-            trade_pnls.append(gross - TRANSACTION_COST_USD)
+            net = gross - TRANSACTION_COST_USD
+            trade_pnls.append(net)
+            trade_records.append({
+                "t": str(row["timestamp"])[:10],
+                "dir": int(pred_dir),
+                "pnl": round(net, 2),
+            })
 
     metrics = {
         model_name: compute_metrics(actuals, preds, references)
@@ -336,6 +353,7 @@ def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step)
         "best_baseline": best_baseline,
         "mae_improvement_vs_best_baseline_pct": float(mae_improvement),
         "pnl_metrics": pnl_metrics,
+        "trades": trade_records,
         "first_prediction_timestamp": timestamps[0] if timestamps else None,
         "last_prediction_timestamp": timestamps[-1] if timestamps else None,
     }
@@ -349,6 +367,9 @@ def main():
     parser.add_argument("--estimators", type=int, default=40, help="tree estimators per model for backtest runtime")
     parser.add_argument("--features", default="all", choices=["all", "no_macro", "price_only"],
                         help="feature families to include (leakage test: 'no_macro' drops FRED/EIA)")
+    parser.add_argument("--lag-context", type=int, default=0, metavar="DAYS",
+                        help="lag cross-asset context features by N trading days "
+                             "(timing-leakage test: 1 = strictly entry-time-clean)")
     parser.add_argument("--output", default="data/walk_forward_backtest_latest.json", help="path to write JSON report")
     args = parser.parse_args()
 
@@ -361,7 +382,11 @@ def main():
     datasets = {}
     feature_cols_map = {}
     for horizon in horizons:
-        dataset, feature_cols = prepare_daily_dataset(predictor, wti_data, horizon, feature_mode=args.features)
+        dataset, feature_cols = prepare_daily_dataset(
+            predictor, wti_data, horizon,
+            feature_mode=args.features,
+            lag_context_days=max(0, int(args.lag_context)),
+        )
         if dataset.empty:
             raise RuntimeError(f"No backtest rows available for horizon={horizon}")
         if len(dataset) <= args.min_train:
@@ -390,6 +415,7 @@ def main():
             "step": int(args.step),
             "estimators": int(args.estimators),
             "feature_mode": args.features,
+            "context_lag_days": max(0, int(args.lag_context)),
             "rows_by_horizon": {horizon: int(len(datasets[horizon])) for horizon in horizons},
             "feature_count_by_horizon": {horizon: int(len(feature_cols_map[horizon])) for horizon in horizons},
         },

@@ -146,6 +146,9 @@ def _load_walk_forward_stats() -> dict:
                 'pnl_total':           float(pnl['total_pnl_usd']) if pnl.get('total_pnl_usd') is not None else None,
                 'pnl_profit_factor':   float(pnl['profit_factor']) if pnl.get('profit_factor') is not None else None,
                 'pnl_n_trades':        int(pnl['n_trades']) if pnl.get('n_trades') else 0,
+                # Per-trade series for the OOS equity curve (present in artifacts
+                # generated after the trades field was added to the backtest).
+                'pnl_trades':          hr.get('trades', []),
             }
         return out
     except Exception as e:
@@ -168,6 +171,19 @@ def _load_supply_shock_playbook(current_drivers=None):
     except Exception as e:
         logger.debug(f'Supply-shock playbook unavailable: {e}')
         return _PLAYBOOK_CACHE.get("data")
+
+
+def _load_live_record_summary():
+    """Summary of the git-committed live 1W track record (see backend/live_record.py)."""
+    try:
+        path = Path(__file__).parent.parent / 'data' / 'live_track_record.json'
+        if not path.exists():
+            return None
+        summary = json.loads(path.read_text(encoding='utf-8')).get('summary')
+        return summary if isinstance(summary, dict) else None
+    except Exception as e:
+        logger.debug(f'Live track record unavailable: {e}')
+        return None
 
 
 def _build_horizon_metrics(accuracy_metrics, horizon_backtests, horizon_confidence, horizon_quality, min_live_accuracy_samples):
@@ -238,6 +254,7 @@ def _build_horizon_metrics(accuracy_metrics, horizon_backtests, horizon_confiden
             'wf_pnl_total':         wf.get('pnl_total'),
             'wf_pnl_profit_factor': wf.get('pnl_profit_factor'),
             'wf_pnl_n_trades':      wf.get('pnl_n_trades', 0),
+            'wf_pnl_trades':        wf.get('pnl_trades', []),
         }
 
     preferred_order = _ordered_display_horizons(PRIMARY_DISPLAY_HORIZON)
@@ -805,6 +822,7 @@ def get_data():
             'geopolitical_risk': geopolitical_risk,
             'ml_caveat': ml_caveat,
             'supply_shock_playbook': supply_shock_playbook,
+            'live_record': _load_live_record_summary(),
 
             'feed_status': 'REAL-TIME' if prediction_is_full_real else ('DEGRADED' if prediction_is_real else 'INITIALIZING'),
             'status': 'ACTIVE' if prediction_is_full_real else ('DEGRADED' if prediction_is_real else 'INITIALIZING'),

@@ -44,6 +44,13 @@ The result was **stress-tested against the obvious failure modes** before being 
    so that uplift cannot be distinguished from look-ahead without a point-in-time (ALFRED)
    vintage audit. It is therefore neither claimed nor deployed.
    Comparison artifact: [`data/macro_leakage_test.json`](data/macro_leakage_test.json).
+4. **Not entry-time leakage from after-hours closes.** The backtest enters at the WTI
+   settlement (~14:30 ET), but equity/vol context features (VIX, XLE, SPY) close at
+   16:00 ET — ~90 minutes later. Re-running with **all cross-asset features lagged one
+   full trading day** (strictly entry-time-clean) keeps the signal: 63.0% direction
+   accuracy, p = 0.006, Sharpe 2.43 vs 2.74 on the matched configuration. The edge does
+   not depend on the post-entry window.
+   Comparison artifact: [`data/timing_leakage_test.json`](data/timing_leakage_test.json).
 
 Reproduce:
 ```bash
@@ -72,11 +79,14 @@ The dashboard translates the validated statistics into the numbers a desk actual
   The signal is allowed to say "no trade."
 - **Kelly sizing** — full- and half-Kelly fractions derived from the walk-forward win rate and
   profit factor, plus a contracts-per-account-size translation at 2% risk per trade.
-- **Live track record** — every 1W call is stored and scored after it resolves, displayed
-  separately from the backtest and flagged as too-few-to-validate until n ≥ 18. A GitHub
-  Actions job emails on every stance change, so the live record is timestamped and auditable
-  ([`backend/signal_alert.py`](backend/signal_alert.py), state in
-  [`data/signal_state.json`](data/signal_state.json)).
+- **Live track record** — CI records one 1W call per day and scores it when it resolves a
+  week later ([`backend/live_record.py`](backend/live_record.py), record in
+  [`data/live_track_record.json`](data/live_track_record.json)). **Every entry and every
+  resolution is timestamped by a bot commit, so the record cannot be back-dated.** Calls
+  spanning a contract roll are skipped, not scored; NEUTRAL means "no trade" and is never
+  counted. Displayed separately from the backtest and flagged too-few-to-validate until
+  n ≥ 18. A GitHub Actions job also emails on stance changes
+  ([`backend/signal_alert.py`](backend/signal_alert.py)).
 
 ---
 
@@ -123,12 +133,14 @@ python backend/supply_shock_playbook.py   # print the full event-study table fro
 - **[`backend/server.py`](backend/server.py)** — Flask API; merges live predictions with the
   walk-forward stats artifact.
 - **[`backend/signal_alert.py`](backend/signal_alert.py)** — stance-change email alerts (CI).
+- **[`backend/live_record.py`](backend/live_record.py)** — git-committed live track record
+  (record daily, resolve weekly, skip contract rolls).
 - **[`freeze.py`](freeze.py)** + **[`.github/workflows/refresh.yml`](.github/workflows/refresh.yml)**
   — hourly frozen snapshot deployed to GitHub Pages (no running server).
 - **[`src/`](src)** — React dashboard (lightweight-charts, hand-written CSS).
-- **[`data/`](data)** — evidence artifacts only: the walk-forward backtest, the macro-leakage
-  comparison, the EIA spot cache, and the live signal state. Per-contract runtime files are
-  gitignored.
+- **[`data/`](data)** — evidence artifacts only: the walk-forward backtest, the macro- and
+  timing-leakage comparisons, the EIA spot cache, the live track record, and the signal
+  state. Per-contract runtime files are gitignored.
 - **[`tests/`](tests)** — logic-guard unit tests (`python -m unittest discover -s tests`).
 
 ### Models
