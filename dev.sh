@@ -14,8 +14,10 @@ if [ -f .env ]; then
   set +a
 fi
 
-# Fill in the EIA key so the playbook and external data work locally.
-export EIA_API_KEY="${EIA_API_KEY:-ynoQL6PQrPbw2LU790EUZew8jqEVWnw5maO6hKcw}"
+# API keys come from .env (see .env.example) — nothing is hardcoded here.
+if [ -z "${EIA_API_KEY:-}" ]; then
+  echo "⚠️  EIA_API_KEY not set — supply-shock playbook will use its cached data."
+fi
 
 # ── Backend (Flask on port 9000) ─────────────────────────────────────────────
 echo ""

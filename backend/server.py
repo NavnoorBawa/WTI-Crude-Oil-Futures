@@ -643,7 +643,7 @@ def get_data():
             'recent_24h_articles': int(geo_raw.get('recent_24h_articles', 0) or 0),
             'novelty_spike': bool(geo_raw.get('novelty_spike', False)),
         }
-        scenario_analysis = predictions.get('scenario_analysis', {}) if predictions else {}
+        ml_caveat = predictions.get('ml_caveat') if predictions else None
 
         prediction_is_real = bool(predictions.get('is_real_prediction', False)) if predictions else False
         prediction_is_full_real = bool(predictions.get('is_full_real_prediction', prediction_is_real)) if predictions else False
@@ -803,7 +803,7 @@ def get_data():
             },
             
             'geopolitical_risk': geopolitical_risk,
-            'scenario_analysis': scenario_analysis,
+            'ml_caveat': ml_caveat,
             'supply_shock_playbook': supply_shock_playbook,
 
             'feed_status': 'REAL-TIME' if prediction_is_full_real else ('DEGRADED' if prediction_is_real else 'INITIALIZING'),
@@ -826,53 +826,6 @@ def get_data():
             'message': f'Cannot get real data from oil.py: {str(e)}',
             'server_time': datetime.now().isoformat()
         }, 500)
-
-@app.route('/scenario')
-def get_scenario():
-    """
-    Standalone geopolitical scenario endpoint.
-    Returns historical event analogues, Hormuz disruption scenarios, and trade signal.
-    Useful for hedge fund risk desks during high-geopolitical-risk regimes.
-    """
-    ensure_startup_started()
-    if not _startup_ready.is_set():
-        return json_response(startup_payload('Server starting up.', startup_retry_seconds()), 503)
-
-    try:
-        from .oil import IRAN_GEOPOLITICAL_EVENTS, HORMUZ_SCENARIOS, PremiumWTIPredictor
-        contract_info = get_current_wti_contract()
-        current_price = float(contract_info.get('current_price', 0) or 0)
-
-        # Use cached predictions if available for geo data
-        predictions = system_state.get('cached_predictions') or {}
-        geo_raw = predictions.get('geopolitical_risk', {})
-        scenario = predictions.get('scenario_analysis', {})
-
-        # If no cached scenario, build a minimal one with neutral geo data
-        if not scenario:
-            predictor = PremiumWTIPredictor.__new__(PremiumWTIPredictor)
-            scenario = predictor.get_geopolitical_scenario_analysis(geo_raw, current_price)
-
-        return json_response({
-            'current_price': round(current_price, 2),
-            'contract': contract_info.get('symbol'),
-            'geopolitical_risk': {
-                'score': float(geo_raw.get('geo_risk_score', 0) or 0),
-                'regime': str(geo_raw.get('regime', 'UNKNOWN')),
-                'dominant_driver': str(geo_raw.get('dominant_driver', 'unknown')),
-                'risk_breakdown': geo_raw.get('risk_breakdown', {}),
-                'recent_24h_articles': int(geo_raw.get('recent_24h_articles', 0) or 0),
-                'novelty_spike': bool(geo_raw.get('novelty_spike', False)),
-            },
-            'scenario_analysis': scenario,
-            'event_database_size': len(IRAN_GEOPOLITICAL_EVENTS),
-            'timestamp': datetime.now().isoformat(),
-        })
-
-    except Exception as e:
-        logger.error(f'Scenario endpoint error: {e}')
-        return json_response({'error': str(e)}, 500)
-
 
 @app.route('/health')
 def health():
@@ -999,11 +952,11 @@ def ensure_startup_started():
 
 @app.before_request
 def _ensure_startup_for_requests():
-    """Guarantee startup thread is running for WSGI servers (Gunicorn/import usage)."""
+    """Guarantee startup thread is running when the app is imported by a WSGI server."""
     ensure_startup_started()
 
 def run_server(host='0.0.0.0', port=9000, debug=False):
-    """Run the Flask server - for use by run_complete_system.py"""
+    """Run the Flask development server (python -m backend.server)."""
     ensure_startup_started()
     app.run(host=host, port=port, debug=debug)
 

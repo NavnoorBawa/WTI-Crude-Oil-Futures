@@ -31,9 +31,6 @@ function App() {
     apiBase.endsWith(".json") ? apiBase : `${apiBase}/data`;
 
   const getApiBaseCandidates = () => {
-    const hostname = window.location.hostname;
-    const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1";
-
     if (staticDataMode) {
       return [staticDataUrl];
     }
@@ -42,12 +39,8 @@ function App() {
       return [configuredApiBase];
     }
 
-    if (isLocalHost) {
-      return ["http://127.0.0.1:9000"];
-    }
-
-    // Production default if frontend env var is missing.
-    return ["https://wti-crude-oil-backend.onrender.com"];
+    // Local dev default; production builds use VITE_STATIC_DATA or VITE_API_BASE_URL.
+    return ["http://127.0.0.1:9000"];
   };
 
   useEffect(() => {
@@ -184,7 +177,7 @@ function App() {
       } catch (err) {
         if (err.code === 'SYSTEM_INITIALIZING') {
           const retryAfterSeconds = Number(err.retryAfterSeconds) || (startupRetryMs / 1000);
-          const startupMessage = err.message || 'Backend is waking up on Render. This can take 10-30 seconds on the free tier.';
+          const startupMessage = err.message || 'Backend is warming up the model. This can take a minute on first start.';
           startupRetryPendingRef.current = true;
 
           if (isInitial || !latestDataRef.current) {
@@ -267,11 +260,9 @@ function App() {
   }
 
   // Main interface - USE REAL API DATA ONLY
-  // scenario_analysis is kept only for mlCaveat; all geo signal numbers from it
-  // (edge_usd, edge_pct, ev_impact_usd, signal, signal_strength) were computed from
-  // fake hand-entered IRAN_GEOPOLITICAL_EVENTS in oil.py and are NOT displayed.
-  const scenario = data?.scenario_analysis || {};
-  const mlCaveat = scenario?.ml_caveat || null;
+  // ml_caveat: backend flags HIGH/CRITICAL geo regimes where the ensemble is out of
+  // its training distribution; everything else geo comes from the EIA event study.
+  const mlCaveat = data?.ml_caveat || null;
 
   // EIA-sourced supply-shock playbook
   const playbook = data?.supply_shock_playbook || {};

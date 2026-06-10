@@ -258,6 +258,13 @@ class OilLogicGuardsTest(unittest.TestCase):
 
 
 class ServerMetricSelectionTest(unittest.TestCase):
+    def setUp(self):
+        # Isolate from the repo's walk-forward artifact: these tests exercise the
+        # display-fallback logic, which the merged-in walk-forward stats override.
+        patcher = patch("backend.server._load_walk_forward_stats", return_value={})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_unqualified_sparse_live_accuracy_falls_back_to_backtest_display(self):
         accuracy_metrics = {
             "1h": {"total_predictions": 0, "direction_accuracy": 0.0},

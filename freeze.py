@@ -3,15 +3,15 @@
 Freeze the live API payload into static JSON for GitHub Pages hosting.
 
 This is the "frozen Flask" pattern: instead of running a live server, we render the
-/data and /scenario endpoints in-memory with Flask's test client and write the output
-to static files. A GitHub Actions cron re-runs this on a schedule, so the static site
-always serves the most recent snapshot with zero running infrastructure.
+/data endpoint in-memory with Flask's test client and write the output to a static
+file. A GitHub Actions cron re-runs this on a schedule, so the static site always
+serves the most recent snapshot with zero running infrastructure.
 
-The React frontend (built with VITE_STATIC_DATA=true) fetches these files directly,
+The React frontend (built with VITE_STATIC_DATA=true) fetches this file directly,
 so no backend server is needed at runtime.
 
 Usage:
-    python freeze.py                 # writes public/data.json + public/scenario.json
+    python freeze.py                 # writes public/data.json
     python freeze.py --out public     # custom output directory
 """
 
@@ -52,19 +52,12 @@ def freeze(out_dir: Path) -> dict:
     if not data or data.get("error"):
         raise SystemExit(f"/data returned an error payload: {(data or {}).get('error')}")
 
-    print("Rendering /scenario ...", flush=True)
-    scenario_resp = client.get("/scenario")
-    scenario = scenario_resp.get_json() if scenario_resp.status_code == 200 else {}
-
     # Stamp when this snapshot was frozen so the UI can show an honest "data as of" label.
     frozen_at = datetime.now(timezone.utc).isoformat()
     data["frozen_at"] = frozen_at
-    if isinstance(scenario, dict):
-        scenario["frozen_at"] = frozen_at
 
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "data.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
-    (out_dir / "scenario.json").write_text(json.dumps(scenario, indent=2), encoding="utf-8")
 
     contract = data.get("contract")
     symbol = contract.get("symbol") if isinstance(contract, dict) else contract
