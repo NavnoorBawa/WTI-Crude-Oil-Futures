@@ -63,11 +63,18 @@ def run_config(predictor, wti_data, lag_days: int, min_train: int, step: int) ->
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Timing-leakage test: same-day vs lagged context.")
+    parser.add_argument("--step", type=int, default=STEP, help="walk-forward stride (5 = headline config)")
+    parser.add_argument("--estimators", type=int, default=ESTIMATORS, help="trees per model (40 = headline config)")
+    parser.add_argument("--min-train", type=int, default=MIN_TRAIN)
+    parser.add_argument("--output", default="data/timing_leakage_test.json")
+    args = parser.parse_args()
+
     print("=== Timing Leakage Test (same-day vs lagged cross-asset context) ===")
-    print(f"Period: {PERIOD}, min_train: {MIN_TRAIN}, step: {STEP}, estimators: {ESTIMATORS}\n")
+    print(f"Period: {PERIOD}, min_train: {args.min_train}, step: {args.step}, estimators: {args.estimators}\n")
 
     predictor = PremiumWTIPredictor()
-    predictor.model_n_estimators = ESTIMATORS
+    predictor.model_n_estimators = max(20, int(args.estimators))
     predictor.model_cpu_workers = 1
 
     print("Fetching WTI data...")
@@ -78,7 +85,7 @@ def main():
     for lag in (0, 1):
         label = "same_day" if lag == 0 else "lagged_1d"
         print(f"Running {label} config (no_macro, context lag = {lag})...")
-        results[label] = run_config(predictor, wti_data, lag)
+        results[label] = run_config(predictor, wti_data, lag, args.min_train, args.step)
         r = results[label]
         print(f"  acc={r.get('direction_accuracy')}% p={r.get('direction_p_value')} "
               f"sharpe={r.get('sharpe')} n={r.get('samples')}\n")
@@ -97,11 +104,12 @@ def main():
         print("TIMING LEAKAGE: same-day context closes materially inflate the result — "
               "headline numbers must be revised to the lagged config")
 
-    out_path = Path("data/timing_leakage_test.json")
+    out_path = Path(args.output)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps({
         "timestamp": datetime.utcnow().isoformat() + "Z",
-        "config": {"period": PERIOD, "min_train": MIN_TRAIN, "step": STEP,
-                   "estimators": ESTIMATORS, "feature_mode": "no_macro"},
+        "config": {"period": PERIOD, "min_train": args.min_train, "step": args.step,
+                   "estimators": args.estimators, "feature_mode": "no_macro"},
         "results": results,
     }, indent=2), encoding="utf-8")
     print(f"\nFull results written to {out_path}")
