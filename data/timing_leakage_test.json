@@ -1,36 +1,36 @@
 {
-  "timestamp": "2026-06-10T08:28:20.799690Z",
+  "timestamp": "2026-06-10T19:12:00.060912Z",
   "config": {
     "period": "5y",
     "min_train": 200,
-    "step": 10,
-    "estimators": 20,
+    "step": 5,
+    "estimators": 40,
     "feature_mode": "no_macro"
   },
   "results": {
     "same_day": {
       "lag_context_days": 0,
-      "samples": 100,
-      "direction_accuracy": 64.0,
-      "direction_p_value": 0.0033,
+      "samples": 199,
+      "direction_accuracy": 67.34,
+      "direction_p_value": 0.0,
       "is_significant_5pct": true,
-      "mae": 2.8954,
-      "sharpe": 2.743,
-      "win_rate_pct": 62.0,
-      "total_pnl_usd": 167770.03,
-      "n_trades": 100
+      "mae": 2.7727,
+      "sharpe": 2.833,
+      "win_rate_pct": 64.8,
+      "total_pnl_usd": 329059.95,
+      "n_trades": 199
     },
     "lagged_1d": {
       "lag_context_days": 1,
-      "samples": 100,
-      "direction_accuracy": 63.0,
-      "direction_p_value": 0.006,
+      "samples": 199,
+      "direction_accuracy": 65.83,
+      "direction_p_value": 0.0,
       "is_significant_5pct": true,
-      "mae": 2.8885,
-      "sharpe": 2.429,
-      "win_rate_pct": 62.0,
-      "total_pnl_usd": 150790.03,
-      "n_trades": 100
+      "mae": 2.7347,
+      "sharpe": 2.477,
+      "win_rate_pct": 63.8,
+      "total_pnl_usd": 292639.98,
+      "n_trades": 199
     }
   }
 }

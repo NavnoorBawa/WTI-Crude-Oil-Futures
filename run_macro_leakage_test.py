@@ -10,7 +10,15 @@ If WITH_MACRO Sharpe is similar or lower, the no_macro signal is clean
 and adding macro doesn't help (possibly because revised data leaks, but
 the leakage direction is noise rather than signal).
 
-Runs on 3y of data with step=20 for speed (~30 OOS samples per config).
+Uses headline config (5y, step=5, estimators=40) so the comparison has
+~199 OOS samples per config and the same statistical power as the headline
+backtest. The prior 3y/step=20 version produced only 25 samples per config
+(p=0.11, not significant), which was too underpowered to distinguish
+leakage from noise.
+
+NOTE: requires EIA_API_KEY and internet access to FRED. Runtime is long
+(~2× headline backtest) because the with_macro config must fetch and align
+EIA weekly stocks + FRED monthly series for every training fold.
 """
 
 import json
@@ -29,10 +37,10 @@ from backend.backtest_walk_forward import (
 from backend.oil import PremiumWTIPredictor
 
 
-PERIOD = "3y"
+PERIOD = "5y"
 MIN_TRAIN = 200
-STEP = 20        # coarse step — ~30 OOS samples, fast runtime
-ESTIMATORS = 20  # fewer trees — enough to detect signal direction
+STEP = 5         # headline config — ~199 OOS samples, same as walk_forward_backtest_latest
+ESTIMATORS = 40  # headline config — same tree count as the reported Sharpe 2.48 run
 HORIZONS = ["1w"]  # 1D is already dead (p=0.92); focus on the live signal
 
 

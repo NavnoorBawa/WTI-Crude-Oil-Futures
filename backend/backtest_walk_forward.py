@@ -249,7 +249,7 @@ def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step)
         "ensemble": [],
         "naive_last_price": [],
         "drift": [],
-        "seasonal_5d": [],
+        "price_5d_ago": [],
     }
     actuals = []
     references = []
@@ -304,9 +304,9 @@ def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step)
         prediction_streams["drift"].append(ref_price + avg_step_change * horizon_steps)
 
         if len(train_ref) >= 5:
-            prediction_streams["seasonal_5d"].append(float(train_ref.iloc[-5]))
+            prediction_streams["price_5d_ago"].append(float(train_ref.iloc[-5]))
         else:
-            prediction_streams["seasonal_5d"].append(ref_price)
+            prediction_streams["price_5d_ago"].append(ref_price)
 
         actuals.append(actual_price)
         references.append(ref_price)
@@ -331,7 +331,7 @@ def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step)
         for model_name, preds in prediction_streams.items()
     }
 
-    baseline_names = ["naive_last_price", "drift", "seasonal_5d"]
+    baseline_names = ["naive_last_price", "drift", "price_5d_ago"]
     best_baseline = min(baseline_names, key=lambda name: metrics[name]["mae"] if metrics[name]["samples"] > 0 else float("inf"))
 
     ensemble_mae = metrics["ensemble"]["mae"]
@@ -345,6 +345,28 @@ def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step)
     periods_per_year = 52.0 if horizon == "1w" else 252.0
     pnl_metrics = compute_pnl_metrics(trade_pnls, periods_per_year)
 
+    # Year-by-year breakdown — the first thing a PM asks when they see the headline Sharpe.
+    # Groups trades by calendar year and computes Sharpe + win rate per year so sub-period
+    # concentration is visible rather than hidden inside the aggregate number.
+    yearly_pnl: dict = {}
+    for record in trade_records:
+        year = str(record["t"])[:4]
+        yearly_pnl.setdefault(year, []).append(record["pnl"])
+
+    yearly_breakdown = {}
+    for year, pnls in sorted(yearly_pnl.items()):
+        arr = np.array(pnls, dtype=float)
+        n_yr = len(arr)
+        mean_yr = float(np.mean(arr))
+        std_yr = float(np.std(arr, ddof=1)) if n_yr > 1 else 0.0
+        sharpe_yr = round(float(mean_yr / std_yr * np.sqrt(periods_per_year)), 3) if std_yr > 0 else 0.0
+        yearly_breakdown[year] = {
+            "n_trades":        n_yr,
+            "total_pnl_usd":   round(float(np.sum(arr)), 2),
+            "sharpe":          sharpe_yr,
+            "win_rate_pct":    round(float(np.mean(arr > 0) * 100), 1),
+        }
+
     return {
         "horizon": horizon,
         "samples": int(metrics["ensemble"]["samples"]),
@@ -353,6 +375,7 @@ def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step)
         "best_baseline": best_baseline,
         "mae_improvement_vs_best_baseline_pct": float(mae_improvement),
         "pnl_metrics": pnl_metrics,
+        "yearly_breakdown": yearly_breakdown,
         "trades": trade_records,
         "first_prediction_timestamp": timestamps[0] if timestamps else None,
         "last_prediction_timestamp": timestamps[-1] if timestamps else None,
@@ -451,6 +474,12 @@ def main():
                 f"\n    Max drawdown:       ${pnl['max_drawdown_usd']:,.2f}"
                 f"\n    Profit factor:      {pnl['profit_factor']}"
             )
+        yb = hr.get("yearly_breakdown", {})
+        if yb:
+            print(f"\n  Year-by-year (Sharpe note: partial years have wider error bars):")
+            print(f"    {'Year':<6} {'N':>4} {'Total PnL':>12} {'Sharpe':>8} {'Win%':>6}")
+            for year, yd in sorted(yb.items()):
+                print(f"    {year:<6} {yd['n_trades']:>4} ${yd['total_pnl_usd']:>10,.0f} {yd['sharpe']:>8.2f} {yd['win_rate_pct']:>5.1f}%")
 
 
 if __name__ == "__main__":
