@@ -147,34 +147,48 @@ SHOCK_EVENTS = [
 
 
 def fetch_wti_daily(api_key=None, use_cache=True):
-    """Return sorted [(YYYY-MM-DD, price)] of EIA daily WTI Cushing spot, paginated + cached."""
+    """Return sorted [(YYYY-MM-DD, price)] of EIA daily WTI Cushing spot, paginated + cached.
+
+    A stale cache is a valid fallback, not an error: every event in SHOCK_EVENTS is
+    historical, so the computed moves are identical whether the series ends today or
+    last week. Live EIA is only needed to extend the series, never to correct it.
+    """
     api_key = api_key or os.getenv("EIA_API_KEY", "")
+    cached_rows = None
     if use_cache and _CACHE.exists():
         try:
             cached = json.loads(_CACHE.read_text())
-            # refresh if the cache is more than a day stale
+            cached_rows = [(r[0], float(r[1])) for r in cached["rows"]]
             if cached.get("fetched_at", "") >= (dt.date.today() - dt.timedelta(days=1)).isoformat():
-                return [(r[0], float(r[1])) for r in cached["rows"]]
+                return cached_rows
         except Exception:
-            pass
+            cached_rows = None
+
     if not api_key:
+        if cached_rows:
+            return cached_rows
         raise RuntimeError("EIA_API_KEY required to fetch WTI spot history")
 
     rows = {}
-    for offset in range(0, 11000, 5000):
-        params = {
-            "api_key": api_key, "frequency": "daily", "data[0]": "value",
-            "facets[series][]": "RWTC", "sort[0][column]": "period",
-            "sort[0][direction]": "asc", "length": 5000, "offset": offset,
-        }
-        resp = requests.get(EIA_BASE, params=params, timeout=30)
-        resp.raise_for_status()
-        data = resp.json().get("response", {}).get("data", [])
-        if not data:
-            break
-        for d in data:
-            if d.get("value") is not None:
-                rows[d["period"]] = float(d["value"])
+    try:
+        for offset in range(0, 11000, 5000):
+            params = {
+                "api_key": api_key, "frequency": "daily", "data[0]": "value",
+                "facets[series][]": "RWTC", "sort[0][column]": "period",
+                "sort[0][direction]": "asc", "length": 5000, "offset": offset,
+            }
+            resp = requests.get(EIA_BASE, params=params, timeout=30)
+            resp.raise_for_status()
+            data = resp.json().get("response", {}).get("data", [])
+            if not data:
+                break
+            for d in data:
+                if d.get("value") is not None:
+                    rows[d["period"]] = float(d["value"])
+    except Exception:
+        if cached_rows:
+            return cached_rows
+        raise
     out = sorted(rows.items())
     try:
         _CACHE.parent.mkdir(parents=True, exist_ok=True)
