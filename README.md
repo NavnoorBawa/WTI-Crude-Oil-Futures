@@ -43,11 +43,11 @@ The result was **stress-tested against the obvious failure modes** before being 
 2. **Not concentrated in one event.** Momentum loses in *every* calendar year 2021–2026, so
    the edge is not a single 2022 war spike.
 3. **Not dependent on revision-prone macro data.** The deployed model excludes FRED/EIA
-   macro entirely; the headline Sharpe 2.07 comes from price/technical + point-in-time
-   market features alone. A side-by-side rerun shows adding latest-vintage macro *raises*
-   the backtest further (Sharpe ~2.98) — but those series are revised after publication,
-   so that uplift cannot be distinguished from look-ahead without a point-in-time (ALFRED)
-   vintage audit. It is therefore neither claimed nor deployed.
+   macro entirely; the headline comes from price/technical + lagged market features alone.
+   A side-by-side comparison showed adding latest-vintage macro *raises* the backtest
+   further — but those series are revised after publication, so that uplift cannot be
+   distinguished from look-ahead without a point-in-time (ALFRED) vintage audit. It is
+   therefore neither claimed nor deployed.
    Comparison artifact: [`data/macro_leakage_test.json`](data/macro_leakage_test.json).
 4. **Not entry-time leakage from after-hours closes.** The backtest enters at the WTI
    settlement (~14:30 ET), but equity/vol context features (VIX, XLE, SPY) close at
