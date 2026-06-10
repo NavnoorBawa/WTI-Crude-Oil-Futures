@@ -12,18 +12,23 @@ work are labeled as such rather than hidden.
 
 **1-week horizon — statistically and economically significant**, measured on 199
 non-overlapping out-of-sample predictions over 5 years (expanding-window walk-forward,
-$100/contract round-trip cost, 1 contract = 1,000 bbl):
+$100/contract round-trip cost, 1 contract = 1,000 bbl, **all cross-asset features lagged
+one trading day so nothing in the feature set prints after the trade entry**):
 
 | Metric | 1-Week Signal |
 |---|---|
-| Direction accuracy | **62.8%** (95% CI: 55.9%–69.2%) |
-| Statistical significance vs coin-flip | **p = 0.0002** |
-| Annualized Sharpe (after costs) | **2.07** |
-| Expected P&L per trade | **+$1,058** |
-| Win rate | 62.8% |
-| Profit factor | 2.13 |
-| Max drawdown | $19,900 |
+| Direction accuracy | **65.8%** (95% CI: 59.0%–72.1%) |
+| Statistical significance vs coin-flip | **p < 0.001** |
+| Annualized Sharpe (after costs) | **2.48** |
+| Expected P&L per trade | **+$1,473** |
+| Win rate | 63.8% |
+| Profit factor | 2.87 |
+| Max drawdown | $11,050 |
 | Out-of-sample samples | 199 |
+
+*Point estimates move a few points between reruns (tree training is stochastic and the
+5-year window slides): the prior run of the same pipeline scored 62.8% / Sharpe 2.07.
+The claim is the significance band, not the third decimal.*
 
 The raw artifact behind every number: [`data/walk_forward_backtest_latest.json`](data/walk_forward_backtest_latest.json).
 
@@ -46,23 +51,26 @@ The result was **stress-tested against the obvious failure modes** before being 
    Comparison artifact: [`data/macro_leakage_test.json`](data/macro_leakage_test.json).
 4. **Not entry-time leakage from after-hours closes.** The backtest enters at the WTI
    settlement (~14:30 ET), but equity/vol context features (VIX, XLE, SPY) close at
-   16:00 ET — ~90 minutes later. Re-running with **all cross-asset features lagged one
-   full trading day** (strictly entry-time-clean) keeps the signal: 63.0% direction
-   accuracy, p = 0.006, Sharpe 2.43 vs 2.74 on the matched configuration. The edge does
-   not depend on the post-entry window.
+   16:00 ET — ~90 minutes later. A matched A/B showed lagging **all cross-asset features
+   one full trading day** costs only ~0.3 Sharpe (2.43 vs 2.74; both p < 0.01), so the
+   edge does not depend on the post-entry window — and the **headline config above now
+   uses the lagged, strictly entry-time-clean feature set**.
    Comparison artifact: [`data/timing_leakage_test.json`](data/timing_leakage_test.json).
 
 Reproduce:
 ```bash
-python -m backend.backtest_walk_forward --period 5y --min-train 200 --step 5 --features no_macro
+python -m backend.backtest_walk_forward --period 5y --min-train 200 --step 5 --features no_macro --lag-context 1
 ```
 
 ---
 
 ## What does NOT work (stated plainly)
 
-- **1-Day horizon: excluded from trading use.** 45–47% direction accuracy (below random),
-  negative Sharpe. It is never shown as a tradeable signal.
+- **1-Day horizon: excluded from trading use.** Direction accuracy is unstable across
+  reruns (45% in one, 58% in the next — n=199 each) and the P&L is negative after costs
+  in every run (Sharpe −1.3, −$215/trade in the current artifact). A signal that flips
+  13 points between runs and loses money either way is noise with occasional luck. It is
+  never shown as a tradeable signal.
 - **1-Hour horizon: removed.** Direction accuracy was indistinguishable from noise and never
   reached enough samples to test. It is not displayed as a horizon.
 
@@ -148,9 +156,10 @@ Ensemble of Random Forest, Extra Trees, Ridge, Elastic Net, XGBoost, LightGBM, b
 validation-aware weighting, calibrated prediction intervals, and a drift-challenger baseline.
 
 ### Feature set (deployed, leakage-proof)
-Technical indicators (RSI, MACD, Bollinger, momentum, volatility, OBV) + point-in-time
-cross-asset/term-structure context (Brent–WTI spread, DXY, VIX/OVX, rates, XLE/XOP, front-next
-spread). FRED/EIA macro features are available but **off by default** (see validation note above).
+Technical indicators (RSI, MACD, Bollinger, momentum, volatility, OBV) + cross-asset/
+term-structure context (Brent–WTI spread, DXY, VIX/OVX, rates, XLE/XOP, front-next spread),
+**lagged one trading day** so every feature is observable before the entry print. FRED/EIA
+macro features are available but **off by default** (see validation notes above).
 
 ---
 
@@ -165,7 +174,7 @@ cp .env.example .env          # add API keys (EIA, NewsAPI, ...)
 ./dev.sh
 
 # 3. Reproduce the validated backtest (leakage-proof config)
-python -m backend.backtest_walk_forward --period 5y --min-train 200 --step 5 --features no_macro
+python -m backend.backtest_walk_forward --period 5y --min-train 200 --step 5 --features no_macro --lag-context 1
 
 # 4. Compare feature configurations (leakage test)
 python -m backend.backtest_walk_forward --period 5y --features all         # with macro
