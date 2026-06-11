@@ -75,3 +75,6 @@ temp_repo/
 
 # Claude Code local config
 .claude/
+
+# Interview-prep notes — personal, not for the public repo
+GRILL_NOTES.md

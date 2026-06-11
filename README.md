@@ -18,24 +18,27 @@ one trading day so nothing in the feature set prints after the trade entry**):
 | Metric | 1-Week Signal |
 |---|---|
 | Direction accuracy | **65.8%** (95% CI: 59.0%–72.1%) |
-| Statistical significance vs coin-flip | **p < 0.001** (binomial; see note on serial correlation below) |
-| Annualized Sharpe (after costs) | **2.48** |
+| Statistical significance vs coin-flip | **p < 0.001** (binomial; holds under measured serial-correlation correction — see note) |
+| Annualized Sharpe (after costs) | **2.44** |
 | Expected P&L per trade | **+$1,473** |
 | Win rate | 63.8% |
 | Profit factor | 2.87 |
 | Max drawdown | $11,050 |
 | Out-of-sample samples | 199 |
 
-*Point estimates move a few points between reruns (tree training is stochastic and the
-5-year window slides): the prior run of the same pipeline scored 62.8% / Sharpe 2.07.
-The claim is the significance band, not the third decimal.*
+*Sharpe is annualized at the backtest's actual trade cadence — 252/step = 50.4 trades/year —
+not the naive 52 weeks/year, which ignored the walk-forward stride and overstated Sharpe by
+~1.6% (2.48 → 2.44). Point estimates move a few points between reruns (tree training is
+stochastic and the 5-year window slides): the prior run of the same pipeline scored
+62.8% / Sharpe ≈ 2.0. The claim is the significance band, not the third decimal.*
 
-*Serial-correlation note on p-value: the binomial test treats 199 predictions as independent
-draws. With a 63-bar feature window and step=5, adjacent predictions share 92% of their
-input data, so the true effective sample size is roughly 20–40 independent windows. The
-significance holds after this correction (Wilson CI lower bound 59.0% > 50%; p < 0.05 under
-a block-bootstrap or Newey-West correction), but the raw p < 0.001 overstates precision.
-The correct claim is: significantly above chance at p < 0.05.*
+*Serial-correlation note on p-value: adjacent predictions share 92% of their feature window
+(63-bar lookback, step=5), so independence was checked rather than assumed. The measured
+autocorrelation of the OOS direction-hit series is small (lag-1 = 0.10, near zero beyond),
+because the prediction **targets** are non-overlapping 5-day windows even though the features
+overlap. Newey-West (Bartlett, L=5) effective sample size: **176 of 199 nominal**; the
+significance test at that ESS gives z = 4.2, p ≈ 0.00001 — so **p < 0.001 survives the
+correction**. Full computation: [`data/serial_correlation_check.json`](data/serial_correlation_check.json).*
 
 The raw artifact behind every number: [`data/walk_forward_backtest_latest.json`](data/walk_forward_backtest_latest.json).
 
@@ -51,33 +54,39 @@ The result was **stress-tested against the obvious failure modes** before being 
 
    | Period | Trades | Total P&L | Sharpe | Win% |
    |---|---|---|---|---|
-   | 2022 (Jun–Dec) | 27 | $46,170 | 2.89 | 70.4% |
-   | 2023 (full year) | 50 | $52,540 | 2.29 | 64.0% |
-   | 2024 (full year) | 50 | $32,790 | 1.55 | 58.0% |
-   | 2025 (full year) | 51 | $49,000 | 2.37 | 64.7% |
-   | 2026 (Jan–Jun) | 21 | $112,660 | 4.68 | 66.7% |
+   | 2022 (Jun–Dec) | 27 | $46,170 | 2.84 | 70.4% |
+   | 2023 (full year) | 50 | $52,540 | 2.26 | 64.0% |
+   | 2024 (full year) | 50 | $32,790 | 1.52 | 58.0% |
+   | 2025 (full year) | 51 | $49,000 | 2.33 | 64.7% |
+   | 2026 (Jan–Jun) | 21 | $112,660 | 4.61 | 66.7% |
+   | **Ex-2026 (2022–2025)** | **178** | **$180,500** | **2.19** | **63.5%** |
 
-   The three complete calendar years (2023–2025) average Sharpe 2.07. 2026 H1 is strong
-   ($112K on 21 trades) and pulls the aggregate headline to 2.48 — this concentration is a
-   known limitation, not hidden. The weakest full year (2024, Sharpe 1.55) is the honest
-   stress-test: still profitable, still positive win rate, but meaningfully weaker.
-   Naive momentum loses in *every* calendar year 2021–2026, so the baseline edge is not
-   regime-dependent even when the ensemble's magnitude varies.
+   The number to anchor on is the **ex-2026 Sharpe of 2.19** (178 trades, 65.2% direction
+   accuracy): 2026 H1 produced 38% of total P&L on 21 trades, and its 4.61 Sharpe on a
+   half-year sample is noise-dominated (SE of an annualized Sharpe estimate at n=21 is ≈ 1.7). The
+   three complete calendar years (2023–2025) average Sharpe 2.04; the weakest (2024, 1.52)
+   is the honest stress-test — still profitable, still positive win rate, but meaningfully
+   weaker. Naive momentum loses in *every* calendar year 2021–2026, so the baseline edge
+   is not regime-dependent even when the ensemble's magnitude varies.
 3. **Not dependent on revision-prone macro data.** The deployed model excludes FRED/EIA
    macro entirely; the headline comes from price/technical + lagged market features alone.
-   A side-by-side A/B (no_macro vs with_macro, step=20, n=50 OOS samples) was run and
-   showed **with_macro Sharpe 3.41 vs no_macro Sharpe 2.78 (+0.63 Sharpe, +14pp accuracy)**.
-   The uplift is statistically significant (p≈0.03). FRED/EIA series use latest-vintage
-   data (not ALFRED point-in-time), so this uplift cannot be attributed to genuine signal —
-   it is consistent with revision look-ahead bias. Macro features are excluded from the
-   deployed model on this basis. Reproducing the test with point-in-time (ALFRED) vintages
-   would be required to separate real alpha from revision leakage.
+   A side-by-side A/B (no_macro vs with_macro, step=20, n=50 OOS samples each) showed
+   with_macro at **76% accuracy / Sharpe 1.68** vs no_macro at **62% / Sharpe 1.37**
+   (Sharpes at the test's own 12.6-trades/yr cadence — not comparable to the step=5
+   headline; the within-test delta is the finding). The +14pp accuracy gap does **not**
+   reach significance on an unpaired two-proportion test at n=50 (z = 1.5, p ≈ 0.07
+   one-sided) — it is suggestive, not proven. The decision logic does not depend on
+   resolving it: FRED/EIA series are latest-vintage (not ALFRED point-in-time), so the
+   uplift cannot be attributed to genuine signal without a vintage audit. **If it is
+   revision leakage, deploying it would inflate live expectations; if it is real alpha,
+   it stays on the table until ALFRED vintages prove it.** Either branch ends in
+   exclusion — that is the deliberate trade, and it costs at most the unproven uplift.
    Comparison artifact: [`data/macro_leakage_test.json`](data/macro_leakage_test.json).
 4. **Not entry-time leakage from after-hours closes.** The backtest enters at the WTI
    settlement (~14:30 ET), but equity/vol context features (VIX, XLE, SPY) close at
    16:00 ET — ~90 minutes later. A full **headline-config A/B (step=5, estimators=40,
-   n=199)** confirmed: same-day Sharpe 2.833 vs lagged Sharpe 2.477 (−0.36 delta; both
-   p < 0.001). The lagged result (acc 65.83%, Sharpe 2.477) **matches the headline
+   n=199)** confirmed: same-day Sharpe 2.79 vs lagged Sharpe 2.44 (−0.35 delta; both
+   p < 0.001). The lagged result (acc 65.83%, Sharpe 2.44) **matches the headline
    exactly** — the headline IS the strictly entry-time-clean feature set. The edge does
    not depend on the ~90-minute post-entry close window.
    Comparison artifact: [`data/timing_leakage_test.json`](data/timing_leakage_test.json).
@@ -93,7 +102,7 @@ python -m backend.backtest_walk_forward --period 5y --min-train 200 --step 5 --f
 
 - **1-Day horizon: excluded from trading use.** Direction accuracy is unstable across
   reruns (45% in one, 58% in the next — n=199 each) and the P&L is negative after costs
-  in every run (Sharpe −1.3, −$215/trade in the current artifact). A signal that flips
+  in every run (Sharpe −0.59, −$215/trade in the current artifact). A signal that flips
   13 points between runs and loses money either way is noise with occasional luck. It is
   never shown as a tradeable signal.
 - **1-Hour horizon: removed.** Direction accuracy was indistinguishable from noise and never
@@ -247,21 +256,34 @@ cd dist && python -m http.server 8000     # open http://localhost:8000
   invasion, and OPEC+ cuts. The 1-week edge is validated on this period only; performance in a
   prolonged low-volatility, range-bound regime is unproven.
 - **2026 H1 concentration.** The first half of 2026 (21 trades) produced $112K of the $293K
-  total — 38% of five years of profit. The three full calendar years 2023–2025 average Sharpe
-  2.07. The headline 2.48 includes this strong recent period. The year-by-year table above
-  shows the full picture; it is not hidden.
-- **Serial correlation in p-value.** The binomial p < 0.001 treats 199 predictions as
-  independent. With a 63-bar feature window and step=5 (92% feature overlap between adjacent
-  predictions), effective sample size is roughly 20–40. The significance holds at p < 0.05
-  under a Newey-West or block-bootstrap correction, but p < 0.001 overstates precision.
+  total — 38% of five years of profit. The ex-2026 Sharpe is 2.19 (178 trades); the three
+  full calendar years 2023–2025 average 2.04. The headline 2.44 includes the strong recent
+  period. The year-by-year table above shows the full picture; it is not hidden.
+- **Serial correlation was measured, not assumed.** Adjacent predictions share 92% of their
+  feature window, but the OOS hit series autocorrelation is small (lag-1 = 0.10) because the
+  prediction targets are non-overlapping 5-day windows. Newey-West ESS = 176 of 199 nominal;
+  p < 0.001 survives. See [`data/serial_correlation_check.json`](data/serial_correlation_check.json).
+  Residual caveat: an ESS estimated from 199 samples carries its own sampling noise.
+- **The model never abstains.** `sign(forecast − price)` is never exactly zero, so all 199
+  OOS samples become trades — including near-zero-conviction calls. The dashboard's NEUTRAL
+  band (±0.6%) exists only at display time and is not what the backtest measured. Per-trade
+  forecast magnitude (`fc_pct`) is now recorded so a no-trade threshold can be evaluated
+  on the next rerun.
+- **The OOS stats validate the full pipeline, not a raw ensemble.** The deployed prediction
+  is a weighted model average that is then consensus-shrunk, optionally blended toward the
+  best directional model when signs conflict, and blended toward a drift baseline when
+  directional evidence is weak ([`backend/oil.py`](backend/oil.py), `_stabilize_ensemble_prediction`
+  and `_blend_with_drift_challenger`). The backtest applies the identical post-processing —
+  so the 65.8% measures what is actually deployed, but "the ensemble predicts X" is shorthand.
 - **Thin live record.** The walk-forward result is rigorous but historical; the live
   out-of-sample record is still accruing (one resolved trade per week) and is displayed
   separately until it reaches statistical mass.
-- **Macro features inflate backtest results by ~0.63 Sharpe.** The A/B test (n=50, step=20)
-  showed with_macro Sharpe 3.41 vs no_macro 2.78 (p≈0.03). Because FRED/EIA use
-  latest-vintage data (not ALFRED point-in-time), this uplift is flagged as probable
-  revision look-ahead — not deployed. A point-in-time ALFRED audit is required before
-  any macro-assisted result can be claimed.
+- **Macro uplift is unresolved — and deliberately unused.** The A/B (n=50, step=20) showed
+  +14pp accuracy / +0.31 Sharpe for with_macro at the test's own cadence, but the gap is
+  not significant at n=50 (p ≈ 0.07, unpaired). Because FRED/EIA are latest-vintage, the
+  uplift cannot be attributed to signal vs revision look-ahead without an ALFRED vintage
+  audit; either way it stays out of the deployed model. A paired rerun (same weeks, per-sample
+  records) at step=5 would sharpen the test.
 - **The news regime score is a keyword proxy**, not NLP — useful as a guardrail and novelty
   flag, labeled as such, and never used as a trading signal.
 - **News latency.** The geo feed is cached 30 minutes (NewsAPI free tier) — appropriate for

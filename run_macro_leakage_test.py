@@ -40,7 +40,7 @@ from backend.oil import PremiumWTIPredictor
 PERIOD = "5y"
 MIN_TRAIN = 200
 STEP = 5         # headline config — ~199 OOS samples, same as walk_forward_backtest_latest
-ESTIMATORS = 40  # headline config — same tree count as the reported Sharpe 2.48 run
+ESTIMATORS = 40  # headline config — same tree count as the reported Sharpe 2.44 run
 HORIZONS = ["1w"]  # 1D is already dead (p=0.92); focus on the live signal
 
 

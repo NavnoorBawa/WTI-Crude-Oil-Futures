@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import Chart from "./Chart";
 
-// 1W is the only walk-forward validated signal (entry-time-clean config: 65.8%, p<0.05
-// serial-corr adjusted, Sharpe 2.48, n=199 OOS). 1D: direction unstable across runs and money-losing after costs.
+// 1W is the only walk-forward validated signal (entry-time-clean config: 65.8%, p<0.001
+// at measured ESS, Sharpe 2.44, n=199 OOS). 1D: direction unstable across runs and money-losing after costs.
 // 1H: never walk-forward tested. Both excluded from display.
 
 
@@ -504,7 +504,7 @@ function App() {
             </div>
           )}
           <div className="tv-tearsheet-foot">
-            95% CI [{wfCi95?.[0]}, {wfCi95?.[1]}] · p &lt; 0.05 (serial-corr adjusted) · expanding-window walk-forward · $100/trade costs · no macro · context lagged 1d (entry-time-clean) · yearly Sharpe above
+            95% CI [{wfCi95?.[0]}, {wfCi95?.[1]}] · p &lt; 0.001 (holds at measured ESS 176/199) · expanding-window walk-forward · 50.4 trades/yr annualization · $100/trade costs · no macro · context lagged 1d (entry-time-clean)
           </div>
         </div>
       )}

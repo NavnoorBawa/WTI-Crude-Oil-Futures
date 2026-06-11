@@ -14,7 +14,8 @@
     "feature_count_by_horizon": {
       "1d": 143,
       "1w": 143
-    }
+    },
+    "annualization_note": "Sharpe annualized at 252/step trades/year (50.4 at step=5). Corrected 2026-06-11 from the earlier 52 (1w) / 252 (1d) assumption which ignored the walk-forward stride."
   },
   "results": {
     "1d": {
@@ -79,12 +80,12 @@
       "mae_improvement_vs_best_baseline_pct": -0.24294717701864652,
       "pnl_metrics": {
         "n_trades": 199,
-        "total_pnl_usd": -42810.03,
+        "total_pnl_usd": -42810.02,
         "mean_pnl_per_trade_usd": -215.13,
         "std_pnl_per_trade_usd": 2598.94,
-        "sharpe_ratio_annualized": -1.314,
+        "sharpe_ratio_annualized": -0.588,
         "win_rate_pct": 54.3,
-        "max_drawdown_usd": 60620.02,
+        "max_drawdown_usd": 60620.0,
         "profit_factor": 0.754,
         "transaction_cost_per_trade": 100.0
       },
@@ -1091,31 +1092,31 @@
         "2022": {
           "n_trades": 27,
           "total_pnl_usd": -35229.97,
-          "sharpe": -6.57,
+          "sharpe": -2.938,
           "win_rate_pct": 40.7
         },
         "2023": {
           "n_trades": 50,
           "total_pnl_usd": 1659.98,
-          "sharpe": 0.319,
+          "sharpe": 0.143,
           "win_rate_pct": 60.0
         },
         "2024": {
           "n_trades": 50,
           "total_pnl_usd": -5880.0,
-          "sharpe": -1.662,
+          "sharpe": -0.743,
           "win_rate_pct": 46.0
         },
         "2025": {
           "n_trades": 51,
           "total_pnl_usd": 1499.97,
-          "sharpe": 0.301,
+          "sharpe": 0.134,
           "win_rate_pct": 64.7
         },
         "2026": {
           "n_trades": 21,
           "total_pnl_usd": -4860.0,
-          "sharpe": -0.61,
+          "sharpe": -0.273,
           "win_rate_pct": 52.4
         }
       }
@@ -1182,10 +1183,10 @@
       "mae_improvement_vs_best_baseline_pct": 10.962505651005628,
       "pnl_metrics": {
         "n_trades": 199,
-        "total_pnl_usd": 293159.98,
+        "total_pnl_usd": 293160.02,
         "mean_pnl_per_trade_usd": 1473.17,
         "std_pnl_per_trade_usd": 4283.86,
-        "sharpe_ratio_annualized": 2.48,
+        "sharpe_ratio_annualized": 2.441,
         "win_rate_pct": 63.8,
         "max_drawdown_usd": 11050.0,
         "profit_factor": 2.874,
@@ -2194,31 +2195,31 @@
         "2022": {
           "n_trades": 27,
           "total_pnl_usd": 46170.0,
-          "sharpe": 2.887,
+          "sharpe": 2.842,
           "win_rate_pct": 70.4
         },
         "2023": {
           "n_trades": 50,
           "total_pnl_usd": 52540.02,
-          "sharpe": 2.294,
+          "sharpe": 2.259,
           "win_rate_pct": 64.0
         },
         "2024": {
           "n_trades": 50,
           "total_pnl_usd": 32789.98,
-          "sharpe": 1.549,
+          "sharpe": 1.525,
           "win_rate_pct": 58.0
         },
         "2025": {
           "n_trades": 51,
           "total_pnl_usd": 49000.02,
-          "sharpe": 2.369,
+          "sharpe": 2.333,
           "win_rate_pct": 64.7
         },
         "2026": {
           "n_trades": 21,
           "total_pnl_usd": 112660.0,
-          "sharpe": 4.683,
+          "sharpe": 4.61,
           "win_rate_pct": 66.7
         }
       }

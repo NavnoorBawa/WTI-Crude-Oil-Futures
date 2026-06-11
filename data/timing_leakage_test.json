@@ -5,7 +5,8 @@
     "min_train": 200,
     "step": 5,
     "estimators": 40,
-    "feature_mode": "no_macro"
+    "feature_mode": "no_macro",
+    "annualization_note": "Sharpe rescaled 2026-06-11 to 252/step=50.4 trades/yr (deterministic x0.9846 correction of the original 52/yr annualization; no rerun needed)."
   },
   "results": {
     "same_day": {
@@ -15,7 +16,7 @@
       "direction_p_value": 0.0,
       "is_significant_5pct": true,
       "mae": 2.7727,
-      "sharpe": 2.833,
+      "sharpe": 2.789,
       "win_rate_pct": 64.8,
       "total_pnl_usd": 329059.95,
       "n_trades": 199
@@ -27,7 +28,7 @@
       "direction_p_value": 0.0,
       "is_significant_5pct": true,
       "mae": 2.7347,
-      "sharpe": 2.477,
+      "sharpe": 2.439,
       "win_rate_pct": 63.8,
       "total_pnl_usd": 292639.98,
       "n_trades": 199

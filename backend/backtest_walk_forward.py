@@ -256,6 +256,8 @@ def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step)
     timestamps = []
     trade_pnls = []       # net P&L per trade after transaction costs
     trade_records = []    # timestamped per-trade series for the OOS equity curve
+    feature_selection_counts: dict = {}   # how often each feature survives SelectKBest across steps
+    n_train_steps = 0
 
     for end_idx in range(min_train, len(dataset), step):
         train_df = dataset.iloc[:end_idx].copy()
@@ -280,6 +282,10 @@ def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step)
 
         if not package["models"]:
             continue
+
+        n_train_steps += 1
+        for feat in package["selected_features"]:
+            feature_selection_counts[feat] = feature_selection_counts.get(feat, 0) + 1
 
         row_features = {k: float(row[k]) for k in feature_cols}
         row_features["reference_close"] = float(row["reference_close"])
@@ -324,6 +330,10 @@ def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step)
                 "t": str(row["timestamp"])[:10],
                 "dir": int(pred_dir),
                 "pnl": round(net, 2),
+                # Forecast magnitude in % — the model has no abstain state (sign() is
+                # never exactly 0), so every OOS sample becomes a trade. Storing the
+                # conviction lets later analysis test a no-trade threshold without rerunning.
+                "fc_pct": round((ensemble_pred / ref_price - 1.0) * 100.0, 3) if ref_price > 0 else 0.0,
             })
 
     metrics = {
@@ -341,8 +351,11 @@ def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step)
     else:
         mae_improvement = 0.0
 
-    # Annualise P&L: 1W trades ~52 times/year, 1D trades ~252 times/year
-    periods_per_year = 52.0 if horizon == "1w" else 252.0
+    # Annualise P&L at the cadence the backtest actually trades: one trade every
+    # `step` trading days = 252/step trades per year (50.4 at step=5). The previous
+    # 52 (1w) / 252 (1d) assumption ignored the stride and overstated Sharpe —
+    # by ~1.6% at step=5 and ~2x at step=20.
+    periods_per_year = 252.0 / max(1, step)
     pnl_metrics = compute_pnl_metrics(trade_pnls, periods_per_year)
 
     # Year-by-year breakdown — the first thing a PM asks when they see the headline Sharpe.
@@ -367,6 +380,14 @@ def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step)
             "win_rate_pct":    round(float(np.mean(arr > 0) * 100), 1),
         }
 
+    # Feature-selection stability: SelectKBest refits per walk-forward step, so the
+    # surviving feature set can drift. Report the share of steps each feature survived —
+    # a top set hovering near 1.0 means the signal basis is stable, not refit noise.
+    feature_stability = {
+        feat: round(count / n_train_steps, 3)
+        for feat, count in sorted(feature_selection_counts.items(), key=lambda kv: -kv[1])[:30]
+    } if n_train_steps > 0 else {}
+
     return {
         "horizon": horizon,
         "samples": int(metrics["ensemble"]["samples"]),
@@ -376,6 +397,7 @@ def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step)
         "mae_improvement_vs_best_baseline_pct": float(mae_improvement),
         "pnl_metrics": pnl_metrics,
         "yearly_breakdown": yearly_breakdown,
+        "feature_selection_stability": feature_stability,
         "trades": trade_records,
         "first_prediction_timestamp": timestamps[0] if timestamps else None,
         "last_prediction_timestamp": timestamps[-1] if timestamps else None,

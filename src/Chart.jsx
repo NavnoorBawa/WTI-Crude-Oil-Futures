@@ -8,8 +8,8 @@ import {
   LineStyle,
 } from "lightweight-charts";
 
-// 1W is the only walk-forward validated signal (entry-time-clean: 65.8%, p<0.05 serial-corr
-// adjusted, Sharpe 2.48, n=199 OOS). 1D: unstable direction, negative P&L after costs. 1H: never tested. Both removed.
+// 1W is the only walk-forward validated signal (entry-time-clean: 65.8%, p<0.001 at measured
+// ESS, Sharpe 2.44, n=199 OOS). 1D: unstable direction, negative P&L after costs. 1H: never tested. Both removed.
 const FORECAST_HORIZONS = ["1W"];
 
 const HORIZON_META = {

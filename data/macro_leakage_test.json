@@ -5,7 +5,8 @@
     "min_train": 200,
     "step": 20,
     "estimators": 20,
-    "note": "quick validation at step=20; full headline config (step=5, estimators=40) requires ~40min"
+    "note": "quick validation at step=20; full headline config (step=5, estimators=40) requires ~40min",
+    "annualization_note": "Sharpe rescaled 2026-06-11 to 252/step=12.6 trades/yr (deterministic x0.4924 correction of the original 52/yr annualization). At step=20 the cadence is 4x sparser than the step=5 headline, so these absolute Sharpes are NOT comparable to the headline 2.44 \u2014 only the within-test delta and the accuracy gap matter."
   },
   "results": {
     "no_macro_1w": {
@@ -14,7 +15,7 @@
       "direction_accuracy": 62.0,
       "direction_p_value": 0.0595,
       "is_significant_5pct": false,
-      "sharpe": 2.776,
+      "sharpe": 1.366,
       "win_rate_pct": 62.0,
       "total_pnl_usd": 84910.0,
       "n_trades": 50
@@ -25,7 +26,7 @@
       "direction_accuracy": 76.0,
       "direction_p_value": 0.0002,
       "is_significant_5pct": true,
-      "sharpe": 3.408,
+      "sharpe": 1.678,
       "win_rate_pct": 76.0,
       "total_pnl_usd": 100790.0,
       "n_trades": 50
