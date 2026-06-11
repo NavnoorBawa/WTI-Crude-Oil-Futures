@@ -149,6 +149,8 @@ def _load_walk_forward_stats() -> dict:
                 # Per-trade series for the OOS equity curve (present in artifacts
                 # generated after the trades field was added to the backtest).
                 'pnl_trades':          hr.get('trades', []),
+                # Per-calendar-year Sharpe/P&L/win-rate (artifacts from Jun 2026 on).
+                'yearly_breakdown':    hr.get('yearly_breakdown', {}),
             }
         return out
     except Exception as e:
@@ -255,6 +257,7 @@ def _build_horizon_metrics(accuracy_metrics, horizon_backtests, horizon_confiden
             'wf_pnl_profit_factor': wf.get('pnl_profit_factor'),
             'wf_pnl_n_trades':      wf.get('pnl_n_trades', 0),
             'wf_pnl_trades':        wf.get('pnl_trades', []),
+            'wf_yearly_breakdown':  wf.get('yearly_breakdown', {}),
         }
 
     preferred_order = _ordered_display_horizons(PRIMARY_DISPLAY_HORIZON)

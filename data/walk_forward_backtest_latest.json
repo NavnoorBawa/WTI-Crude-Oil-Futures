@@ -61,7 +61,7 @@
           ],
           "is_significant_5pct": false
         },
-        "seasonal_5d": {
+        "price_5d_ago": {
           "samples": 199,
           "mae": 3.227336538496928,
           "rmse": 4.659862696103743,
@@ -1164,7 +1164,7 @@
           ],
           "is_significant_5pct": false
         },
-        "seasonal_5d": {
+        "price_5d_ago": {
           "samples": 199,
           "mae": 4.207286547176802,
           "rmse": 5.91689637923714,

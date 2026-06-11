@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import Chart from "./Chart";
 
-// 1W is the only walk-forward validated signal (entry-time-clean config: 65.8%, p<0.001,
-// Sharpe 2.48, n=199 OOS). 1D: direction unstable across runs and money-losing after costs.
+// 1W is the only walk-forward validated signal (entry-time-clean config: 65.8%, p<0.05
+// serial-corr adjusted, Sharpe 2.48, n=199 OOS). 1D: direction unstable across runs and money-losing after costs.
 // 1H: never walk-forward tested. Both excluded from display.
 
 
@@ -303,6 +303,7 @@ function App() {
   const wfProfitFactor  = activeMetrics?.wf_pnl_profit_factor ?? null;
   const wfMeanPnl       = activeMetrics?.wf_pnl_mean_per_trade ?? null;
   const wfMaxDrawdown   = activeMetrics?.wf_pnl_max_drawdown ?? null;
+  const wfYearly        = activeMetrics?.wf_yearly_breakdown ?? null;
 
   // Live record — git-committed daily calls, resolved after 1 week (backend/live_record.py).
   // Every entry/resolution is timestamped by a bot commit, so the record can't be back-dated.
@@ -491,8 +492,19 @@ function App() {
               </svg>
             </div>
           )}
+          {wfYearly && Object.keys(wfYearly).length > 0 && (
+            <div className="tv-yearly">
+              {Object.entries(wfYearly).map(([year, d]) => (
+                <div key={year}>
+                  <span className="tv-yearly-year">{year}</span>
+                  <b className={d.sharpe >= 0 ? 'up' : 'down'}>{Number(d.sharpe).toFixed(2)}</b>
+                  <span className="tv-yearly-sub">{d.n_trades} trades · {Math.round(d.win_rate_pct)}% win</span>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="tv-tearsheet-foot">
-            95% CI [{wfCi95?.[0]}, {wfCi95?.[1]}] · p &lt; 0.001 · expanding-window walk-forward · $100/trade costs · no macro · context lagged 1d (entry-time-clean)
+            95% CI [{wfCi95?.[0]}, {wfCi95?.[1]}] · p &lt; 0.05 (serial-corr adjusted) · expanding-window walk-forward · $100/trade costs · no macro · context lagged 1d (entry-time-clean) · yearly Sharpe above
           </div>
         </div>
       )}
