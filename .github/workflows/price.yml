@@ -66,10 +66,10 @@ jobs:
 
           # Upsert via the contents API (create or update — needs the current SHA if it exists).
           if [ -f price.json ]; then
-            SHA=$(gh api "repos/${{ github.repository }}/contents/price.json?ref=gh-pages" --jq .sha 2>/dev/null || true)
-            gh api -X PUT "repos/${{ github.repository }}/contents/price.json" \
-              -f message="chore: price tick [skip ci]" \
-              -f branch=gh-pages \
-              -f content="$(base64 -w0 price.json)" \
-              ${SHA:+-f sha=$SHA}
+            SHA=$(gh api "repos/${{ github.repository }}/contents/price.json?ref=gh-pages" --jq .sha 2>/dev/null || echo "")
+            ARGS=(-f message="chore: price tick [skip ci]" -f branch=gh-pages -f content="$(base64 -w0 price.json)")
+            if [ -n "$SHA" ] && [ "$SHA" != "null" ]; then
+              ARGS+=(-f sha="$SHA")
+            fi
+            gh api -X PUT "repos/${{ github.repository }}/contents/price.json" "${ARGS[@]}"
           fi
