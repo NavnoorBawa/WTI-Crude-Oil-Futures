@@ -223,29 +223,27 @@ function App() {
     };
   }, [configuredApiBase, pollIntervalMs, startupRetryMs]);
 
-  // Client-side live price — refreshes every 5 min independently of the frozen data.json.
-  // Falls back silently to the frozen price if the fetch fails (CORS, rate limit, etc.).
+  // Client-side live price — reads price.json, a tiny same-origin snapshot that a
+  // dedicated 15-min GitHub Actions job (price.yml) writes to the gh-pages branch.
+  // Same-origin fetch means no CORS dependency on any quote provider. If the file is
+  // missing or older than 45 min, the frozen data.json price stays and no badge shows.
   useEffect(() => {
+    if (!staticDataMode) return; // local dev: the backend price is already live
     const fetchLivePrice = async () => {
       try {
-        const res = await fetch(
-          'https://query1.finance.yahoo.com/v8/finance/chart/CL%3DF?interval=1d&range=1d',
-          { cache: 'no-store' }
-        );
+        const res = await fetch(`${import.meta.env.BASE_URL}price.json`, { cache: 'no-store' });
         if (!res.ok) return;
-        const json = await res.json();
-        const meta = json?.chart?.result?.[0]?.meta;
-        if (meta?.regularMarketPrice) {
-          setLivePrice(meta.regularMarketPrice);
-          const prev = meta.previousClose || meta.chartPreviousClose;
-          if (prev > 0) setLivePricePct(((meta.regularMarketPrice - prev) / prev) * 100);
-        }
+        const q = await res.json();
+        const ageMin = (Date.now() - new Date(q.fetched_at).getTime()) / 60000;
+        if (!q.price || !Number.isFinite(ageMin) || ageMin > 45) return;
+        setLivePrice(q.price);
+        if (q.change_pct != null) setLivePricePct(q.change_pct);
       } catch {}
     };
     fetchLivePrice();
     const id = setInterval(fetchLivePrice, 5 * 60 * 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [staticDataMode]);
 
   // Loading screen
   if (loading && !data) {
