@@ -98,7 +98,6 @@ jobs:
         env:
           VITE_STATIC_DATA: 'true'
           VITE_BASE_PATH: '/WTI-Crude-Oil-Futures/'
-        env:
           # In static mode the app loads data.json once — no need to re-poll every 15s.
           VITE_POLL_INTERVAL_MS: '86400000'
         run: npm run build
