@@ -14,6 +14,8 @@ function App() {
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [currentTime, setCurrentTime] = useState(new Date());
   const [geoOpen, setGeoOpen] = useState(false);
+  const [livePrice, setLivePrice] = useState(null);
+  const [livePricePct, setLivePricePct] = useState(null);
   const pollIntervalMs = Number(import.meta.env.VITE_POLL_INTERVAL_MS || 15000);
   const startupRetryMs = Number(import.meta.env.VITE_STARTUP_RETRY_MS || 5000);
   const configuredApiBase = import.meta.env.VITE_API_BASE_URL;
@@ -221,6 +223,30 @@ function App() {
     };
   }, [configuredApiBase, pollIntervalMs, startupRetryMs]);
 
+  // Client-side live price — refreshes every 5 min independently of the frozen data.json.
+  // Falls back silently to the frozen price if the fetch fails (CORS, rate limit, etc.).
+  useEffect(() => {
+    const fetchLivePrice = async () => {
+      try {
+        const res = await fetch(
+          'https://query1.finance.yahoo.com/v8/finance/chart/CL%3DF?interval=1d&range=1d',
+          { cache: 'no-store' }
+        );
+        if (!res.ok) return;
+        const json = await res.json();
+        const meta = json?.chart?.result?.[0]?.meta;
+        if (meta?.regularMarketPrice) {
+          setLivePrice(meta.regularMarketPrice);
+          const prev = meta.previousClose || meta.chartPreviousClose;
+          if (prev > 0) setLivePricePct(((meta.regularMarketPrice - prev) / prev) * 100);
+        }
+      } catch {}
+    };
+    fetchLivePrice();
+    const id = setInterval(fetchLivePrice, 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
   // Loading screen
   if (loading && !data) {
     return (
@@ -418,10 +444,15 @@ function App() {
             <span className="tv-market-name">WTI Crude · NYMEX</span>
           </div>
           <div className="tv-desk-pricewrap">
-            <span className="tv-desk-px">{currentPrice > 0 ? `$${currentPrice.toFixed(2)}` : '--'}</span>
-            <span className={`tv-desk-chg ${priceChange > 0 ? 'is-up' : priceChange < 0 ? 'is-down' : ''}`}>
-              {currentPrice > 0 ? `${priceChangePercent > 0 ? '+' : ''}${priceChangePercent.toFixed(2)}%` : '--'}
+            <span className="tv-desk-px">
+              {(livePrice ?? currentPrice) > 0 ? `$${(livePrice ?? currentPrice).toFixed(2)}` : '--'}
             </span>
+            <span className={`tv-desk-chg ${(livePricePct ?? priceChangePercent) > 0 ? 'is-up' : (livePricePct ?? priceChangePercent) < 0 ? 'is-down' : ''}`}>
+              {(livePrice ?? currentPrice) > 0
+                ? `${(livePricePct ?? priceChangePercent) > 0 ? '+' : ''}${(livePricePct ?? priceChangePercent).toFixed(2)}%`
+                : '--'}
+            </span>
+            {livePrice && <span className="tv-live-badge">LIVE</span>}
           </div>
           <div className="tv-market-meta">
             {contractInfo.days_to_expiry != null && <>{contractInfo.days_to_expiry}d to expiry</>}

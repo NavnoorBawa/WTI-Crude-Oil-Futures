@@ -297,6 +297,8 @@ html, body {
 .tv-desk-chg { font-size: 15px; font-weight: 600; font-family: "JetBrains Mono", ui-monospace, monospace; }
 .tv-desk-chg.is-up { color: #16c784; }
 .tv-desk-chg.is-down { color: #ef5a63; }
+.tv-live-badge { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; color: #16c784;
+  border: 1px solid #16c78440; border-radius: 3px; padding: 1px 4px; align-self: center; }
 .tv-desk-stance { font-size: 23px; font-weight: 800; letter-spacing: 0.01em; line-height: 1; margin-bottom: 9px; }
 .tv-desk-stance.tone-up { color: #16c784; }
 .tv-desk-stance.tone-down { color: #ef5a63; }

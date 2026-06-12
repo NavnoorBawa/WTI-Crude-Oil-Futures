@@ -7,10 +7,10 @@ name: Refresh frozen dashboard
 
 on:
   schedule:
-    # Hourly, every day (UTC). Fresh enough for a 1-week forecast and breaking-geo
-    # detection, and ~2 NewsAPI calls/run stays well under the free tier's 100/day.
-    # Edit this cron to change cadence (e.g. '0 */3 * * *' for every 3 hours).
-    - cron: '0 * * * *'
+    # Every 4 hours (UTC). The ML signal is 1-week cadence so hourly rebuilds were
+    # wasteful. 6 runs/day keeps the frozen price fresh enough and stays well under
+    # NewsAPI's 100-call/day free limit. For on-demand refresh use workflow_dispatch.
+    - cron: '0 */4 * * *'
   workflow_dispatch: {}        # allow manual runs from the Actions tab
   push:
     branches: [main]
@@ -98,6 +98,9 @@ jobs:
         env:
           VITE_STATIC_DATA: 'true'
           VITE_BASE_PATH: '/WTI-Crude-Oil-Futures/'
+        env:
+          # In static mode the app loads data.json once — no need to re-poll every 15s.
+          VITE_POLL_INTERVAL_MS: '86400000'
         run: npm run build
 
       - name: Deploy to GitHub Pages
