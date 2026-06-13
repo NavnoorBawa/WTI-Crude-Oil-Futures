@@ -64,9 +64,15 @@ def bartlett_ess(series: list, lags: int) -> float:
         (1.0 - k / (lags + 1)) * autocorrelation(series, k)
         for k in range(1, lags + 1)
     )
-    # A strongly negatively-autocorrelated series can push the factor below 1 (ESS > n);
-    # clamp at n because you can never have *more* independent observations than samples.
-    return n / factor if factor > 0 else float(n)
+    # Net-negative autocorrelation makes the inflation factor < 1 (raw ESS > n) and a
+    # strongly negative one can drive it <= 0 (degenerate). For a significance claim we
+    # cap at the nominal n: never credit more independent observations than samples
+    # actually collected. This is the conservative choice and the standard one for an
+    # accuracy z-test. (For the 1w hits the factor is 1.133 > 1, so ESS = 175.8 < 199 and
+    # the cap is inactive — the committed artifact reproduces unchanged.)
+    if factor <= 0:
+        return float(n)
+    return min(float(n), n / factor)
 
 
 def norm_sf(z: float) -> float:
