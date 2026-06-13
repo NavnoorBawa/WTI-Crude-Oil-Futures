@@ -15,6 +15,8 @@ Optional:
   ALERT_EMAIL         — override recipient (default: navnoorquant@gmail.com)
 """
 
+from __future__ import annotations  # PEP 604 (str | None) needs lazy eval on Python <3.10
+
 import json
 import os
 import smtplib
@@ -101,11 +103,14 @@ def send_email(prev_stance: str | None, cur: dict) -> None:
     sizing_note = ""
     p = (cur["win_rate"] or 0) / 100
     pf = cur.get("profit_factor") or 0
-    if p > 0 and pf > 0:
+    if 0 < p < 1 and pf > 1:
         b = pf * (1 - p) / p
         full_kelly = p - (1 - p) / b
         half_kelly = full_kelly / 2
-        avg_loss = abs((cur.get("mean_pnl") or 0) / (p * b / (1 - p) - 1 + 1e-9)) if b > 1 else 0
+        # avg loss per trade = mean_pnl / ((pf - 1) * (1 - p)); the (1 - p) factor was
+        # previously dropped, which understated avg loss by ~64% and reported a ~$39k
+        # account/contract instead of the dashboard's ~$110k. Keep both in agreement.
+        avg_loss = abs((cur.get("mean_pnl") or 0) / ((pf - 1) * (1 - p)))
         sizing_note = (
             f"\nSizing (walk-forward basis, not live):\n"
             f"  Full Kelly: {full_kelly:.1%} | Half-Kelly: {half_kelly:.1%}\n"
@@ -113,6 +118,11 @@ def send_email(prev_stance: str | None, cur: dict) -> None:
             if avg_loss > 0 else
             f"\nSizing: Full Kelly {full_kelly:.1%} | Half-Kelly {half_kelly:.1%}"
         )
+
+    # The model can be non-significant (NEUTRAL), in which case these metrics may be
+    # absent — format defensively so an alert on a NEUTRAL transition can't crash.
+    acc_str = f"{cur['accuracy']:.1f}%" if isinstance(cur.get("accuracy"), (int, float)) else "n/a"
+    sharpe_str = f"{cur['sharpe']:.2f}" if isinstance(cur.get("sharpe"), (int, float)) else "n/a"
 
     body = f"""WTI 1-Week Walk-Forward Signal
 {'='*44}
@@ -125,9 +135,9 @@ Price now:   ${cur['price']:.2f}
 1W forecast: {cur['fc_pct']:+.2f}%
 
 Backtest (5y, no-macro, 199 OOS, $100/trade):
-  Direction accuracy: {cur['accuracy']:.1f}%
+  Direction accuracy: {acc_str}
   95% CI: {ci_str}
-  Sharpe:  {cur['sharpe']:.2f}
+  Sharpe:  {sharpe_str}
   p-value: < 0.001
 {sizing_note}
 
@@ -166,6 +176,12 @@ def main() -> None:
         sys.exit(1)
 
     data = json.loads(data_path.read_text())
+    if data.get("error") or not data.get("current_price"):
+        # Mirror live_record.py: a payload without a price is not scoreable. Bail cleanly
+        # instead of crashing on a None price format — this step runs in the deploy path,
+        # so an unhandled exception here would block the whole refresh/deploy.
+        print("signal_alert: payload not usable (no current_price) — skipping", file=sys.stderr)
+        return
     cur = extract_signal(data)
     prev = load_state()
 
