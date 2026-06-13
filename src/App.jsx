@@ -16,6 +16,8 @@ function App() {
   const [geoOpen, setGeoOpen] = useState(false);
   const [livePrice, setLivePrice] = useState(null);
   const [livePricePct, setLivePricePct] = useState(null);
+  const [livePriceChange, setLivePriceChange] = useState(null);
+  const [livePriceFresh, setLivePriceFresh] = useState(false);
   const pollIntervalMs = Number(import.meta.env.VITE_POLL_INTERVAL_MS || 15000);
   const startupRetryMs = Number(import.meta.env.VITE_STARTUP_RETRY_MS || 5000);
   const configuredApiBase = import.meta.env.VITE_API_BASE_URL;
@@ -223,10 +225,13 @@ function App() {
     };
   }, [configuredApiBase, pollIntervalMs, startupRetryMs]);
 
-  // Client-side live price — reads price.json, a tiny same-origin snapshot that a
-  // dedicated 15-min GitHub Actions job (price.yml) writes to the gh-pages branch.
-  // Same-origin fetch means no CORS dependency on any quote provider. If the file is
-  // missing or older than 45 min, the frozen data.json price stays and no badge shows.
+  // Client-side live price — reads price.json, a tiny same-origin snapshot. freeze.py
+  // bakes a baseline price.json into every deploy (survives the gh-pages force_orphan),
+  // and a 15-min GitHub Actions job (price.yml) overlays fresher ticks between deploys.
+  // Same-origin fetch means no CORS dependency on any quote provider. The "LIVE" badge
+  // shows only when the quote is genuinely fresh (<25 min); an older-but-valid quote
+  // still updates the price (no badge), and a truly stale one (>3h) is ignored so the
+  // frozen data.json price takes over. The header's "Data as of" carries the honesty.
   useEffect(() => {
     if (!staticDataMode) return; // local dev: the backend price is already live
     const fetchLivePrice = async () => {
@@ -235,13 +240,15 @@ function App() {
         if (!res.ok) return;
         const q = await res.json();
         const ageMin = (Date.now() - new Date(q.fetched_at).getTime()) / 60000;
-        if (!q.price || !Number.isFinite(ageMin) || ageMin > 45) return;
+        if (!q.price || !Number.isFinite(ageMin) || ageMin > 180) return;
         setLivePrice(q.price);
+        setLivePriceFresh(ageMin <= 25);
         if (q.change_pct != null) setLivePricePct(q.change_pct);
+        if (q.prev_close != null) setLivePriceChange(Number((q.price - q.prev_close).toFixed(2)));
       } catch {}
     };
     fetchLivePrice();
-    const id = setInterval(fetchLivePrice, 5 * 60 * 1000);
+    const id = setInterval(fetchLivePrice, 3 * 60 * 1000);
     return () => clearInterval(id);
   }, [staticDataMode]);
 
@@ -450,7 +457,7 @@ function App() {
                 ? `${(livePricePct ?? priceChangePercent) > 0 ? '+' : ''}${(livePricePct ?? priceChangePercent).toFixed(2)}%`
                 : '--'}
             </span>
-            {livePrice && <span className="tv-live-badge">LIVE</span>}
+            {livePrice && livePriceFresh && <span className="tv-live-badge">LIVE</span>}
           </div>
           <div className="tv-market-meta">
             {contractInfo.days_to_expiry != null && <>{contractInfo.days_to_expiry}d to expiry</>}
@@ -619,6 +626,9 @@ function App() {
           contractInfo={contractInfo}
           priceChange={priceChange}
           priceChangePercent={priceChangePercent}
+          livePrice={livePrice}
+          livePriceChange={livePriceChange}
+          livePricePct={livePricePct}
           feedStatus={data?.feed_status || 'UNKNOWN'}
         />
       </div>

@@ -59,6 +59,25 @@ def freeze(out_dir: Path) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "data.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
 
+    # Bake a baseline price.json into the same output dir. Vite copies public/* into
+    # dist/, so this ships with every full deploy and SURVIVES the gh-pages force_orphan
+    # (which wipes anything price.yml wrote to the branch root). Result: price.json is
+    # always present — never a 404 — with at minimum this freeze's price + timestamp.
+    # The 15-min price.yml job overlays a fresher tick on the same path between deploys.
+    price = data.get("current_price")
+    if price:
+        pct = data.get("price_change_percent")
+        change = data.get("price_change")
+        prev_close = round(price - change, 2) if isinstance(change, (int, float)) else None
+        price_payload = {
+            "price": round(float(price), 2),
+            "prev_close": prev_close,
+            "change_pct": round(float(pct), 2) if isinstance(pct, (int, float)) else None,
+            "fetched_at": frozen_at,
+            "source": "freeze snapshot (CL=F)",
+        }
+        (out_dir / "price.json").write_text(json.dumps(price_payload), encoding="utf-8")
+
     contract = data.get("contract")
     symbol = contract.get("symbol") if isinstance(contract, dict) else contract
     print(

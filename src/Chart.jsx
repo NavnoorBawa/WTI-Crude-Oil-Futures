@@ -341,6 +341,9 @@ export default function Chart({
   contractInfo = null,
   priceChange = 0,
   priceChangePercent = 0,
+  livePrice = null,
+  livePriceChange = null,
+  livePricePct = null,
   feedStatus = "UNKNOWN",
 }) {
   const chartHostRef = useRef(null);
@@ -395,6 +398,14 @@ export default function Chart({
   const displaySpotPrice = Number.isFinite(Number(currentPrice)) && Number(currentPrice) > 0
     ? Number(currentPrice)
     : (chartModel.lastActual?.value ?? 0);
+
+  // The big toolbar readout prefers the same-origin live quote when present (matching the
+  // trading-chart convention: the headline price is live while the plotted candles are
+  // history). The chart series/price-line stay anchored to the frozen actuals below.
+  const hasLivePrice = Number.isFinite(Number(livePrice)) && Number(livePrice) > 0;
+  const toolbarPrice = hasLivePrice ? Number(livePrice) : displaySpotPrice;
+  const toolbarChange = hasLivePrice && livePriceChange != null ? Number(livePriceChange) : Number(priceChange) || 0;
+  const toolbarChangePct = hasLivePrice && livePricePct != null ? Number(livePricePct) : Number(priceChangePercent) || 0;
 
   useEffect(() => {
     if (!chartModel.lastActual) {
@@ -655,10 +666,10 @@ export default function Chart({
           </div>
 
           <div className="tv-price-block">
-            <div className="tv-price-main">${displaySpotPrice.toFixed(2)}</div>
-            <div className={`tv-price-change ${Number(priceChange) > 0 ? "is-up" : Number(priceChange) < 0 ? "is-down" : ""}`}>
-              <span>{formatSignedPrice(Number(priceChange) || 0)}</span>
-              <span>{formatSignedPercent(Number(priceChangePercent) || 0)}</span>
+            <div className="tv-price-main">${toolbarPrice.toFixed(2)}</div>
+            <div className={`tv-price-change ${toolbarChange > 0 ? "is-up" : toolbarChange < 0 ? "is-down" : ""}`}>
+              <span>{formatSignedPrice(toolbarChange)}</span>
+              <span>{formatSignedPercent(toolbarChangePct)}</span>
             </div>
           </div>
         </div>
