@@ -229,9 +229,10 @@ function App() {
   // bakes a baseline price.json into every deploy (survives the gh-pages force_orphan),
   // and a 15-min GitHub Actions job (price.yml) overlays fresher ticks between deploys.
   // Same-origin fetch means no CORS dependency on any quote provider. The "LIVE" badge
-  // shows only when the quote is genuinely fresh (<25 min); an older-but-valid quote
-  // still updates the price (no badge), and a truly stale one (>3h) is ignored so the
-  // frozen data.json price takes over. The header's "Data as of" carries the honesty.
+  // shows only for a genuine live tick (price.yml's Yahoo source) that's fresh (<25 min);
+  // the freeze baseline snapshot shows its price but is never badged. An older-but-valid
+  // quote still updates the price (no badge), and a truly stale one (>3h) is ignored so
+  // the frozen data.json price takes over. The header's "Data as of" carries the honesty.
   useEffect(() => {
     if (!staticDataMode) return; // local dev: the backend price is already live
     const fetchLivePrice = async () => {
@@ -242,9 +243,14 @@ function App() {
         const ageMin = (Date.now() - new Date(q.fetched_at).getTime()) / 60000;
         if (!q.price || !Number.isFinite(ageMin) || ageMin > 180) return;
         setLivePrice(q.price);
-        setLivePriceFresh(ageMin <= 25);
-        if (q.change_pct != null) setLivePricePct(q.change_pct);
-        if (q.prev_close != null) setLivePriceChange(Number((q.price - q.prev_close).toFixed(2)));
+        // Badge a genuine real-time tick only: the freeze baseline (source "freeze
+        // snapshot …") is the deploy-time price, not streaming — show it, never badge it.
+        const isLiveTick = typeof q.source === "string" && q.source.toLowerCase().startsWith("yahoo");
+        setLivePriceFresh(ageMin <= 25 && isLiveTick);
+        // Always reflect THIS quote — null when it omits the field — so a fresh live
+        // price can't be paired with a stale change carried over from an earlier quote.
+        setLivePricePct(q.change_pct != null ? q.change_pct : null);
+        setLivePriceChange(q.prev_close != null ? Number((q.price - q.prev_close).toFixed(2)) : null);
       } catch {}
     };
     fetchLivePrice();
@@ -322,6 +328,12 @@ function App() {
   const currentPrice = data?.current_price || 0;
   const priceChange = data?.price_change || 0;
   const priceChangePercent = data?.price_change_percent || 0;
+  // Header price + change must share one source. Gate the change on whether a live PRICE
+  // exists (not whether the live change exists), so a live price with no change shows
+  // "--" instead of the frozen day's change computed against a different reference.
+  const hasHeaderLive = livePrice != null && livePrice > 0;
+  const headerPrice = hasHeaderLive ? livePrice : currentPrice;
+  const headerPct = hasHeaderLive ? livePricePct : priceChangePercent;
   const contractInfo = data?.contract || { symbol: 'CLV25', description: 'WTI CRUDE OIL FUTURES' };
   const activeMetrics = data?.performance_metrics?.by_horizon?.['1w'] || {};
 
@@ -450,11 +462,11 @@ function App() {
           </div>
           <div className="tv-desk-pricewrap">
             <span className="tv-desk-px">
-              {(livePrice ?? currentPrice) > 0 ? `$${(livePrice ?? currentPrice).toFixed(2)}` : '--'}
+              {headerPrice > 0 ? `$${headerPrice.toFixed(2)}` : '--'}
             </span>
-            <span className={`tv-desk-chg ${(livePricePct ?? priceChangePercent) > 0 ? 'is-up' : (livePricePct ?? priceChangePercent) < 0 ? 'is-down' : ''}`}>
-              {(livePrice ?? currentPrice) > 0
-                ? `${(livePricePct ?? priceChangePercent) > 0 ? '+' : ''}${(livePricePct ?? priceChangePercent).toFixed(2)}%`
+            <span className={`tv-desk-chg ${headerPct > 0 ? 'is-up' : headerPct < 0 ? 'is-down' : ''}`}>
+              {headerPrice > 0 && headerPct != null
+                ? `${headerPct > 0 ? '+' : ''}${headerPct.toFixed(2)}%`
                 : '--'}
             </span>
             {livePrice && livePriceFresh && <span className="tv-live-badge">LIVE</span>}

@@ -404,8 +404,15 @@ export default function Chart({
   // history). The chart series/price-line stay anchored to the frozen actuals below.
   const hasLivePrice = Number.isFinite(Number(livePrice)) && Number(livePrice) > 0;
   const toolbarPrice = hasLivePrice ? Number(livePrice) : displaySpotPrice;
-  const toolbarChange = hasLivePrice && livePriceChange != null ? Number(livePriceChange) : Number(priceChange) || 0;
-  const toolbarChangePct = hasLivePrice && livePricePct != null ? Number(livePricePct) : Number(priceChangePercent) || 0;
+  // Change follows the SAME source as the price: with a live price, use the live change
+  // or null (renders "--" via formatSigned*) — never the frozen day's change, which is
+  // computed against a different reference and would not match the live price shown.
+  const toolbarChange = hasLivePrice
+    ? (livePriceChange != null ? Number(livePriceChange) : null)
+    : (Number(priceChange) || 0);
+  const toolbarChangePct = hasLivePrice
+    ? (livePricePct != null ? Number(livePricePct) : null)
+    : (Number(priceChangePercent) || 0);
 
   useEffect(() => {
     if (!chartModel.lastActual) {

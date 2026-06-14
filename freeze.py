@@ -65,7 +65,7 @@ def freeze(out_dir: Path) -> dict:
     # always present — never a 404 — with at minimum this freeze's price + timestamp.
     # The 15-min price.yml job overlays a fresher tick on the same path between deploys.
     price = data.get("current_price")
-    if price:
+    if isinstance(price, (int, float)) and price > 0:
         pct = data.get("price_change_percent")
         change = data.get("price_change")
         prev_close = round(price - change, 2) if isinstance(change, (int, float)) else None

@@ -6,8 +6,9 @@ name: Refresh live price
 # browser never depends on Yahoo CORS (Yahoo blocks cross-origin fetches).
 #
 # If a run can't get a quote (rate limit, outage) it exits cleanly and the previous
-# price.json stays live; the client treats anything older than 45 min as stale and
-# falls back to the frozen data.json price.
+# price.json stays live; the client badges a tick as LIVE only while it's under 25 min
+# old, keeps showing the price un-badged up to 3h, then falls back to the frozen
+# data.json price.
 
 on:
   schedule:
