@@ -20,6 +20,7 @@ on:
       - 'freeze.py'
       - 'vite.config.js'
       - 'index.html'
+      - 'requirements.txt'
       - '.github/workflows/refresh.yml'
 
 permissions:
