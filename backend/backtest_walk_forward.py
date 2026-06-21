@@ -8,6 +8,8 @@ expanding-window walk-forward procedure and compares against simple baselines.
 
 import argparse
 import json
+import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -239,7 +241,7 @@ def build_ensemble_prediction(predictor, package, row_features, horizon, train_r
     return float(blended_pred)
 
 
-def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step):
+def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step, train_window=0):
     """Run walk-forward for one horizon and return model/baseline metrics."""
     target_col = f"target_{horizon}"
     actual_price_col = f"actual_price_{horizon}"
@@ -259,8 +261,26 @@ def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step)
     feature_selection_counts: dict = {}   # how often each feature survives SelectKBest across steps
     n_train_steps = 0
 
-    for end_idx in range(min_train, len(dataset), step):
-        train_df = dataset.iloc[:end_idx].copy()
+    total_steps = len(range(min_train, len(dataset), step))
+    _t0 = time.perf_counter()
+
+    for loop_i, end_idx in enumerate(range(min_train, len(dataset), step)):
+        if loop_i and loop_i % 50 == 0:
+            elapsed = time.perf_counter() - _t0
+            rate = elapsed / loop_i
+            eta = rate * (total_steps - loop_i)
+            print(f"  [{horizon}] step {loop_i}/{total_steps}  elapsed {elapsed:.0f}s  eta {eta:.0f}s",
+                  file=sys.stderr, flush=True)
+        start_idx = max(0, end_idx - train_window) if train_window > 0 else 0
+        full_train_df = dataset.iloc[start_idx:end_idx]   # all prices observable at decision time
+
+        # Purge/embargo (López de Prado): a row's target is the Close horizon_steps bars ahead, so
+        # the last (horizon_steps - 1) training rows have labels that mature AFTER the prediction
+        # point — using them would leak future information. Drop them from MODEL training. The
+        # baselines/drift below intentionally still use full_train_df (past prices only, no target
+        # overlap), so the embargo affects only the learned model, not the observed-price baselines.
+        purge = horizon_steps - 1
+        train_df = dataset.iloc[start_idx:end_idx - purge].copy() if purge > 0 else full_train_df.copy()
         row = dataset.iloc[end_idx]
 
         train_input = train_df[feature_cols + [target_col]].copy()
@@ -292,7 +312,7 @@ def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step)
         ref_price = float(row["reference_close"])
         actual_price = float(row[actual_price_col])
 
-        train_ref = train_df["reference_close"].astype(float)
+        train_ref = full_train_df["reference_close"].astype(float)
         avg_step_change = float(train_ref.diff().dropna().mean()) if len(train_ref) > 1 else 0.0
 
         ensemble_pred = build_ensemble_prediction(
@@ -415,6 +435,10 @@ def main():
     parser.add_argument("--lag-context", type=int, default=0, metavar="DAYS",
                         help="lag cross-asset context features by N trading days "
                              "(timing-leakage test: 1 = strictly entry-time-clean)")
+    parser.add_argument("--train-window", type=int, default=0, metavar="BARS",
+                        help="rolling training window in bars (0 = expanding, production uses ~378 for 18mo)")
+    parser.add_argument("--horizons", default="1d,1w",
+                        help="comma-separated horizons to evaluate (default: 1d,1w; use 1w to skip the dead 1d)")
     parser.add_argument("--output", default="data/walk_forward_backtest_latest.json", help="path to write JSON report")
     args = parser.parse_args()
 
@@ -423,7 +447,19 @@ def main():
     predictor.model_cpu_workers = max(1, int(predictor.model_cpu_workers))
 
     wti_data = predictor.get_wti_historical_data(period=args.period, interval="1d")
-    horizons = ["1d", "1w"]
+
+    # Drop non-positive prices (e.g. the 2020-04-20 WTI negative settlement, -$37.63). That
+    # print is a May-contract expiry artifact, not a tradeable level for a weekly continuous
+    # strategy, and a negative price produces finite-but-nonsensical pct_change features that
+    # the inf/nan guards do not catch — poisoning ~60 days of rolling features. No-op on any
+    # window without a negative print (the canonical 5y run drops 0 rows).
+    nonpos = int((wti_data["Close"] <= 0).sum())
+    if nonpos:
+        dropped = list(wti_data.index[wti_data["Close"] <= 0].date)
+        wti_data = wti_data[wti_data["Close"] > 0].copy()
+        print(f"Dropped {nonpos} non-positive-price row(s) as roll/expiry artifacts: {dropped}")
+
+    horizons = [h.strip() for h in args.horizons.split(",") if h.strip()]
     datasets = {}
     feature_cols_map = {}
     for horizon in horizons:
@@ -450,6 +486,7 @@ def main():
             horizon=horizon,
             min_train=int(args.min_train),
             step=int(args.step),
+            train_window=int(args.train_window),
         )
 
     report = {
@@ -461,6 +498,7 @@ def main():
             "estimators": int(args.estimators),
             "feature_mode": args.features,
             "context_lag_days": max(0, int(args.lag_context)),
+            "train_window": int(args.train_window),
             "rows_by_horizon": {horizon: int(len(datasets[horizon])) for horizon in horizons},
             "feature_count_by_horizon": {horizon: int(len(feature_cols_map[horizon])) for horizon in horizons},
         },

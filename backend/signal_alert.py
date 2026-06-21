@@ -90,7 +90,7 @@ def send_email(prev_stance: str | None, cur: dict) -> None:
         return
 
     arrow = "↑" if cur["stance"] == "LONG LEAN" else "↓" if cur["stance"] == "SHORT LEAN" else "→"
-    subject = f"WTI 1W Signal: {prev_stance or 'INIT'} → {cur['stance']} {arrow}  |  ${cur['price']:.2f}"
+    subject = f"WTI 1W model state: {prev_stance or 'INIT'} → {cur['stance']} {arrow}  |  ${cur['price']:.2f}  (edge retracted)"
 
     ci_str = f"[{cur['ci'][0]}, {cur['ci'][1]}]" if cur.get("ci") else "n/a"
 
@@ -100,46 +100,32 @@ def send_email(prev_stance: str | None, cur: dict) -> None:
         f"Live track record: {cur['live_n']} evaluated 1W predictions."
     )
 
-    sizing_note = ""
-    p = (cur["win_rate"] or 0) / 100
-    pf = cur.get("profit_factor") or 0
-    if 0 < p < 1 and pf > 1:
-        b = pf * (1 - p) / p
-        full_kelly = p - (1 - p) / b
-        half_kelly = full_kelly / 2
-        # avg loss per trade = mean_pnl / ((pf - 1) * (1 - p)); the (1 - p) factor was
-        # previously dropped, which understated avg loss by ~64% and reported a ~$39k
-        # account/contract instead of the dashboard's ~$110k. Keep both in agreement.
-        avg_loss = abs((cur.get("mean_pnl") or 0) / ((pf - 1) * (1 - p)))
-        sizing_note = (
-            f"\nSizing (walk-forward basis, not live):\n"
-            f"  Full Kelly: {full_kelly:.1%} | Half-Kelly: {half_kelly:.1%}\n"
-            f"  Conservative 2% risk: 1 contract per ~${int(avg_loss / 0.02):,} account"
-            if avg_loss > 0 else
-            f"\nSizing: Full Kelly {full_kelly:.1%} | Half-Kelly {half_kelly:.1%}"
-        )
+    # No position sizing is emitted: the edge is retracted, so Kelly/contract sizing would be
+    # meaningless (and the corrected profit factor < 1 makes it undefined anyway).
 
-    # The model can be non-significant (NEUTRAL), in which case these metrics may be
+    # The model is non-significant (NEUTRAL), in which case these metrics may be
     # absent — format defensively so an alert on a NEUTRAL transition can't crash.
     acc_str = f"{cur['accuracy']:.1f}%" if isinstance(cur.get("accuracy"), (int, float)) else "n/a"
     sharpe_str = f"{cur['sharpe']:.2f}" if isinstance(cur.get("sharpe"), (int, float)) else "n/a"
 
-    body = f"""WTI 1-Week Walk-Forward Signal
-{'='*44}
+    body = f"""WTI 1-Week Model State Change (research notification)
+{'='*54}
 
-PREVIOUS STANCE:  {prev_stance or 'INIT'}
-NEW STANCE:       {cur['stance']}
+NOTE: The backtested 1W edge was a look-ahead leakage artifact and has been
+RETRACTED. Purged, the signal is a coin flip (~48-52% accuracy, negative Sharpe,
+p > 0.2) that loses after costs. This email is a pipeline/engineering demo of the
+CI alert, NOT a trade recommendation. There is no validated directional signal.
+
+PREVIOUS STATE:  {prev_stance or 'INIT'}
+NEW STATE:       {cur['stance']}
 
 Contract:    {cur['symbol']}
 Price now:   ${cur['price']:.2f}
-1W forecast: {cur['fc_pct']:+.2f}%
+1W model output (reference only): {cur['fc_pct']:+.2f}%
 
-Backtest (5y, no-macro, 199 OOS, $100/trade):
-  Direction accuracy: {acc_str}
-  95% CI: {ci_str}
-  Sharpe:  {sharpe_str}
-  p-value: < 0.001
-{sizing_note}
+Corrected (purged) backtest, 5y, 199 OOS, $100/trade:
+  Direction accuracy: {acc_str}  (CI {ci_str})
+  Sharpe: {sharpe_str}   not statistically significant
 
 {live_note}
 
@@ -147,7 +133,7 @@ Dashboard: {SITE_URL}
 Frozen at: {cur['frozen_at']}
 
 ---
-Walk-forward research demo. No execution infrastructure.
+Walk-forward research demo. Edge retracted. No execution infrastructure.
 """
 
     msg = MIMEText(body)

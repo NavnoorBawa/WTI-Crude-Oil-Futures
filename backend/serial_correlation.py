@@ -2,8 +2,14 @@
 """
 Serial-correlation / effective-sample-size audit for the 1W walk-forward result.
 
-The headline significance claim (65.8% direction accuracy, p<0.001) rests on the OOS
-trades being effectively independent. They are NOT perfectly independent: the 63-bar
+RETRACTED CONTEXT (2026-06-20): this audit was run on the ORIGINAL walk-forward, whose
+65.8% / p<0.001 headline was later found to be a look-ahead leakage artifact (the training
+set was not purged of rows whose 5-day targets matured after the prediction point). With the
+purge applied the signal is a coin flip (p>0.2). This ESS analysis therefore measured the
+serial correlation of LEAKED predictions; it is kept only as a record of the original method.
+
+The (now-invalidated) headline significance claim (65.8% direction accuracy, p<0.001) rested
+on the OOS trades being effectively independent. They are NOT perfectly independent: the 63-bar
 feature window and 5-bar stride mean adjacent predictions share ~92% of their feature
 inputs. Feature overlap does not force error correlation — the *targets* (the 5-day
 forward returns) are non-overlapping at step=5 — but regime persistence and model

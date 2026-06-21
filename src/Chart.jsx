@@ -8,8 +8,9 @@ import {
   LineStyle,
 } from "lightweight-charts";
 
-// 1W is the only walk-forward validated signal (entry-time-clean: 65.8%, p<0.001 at measured
-// ESS, Sharpe 2.44, n=199 OOS). 1D: unstable direction, negative P&L after costs. 1H: never tested. Both removed.
+// RETRACTED 2026-06-20: the 1W "edge" (Sharpe 2.44, 65.8% acc) was a look-ahead leak in the
+// walk-forward (5-day targets maturing after the prediction point, no purge). Purged = coin flip
+// (48-52%, p>0.2). 1D/1H never worked. Chart kept as engineering; no tradeable signal is claimed.
 const FORECAST_HORIZONS = ["1W"];
 
 const HORIZON_META = {
@@ -691,7 +692,7 @@ export default function Chart({
               {formatSignedPercent(chartModel.forecasts["1W"].changePct)}
             </span>
           )}
-          <span className="tv-1w-meta">walk-forward validated signal — full stats above</span>
+          <span className="tv-1w-meta">model output, reference only — backtested edge retracted (look-ahead leak)</span>
         </div>
       </div>
 

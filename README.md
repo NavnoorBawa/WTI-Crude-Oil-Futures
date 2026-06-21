@@ -1,50 +1,128 @@
-# WTI Crude Oil Futures — 1-Week Direction Model & Supply-Shock Event Study
+# WTI Crude Oil Futures — Direction-Leak Post-Mortem and a Validated Volatility Forecaster
 
-A walk-forward-validated machine-learning signal for WTI crude oil futures, paired with an
-EIA-sourced supply-shock event study for the regimes where ML is least reliable. Built with an
-emphasis on **honest, out-of-sample evidence** — every headline number below comes from a
-non-overlapping walk-forward backtest with transaction costs, and the components that *don't*
-work are labeled as such rather than hidden.
+A machine-learning research project on WTI crude, with a clear arc. The original 1-week
+**direction** signal backtested at Sharpe 2.44; a purge/embargo audit then showed the **entire
+edge was look-ahead leakage**, and once corrected the signal is a coin flip. Rather than chase a
+direction edge that theory says should not exist on a liquid contract, the project pivots to what
+genuinely is forecastable: **volatility**. A leak-free HAR-IV model (realized vol plus OVX implied
+vol) calls next-week vol direction at **72.7%** versus a 51.7% base rate (z ≈ 8.5, p < 1e-15),
+stable across every year of a decade. So the project carries one honest negative result (direction
+is unforecastable here, and the headline that said otherwise was a leak) and one honest positive
+result (vol is forecastable, validated with the same purged walk-forward — though even that is a
+risk/regime indicator, not a demonstrated source of trading profit). Plus honest tests of two more
+candidate edges (carry, the variance risk premium), an EIA supply-shock event study, and a
+zero-infrastructure deploy pipeline.
 
 ---
 
-## Headline result (the part that is real)
+## Headline finding: the edge was a look-ahead leak
 
-**1-week horizon — statistically and economically significant**, measured on 199
-non-overlapping out-of-sample predictions over 5 years (expanding-window walk-forward,
-$100/contract round-trip cost, 1 contract = 1,000 bbl, **all cross-asset features lagged
-one trading day so nothing in the feature set prints after the trade entry**):
+The 1-week signal originally backtested at Sharpe 2.44 (5-year) and 2.07 (10-year rolling), with
+direction accuracy near 66% and p < 0.001. Those numbers were a **look-ahead leakage artifact**.
 
-| Metric | 1-Week Signal |
-|---|---|
-| Direction accuracy | **65.8%** (95% CI: 59.0%–72.1%) |
-| Statistical significance vs coin-flip | **p < 0.001** (binomial; holds under measured serial-correlation correction — see note) |
-| Annualized Sharpe (after costs) | **2.44** |
-| Expected P&L per trade | **+$1,473** |
-| Win rate | 63.8% |
-| Profit factor | 2.87 |
-| Max drawdown | $11,050 |
-| Out-of-sample samples | 199 |
+The walk-forward trained on `dataset.iloc[start:end_idx]` and predicted at `end_idx`, but each
+row's label is the Close **5 bars ahead**. So the last 4 training rows at every step carried
+labels that only mature *after* the prediction is made. At the real decision moment those labels
+do not exist yet, so training on them feeds the future into the model. Because the model is a tree
+ensemble retrained every 5 days, and the most recent training rows are near-duplicates of the test
+row in feature space, it latched onto those leaked near-duplicates and effectively memorized the
+answer. It was a leak detector, not a forecaster.
 
-*Sharpe is annualized at the backtest's actual trade cadence — 252/step = 50.4 trades/year —
-not the naive 52 weeks/year, which ignored the walk-forward stride and overstated Sharpe by
-~1.6% (2.48 → 2.44). Point estimates move a few points between reruns (tree training is
-stochastic and the 5-year window slides): the prior run of the same pipeline scored
-62.8% / Sharpe ≈ 2.0. The claim is the significance band, not the third decimal.*
+The fix is a standard purge/embargo (López de Prado): drop the last `horizon_steps − 1` rows from
+each training window so no training label matures after the prediction point. This also makes the
+backtest faithful to production, which cannot train on unmatured targets in the first place. With
+the purge applied:
 
-*Serial-correlation note on p-value: adjacent predictions share 92% of their feature window
-(63-bar lookback, step=5), so independence was checked rather than assumed. The measured
-autocorrelation of the OOS direction-hit series is small (lag-1 = 0.10, near zero beyond),
-because the prediction **targets** are non-overlapping 5-day windows even though the features
-overlap. Newey-West (Bartlett, L=5) effective sample size: **176 of 199 nominal**; the
-significance test at that ESS gives z = 4.2, p ≈ 0.00001 — so **p < 0.001 survives the
-correction**. Full computation: [`data/serial_correlation_check.json`](data/serial_correlation_check.json).*
+| Metric | 5-Year (n=199) | 10-Year rolling (n=450) |
+|---|---|---|
+| | unpurged → **purged** | unpurged → **purged** |
+| Annualized Sharpe (after costs) | 2.44 → **−0.66** | 2.07 → **−0.11** |
+| Direction accuracy | 65.8% → **48.2%** | 66.0% → **51.6%** |
+| Significance vs coin-flip | p<0.001 → **p = 0.71** | p<0.001 → **p = 0.27** |
+| Beats naive baselines? | (leaked) → **no** (MAE 0.62% worse) | (leaked) → **no** |
 
-The raw artifact behind every number: [`data/walk_forward_backtest_latest.json`](data/walk_forward_backtest_latest.json).
+The collapse is uniform across every calendar year, on two independent out-of-sample sets, and is
+many times larger than the known run-to-run noise. The conclusion is unambiguous: **as built, this
+feature set has no out-of-sample directional edge in WTI.** The corrected signal is a coin flip
+that loses money after costs.
 
-### Why this is credible, not luck
+Artifacts: [`data/wf_5y_purged.json`](data/wf_5y_purged.json) and
+[`data/wf_10y_rolling_purged.json`](data/wf_10y_rolling_purged.json) (corrected);
+[`data/wf_5y_unpurged_LEAKED.json`](data/wf_5y_unpurged_LEAKED.json) (the original leaked run,
+preserved for the before/after). The fix is in
+[`backend/backtest_walk_forward.py`](backend/backtest_walk_forward.py) (`purge = horizon_steps - 1`).
 
-The result was **stress-tested against the obvious failure modes** before being believed:
+### What this project actually demonstrates
+
+Not a tradeable edge. What it shows is the research discipline a desk cares about: a full
+walk-forward and leakage-testing framework, and the judgment to audit it, find a fatal
+look-ahead leak in its own headline, quantify the damage honestly, and retract the result rather
+than ship it. The supporting analyses that were built on the leaked signal (the random-strategy
+skill decomposition, conviction calibration, measured effective sample size, the ex-2026 anchor,
+and the macro/timing leakage A/Bs) all measured properties of leaked predictions and are retained
+below only as a record of the original, now-invalidated claim.
+
+## What does work: next-week volatility forecasting
+
+Direction is near-unforecastable on a liquid contract, which is why the leaked direction edge was
+too-good-to-be-true. **Volatility is not.** Volatility clustering and mean-reversion are among the
+most replicated effects in financial econometrics, so a properly validated vol forecast has real
+out-of-sample skill. Using the *same* purged walk-forward that exposed the direction leak, a
+**HAR-IV** model ([`backend/vol_forecast.py`](backend/vol_forecast.py)) forecasts next-week
+(5-day) realized volatility from realized vol over 5/22/66 days **plus OVX, the free CBOE oil
+implied-vol index**. Validated over 10 years, leak-free, n=439 OOS:
+
+| Metric | HAR-IV model | Baselines |
+|---|---|---|
+| Vol-direction accuracy (rise/fall vs current) | **72.7%** | 65.1% mean-reversion · 51.7% majority |
+| Vol-direction, ex-2020 (n=389) | **74.0%** | — |
+| Level forecast R² | **0.50** | 0.32 persistence |
+| Level forecast MAE | **0.120** | 0.160 persistence (25% worse) |
+
+The direction call is stable in **every** year of the decade (62% to 86%), and 2020 is the
+*weakest* year, not the driver — removing COVID *raises* the accuracy to 74%. It also beats a
+smart mean-reversion baseline by about 7 points in nearly every year, so the model captures more
+than just "vol reverts to its average." Against the 51.7% majority-class base rate the result is
+overwhelmingly significant: **z ≈ 8.5, p < 1e-15** (binomial, n=439).
+
+Adding OVX is the one principled free-data upgrade that earned its keep: implied vol is
+forward-looking, so the level R² nearly **doubled (0.30 → 0.50, and 0.23 → 0.40 ex-2020), improving
+in almost every individual year** — a real, leak-free gain (OVX at day *t* is known at *t*), not a
+tuning artifact. The model falls back to pure HAR if OVX is ever unavailable.
+
+Discipline, shown both ways (the deliberate non-mistakes): every candidate feature had to beat the
+existing model out-of-sample or it was rejected. The standard HAR *leverage* enhancement — downside
+realized semivariance, so down days predict higher future vol — was tested and did **not** improve
+out-of-sample (71.5% vs 72.0% on the base HAR, R² 0.300 vs 0.304), so it was **left out**. OVX
+*was* tested and clearly helped, so it was **kept**. A feature gets in only when it earns its keep;
+adding complexity that does not is exactly how vol models overfit. Net: the model is HAR-IV (three
+realized-vol terms plus OVX), nothing more.
+
+Honest scope, because the lesson of the direction signal is to not oversell. This is a **clean
+implementation of a known effect, not novel alpha**, and it is a **vol forecast, not a directional
+return signal** — you do not make directional P&L from it. The strong, robust part is the
+direction/regime call; the level forecast only ties the naive baseline on R² (it beats it on MAE),
+so level calibration is the part still worth improving.
+
+**Does it convert to P&L? Tested, and honestly: no.** A volatility-targeting overlay (scale a long
+WTI position inversely to forecast vol, 5 bps/turn costs, 2016–2026) did **not** beat buy-and-hold
+on a risk-adjusted basis (Sharpe 0.36 buy-hold vs 0.28 naive-lagged-vol target vs **0.27** HAR
+target), and the HAR forecast did **not** beat the trivial naive-lagged-vol sizing. This matches the
+skeptical literature on vol-managed portfolios (the benefit is fragile out-of-sample) and the fact
+that WTI's own return premium is weak. So the forecast's honest standing is: a **validated,
+statistically significant volatility/regime indicator** (useful for risk monitoring and as an
+options-vol input), **not** a demonstrated source of trading profit. Reporting this negative result
+rather than tuning the overlay until it looks good is the whole point.
+
+```bash
+python -m backend.vol_forecast      # reproduces the table above and writes the artifact
+```
+Artifact: [`data/vol_forecast_validation.json`](data/vol_forecast_validation.json).
+
+<details>
+<summary>Original (now-invalidated) credibility section — kept for transparency</summary>
+
+The leaked result was stress-tested against the obvious failure modes before the leak was found:
 
 1. **Not a trending-market artifact.** On the identical window, buy-and-hold scored
    Sharpe ≈ **0.00** and naive momentum scored Sharpe ≈ **−1.03**. The market handed out no
@@ -91,36 +169,69 @@ The result was **stress-tested against the obvious failure modes** before being 
    not depend on the ~90-minute post-entry close window.
    Comparison artifact: [`data/timing_leakage_test.json`](data/timing_leakage_test.json).
 
-Reproduce:
+</details>
+
+Reproduce. The backtest now **purges by default** (`purge = horizon_steps − 1`), so these
+commands produce the corrected coin-flip result, not the original 2.44:
 ```bash
+# 5-year, corrected (1d + 1w)
 python -m backend.backtest_walk_forward --period 5y --min-train 200 --step 5 --features no_macro --lag-context 1
+
+# 10-year, production rolling 18-month window
+python -m backend.backtest_walk_forward --period 10y --step 5 --features no_macro --lag-context 1 \
+  --train-window 378 --horizons 1w --output data/wf_10y_rolling_purged.json
 ```
 
 ---
 
 ## What does NOT work (stated plainly)
 
-- **1-Day horizon: excluded from trading use.** Direction accuracy is unstable across
-  reruns (45% in one, 58% in the next — n=199 each) and the P&L is negative after costs
-  in every run (Sharpe −0.59, −$215/trade in the current artifact). A signal that flips
-  13 points between runs and loses money either way is noise with occasional luck. It is
-  never shown as a tradeable signal.
-- **1-Hour horizon: removed.** Direction accuracy was indistinguishable from noise and never
-  reached enough samples to test. It is not displayed as a horizon.
+- **The 1-week signal itself, once the look-ahead leak is removed.** This is the headline
+  finding above: corrected, it is a coin flip (48–52% accuracy, negative Sharpe, p > 0.2) that
+  loses money after costs and does not beat naive baselines. It is no longer presented as a
+  tradeable signal.
+- **1-Day horizon: never worked.** Direction unstable across reruns and negative P&L after costs
+  even before the purge. Removed from trading use.
+- **1-Hour horizon: removed.** Indistinguishable from noise; never reached enough samples to test.
+- **Term-structure carry: no directional edge.** Carry (backwardation vs contango) is a top
+  cross-sectional commodity factor, so it was the most promising remaining directional signal. Tested
+  honestly on free EIA futures-curve data (RCLC1/RCLC2) with returns from the back-adjusted continuous
+  series — to avoid the spurious roll-down of the raw front-contract series — and a purged monthly
+  walk-forward (2004–2024, n=896): **48.1% direction accuracy vs a 55.4% base rate (p = 1.0)**, and a
+  carry-timed strategy returned Sharpe −0.03 vs 0.25 buy-and-hold. The data even leans *opposite* to the
+  textbook factor (contango → higher forward returns), but that is the crash-recovery cycle, not a robust
+  signal, and trading the reverse would be reverse-engineering the in-sample answer.
+  [`backend/carry_signal_test.py`](backend/carry_signal_test.py) ·
+  [`data/carry_signal_test.json`](data/carry_signal_test.json).
 
-This is deliberate: a forecasting tool that hides its dead horizons is worse than one that
-flags them. Only the 1-week signal survived honest validation.
+- **Variance risk premium: real, but not a clean edge here.** Oil's implied vol (OVX, free) exceeds
+  subsequent realized vol by ~2.2 points on average (positive 71% of months, 2007–2026) — the VRP is
+  genuinely there. But conditioning the short-vol capture on my realized-vol forecast did **not** improve
+  it (the "implied-rich" half did no better than the "cheap" half), the proxy Sharpe (~0.38) **ignores the
+  severe left-tail** of short-vol (2008/2014/2020 vol explosions), and harvesting it cleanly needs oil
+  options data that is not freely available with long history. Reported as a real market fact, not a
+  strategy.
+
+The pattern across every directional test is consistent and is itself the finding: **WTI direction is
+not forecastable from the signals reachable here** (momentum was a leak; carry has no edge), and the
+real, documented effects that *do* exist (volatility clustering, the variance risk premium) are either
+not tradeable via the channels available (vol-targeting) or need data this project does not have
+(options). Only realized-volatility *forecasting* survives as a clean, validated result. A framework
+that surfaces and reports its own failures is worth more than one that hides them.
 
 ---
 
-## From signal to position
+## From signal to position (infrastructure, not a live recommendation)
 
-The dashboard translates the validated statistics into the numbers a desk actually uses:
+This layer was built to translate a *validated* signal into position sizing. With the edge now
+retracted, it stands as **engineering, not a trade recommendation** — the sizing math is correct,
+but it has no real edge to size. Kept because the plumbing is the reusable part:
 
-- **Stance** — LONG / SHORT lean only when model conviction exceeds ±0.6%; NEUTRAL otherwise.
-  The signal is allowed to say "no trade."
-- **Kelly sizing** — full- and half-Kelly fractions derived from the walk-forward win rate and
-  profit factor, plus a contracts-per-account-size translation at 2% risk per trade.
+- **Stance** — LONG / SHORT lean only when model conviction exceeds ±0.6%, NEUTRAL otherwise.
+  With the corrected (non-significant) backtest the dashboard shows NEUTRAL and no tear sheet.
+- **Kelly sizing** — full- and half-Kelly fractions derived from win rate and profit factor, plus
+  a contracts-per-account translation at 2% risk. Correct given inputs; the inputs are no longer
+  a real edge.
 - **Live track record** — CI records one 1W call per day and scores it when it resolves a
   week later ([`backend/live_record.py`](backend/live_record.py), record in
   [`data/live_track_record.json`](data/live_track_record.json)). **Every entry and every
@@ -138,10 +249,12 @@ A separate layer for the scenario where ML models are *least* reliable — geopo
 shocks. It makes no predictive claim; it answers the question a discretionary PM actually asks
 during an event: **"how have structurally similar shocks actually resolved?"**
 
-- **36 verified supply-shock events, 1990–2024** (wars, OPEC cuts, hurricanes, sanctions,
-  strait incidents). Only the event date and barrels-at-risk are hand-entered, each with a
-  source note. **Every price number — peak %, days-to-peak, settle %, trajectory — is computed
-  from EIA's official daily WTI Cushing spot series (RWTC)**, not transcribed by hand.
+- **36 defined supply-shock events, 1990–2024** (wars, OPEC cuts, hurricanes, sanctions,
+  strait incidents); the dashboard shows the **35 with a complete computed forward price
+  response** (the most recent event lacks enough forward data to score). Only the event date and
+  barrels-at-risk are hand-entered, each with a source note. **Every price number — peak %,
+  days-to-peak, settle %, trajectory — is computed from EIA's official daily WTI Cushing spot
+  series (RWTC)**, not transcribed by hand.
   ([`backend/supply_shock_playbook.py`](backend/supply_shock_playbook.py))
 - **The finding the dashboard leads with:** events with real barrels lost (>0.5 mbpd) hold
   their gains into settlement; threat-only events with no physical supply loss spike and fade.
@@ -167,9 +280,18 @@ python backend/supply_shock_playbook.py   # print the full event-study table fro
 - **[`backend/oil.py`](backend/oil.py)** — data ingestion, feature engineering, 6-model
   ensemble, news-regime score.
 - **[`backend/backtest_walk_forward.py`](backend/backtest_walk_forward.py)** — the validation
-  engine: expanding-window walk-forward with baselines, binomial p-values, Wilson CIs, and
-  dollar P&L (Sharpe, win rate, drawdown, profit factor). `--features {all,no_macro,price_only}`
-  enables the leakage comparison.
+  engine: walk-forward with baselines, binomial p-values, Wilson CIs, and dollar P&L (Sharpe,
+  win rate, drawdown, profit factor). `--features {all,no_macro,price_only}` enables the leakage
+  comparison; `--train-window` switches expanding to rolling (378 bars = the production 18-month
+  window); `--horizons` and `--period` select the test set. Non-positive prices (the 2020 negative
+  settle) are dropped before feature engineering. **Purges the last `horizon_steps − 1` training
+  rows per step** so no label matures after the prediction point — the fix that exposed the
+  headline as leakage.
+- **[`backend/vol_forecast.py`](backend/vol_forecast.py)** — HAR-IV realized-volatility forecaster
+  (realized vol + OVX implied vol), the project's validated signal (next-week vol direction 72.7%
+  OOS, p < 1e-15, leak-free). Falls back to pure HAR if OVX is unavailable.
+- **[`backend/carry_signal_test.py`](backend/carry_signal_test.py)** — documented NEGATIVE result:
+  term-structure carry (EIA futures curve) does not time WTI direction.
 - **[`backend/supply_shock_playbook.py`](backend/supply_shock_playbook.py)** — EIA-computed
   supply-shock event study.
 - **[`backend/server.py`](backend/server.py)** — Flask API; merges live predictions with the
@@ -183,7 +305,8 @@ python backend/supply_shock_playbook.py   # print the full event-study table fro
 - **[`data/`](data)** — evidence artifacts only: the walk-forward backtest, the macro- and
   timing-leakage comparisons, the EIA spot cache, the live track record, and the signal
   state. Per-contract runtime files are gitignored.
-- **[`tests/`](tests)** — logic-guard unit tests (`python -m unittest discover -s tests`).
+- **[`tests/`](tests)** — 25 unit tests including a look-ahead **leak check** on the vol-forecast
+  feature builder (`PYTHONPATH=. python -m unittest discover -s tests`).
 
 ### Models
 Ensemble of Random Forest, Extra Trees, Ridge, Elastic Net, XGBoost, LightGBM, blended with
@@ -252,38 +375,24 @@ cd dist && python -m http.server 8000     # open http://localhost:8000
 
 ## Honest limitations
 
-- **Single regime.** The 5-year test window (2021–2026) covers COVID recovery, the Russian
-  invasion, and OPEC+ cuts. The 1-week edge is validated on this period only; performance in a
-  prolonged low-volatility, range-bound regime is unproven.
-- **2026 H1 concentration.** The first half of 2026 (21 trades) produced $112K of the $293K
-  total — 38% of five years of profit. The ex-2026 Sharpe is 2.19 (178 trades); the three
-  full calendar years 2023–2025 average 2.04. The headline 2.44 includes the strong recent
-  period. The year-by-year table above shows the full picture; it is not hidden.
-- **Serial correlation was measured, not assumed.** Adjacent predictions share 92% of their
-  feature window, but the OOS hit series autocorrelation is small (lag-1 = 0.10) because the
-  prediction targets are non-overlapping 5-day windows. Newey-West ESS = 176 of 199 nominal;
-  p < 0.001 survives. See [`data/serial_correlation_check.json`](data/serial_correlation_check.json).
-  Residual caveat: an ESS estimated from 199 samples carries its own sampling noise.
-- **The model never abstains.** `sign(forecast − price)` is never exactly zero, so all 199
-  OOS samples become trades — including near-zero-conviction calls. The dashboard's NEUTRAL
-  band (±0.6%) exists only at display time and is not what the backtest measured. Per-trade
-  forecast magnitude (`fc_pct`) is now recorded so a no-trade threshold can be evaluated
-  on the next rerun.
-- **The OOS stats validate the full pipeline, not a raw ensemble.** The deployed prediction
-  is a weighted model average that is then consensus-shrunk, optionally blended toward the
-  best directional model when signs conflict, and blended toward a drift baseline when
-  directional evidence is weak ([`backend/oil.py`](backend/oil.py), `_stabilize_ensemble_prediction`
-  and `_blend_with_drift_challenger`). The backtest applies the identical post-processing —
-  so the 65.8% measures what is actually deployed, but "the ensemble predicts X" is shorthand.
-- **Thin live record.** The walk-forward result is rigorous but historical; the live
-  out-of-sample record is still accruing (one resolved trade per week) and is displayed
-  separately until it reaches statistical mass.
-- **Macro uplift is unresolved — and deliberately unused.** The A/B (n=50, step=20) showed
-  +14pp accuracy / +0.31 Sharpe for with_macro at the test's own cadence, but the gap is
-  not significant at n=50 (p ≈ 0.07, unpaired). Because FRED/EIA are latest-vintage, the
-  uplift cannot be attributed to signal vs revision look-ahead without an ALFRED vintage
-  audit; either way it stays out of the deployed model. A paired rerun (same weeks, per-sample
-  records) at step=5 would sharpen the test.
+- **No directional edge (the dominant limitation).** The headline result was a look-ahead
+  leakage artifact; corrected, the 1-week signal is a coin flip that loses after costs (see
+  *Headline finding*). Every analysis that was built on the leaked signal — the year-by-year
+  table, the ex-2026 anchor, the random-strategy skill decomposition, the measured serial
+  correlation / ESS, the conviction calibration, and the macro/timing A/Bs — measured properties
+  of leaked predictions and does not establish a real edge. They are retained only as a record of
+  the original claim and its retraction.
+- **The live signal is noise, too.** Production cannot train on unmatured targets, so it purges
+  by necessity and inherits the same coin-flip behavior. The CI still computes and emails a 1W
+  stance; treat it as a pipeline demo, not a recommendation.
+- **Thin live record.** The git-timestamped live out-of-sample record is still accruing (one
+  resolved call per week) and is displayed separately. Given the corrected backtest, the prior
+  expectation for it is no edge.
+- **Macro features were excluded, and that decision is now moot.** A pre-retraction A/B
+  suggested a possible macro uplift, but it ran on the same leaked pipeline and is not meaningful
+  evidence. FRED/EIA are latest-vintage (not ALFRED point-in-time), so any uplift could be
+  revision look-ahead regardless; macro stays out of the model. With the base signal dead, this
+  is no longer a live question.
 - **The news regime score is a keyword proxy**, not NLP — useful as a guardrail and novelty
   flag, labeled as such, and never used as a trading signal.
 - **News latency.** The geo feed is cached 30 minutes (NewsAPI free tier) — appropriate for

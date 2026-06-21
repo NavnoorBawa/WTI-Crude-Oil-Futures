@@ -56,6 +56,20 @@ def freeze(out_dir: Path) -> dict:
     frozen_at = datetime.now(timezone.utc).isoformat()
     data["frozen_at"] = frozen_at
 
+    # Attach the validated volatility forecast (the project's real signal). Guarded so a vol-model
+    # or data hiccup can never fail the deploy — the dashboard simply omits the card if absent.
+    try:
+        from backend import vol_forecast
+        data["vol_forecast"] = {
+            "live": vol_forecast.live_forecast(),
+            "validation": vol_forecast.validate()["overall"],
+        }
+        print(f"   vol_forecast: next-week {data['vol_forecast']['live']['direction']} "
+              f"@ {data['vol_forecast']['live']['forecast_next_week_vol_annualized_pct']}% "
+              f"(OOS dir acc {data['vol_forecast']['validation']['har_dir_acc_pct']}%)", flush=True)
+    except Exception as exc:  # pragma: no cover - never block the deploy on the vol add-on
+        print(f"   vol_forecast unavailable ({exc}) — dashboard will omit the card", flush=True)
+
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "data.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
 

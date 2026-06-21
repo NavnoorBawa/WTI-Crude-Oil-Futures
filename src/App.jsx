@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import Chart from "./Chart";
 
-// 1W is the only walk-forward validated signal (entry-time-clean config: 65.8%, p<0.001
-// at measured ESS, Sharpe 2.44, n=199 OOS). 1D: direction unstable across runs and money-losing after costs.
-// 1H: never walk-forward tested. Both excluded from display.
+// RETRACTED 2026-06-20: the 1W "edge" (Sharpe 2.44/2.07, 65.8% acc) was a look-ahead leak —
+// the walk-forward trained on rows whose 5-day targets matured after the prediction point. After a
+// purge/embargo the signal is a coin flip (48-52% acc, p>0.2, negative Sharpe). No tradeable edge.
+// Dashboard shows the retraction notice; stance renders NEUTRAL (backtest is no longer significant).
 
 
 function App() {
@@ -337,7 +338,8 @@ function App() {
   const contractInfo = data?.contract || { symbol: 'CLV25', description: 'WTI CRUDE OIL FUTURES' };
   const activeMetrics = data?.performance_metrics?.by_horizon?.['1w'] || {};
 
-  // Walk-forward out-of-sample stats (1W validated signal)
+  // Walk-forward out-of-sample stats. NOTE: wfIsSignificant is now False (purged backtest is a
+  // coin flip), so the tear sheet and stance render as retracted/NEUTRAL. Kept for the data shape.
   const wfIsSignificant = activeMetrics?.wf_is_significant ?? null;
   const wfCi95          = activeMetrics?.wf_ci_95 ?? null;
   const wfSharpe        = activeMetrics?.wf_pnl_sharpe ?? null;
@@ -347,6 +349,9 @@ function App() {
   const wfMeanPnl       = activeMetrics?.wf_pnl_mean_per_trade ?? null;
   const wfMaxDrawdown   = activeMetrics?.wf_pnl_max_drawdown ?? null;
   const wfYearly        = activeMetrics?.wf_yearly_breakdown ?? null;
+
+  // Volatility forecast — the project's validated signal (backend/vol_forecast.py).
+  const vol = data?.vol_forecast || null;
 
   // Live record — git-committed daily calls, resolved after 1 week (backend/live_record.py).
   // Every entry/resolution is timestamped by a bot commit, so the record can't be back-dated.
@@ -412,7 +417,7 @@ function App() {
       ? `1W forecast ${fmtPct(fc1wPct)}. Model leans long — size to half-Kelly (${hk}). No live track record yet.`
       : stance === 'SHORT LEAN'
       ? `1W forecast ${fmtPct(fc1wPct)}. Model leans short — size to half-Kelly (${hk}). No live track record yet.`
-      : `1W forecast ${fmtPct(fc1wPct)}. No directional edge — the signal only fires when model conviction exceeds ±0.6%.`;
+      : `1W model output ${fmtPct(fc1wPct)} (reference only). The backtested edge was a look-ahead leak and is retracted; there is no validated directional signal.`;
     return { stance, tone, text };
   })();
 
@@ -424,7 +429,7 @@ function App() {
           <span className="tv-brand-mark">WTI</span>
           <span className="tv-brand-text">
             <span className="tv-brand-title">WTI Crude Oil Futures</span>
-            <span className="tv-brand-sub">1W Direction Model · Walk-Forward Validated · n=199 OOS</span>
+            <span className="tv-brand-sub">1W Direction Model · edge retracted (look-ahead leak) · research post-mortem</span>
           </span>
         </div>
         <div className="tv-topbar-right">
@@ -553,6 +558,56 @@ function App() {
           )}
           <div className="tv-tearsheet-foot">
             95% CI [{wfCi95?.[0]}, {wfCi95?.[1]}] · p &lt; 0.001 (holds at measured ESS 176/199) · expanding-window walk-forward · 50.4 trades/yr annualization · $100/trade costs · no macro · context lagged 1d (entry-time-clean)
+          </div>
+        </div>
+      )}
+
+      {/* Signal-retraction notice — always shown. The original backtest (Sharpe 2.44 / 2.07) was a
+          look-ahead leak; purged, the signal is a coin flip. This card replaces the headline metrics
+          with the honest finding so the dashboard never implies a tradeable edge. */}
+      <div className="tv-tearsheet">
+        <div className="tv-tearsheet-head">
+          <span className="tv-desk-label">Signal status · retracted (look-ahead leak)</span>
+          <span className="tv-tearsheet-live">research post-mortem</span>
+        </div>
+        <div className="tv-tearsheet-foot">
+          The original 1-week backtest (Sharpe 2.44 over 5y, 2.07 over 10y) was a look-ahead leakage
+          artifact: the walk-forward trained on rows whose 5-day targets matured after the prediction
+          point. After a standard purge/embargo, direction accuracy falls to 48–52% (p &gt; 0.2) and
+          the strategy loses money after costs on both windows. As built, the signal has no
+          out-of-sample edge, so no stance or sizing is shown as actionable. The dashboard and
+          deploy pipeline are kept as engineering; the trading claim is retracted. See the README
+          headline finding for the full post-mortem.
+        </div>
+      </div>
+
+      {/* Volatility forecast — the project's validated signal (backend/vol_forecast.py). */}
+      {vol?.live && vol?.validation && (
+        <div className="tv-tearsheet">
+          <div className="tv-tearsheet-head">
+            <span className="tv-desk-label">Volatility Forecast · validated signal (HAR-IV: realized vol + OVX)</span>
+            <span className="tv-tearsheet-live">next-week, leak-free</span>
+          </div>
+          <div className="tv-tearsheet-grid">
+            <div>
+              <b className={vol.live.direction === 'RISING' ? 'up' : 'down'}>{vol.live.direction}</b>
+              <span>Next-week vol</span>
+            </div>
+            <div><b>{vol.live.current_realized_vol_5d_annualized_pct}%</b><span>Current RV (5d)</span></div>
+            <div><b>{vol.live.forecast_next_week_vol_annualized_pct}%</b><span>Forecast (ann.)</span></div>
+            {vol.live.implied_vol_ovx_pct != null
+              ? <div><b>{vol.live.implied_vol_ovx_pct}%</b><span>Implied (OVX)</span></div>
+              : <div><b>{vol.validation.majority_class_pct}%</b><span>Base Rate</span></div>}
+            <div><b className="up">{vol.validation.har_dir_acc_pct}%</b><span>OOS Dir. Acc.</span></div>
+            <div><b>{vol.validation.n}</b><span>OOS Weeks</span></div>
+          </div>
+          <div className="tv-tearsheet-foot">
+            Next-week realized-volatility direction, 10y purged walk-forward: {vol.validation.har_dir_acc_pct}% accuracy
+            vs a {vol.validation.majority_class_pct}% base rate (z ≈ 8.5, p &lt; 1e-15; ex-2020 {vol.validation.ex_2020_har_dir_acc_pct}%, stable every year).
+            Beats a mean-reversion baseline ({vol.validation.mean_reversion_dir_acc_pct}%). A clean implementation of a known
+            effect (vol clustering/mean-reversion), not novel alpha — a validated volatility/regime indicator, not a directional
+            trade. A vol-targeting overlay was tested and did NOT beat buy-and-hold (Sharpe 0.27 vs 0.36), so no P&L is claimed.
+            Level R² {vol.validation.har_level_r2} (persistence {vol.validation.persistence_level_r2}).
           </div>
         </div>
       )}
