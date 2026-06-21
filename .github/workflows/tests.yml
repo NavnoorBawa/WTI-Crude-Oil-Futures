@@ -34,5 +34,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Lint (ruff — real bugs only: unused imports, undefined names, syntax errors)
+        run: |
+          pip install ruff
+          ruff check backend/ tests/ freeze.py *.py --select F,E9
+
       - name: Run unit tests (incl. the look-ahead leak check)
         run: PYTHONPATH=. python -m unittest discover -s tests -v

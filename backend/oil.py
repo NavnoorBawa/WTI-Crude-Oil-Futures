@@ -15,7 +15,7 @@ import warnings
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from io import StringIO
-from typing import Dict, Optional, Tuple, List, Union
+from typing import Dict, Optional, List
 import time
 import os
 import hashlib
@@ -36,7 +36,7 @@ from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor
 from sklearn.linear_model import ElasticNet, Ridge
 from sklearn.preprocessing import RobustScaler
 from sklearn.model_selection import TimeSeriesSplit
-from sklearn.metrics import mean_squared_error, mean_absolute_error
+from sklearn.metrics import mean_squared_error
 from sklearn.feature_selection import SelectKBest, f_regression, mutual_info_regression
 from xgboost import XGBRegressor
 from lightgbm import LGBMRegressor

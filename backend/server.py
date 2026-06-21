@@ -41,8 +41,7 @@ try:
         get_multi_horizon_wti_predictions, 
         get_prediction_accuracy_metrics,
         store_actual_price_update,
-        get_historical_data,
-        PremiumWTIPredictor
+        get_historical_data
     )
     logger.info("✅ Successfully imported oil.py functions")
     OIL_IMPORTS_AVAILABLE = True

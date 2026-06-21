@@ -32,7 +32,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 from backend.backtest_walk_forward import (
     prepare_daily_dataset,
     evaluate_horizon,
-    compute_metrics,
 )
 from backend.oil import PremiumWTIPredictor
 
@@ -67,7 +66,7 @@ def run_config(predictor, wti_data, feature_mode: str, horizon: str) -> dict:
 
 
 def main():
-    print(f"=== Macro Leakage Test ===")
+    print("=== Macro Leakage Test ===")
     print(f"Period: {PERIOD}, min_train: {MIN_TRAIN}, step: {STEP}, estimators: {ESTIMATORS}")
     print(f"Horizons: {HORIZONS}\n")
 

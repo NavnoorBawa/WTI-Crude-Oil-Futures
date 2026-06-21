@@ -552,7 +552,7 @@ def main():
             )
         yb = hr.get("yearly_breakdown", {})
         if yb:
-            print(f"\n  Year-by-year (Sharpe note: partial years have wider error bars):")
+            print("\n  Year-by-year (Sharpe note: partial years have wider error bars):")
             print(f"    {'Year':<6} {'N':>4} {'Total PnL':>12} {'Sharpe':>8} {'Win%':>6}")
             for year, yd in sorted(yb.items()):
                 print(f"    {year:<6} {yd['n_trades']:>4} ${yd['total_pnl_usd']:>10,.0f} {yd['sharpe']:>8.2f} {yd['win_rate_pct']:>5.1f}%")
