@@ -227,6 +227,16 @@ def get_current_wti_contract(force_refresh: bool = False):
             current_price = float(validation_data['Close'].iloc[-1])
             volume = int(validation_data['Volume'].iloc[-1]) if not pd.isna(validation_data['Volume'].iloc[-1]) else 0
 
+            # Real day-over-day change from the daily close series. This works in the one-shot
+            # freeze/CI deploy, unlike the long-running server's in-memory price store (which has no
+            # history in CI and so reported a fake 0.00% change). Back-adjustment preserves recent
+            # returns, so the daily % change is accurate.
+            _closes = validation_data['Close'].dropna()
+            previous_close = float(_closes.iloc[-2]) if len(_closes) >= 2 else None
+            daily_change = round(current_price - previous_close, 2) if previous_close else None
+            daily_change_pct = (round((current_price - previous_close) / previous_close * 100, 2)
+                                if previous_close else None)
+
             # For continuous contract, map to the first delivery month that is not near expiry.
             # This avoids returning expired/invalid symbols when month boundaries roll over.
             selected_year = None
@@ -265,6 +275,9 @@ def get_current_wti_contract(force_refresh: bool = False):
                 'yfinance_symbol': 'CL=F',
                 'history_symbol': contract_symbol,
                 'current_price': current_price,
+                'previous_close': previous_close,
+                'price_change': daily_change,
+                'price_change_percent': daily_change_pct,
                 'volume': volume,
                 'expiry_date': expiry_date.isoformat(),
                 'days_to_expiry': days_to_expiry,

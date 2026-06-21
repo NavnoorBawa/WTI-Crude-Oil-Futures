@@ -579,13 +579,15 @@ def get_data():
         actual_values = actual_history.get('values', []) if isinstance(actual_history, dict) else []
         actual_timestamps = actual_history.get('timestamps', []) if isinstance(actual_history, dict) else []
 
-        # FIX #5: Calculate daily price change with quality indicator
-        price_change = None
-        price_change_percent = None
-        price_change_quality = 'unavailable'
-        
+        # Prefer the real day-over-day change from the daily close series (set by
+        # get_current_wti_contract). It is correct in the one-shot freeze/CI deploy, where the
+        # in-memory actual-price store below has no history and used to report a fake 0.00%.
+        price_change = contract_info.get('price_change')
+        price_change_percent = contract_info.get('price_change_percent')
+        price_change_quality = 'daily_close' if price_change is not None else 'unavailable'
+
         try:
-            if len(actual_values) >= 2 and len(actual_timestamps) >= 2:
+            if price_change is None and len(actual_values) >= 2 and len(actual_timestamps) >= 2:
                 # Find a price point from roughly 24 hours ago (86400 seconds)
                 current_timestamp = datetime.now().timestamp()
                 target_timestamp = current_timestamp - 86400  # 24 hours ago
