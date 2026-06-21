@@ -305,8 +305,10 @@ python backend/supply_shock_playbook.py   # print the full event-study table fro
 - **[`data/`](data)** — evidence artifacts only: the walk-forward backtest, the macro- and
   timing-leakage comparisons, the EIA spot cache, the live track record, and the signal
   state. Per-contract runtime files are gitignored.
-- **[`tests/`](tests)** — 25 unit tests including a look-ahead **leak check** on the vol-forecast
-  feature builder (`PYTHONPATH=. python -m unittest discover -s tests`).
+- **[`tests/`](tests)** — 27 unit tests including a look-ahead **leak check** on the vol-forecast
+  feature builder and a **purge-invariant guard** on the backtest fix, run in CI on every code push
+  ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)). Locally:
+  `PYTHONPATH=. python -m unittest discover -s tests`.
 
 ### Models
 Ensemble of Random Forest, Extra Trees, Ridge, Elastic Net, XGBoost, LightGBM, blended with

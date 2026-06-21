@@ -241,11 +241,27 @@ def build_ensemble_prediction(predictor, package, row_features, horizon, train_r
     return float(blended_pred)
 
 
+def horizon_steps_for(horizon: str) -> int:
+    """Trading days ahead the target looks (1 for 1d, 5 for 1w)."""
+    return 1 if horizon == "1d" else 5
+
+
+def purge_count(horizon: str) -> int:
+    """Rows to drop from the END of each training window so NO training label matures after the
+    prediction point — the fix for the headline look-ahead leak (López de Prado purge/embargo).
+
+    A row's label is the Close `horizon_steps` bars ahead, so the last (horizon_steps - 1) rows
+    have labels that only exist after the decision moment. 1w -> drop 4, 1d -> drop 0 (a 1-day
+    target cannot overlap the next prediction). Exposed as a function so the invariant is testable.
+    """
+    return horizon_steps_for(horizon) - 1
+
+
 def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step, train_window=0):
     """Run walk-forward for one horizon and return model/baseline metrics."""
     target_col = f"target_{horizon}"
     actual_price_col = f"actual_price_{horizon}"
-    horizon_steps = 1 if horizon == "1d" else 5
+    horizon_steps = horizon_steps_for(horizon)
 
     prediction_streams = {
         "ensemble": [],
@@ -279,7 +295,7 @@ def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step,
         # point — using them would leak future information. Drop them from MODEL training. The
         # baselines/drift below intentionally still use full_train_df (past prices only, no target
         # overlap), so the embargo affects only the learned model, not the observed-price baselines.
-        purge = horizon_steps - 1
+        purge = purge_count(horizon)
         train_df = dataset.iloc[start_idx:end_idx - purge].copy() if purge > 0 else full_train_df.copy()
         row = dataset.iloc[end_idx]
 

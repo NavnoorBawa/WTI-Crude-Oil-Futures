@@ -1,0 +1,38 @@
+name: Tests
+
+# Runs the unit-test suite on every code change. The most important test it enforces is the
+# look-ahead leak check on the vol-forecast feature builder (tests/test_vol_forecast.py): this
+# project's headline was once invalidated by exactly that kind of leak, so the guard against it
+# must run automatically, not just when someone remembers to run it locally. Data/state-only
+# commits (the [skip ci] signal-state updates) are excluded via paths so the suite only runs
+# when code actually changes.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'tests/**'
+      - 'freeze.py'
+      - 'requirements.txt'
+      - '.github/workflows/tests.yml'
+  pull_request:
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run unit tests (incl. the look-ahead leak check)
+        run: PYTHONPATH=. python -m unittest discover -s tests -v
