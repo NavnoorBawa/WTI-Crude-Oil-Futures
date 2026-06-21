@@ -1,0 +1,93 @@
+{
+  "overall": {
+    "n": 439,
+    "har_dir_acc_pct": 72.7,
+    "har_dir_p_value_vs_base_rate": 0.0,
+    "mean_reversion_dir_acc_pct": 65.1,
+    "majority_class_pct": 51.7,
+    "har_level_r2": 0.497,
+    "persistence_level_r2": 0.32,
+    "har_level_mae": 0.1195,
+    "persistence_level_mae": 0.1597,
+    "ex_2020_har_dir_acc_pct": 74.0,
+    "ex_2020_n": 389,
+    "model": "HAR-IV (RV5,RV22,RV66,OVX)"
+  },
+  "yearly": {
+    "2017": {
+      "n": 14,
+      "har_dir_acc_pct": 78.6,
+      "mean_reversion_dir_acc_pct": 71.4,
+      "level_r2": -0.208
+    },
+    "2018": {
+      "n": 50,
+      "har_dir_acc_pct": 70.0,
+      "mean_reversion_dir_acc_pct": 70.0,
+      "level_r2": 0.26
+    },
+    "2019": {
+      "n": 51,
+      "har_dir_acc_pct": 68.6,
+      "mean_reversion_dir_acc_pct": 62.7,
+      "level_r2": 0.019
+    },
+    "2020": {
+      "n": 50,
+      "har_dir_acc_pct": 62.0,
+      "mean_reversion_dir_acc_pct": 62.0,
+      "level_r2": 0.448
+    },
+    "2021": {
+      "n": 50,
+      "har_dir_acc_pct": 74.0,
+      "mean_reversion_dir_acc_pct": 60.0,
+      "level_r2": 0.063
+    },
+    "2022": {
+      "n": 51,
+      "har_dir_acc_pct": 80.4,
+      "mean_reversion_dir_acc_pct": 68.6,
+      "level_r2": 0.228
+    },
+    "2023": {
+      "n": 50,
+      "har_dir_acc_pct": 74.0,
+      "mean_reversion_dir_acc_pct": 70.0,
+      "level_r2": 0.036
+    },
+    "2024": {
+      "n": 50,
+      "har_dir_acc_pct": 76.0,
+      "mean_reversion_dir_acc_pct": 62.0,
+      "level_r2": 0.375
+    },
+    "2025": {
+      "n": 50,
+      "har_dir_acc_pct": 74.0,
+      "mean_reversion_dir_acc_pct": 64.0,
+      "level_r2": 0.058
+    },
+    "2026": {
+      "n": 23,
+      "har_dir_acc_pct": 73.9,
+      "mean_reversion_dir_acc_pct": 65.2,
+      "level_r2": 0.397
+    }
+  },
+  "live": {
+    "current_realized_vol_5d_annualized_pct": 55.8,
+    "forecast_next_week_vol_annualized_pct": 38.1,
+    "direction": "FALLING",
+    "implied_vol_ovx_pct": 51.5,
+    "as_of": "2026-06-19"
+  },
+  "config": {
+    "horizon_days": 5,
+    "min_train": 250,
+    "step": 5,
+    "model": "HAR-IV (RV5,RV22,RV66,OVX)",
+    "period": "10y"
+  },
+  "generated_at": "2026-06-20T12:38:14.087355+00:00"
+}

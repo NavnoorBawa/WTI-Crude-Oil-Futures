@@ -1,0 +1,14 @@
+{
+  "n_oos": 896,
+  "span": "2004-06-02..2024-03-06",
+  "horizon_days": 21,
+  "carry_direction_accuracy_pct": 48.1,
+  "base_rate_pct": 55.4,
+  "p_value": 0.9999942621707643,
+  "carry_timed_sharpe": -0.03,
+  "buy_hold_sharpe": 0.25,
+  "mean_fwd_ret_backwardated_pct": -0.09,
+  "mean_fwd_ret_contango_pct": 3.53,
+  "verdict": "NEGATIVE: carry does not time WTI direction (accuracy below base rate, p=1.0).",
+  "generated_at": "2026-06-20T12:28:25.519215+00:00"
+}
