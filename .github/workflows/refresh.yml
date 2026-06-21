@@ -19,6 +19,7 @@ on:
       - 'backend/**'
       - 'freeze.py'
       - 'vite.config.js'
+      - 'index.html'
       - '.github/workflows/refresh.yml'
 
 permissions:
