@@ -95,6 +95,9 @@ jobs:
       - name: Install JS dependencies
         run: npm install
 
+      - name: Lint frontend (ESLint — real bugs only, no style)
+        run: npm run lint
+
       - name: Build static site (Vite copies public/data.json into dist/)
         env:
           VITE_STATIC_DATA: 'true'

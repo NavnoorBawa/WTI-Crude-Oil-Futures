@@ -224,6 +224,9 @@ function App() {
       clearInterval(interval);
       clearInterval(timeInterval);
     };
+    // getApiBaseCandidates is a render-local helper whose only reactive input, configuredApiBase,
+    // is already a dependency; adding the function itself would re-run this fetch loop every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [configuredApiBase, pollIntervalMs, startupRetryMs]);
 
   // Client-side live price — reads price.json, a tiny same-origin snapshot. freeze.py
@@ -252,7 +255,10 @@ function App() {
         // price can't be paired with a stale change carried over from an earlier quote.
         setLivePricePct(q.change_pct != null ? q.change_pct : null);
         setLivePriceChange(q.prev_close != null ? Number((q.price - q.prev_close).toFixed(2)) : null);
-      } catch {}
+      } catch {
+        // Best-effort only: the live price.json overlay is optional. Any failure (offline, 404,
+        // bad JSON) is non-fatal — the frozen data.json price stays shown and "Data as of" is honest.
+      }
     };
     fetchLivePrice();
     const id = setInterval(fetchLivePrice, 3 * 60 * 1000);
