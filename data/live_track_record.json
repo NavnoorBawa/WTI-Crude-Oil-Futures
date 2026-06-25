@@ -90,7 +90,11 @@
       "entry_price": 74.75,
       "forecast_pct": -3.5,
       "stance": "SHORT",
-      "resolved": false
+      "resolved": true,
+      "resolution_date": "2026-06-25",
+      "resolution_price": 69.14,
+      "realized_pct": -7.505,
+      "hit": true
     },
     {
       "date": "2026-06-19",
@@ -139,17 +143,25 @@
       "forecast_pct": -2.5,
       "stance": "SHORT",
       "resolved": false
+    },
+    {
+      "date": "2026-06-25",
+      "contract": "CLQ26",
+      "entry_price": 69.14,
+      "forecast_pct": -3.3,
+      "stance": "SHORT",
+      "resolved": false
     }
   ],
   "summary": {
-    "n_calls": 15,
-    "n_resolved_directional": 2,
-    "n_hits": 2,
+    "n_calls": 16,
+    "n_resolved_directional": 3,
+    "n_hits": 3,
     "hit_rate_pct": 100.0,
     "n_pending": 7,
     "n_skipped_roll": 6,
     "n_neutral": 0,
     "first_call_date": "2026-06-10",
-    "updated_at": "2026-06-24T21:18:13.718112+00:00"
+    "updated_at": "2026-06-25T02:17:00.718563+00:00"
   }
 }
