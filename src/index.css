@@ -334,6 +334,21 @@ html, body {
 .tv-tearsheet-foot { margin-top: 13px; color: #565d68; font-size: 10.5px;
   font-family: "JetBrains Mono", ui-monospace, monospace; }
 
+/* ---- Roadmap card (forward plan if funded) ---- */
+.tv-roadmap { display: flex; flex-direction: column; gap: 15px; }
+.tv-roadmap-item { display: flex; gap: 14px; align-items: flex-start; }
+.tv-roadmap-tag { flex: 0 0 auto; margin-top: 2px; min-width: 62px; text-align: center;
+  font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: #8b949e;
+  background: #0c1016; border: 1px solid #21262d; border-radius: 4px; padding: 4px 8px;
+  font-family: "JetBrains Mono", ui-monospace, monospace; }
+.tv-roadmap-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tv-roadmap-body b { color: #e6edf3; font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+.tv-roadmap-body span { color: #6e7681; font-size: 11.5px; line-height: 1.5; }
+@media (max-width: 520px) {
+  .tv-roadmap-item { flex-direction: column; gap: 5px; }
+  .tv-roadmap-tag { align-self: flex-start; min-width: 0; }
+}
+
 /* OOS equity curve inside the tear sheet */
 .tv-equity { margin: 10px 0 2px; }
 .tv-equity-head { display: flex; justify-content: space-between; align-items: baseline;

@@ -618,6 +618,48 @@ function App() {
         </div>
       )}
 
+      {/* Roadmap — forward plan if funded. This build is deliberately 100% free-resource; the card
+          makes the next steps explicit so a reader sees the long-term direction, not just the ceiling. */}
+      <div className="tv-tearsheet">
+        <div className="tv-tearsheet-head">
+          <span className="tv-desk-label">Roadmap · what a funded version would add</span>
+          <span className="tv-tearsheet-live">free-tier ceiling reached · plan, not built</span>
+        </div>
+        <div className="tv-roadmap">
+          <div className="tv-roadmap-item">
+            <span className="tv-roadmap-tag">Data</span>
+            <div className="tv-roadmap-body">
+              <b>Tick-level realized variance</b>
+              <span>Intraday realized variance from a paid futures tick feed (CME DataMine / Nasdaq Data Link) replaces close-to-close RV — the exact input the HAR model was designed for, and a materially sharper volatility estimate.</span>
+            </div>
+          </div>
+          <div className="tv-roadmap-item">
+            <span className="tv-roadmap-tag">Signal</span>
+            <div className="tv-roadmap-body">
+              <b>Full CL options surface</b>
+              <span>Strike-by-strike implied vol, not just the single OVX index, yields a model-free variance risk premium (implied variance minus realized) — a signal real volatility desks actually trade.</span>
+            </div>
+          </div>
+          <div className="tv-roadmap-item">
+            <span className="tv-roadmap-tag">System</span>
+            <div className="tv-roadmap-body">
+              <b>Persistent live backend</b>
+              <span>A small cloud server and database replace the 4-hour frozen snapshot: sub-minute prices, rolling model retrains, and a tamper-evident live track record instead of a static file.</span>
+            </div>
+          </div>
+          <div className="tv-roadmap-item">
+            <span className="tv-roadmap-tag">Breadth</span>
+            <div className="tv-roadmap-body">
+              <b>Energy-complex coverage</b>
+              <span>Extend the same forecaster from WTI to Brent, natural gas and heating oil. By Grinold&apos;s law a small edge applied across ~10 uncorrelated instruments scales the information ratio by roughly sqrt(10) — the jump from a single-instrument study toward a portfolio.</span>
+            </div>
+          </div>
+        </div>
+        <div className="tv-tearsheet-foot">
+          Today&apos;s system is intentionally 100% free-resource (Yahoo Finance, EIA, CBOE OVX; static GitHub Pages, auto-refreshed every 4h). Each item above is a costed next step, listed so the engineering and research direction is explicit — not a present capability.
+        </div>
+      </div>
+
       {/* Supply Risk Context — EIA historical price response data */}
       {data && (playbookDist.supply_lost || playbookDist.threat_only) && (
         <div className="tv-section">
