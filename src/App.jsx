@@ -587,6 +587,26 @@ function App() {
         </div>
       </div>
 
+      {/* Method note — addressed to a hedge-fund PM. Where the effort went + the noise-floor point:
+          signals that the author knows what is and is not tradeable, which is risk thinking, not model hype. */}
+      <div className="tv-tearsheet">
+        <div className="tv-tearsheet-head">
+          <span className="tv-desk-label">Method · where the effort actually went</span>
+          <span className="tv-tearsheet-live">for a PM reading this</span>
+        </div>
+        <div className="tv-tearsheet-foot">
+          If you run a book, read this as risk discipline, not a model pitch. The effort here was evaluation
+          and data integrity first, model training last: a leak-free purged walk-forward, a look-ahead leak
+          caught in my own signal, and CI tests that keep it caught, on top of point-in-time, entry-time-clean
+          data. The model is deliberately simple (HAR-IV plus a small ensemble), and that is the point. No model
+          can beat the noise floor set by the mutual information between features and target. Weekly price
+          direction carries almost none, which is why the purged direction signal is a coin flip; realized
+          volatility is persistent, which is why a simple forecaster extracts real skill. The work that mattered
+          was lowering and honestly measuring that floor, not tuning the model — the same judgment that separates
+          a tradeable signal from noise before capital is at risk.
+        </div>
+      </div>
+
       {/* Volatility forecast — the project's validated signal (backend/vol_forecast.py). */}
       {vol?.live && vol?.validation && (
         <div className="tv-tearsheet">
