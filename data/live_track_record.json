@@ -372,7 +372,9 @@
       "entry_price": 71.41,
       "forecast_pct": -0.1,
       "stance": "NEUTRAL",
-      "resolved": false
+      "resolved": true,
+      "resolution_date": "2026-07-19",
+      "skipped_contract_roll": true
     },
     {
       "date": "2026-07-13",
@@ -421,17 +423,25 @@
       "forecast_pct": 5.3,
       "stance": "LONG",
       "resolved": false
+    },
+    {
+      "date": "2026-07-19",
+      "contract": "CLU26",
+      "entry_price": 82.49,
+      "forecast_pct": 4.0,
+      "stance": "LONG",
+      "resolved": false
     }
   ],
   "summary": {
-    "n_calls": 39,
+    "n_calls": 40,
     "n_resolved_directional": 23,
     "n_hits": 15,
     "hit_rate_pct": 65.2,
     "n_pending": 7,
-    "n_skipped_roll": 9,
+    "n_skipped_roll": 10,
     "n_neutral": 5,
     "first_call_date": "2026-06-10",
-    "updated_at": "2026-07-18T20:39:07.468173+00:00"
+    "updated_at": "2026-07-19T01:46:46.847050+00:00"
   }
 }
