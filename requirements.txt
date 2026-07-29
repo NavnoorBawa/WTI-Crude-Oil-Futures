@@ -11,5 +11,5 @@ flask-cors==6.0.5
 scipy==1.18.0
 pytz==2026.3.post1
 python-dotenv==1.2.2
-xgboost==2.1.4
+xgboost==3.3.0
 lightgbm==4.7.0
