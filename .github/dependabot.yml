@@ -18,6 +18,13 @@ updates:
       time: "03:27"
       timezone: Asia/Kolkata
     open-pull-requests-limit: 5
+    groups:
+      react:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
 
   - package-ecosystem: pip
     directory: /
