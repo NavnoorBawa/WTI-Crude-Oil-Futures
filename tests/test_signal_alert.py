@@ -7,6 +7,9 @@ itself is not tested — it requires SMTP; only the pure stance logic is.)
 """
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest import mock
 
 from backend import signal_alert as sa
 
@@ -35,6 +38,35 @@ class ExtractSignalTest(unittest.TestCase):
     def test_significant_but_low_conviction_is_neutral(self):
         # Within the +/-0.6% band there is no lean even when significant.
         self.assertEqual(sa.extract_signal(payload(0.3, True))["stance"], "NEUTRAL")
+
+
+class SaveStateTest(unittest.TestCase):
+    def test_unchanged_stance_does_not_rewrite_state(self):
+        with TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "signal_state.json"
+            state_path.write_text('{"stance": "NEUTRAL", "updated_at": "original"}')
+            original = state_path.read_text()
+
+            with mock.patch.object(sa, "STATE_PATH", state_path):
+                changed = sa.save_state(
+                    {"stance": "NEUTRAL", "fc_pct": 1.25},
+                    {"stance": "NEUTRAL"},
+                )
+
+            self.assertFalse(changed)
+            self.assertEqual(state_path.read_text(), original)
+
+    def test_stance_change_is_persisted(self):
+        with TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "signal_state.json"
+            with mock.patch.object(sa, "STATE_PATH", state_path):
+                changed = sa.save_state(
+                    {"stance": "LONG LEAN", "fc_pct": 1.25},
+                    {"stance": "NEUTRAL"},
+                )
+
+            self.assertTrue(changed)
+            self.assertIn('"LONG LEAN"', state_path.read_text())
 
 
 if __name__ == "__main__":

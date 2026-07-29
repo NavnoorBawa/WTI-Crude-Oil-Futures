@@ -229,11 +229,12 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [configuredApiBase, pollIntervalMs, startupRetryMs]);
 
-  // Client-side live price — reads price.json, a tiny same-origin snapshot. freeze.py
-  // bakes a baseline price.json into every deploy (survives the gh-pages force_orphan),
-  // and a 15-min GitHub Actions job (price.yml) overlays fresher ticks between deploys.
-  // Same-origin fetch means no CORS dependency on any quote provider. The "LIVE" badge
-  // shows only for a genuine live tick (price.yml's Yahoo source) that's fresh (<25 min);
+  // Client-side live price — reads a tiny snapshot from VITE_LIVE_PRICE_URL. Production
+  // points this at the repo's dedicated live-data branch, so a price tick does not trigger
+  // a full GitHub Pages deployment. freeze.py also bakes a same-origin price.json into every
+  // full deploy; that is the fallback when the live-data branch/CDN is unavailable.
+  // The "LIVE" badge shows only for a genuine live tick (price.yml's Yahoo source) fresh
+  // enough to account for GitHub's short raw-content cache (<25 min);
   // the freeze baseline snapshot shows its price but is never badged. An older-but-valid
   // quote still updates the price (no badge), and a truly stale one (>3h) is ignored so
   // the frozen data.json price takes over. The header's "Data as of" carries the honesty.
@@ -241,9 +242,27 @@ function App() {
     if (!staticDataMode) return; // local dev: the backend price is already live
     const fetchLivePrice = async () => {
       try {
-        const res = await fetch(`${import.meta.env.BASE_URL}price.json`, { cache: 'no-store' });
-        if (!res.ok) return;
-        const q = await res.json();
+        const fallbackUrl = `${import.meta.env.BASE_URL}price.json`;
+        const priceUrls = [import.meta.env.VITE_LIVE_PRICE_URL, fallbackUrl]
+          .filter((url, index, urls) => url && urls.indexOf(url) === index);
+        let q = null;
+
+        for (const sourceUrl of priceUrls) {
+          try {
+            // The query string avoids reusing an older browser cache entry. GitHub's raw
+            // CDN can still cache for a few minutes, which is included in the freshness gate.
+            const requestUrl = new URL(sourceUrl, window.location.href);
+            requestUrl.searchParams.set("_", String(Date.now()));
+            const res = await fetch(requestUrl, { cache: 'no-store' });
+            if (!res.ok) continue;
+            q = await res.json();
+            break;
+          } catch {
+            // Try the baked same-origin snapshot next.
+          }
+        }
+
+        if (!q) return;
         const ageMin = (Date.now() - new Date(q.fetched_at).getTime()) / 60000;
         if (!q.price || !Number.isFinite(ageMin) || ageMin > 180) return;
         setLivePrice(q.price);
@@ -256,8 +275,8 @@ function App() {
         setLivePricePct(q.change_pct != null ? q.change_pct : null);
         setLivePriceChange(q.prev_close != null ? Number((q.price - q.prev_close).toFixed(2)) : null);
       } catch {
-        // Best-effort only: the live price.json overlay is optional. Any failure (offline, 404,
-        // bad JSON) is non-fatal — the frozen data.json price stays shown and "Data as of" is honest.
+        // Best-effort only: the price overlay is optional. Any failure is non-fatal — the
+        // frozen data.json price stays shown and "Data as of" remains honest.
       }
     };
     fetchLivePrice();

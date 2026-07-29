@@ -304,12 +304,14 @@ python backend/supply_shock_playbook.py   # print the full event-study table fro
 - **[`backend/live_record.py`](backend/live_record.py)** — git-committed live track record
   (record daily, resolve weekly, skip contract rolls).
 - **[`freeze.py`](freeze.py)** + **[`.github/workflows/refresh.yml`](.github/workflows/refresh.yml)**
-  — hourly frozen snapshot deployed to GitHub Pages (no running server).
+  — four-hour frozen snapshot deployed to GitHub Pages (no running server).
+- **[`.github/workflows/price.yml`](.github/workflows/price.yml)** — lightweight price refresh
+  every 15 minutes on an isolated `live-data` branch, with the frozen Pages price as fallback.
 - **[`src/`](src)** — React dashboard (lightweight-charts, hand-written CSS).
 - **[`data/`](data)** — evidence artifacts only: the walk-forward backtest, the macro- and
   timing-leakage comparisons, the EIA spot cache, the live track record, and the signal
   state. Per-contract runtime files are gitignored.
-- **[`tests/`](tests)** — 41 unit tests, network-free, run in CI on every code push
+- **[`tests/`](tests)** — 47 unit tests, network-free, run in CI on every code push
   ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)). They include a look-ahead **leak
   check** on the vol-forecast feature builder, a **purge-invariant guard** on the backtest fix, the
   live-record resolution/contract-roll logic, and the **retraction guarantee** (a non-significant
@@ -330,8 +332,9 @@ macro features are available but **off by default** (see validation notes above)
 ## Installation & usage
 
 ```bash
-# 1. Install
-pip install -r requirements.txt
+# 1. Install the pinned Python and JavaScript dependencies
+python -m pip install -r requirements.txt
+npm ci
 cp .env.example .env          # add API keys (EIA, NewsAPI, ...)
 
 # 2. Run locally (Flask API on :9000 + Vite dashboard on :3000)
@@ -360,13 +363,17 @@ The dashboard runs with **zero running infrastructure** using the "frozen Flask"
    Flask's `test_client`) to a static `public/data.json`.
 2. **`npm run build`** with `VITE_STATIC_DATA=true` produces a static site that fetches that
    frozen JSON instead of polling a live backend.
-3. **`.github/workflows/refresh.yml`** runs hourly on GitHub's servers: freeze → build → deploy
+3. **`.github/workflows/refresh.yml`** runs every four hours on GitHub's servers: freeze → build → deploy
    to the `gh-pages` branch. If a run fails (rate limit, API outage), the previous good
    snapshot stays live.
+4. **`.github/workflows/price.yml`** updates `live-data/price.json` every 15 minutes without
+   redeploying Pages. The client tries that CORS-enabled raw file first, then falls back to the
+   price baked into the last full snapshot.
 
 This removes the failure modes of a live free-tier server (cold starts, spin-downs, OOM during
-model training) at the cost of data being as fresh as the last hourly refresh — appropriate for
-a 1-week forecast. The UI shows an honest `DATA AS OF <time>` label in this mode.
+model training). Model/event-study data is as fresh as the last four-hour refresh, while the
+header price is normally within one price cycle plus GitHub's short raw-content cache. The UI
+shows an honest `DATA AS OF <time>` label in this mode.
 
 **One-time setup:** enable read/write workflow permissions, push to `main`, set Pages source to
 the `gh-pages` branch. Add API keys as repository Secrets (`EIA_API_KEY`, `NEWSAPI_KEY`, …).
