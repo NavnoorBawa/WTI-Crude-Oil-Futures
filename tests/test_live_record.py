@@ -96,6 +96,16 @@ class SummarizeTest(unittest.TestCase):
         self.assertEqual(s["n_pending"], 1)
         self.assertEqual(s["n_neutral"], 1)
 
+    def test_preserves_timestamp_when_record_is_semantically_unchanged(self):
+        rec = {
+            "calls": [],
+            "summary": {"updated_at": "2026-06-20T00:00:00+00:00"},
+        }
+
+        summary = lr.summarize(rec)
+
+        self.assertEqual(summary["updated_at"], "2026-06-20T00:00:00+00:00")
+
 
 if __name__ == "__main__":
     unittest.main()

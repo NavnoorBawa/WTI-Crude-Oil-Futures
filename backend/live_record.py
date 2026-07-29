@@ -96,6 +96,7 @@ def summarize(record: dict) -> dict:
     calls = record["calls"]
     scored = [c for c in calls if c.get("resolved") and "hit" in c]
     hits = sum(1 for c in scored if c["hit"])
+    previous_updated_at = (record.get("summary") or {}).get("updated_at")
     summary = {
         "n_calls": len(calls),
         "n_resolved_directional": len(scored),
@@ -105,7 +106,9 @@ def summarize(record: dict) -> dict:
         "n_skipped_roll": sum(1 for c in calls if c.get("skipped_contract_roll")),
         "n_neutral": sum(1 for c in calls if c.get("stance") == "NEUTRAL"),
         "first_call_date": calls[0]["date"] if calls else None,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        # Preserve this when no call was added/resolved. main() touches it only
+        # alongside a semantic record change, preventing timestamp-only commits.
+        "updated_at": previous_updated_at or datetime.now(timezone.utc).isoformat(),
     }
     record["summary"] = summary
     return summary
@@ -123,6 +126,7 @@ def main():
 
     call = extract_call(payload)
     record = load_record()
+    original_record = json.dumps(record, sort_keys=True)
 
     resolve_calls(record, call["date"], call["contract"], call["entry_price"])
 
@@ -134,8 +138,13 @@ def main():
         print(f"live_record: call for {call['date']} already recorded")
 
     summary = summarize(record)
-    RECORD_PATH.parent.mkdir(parents=True, exist_ok=True)
-    RECORD_PATH.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    record_changed = json.dumps(record, sort_keys=True) != original_record
+    if record_changed:
+        summary["updated_at"] = datetime.now(timezone.utc).isoformat()
+        RECORD_PATH.parent.mkdir(parents=True, exist_ok=True)
+        RECORD_PATH.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    else:
+        print("live_record: no record changes — file left untouched")
     print(f"live_record: {summary['n_resolved_directional']} resolved directional, "
           f"hit rate {summary['hit_rate_pct']}%, {summary['n_pending']} pending, "
           f"{summary['n_neutral']} neutral")

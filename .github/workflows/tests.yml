@@ -1,43 +1,150 @@
 name: Tests
 
-# Runs the unit-test suite on every code change. The most important test it enforces is the
-# look-ahead leak check on the vol-forecast feature builder (tests/test_vol_forecast.py): this
-# project's headline was once invalidated by exactly that kind of leak, so the guard against it
-# must run automatically, not just when someone remembers to run it locally. Data/state-only
-# commits (the [skip ci] signal-state updates) are excluded via paths so the suite only runs
-# when code actually changes.
+# Fast, deterministic checks for every pull request and main-branch change. The
+# scheduled data/state bot uses [skip ci], so its evidence-only commits do not
+# consume runners.
 
 on:
   push:
     branches: [main]
-    paths:
-      - 'backend/**'
-      - 'tests/**'
-      - 'freeze.py'
-      - 'requirements.txt'
-      - '.github/workflows/tests.yml'
   pull_request:
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  python:
+    name: Python
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-python@v6
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Lint with ruff (unused imports, undefined names, syntax errors)
         run: |
-          pip install ruff
-          ruff check backend/ tests/ freeze.py *.py --select F,E9
+          python -m pip install --disable-pip-version-check --retries 5 --timeout 60 -r requirements.txt
+          python -m pip install --disable-pip-version-check ruff==0.15.18
+          python -m pip check
 
-      - name: Run unit tests (incl. the look-ahead leak check)
-        run: PYTHONPATH=. python -m unittest discover -s tests -v
+      - name: Lint Python
+        run: ruff check backend/ scripts/ tests/ freeze.py ./*.py --select F,E9
+
+      - name: Run unit tests
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONPATH: .
+        run: python -B -m unittest discover -s tests -v
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Configure resilient npm downloads
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 10000
+          npm config set fetch-retry-maxtimeout 120000
+
+      - name: Install dependencies
+        run: |
+          for attempt in 1 2 3; do
+            if npm ci --no-audit --no-fund; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "npm ci failed after 3 attempts" >&2
+              exit 1
+            fi
+            delay=$((attempt * 10))
+            echo "npm registry error; retrying in ${delay}s" >&2
+            sleep "$delay"
+          done
+
+      - name: Lint frontend
+        run: npm run lint
+
+      - name: Audit JS dependencies
+        run: npm audit --audit-level=high
+
+      - name: Build static site
+        env:
+          VITE_STATIC_DATA: 'true'
+          VITE_BASE_PATH: /${{ github.event.repository.name }}/
+        run: npm run build
+
+  workflow-hygiene:
+    name: Workflows and secrets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned workflow scanners
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          TOOL_DIR: ${{ runner.temp }}/workflow-tools
+        run: |
+          set -euo pipefail
+          mkdir -p "$TOOL_DIR"
+
+          actionlint_archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl --fail --location --retry 5 --retry-all-errors \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${actionlint_archive}" \
+            --output "$TOOL_DIR/$actionlint_archive"
+          echo "${ACTIONLINT_SHA256}  ${TOOL_DIR}/${actionlint_archive}" | sha256sum --check
+          tar -xzf "$TOOL_DIR/$actionlint_archive" -C "$TOOL_DIR" actionlint
+
+          gitleaks_archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl --fail --location --retry 5 --retry-all-errors \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${gitleaks_archive}" \
+            --output "$TOOL_DIR/$gitleaks_archive"
+          echo "${GITLEAKS_SHA256}  ${TOOL_DIR}/${gitleaks_archive}" | sha256sum --check
+          tar -xzf "$TOOL_DIR/$gitleaks_archive" -C "$TOOL_DIR" gitleaks
+
+      - name: Validate GitHub Actions
+        env:
+          TOOL_DIR: ${{ runner.temp }}/workflow-tools
+        run: |
+          "$TOOL_DIR/actionlint" -shellcheck shellcheck
+
+      - name: Scan the tracked tree for new secrets
+        env:
+          TOOL_DIR: ${{ runner.temp }}/workflow-tools
+          SCAN_DIR: ${{ runner.temp }}/tracked-source
+        run: |
+          mkdir -p "$SCAN_DIR"
+          git archive HEAD | tar -x -C "$SCAN_DIR"
+          "$TOOL_DIR/gitleaks" dir --redact=100 --no-banner "$SCAN_DIR"

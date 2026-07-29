@@ -74,10 +74,9 @@ def freeze(out_dir: Path) -> dict:
     (out_dir / "data.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     # Bake a baseline price.json into the same output dir. Vite copies public/* into
-    # dist/, so this ships with every full deploy and SURVIVES the gh-pages force_orphan
-    # (which wipes anything price.yml wrote to the branch root). Result: price.json is
-    # always present — never a 404 — with at minimum this freeze's price + timestamp.
-    # The 15-min price.yml job overlays a fresher tick on the same path between deploys.
+    # dist/, so the dashboard always has a same-origin fallback with this freeze's
+    # price + timestamp. The 15-minute price workflow publishes fresher ticks on the
+    # separate live-data branch so those updates do not trigger Pages deployments.
     price = data.get("current_price")
     if isinstance(price, (int, float)) and price > 0:
         pct = data.get("price_change_percent")

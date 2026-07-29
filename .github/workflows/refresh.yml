@@ -10,7 +10,7 @@ on:
     # Every 4 hours (UTC). The ML signal is 1-week cadence so hourly rebuilds were
     # wasteful. 6 runs/day keeps the frozen price fresh enough and stays well under
     # NewsAPI's 100-call/day free limit. For on-demand refresh use workflow_dispatch.
-    - cron: '0 */4 * * *'
+    - cron: '17 */4 * * *'
   workflow_dispatch: {}        # allow manual runs from the Actions tab
   push:
     branches: [main]
@@ -19,7 +19,10 @@ on:
       - 'backend/**'
       - 'freeze.py'
       - 'vite.config.js'
+      - 'eslint.config.js'
       - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
       - 'requirements.txt'
       - '.github/workflows/refresh.yml'
 
@@ -27,25 +30,25 @@ permissions:
   contents: write              # peaceiris needs write access to push the gh-pages branch
 
 concurrency:
-  group: refresh-pages
+  group: pages-refresh-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
   refresh:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
           cache: pip
 
       - name: Install Python dependencies
-        run: pip install -r requirements.txt
+        run: python -m pip install --disable-pip-version-check --retries 5 --timeout 60 -r requirements.txt
 
       - name: Freeze data snapshot -> public/data.json
         env:
@@ -53,8 +56,7 @@ jobs:
           # Tolerate missing external APIs so a deploy never fails on a transient API outage;
           # the price/ML core still produces a valid snapshot.
           MIN_REQUIRED_EXTERNAL_SOURCES: '0'
-          # Optional: add these as repository secrets to use your own keys instead of the
-          # embedded fallbacks. The pipeline runs either way (code reads env first).
+          # Optional provider credentials. The pipeline degrades gracefully when absent.
           NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
           EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
           FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
@@ -75,40 +77,96 @@ jobs:
       - name: Record + resolve live 1W track record
         run: python backend/live_record.py --data public/data.json
 
-      - name: Persist signal state + live record to main branch
-        run: |
-          git config user.name "WTI Signal Bot"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/signal_state.json data/live_track_record.json
-          if git diff --staged --quiet; then
-            echo "Signal state unchanged — no commit"
-          else
-            git commit -m "chore: update 1W signal state [skip ci]"
-            git pull --rebase origin main || true
-            git push origin HEAD:main
-          fi
-
       - name: Set up Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '20'
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Configure resilient npm downloads
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 10000
+          npm config set fetch-retry-maxtimeout 120000
 
       - name: Install JS dependencies
-        run: npm install
+        run: |
+          for attempt in 1 2 3; do
+            if npm ci --no-audit --no-fund; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "npm ci failed after 3 attempts" >&2
+              exit 1
+            fi
+            delay=$((attempt * 10))
+            echo "npm registry error; retrying in ${delay}s" >&2
+            sleep "$delay"
+          done
 
       - name: Lint frontend (ESLint — real bugs only, no style)
         run: npm run lint
 
+      - name: Audit JS dependencies
+        run: npm audit --audit-level=high
+
       - name: Build static site (Vite copies public/data.json into dist/)
         env:
           VITE_STATIC_DATA: 'true'
-          VITE_BASE_PATH: '/WTI-Crude-Oil-Futures/'
+          VITE_BASE_PATH: /${{ github.event.repository.name }}/
+          VITE_LIVE_PRICE_URL: https://raw.githubusercontent.com/${{ github.repository }}/live-data/price.json
           # In static mode the app loads data.json once — no need to re-poll every 15s.
           VITE_POLL_INTERVAL_MS: '86400000'
         run: npm run build
 
+      - name: Persist signal state + live record to main branch
+        env:
+          STATE_SNAPSHOT_DIR: ${{ runner.temp }}/wti-state-snapshot
+        run: |
+          set -euo pipefail
+          mkdir -p "$STATE_SNAPSHOT_DIR"
+          cp data/signal_state.json "$STATE_SNAPSHOT_DIR/signal_state.json"
+          cp data/live_track_record.json "$STATE_SNAPSHOT_DIR/live_track_record.json"
+
+          git worktree prune
+          for attempt in 1 2 3; do
+            state_worktree="${RUNNER_TEMP}/wti-state-worktree-${attempt}"
+
+            if ! git fetch --no-tags origin main; then
+              echo "git fetch failed on attempt ${attempt}" >&2
+            elif git worktree add --detach "$state_worktree" origin/main; then
+              cp "$STATE_SNAPSHOT_DIR/signal_state.json" "$state_worktree/data/signal_state.json"
+              cp "$STATE_SNAPSHOT_DIR/live_track_record.json" "$state_worktree/data/live_track_record.json"
+              git -C "$state_worktree" add data/signal_state.json data/live_track_record.json
+
+              if git -C "$state_worktree" diff --staged --quiet; then
+                echo "Signal state unchanged — no commit"
+                git worktree remove "$state_worktree"
+                exit 0
+              fi
+
+              git -C "$state_worktree" config user.name "WTI Signal Bot"
+              git -C "$state_worktree" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git -C "$state_worktree" commit -m "chore: update 1W signal state [skip ci]"
+              if git -C "$state_worktree" push origin HEAD:main; then
+                git worktree remove "$state_worktree"
+                exit 0
+              fi
+
+              echo "git push raced with another main update on attempt ${attempt}" >&2
+              git worktree remove --force "$state_worktree"
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              echo "Unable to persist signal state after 3 attempts" >&2
+              exit 1
+            fi
+            sleep "$((attempt * 5))"
+          done
+
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist

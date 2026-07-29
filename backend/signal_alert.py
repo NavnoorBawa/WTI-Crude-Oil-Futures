@@ -4,8 +4,9 @@ Signal change detector for the 1W WTI direction model.
 
 Reads the current frozen data.json, compares the 1W stance to the last
 known state, and emails navnoorquant@gmail.com if the stance changed.
-Updates data/signal_state.json on every run so the next comparison is
-against the current state.
+Updates data/signal_state.json only when the stance changes. Avoiding timestamp-
+only rewrites keeps the scheduled workflow from creating six meaningless commits
+per day while preserving the state needed for the next comparison.
 
 Required env vars (add as GitHub Secrets):
   GMAIL_APP_PASSWORD  — Gmail App Password for navnoorquant@gmail.com
@@ -75,13 +76,19 @@ def load_state() -> dict:
     return {"stance": None}
 
 
-def save_state(sig: dict) -> None:
+def save_state(sig: dict, previous: dict | None = None) -> bool:
+    """Persist a semantic stance change; return whether the file changed."""
+    previous = previous if previous is not None else load_state()
+    if previous.get("stance") == sig["stance"]:
+        return False
+
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     STATE_PATH.write_text(json.dumps({
         "stance": sig["stance"],
         "fc_pct": sig["fc_pct"],
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }, indent=2))
+    return True
 
 
 def send_email(prev_stance: str | None, cur: dict) -> None:
@@ -175,7 +182,7 @@ def main() -> None:
     print(f"Current:  {cur['stance']!r}  fc={cur['fc_pct']:+.3f}%  price=${cur['price']:.2f}")
 
     changed = prev.get("stance") != cur["stance"]
-    save_state(cur)
+    save_state(cur, prev)
 
     if changed or args.force:
         print("Signal changed — sending alert")
