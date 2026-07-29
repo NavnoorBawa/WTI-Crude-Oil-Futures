@@ -171,4 +171,3 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist
           publish_branch: gh-pages
-          force_orphan: true     # keep gh-pages as a single clean commit (no history bloat)
