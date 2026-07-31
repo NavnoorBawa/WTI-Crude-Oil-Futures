@@ -11,12 +11,12 @@
     "security_name": "CLU26 WTI CRUDE",
     "symbol": "CLU26"
   },
-  "current_price": 85.1,
+  "current_price": 84.99,
   "data_source": "oil.py ML ENGINE",
   "enterprise_metrics": {
     "complex_ml_enabled": true,
     "data_points": 3005,
-    "data_quality": 48,
+    "data_quality": 36,
     "error_count": 0,
     "ml_ready": true,
     "qualified_horizon_count": 1,
@@ -75,8 +75,8 @@
     ],
     "total_articles_scanned": 28
   },
-  "last_price": 85.1,
-  "last_update": "2026-07-31T14:35:00.709368",
+  "last_price": 84.99,
+  "last_update": "2026-07-31T17:53:49.208583",
   "live_record": {
     "first_call_date": "2026-06-10",
     "hit_rate_pct": 61.3,
@@ -89,7 +89,7 @@
     "updated_at": "2026-07-31T03:50:29.570810+00:00"
   },
   "ml_caveat": "WARNING: ML ensemble trained on normal-market data. In HIGH/CRITICAL geopolitical regimes it may significantly underestimate upside tail risk. Weigh the supply-shock event study over the point forecast.",
-  "ml_prediction": 85.03,
+  "ml_prediction": 84.74,
   "ml_prediction_timer": {
     "currently_processing": false,
     "minutes_remaining": 2,
@@ -111,42 +111,42 @@
     "horizon_backtests": {
       "1d": {
         "direction_accuracy": 41.74757281553398,
-        "mae": 3.9437714173082856,
-        "mape": 4.286154847406816,
-        "rmse": 5.031535643592399,
+        "mae": 3.943771676902165,
+        "mape": 4.286155094210123,
+        "rmse": 5.031535973872782,
         "samples": 103
       },
       "1h": {
         "direction_accuracy": 47.083333333333336,
-        "mae": 3.154629388172819,
-        "mape": 3.651340140548758,
-        "rmse": 3.7033552781795636,
+        "mae": 3.1525864000148136,
+        "mape": 3.6483835474094986,
+        "rmse": 3.687814606884794,
         "samples": 240
       },
       "1w": {
         "direction_accuracy": 56.310679611650485,
-        "mae": 8.032985985166126,
-        "mape": 8.718562042937842,
-        "rmse": 10.023292946489148,
+        "mae": 8.032397888336526,
+        "mape": 8.717903219030967,
+        "rmse": 10.023059799411651,
         "samples": 103
       }
     },
     "horizon_confidence": {
       "1d": 10.0,
-      "1h": 30.689978718488522,
+      "1h": 30.747286166935663,
       "1w": 10.0
     },
     "horizon_drift_scores": {
-      "1d": 0.7859265498573808,
-      "1h": 0.36969699982018595,
-      "1w": 0.9435950035694495
+      "1d": 0.7664417537735316,
+      "1h": 0.5344208770454654,
+      "1w": 0.9394154037507901
     },
     "horizon_quality": {
       "1d": {
         "backtest_direction_accuracy": 41.74757281553398,
         "backtest_samples": 103,
         "confidence": 10.0,
-        "drift_score": 0.7859265498573808,
+        "drift_score": 0.7664417537735316,
         "evaluation_source": "backtest",
         "live_direction_accuracy": 0.0,
         "live_samples": 0,
@@ -163,8 +163,8 @@
       "1h": {
         "backtest_direction_accuracy": 47.083333333333336,
         "backtest_samples": 240,
-        "confidence": 30.689978718488522,
-        "drift_score": 0.36969699982018595,
+        "confidence": 30.747286166935663,
+        "drift_score": 0.5344208770454654,
         "evaluation_source": "backtest",
         "live_direction_accuracy": 0.0,
         "live_samples": 0,
@@ -179,7 +179,7 @@
         "backtest_direction_accuracy": 56.310679611650485,
         "backtest_samples": 103,
         "confidence": 10.0,
-        "drift_score": 0.9435950035694495,
+        "drift_score": 0.9394154037507901,
         "evaluation_source": "backtest",
         "live_direction_accuracy": 0.0,
         "live_samples": 0,
@@ -195,64 +195,64 @@
     },
     "is_full_real_prediction": true,
     "is_real_prediction": true,
-    "last_update": "2026-07-31T14:34:57.185289Z",
+    "last_update": "2026-07-31T17:53:45.970521Z",
     "market_data_sources": {
       "daily_history": {
         "from_cache": false,
-        "recorded_at": "2026-07-31T14:34:36.923407Z",
+        "recorded_at": "2026-07-31T17:53:12.954628Z",
         "rows": 377,
         "symbol": "CL=F"
       },
       "hourly_history": {
         "from_cache": false,
-        "recorded_at": "2026-07-31T14:34:03.563423Z",
-        "rows": 1711,
+        "recorded_at": "2026-07-31T17:52:12.292065Z",
+        "rows": 1714,
         "symbol": "CL=F"
       }
     },
     "percentage_changes": {
-      "1d": 0.4,
-      "1h": -0.1,
-      "1w": 0.7,
-      "7d": 0.7
+      "1d": 0.2,
+      "1h": -0.3,
+      "1w": 0.5,
+      "7d": 0.5
     },
     "prediction_intervals": {
       "1d": {
-        "calibrated_margin": 4.528382079233159,
+        "calibrated_margin": 4.528382376485504,
         "direction_consensus": 0.3429027113237639,
-        "drift_challenger": 85.91849822998047,
+        "drift_challenger": 85.60550079345703,
         "drift_challenger_blend": 0.36653721682847895,
-        "lower": 80.9068123819657,
+        "lower": 80.59142226464199,
         "stabilization_shrink": 0.414786701971168,
-        "std": 0.742650091980332,
-        "upper": 89.963576540432
+        "std": 0.7010581342181583,
+        "upper": 89.64818701761301
       },
       "1h": {
-        "calibrated_margin": 3.4700923269901014,
-        "direction_consensus": 0.4181494974964527,
-        "lower": 81.5616261753958,
-        "stabilization_shrink": 0.44249233822833645,
-        "std": 0.4376318136458159,
-        "upper": 88.501810829376
+        "calibrated_margin": 3.4678450400162952,
+        "direction_consensus": 0.011944693117368031,
+        "lower": 81.26742197831929,
+        "stabilization_shrink": 0.35,
+        "std": 0.2875412704812159,
+        "upper": 88.20311205835189
       },
       "1w": {
-        "calibrated_margin": 9.020963651840233,
+        "calibrated_margin": 9.020753819470487,
         "direction_consensus": 0.6801242236024845,
-        "drift_challenger": 89.19249725341797,
+        "drift_challenger": 88.86750030517578,
         "drift_challenger_blend": 0.0,
-        "lower": 76.70104516501102,
+        "lower": 76.4227911140233,
         "stabilization_shrink": 0.5814599528959913,
-        "std": 1.22186163917974,
-        "upper": 94.74297246869149
+        "std": 1.2906904175608251,
+        "upper": 94.46429875296427
       }
     },
     "predictions": {
-      "1d": 85.44,
-      "1h": 85.03,
-      "1w": 85.72,
-      "7d": 85.72
+      "1d": 85.12,
+      "1h": 84.74,
+      "1w": 85.44,
+      "7d": 85.44
     },
-    "processing_time": 56.59093451499939,
+    "processing_time": 104.53407740592957,
     "quality_qualified_horizons": [
       "1h"
     ]
@@ -271,7 +271,7 @@
           "backtest_direction_accuracy": 41.74757281553398,
           "backtest_samples": 103,
           "confidence": 10.0,
-          "drift_score": 0.7859265498573808,
+          "drift_score": 0.7664417537735316,
           "evaluation_source": "backtest",
           "live_direction_accuracy": 0.0,
           "live_samples": 0,
@@ -1532,7 +1532,7 @@
       "1h": {
         "backtest_direction_accuracy": 47.083333333333336,
         "backtest_samples": 240,
-        "confidence": 30.689978718488522,
+        "confidence": 30.747286166935663,
         "display_accuracy": 47.083333333333336,
         "display_accuracy_source": "backtest",
         "live_direction_accuracy": 0.0,
@@ -1540,8 +1540,8 @@
         "quality": {
           "backtest_direction_accuracy": 47.083333333333336,
           "backtest_samples": 240,
-          "confidence": 30.689978718488522,
-          "drift_score": 0.36969699982018595,
+          "confidence": 30.747286166935663,
+          "drift_score": 0.5344208770454654,
           "evaluation_source": "backtest",
           "live_direction_accuracy": 0.0,
           "live_samples": 0,
@@ -1579,7 +1579,7 @@
           "backtest_direction_accuracy": 56.310679611650485,
           "backtest_samples": 103,
           "confidence": 10.0,
-          "drift_score": 0.9435950035694495,
+          "drift_score": 0.9394154037507901,
           "evaluation_source": "backtest",
           "live_direction_accuracy": 0.0,
           "live_samples": 0,
@@ -2846,7 +2846,7 @@
       "display_accuracy_source": "backtest",
       "display_direction_accuracy": 47.1,
       "horizon": "1h",
-      "prediction": 85.03,
+      "prediction": 84.74,
       "quality_reasons": [],
       "quality_status": "QUALIFIED"
     },
@@ -2854,8 +2854,8 @@
     "total_predictions": 0
   },
   "predicted": [],
-  "price_change": 1.51,
-  "price_change_percent": 1.81,
+  "price_change": 1.4,
+  "price_change_percent": 1.67,
   "price_change_quality": "daily_close",
   "status": "ACTIVE",
   "supply_shock_playbook": {
@@ -3082,7 +3082,7 @@
       "weak_day0_n": 28
     }
   },
-  "timestamp": "2026-07-31T14:35:00.709372",
+  "timestamp": "2026-07-31T17:53:49.208590",
   "timestamps": [],
   "unified_data": {
     "actual": {
@@ -5578,9 +5578,6 @@
         "2026-06-26T04:00:00Z",
         "2026-06-29T04:00:00Z",
         "2026-06-30T04:00:00Z",
-        "2026-06-30T14:00:00Z",
-        "2026-06-30T15:00:00Z",
-        "2026-06-30T16:00:00Z",
         "2026-06-30T17:00:00Z",
         "2026-06-30T18:00:00Z",
         "2026-06-30T19:00:00Z",
@@ -6091,7 +6088,10 @@
         "2026-07-31T12:00:00Z",
         "2026-07-31T13:00:00Z",
         "2026-07-31T14:00:00Z",
-        "2026-07-31T14:34:57.186270Z"
+        "2026-07-31T15:00:00Z",
+        "2026-07-31T16:00:00Z",
+        "2026-07-31T17:00:00Z",
+        "2026-07-31T17:53:45.972118Z"
       ],
       "values": [
         40.06,
@@ -8585,9 +8585,6 @@
         69.23,
         70.75,
         69.5,
-        70.43,
-        69.77,
-        69.8,
         69.69,
         69.98,
         70.09,
@@ -9097,8 +9094,11 @@
         84.86,
         85.89,
         85.52,
-        85.06,
-        85.1
+        85.79,
+        84.07,
+        84.7,
+        85.0,
+        84.79
       ],
       "volumes": [
         533020,
@@ -11593,9 +11593,6 @@
         170488,
         194279,
         0,
-        18922,
-        15682,
-        11491,
         22330,
         3454,
         3283,
@@ -12104,51 +12101,54 @@
         14291,
         19625,
         20706,
-        11796,
-        127283
+        20566,
+        31963,
+        16311,
+        11352,
+        195124
       ]
     },
     "predicted": {
       "future": {
         "by_horizon": {
           "1d": {
-            "lower": 80.9068123819657,
-            "timestamp": "2026-08-01T14:34:57.185289Z",
-            "upper": 89.963576540432,
-            "value": 85.43519446119885
+            "lower": 80.59142226464199,
+            "timestamp": "2026-08-01T17:53:45.970521Z",
+            "upper": 89.64818701761301,
+            "value": 85.1198046411275
           },
           "1h": {
-            "lower": 81.5616261753958,
-            "timestamp": "2026-07-31T15:34:57.185289Z",
-            "upper": 88.501810829376,
-            "value": 85.0317185023859
+            "lower": 81.26742197831929,
+            "timestamp": "2026-07-31T18:53:45.970521Z",
+            "upper": 88.20311205835189,
+            "value": 84.73526701833559
           },
           "1w": {
-            "lower": 76.70104516501102,
-            "timestamp": "2026-08-07T14:34:57.185289Z",
-            "upper": 94.74297246869149,
-            "value": 85.72200881685126
+            "lower": 76.4227911140233,
+            "timestamp": "2026-08-07T17:53:45.970521Z",
+            "upper": 94.46429875296427,
+            "value": 85.44354493349378
           }
         },
         "lower_bound": [
-          81.5616261753958,
-          80.9068123819657,
-          76.70104516501102
+          81.26742197831929,
+          80.59142226464199,
+          76.4227911140233
         ],
         "timestamps": [
-          "2026-07-31T15:34:57.185289Z",
-          "2026-08-01T14:34:57.185289Z",
-          "2026-08-07T14:34:57.185289Z"
+          "2026-07-31T18:53:45.970521Z",
+          "2026-08-01T17:53:45.970521Z",
+          "2026-08-07T17:53:45.970521Z"
         ],
         "upper_bound": [
-          88.501810829376,
-          89.963576540432,
-          94.74297246869149
+          88.20311205835189,
+          89.64818701761301,
+          94.46429875296427
         ],
         "values": [
-          85.0317185023859,
-          85.43519446119885,
-          85.72200881685126
+          84.73526701833559,
+          85.1198046411275,
+          85.44354493349378
         ]
       },
       "historical": {
@@ -12189,85 +12189,85 @@
       "issued_by_horizon": {
         "1d": {
           "current_prices": [
-            85.0999984741211
+            84.79000091552734
           ],
           "issue_timestamps": [
-            "2026-07-31T14:34:57.185289Z"
+            "2026-07-31T17:53:45.970521Z"
           ],
           "lower_bound": [
-            80.9068123819657
+            80.59142226464199
           ],
           "target_timestamps": [
-            "2026-08-01T14:34:57.185289Z"
+            "2026-08-01T17:53:45.970521Z"
           ],
           "timestamps": [
-            "2026-07-31T14:34:57.185289Z"
+            "2026-07-31T17:53:45.970521Z"
           ],
           "upper_bound": [
-            89.963576540432
+            89.64818701761301
           ],
           "values": [
-            85.43519446119885
+            85.1198046411275
           ]
         },
         "1h": {
           "current_prices": [
-            85.0999984741211
+            84.79000091552734
           ],
           "issue_timestamps": [
-            "2026-07-31T14:34:57.185289Z"
+            "2026-07-31T17:53:45.970521Z"
           ],
           "lower_bound": [
-            81.5616261753958
+            81.26742197831929
           ],
           "target_timestamps": [
-            "2026-07-31T15:34:57.185289Z"
+            "2026-07-31T18:53:45.970521Z"
           ],
           "timestamps": [
-            "2026-07-31T14:34:57.185289Z"
+            "2026-07-31T17:53:45.970521Z"
           ],
           "upper_bound": [
-            88.501810829376
+            88.20311205835189
           ],
           "values": [
-            85.0317185023859
+            84.73526701833559
           ]
         },
         "1w": {
           "current_prices": [
-            85.0999984741211
+            84.79000091552734
           ],
           "issue_timestamps": [
-            "2026-07-31T14:34:57.185289Z"
+            "2026-07-31T17:53:45.970521Z"
           ],
           "lower_bound": [
-            76.70104516501102
+            76.4227911140233
           ],
           "target_timestamps": [
-            "2026-08-07T14:34:57.185289Z"
+            "2026-08-07T17:53:45.970521Z"
           ],
           "timestamps": [
-            "2026-07-31T14:34:57.185289Z"
+            "2026-07-31T17:53:45.970521Z"
           ],
           "upper_bound": [
-            94.74297246869149
+            94.46429875296427
           ],
           "values": [
-            85.72200881685126
+            85.44354493349378
           ]
         }
       }
     }
   },
-  "volume": 127283,
-  "volume_display": "127.3K",
-  "frozen_at": "2026-07-31T14:35:00.712466+00:00",
+  "volume": 195949,
+  "volume_display": "195.9K",
+  "frozen_at": "2026-07-31T17:53:49.212722+00:00",
   "vol_forecast": {
     "live": {
-      "current_realized_vol_5d_annualized_pct": 78.6,
-      "forecast_next_week_vol_annualized_pct": 55.2,
+      "current_realized_vol_5d_annualized_pct": 78.5,
+      "forecast_next_week_vol_annualized_pct": 53.1,
       "direction": "FALLING",
-      "implied_vol_ovx_pct": 65.1,
+      "implied_vol_ovx_pct": 63.1,
       "as_of": "2026-07-31"
     },
     "validation": {
