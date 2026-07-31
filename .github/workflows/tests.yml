@@ -5,8 +5,7 @@ name: Tests
 # consume runners.
 
 on:
-  push:
-    branches: [main]
+  push: {}
   pull_request:
   workflow_dispatch: {}
   schedule:
