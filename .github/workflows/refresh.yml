@@ -17,6 +17,7 @@ on:
     paths:                     # rebuild the site when the app or pipeline changes
       - 'src/**'
       - 'backend/**'
+      - 'scripts/validate_frozen_payload.py'
       - 'freeze.py'
       - 'vite.config.js'
       - 'eslint.config.js'
@@ -40,6 +41,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -64,6 +67,9 @@ jobs:
           USDA_NASS_KEY: ${{ secrets.USDA_NASS_KEY }}
           NOAA_CDO_KEY: ${{ secrets.NOAA_CDO_KEY }}
         run: python freeze.py --out public
+
+      - name: Validate frozen payload invariants
+        run: python scripts/validate_frozen_payload.py public/data.json --max-age-minutes 30
 
       - name: Check 1W signal and send alert on stance change
         env:
@@ -123,8 +129,10 @@ jobs:
       - name: Persist signal state + live record to main branch
         env:
           STATE_SNAPSHOT_DIR: ${{ runner.temp }}/wti-state-snapshot
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
           mkdir -p "$STATE_SNAPSHOT_DIR"
           cp data/signal_state.json "$STATE_SNAPSHOT_DIR/signal_state.json"
           cp data/live_track_record.json "$STATE_SNAPSHOT_DIR/live_track_record.json"
@@ -133,7 +141,7 @@ jobs:
           for attempt in 1 2 3; do
             state_worktree="${RUNNER_TEMP}/wti-state-worktree-${attempt}"
 
-            if ! git fetch --no-tags origin main; then
+            if ! git -c http.https://github.com/.extraheader="AUTHORIZATION: basic ${auth_header}" fetch --no-tags origin main; then
               echo "git fetch failed on attempt ${attempt}" >&2
             elif git worktree add --detach "$state_worktree" origin/main; then
               cp "$STATE_SNAPSHOT_DIR/signal_state.json" "$state_worktree/data/signal_state.json"
@@ -149,7 +157,7 @@ jobs:
               git -C "$state_worktree" config user.name "WTI Signal Bot"
               git -C "$state_worktree" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
               git -C "$state_worktree" commit -m "chore: update 1W signal state [skip ci]"
-              if git -C "$state_worktree" push origin HEAD:main; then
+              if git -C "$state_worktree" -c http.https://github.com/.extraheader="AUTHORIZATION: basic ${auth_header}" push origin HEAD:main; then
                 git worktree remove "$state_worktree"
                 exit 0
               fi

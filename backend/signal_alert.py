@@ -70,9 +70,12 @@ def extract_signal(data: dict) -> dict:
 def load_state() -> dict:
     if STATE_PATH.exists():
         try:
-            return json.loads(STATE_PATH.read_text())
-        except Exception:
-            pass
+            state = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Refusing to overwrite unreadable signal state: {exc}") from exc
+        if not isinstance(state, dict) or "stance" not in state:
+            raise ValueError("Refusing to overwrite malformed signal state")
+        return state
     return {"stance": None}
 
 
@@ -91,10 +94,11 @@ def save_state(sig: dict, previous: dict | None = None) -> bool:
     return True
 
 
-def send_email(prev_stance: str | None, cur: dict) -> None:
+def send_email(prev_stance: str | None, cur: dict) -> bool:
+    """Send an alert, returning True only when delivery succeeded or is disabled."""
     if not GMAIL_APP_PASSWORD:
         print("GMAIL_APP_PASSWORD not set — skipping email")
-        return
+        return True
 
     arrow = "↑" if cur["stance"] == "LONG LEAN" else "↓" if cur["stance"] == "SHORT LEAN" else "→"
     subject = f"WTI 1W model state: {prev_stance or 'INIT'} → {cur['stance']} {arrow}  |  ${cur['price']:.2f}  (edge retracted)"
@@ -152,8 +156,25 @@ Walk-forward research demo. Edge retracted. No execution infrastructure.
             smtp.login(GMAIL_USER, GMAIL_APP_PASSWORD)
             smtp.sendmail(GMAIL_USER, ALERT_EMAIL, msg.as_string())
         print(f"Email sent: {subject}")
+        return True
     except Exception as exc:
         print(f"Email failed: {exc}", file=sys.stderr)
+        return False
+
+
+def process_signal(cur: dict, prev: dict, force: bool = False) -> bool:
+    """Deliver a required alert before persisting the new stance."""
+    changed = prev.get("stance") != cur["stance"]
+    if changed or force:
+        print("Signal changed — sending alert" if changed else "Forced alert — sending")
+        if not send_email(prev.get("stance"), cur):
+            raise RuntimeError("Configured signal alert delivery failed; state not persisted")
+    else:
+        print("No change")
+
+    if changed:
+        save_state(cur, prev)
+    return changed
 
 
 def main() -> None:
@@ -181,14 +202,11 @@ def main() -> None:
     print(f"Previous: {prev.get('stance')!r}")
     print(f"Current:  {cur['stance']!r}  fc={cur['fc_pct']:+.3f}%  price=${cur['price']:.2f}")
 
-    changed = prev.get("stance") != cur["stance"]
-    save_state(cur, prev)
-
-    if changed or args.force:
-        print("Signal changed — sending alert")
-        send_email(prev.get("stance"), cur)
-    else:
-        print("No change")
+    try:
+        process_signal(cur, prev, force=args.force)
+    except RuntimeError as exc:
+        # A failed workflow retries the transition because state was not advanced.
+        raise SystemExit(str(exc)) from exc
 
 
 if __name__ == "__main__":

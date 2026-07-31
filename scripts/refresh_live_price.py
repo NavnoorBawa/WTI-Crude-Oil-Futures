@@ -15,7 +15,7 @@ from __future__ import annotations
 import base64
 import json
 import os
-import random
+import secrets
 import sys
 import time
 import urllib.error
@@ -50,7 +50,19 @@ def _retry_delay(attempt: int, headers: Any | None = None) -> float:
     try:
         return min(30.0, max(1.0, float(retry_after)))
     except (TypeError, ValueError):
-        return min(30.0, (2 ** attempt) + random.random())
+        return min(30.0, (2 ** attempt) + (secrets.randbelow(1000) / 1000.0))
+
+
+def _require_https_url(url: str) -> None:
+    """Reject plaintext, relative, or credential-bearing outbound URLs."""
+    parsed = urllib.parse.urlsplit(url)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        raise ValueError("outbound URL must be absolute HTTPS without embedded credentials")
 
 
 def request_json(
@@ -64,6 +76,7 @@ def request_json(
 ) -> dict:
     """Call GitHub's JSON API with bounded retry/backoff."""
 
+    _require_https_url(url)
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
     headers = {
         "Accept": "application/vnd.github+json",
@@ -78,7 +91,8 @@ def request_json(
     for attempt in range(attempts):
         request = urllib.request.Request(url, data=body, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            # URL was validated as absolute HTTPS immediately above.
+            with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310
                 raw = response.read()
             return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as exc:
@@ -118,12 +132,14 @@ def fetch_quote() -> tuple[float, float | None] | None:
                 f"https://{host}.finance.yahoo.com/v8/finance/chart/"
                 "CL%3DF?interval=1d&range=1d"
             )
+            _require_https_url(url)
             request = urllib.request.Request(
                 url,
                 headers={"User-Agent": "Mozilla/5.0 (compatible; WTI-price-refresh/1.0)"},
             )
             try:
-                with urllib.request.urlopen(request, timeout=20) as response:
+                # The host is selected from the closed Yahoo HTTPS tuple above.
+                with urllib.request.urlopen(request, timeout=20) as response:  # nosec B310
                     meta = json.load(response)["chart"]["result"][0]["meta"]
                 price = float(meta["regularMarketPrice"])
                 previous = meta.get("previousClose") or meta.get("chartPreviousClose")

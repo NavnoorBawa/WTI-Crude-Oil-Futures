@@ -19,6 +19,15 @@ class PricePayloadTest(unittest.TestCase):
 
 
 class PublishPriceTest(unittest.TestCase):
+    def test_request_rejects_non_https_and_embedded_credentials(self):
+        for url in (
+            "http://api.github.test/resource",
+            "https://user:secret@api.github.test/resource",
+            "/relative/path",
+        ):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                refresh_live_price.request_json("GET", url, token="token")
+
     def test_reloads_sha_after_collision(self):
         quote = {"price": 81.25}
         collision = refresh_live_price.ApiError(409, "sha does not match")

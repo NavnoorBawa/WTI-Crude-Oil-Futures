@@ -41,6 +41,16 @@ class ExtractSignalTest(unittest.TestCase):
 
 
 class SaveStateTest(unittest.TestCase):
+    def test_corrupt_state_is_not_silently_replaced(self):
+        with TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "signal_state.json"
+            state_path.write_text("{broken", encoding="utf-8")
+            with (
+                mock.patch.object(sa, "STATE_PATH", state_path),
+                self.assertRaisesRegex(ValueError, "Refusing to overwrite"),
+            ):
+                sa.load_state()
+
     def test_unchanged_stance_does_not_rewrite_state(self):
         with TemporaryDirectory() as tmp:
             state_path = Path(tmp) / "signal_state.json"
@@ -67,6 +77,40 @@ class SaveStateTest(unittest.TestCase):
 
             self.assertTrue(changed)
             self.assertIn('"LONG LEAN"', state_path.read_text())
+
+
+class DeliveryOrderingTest(unittest.TestCase):
+    def test_failed_configured_delivery_does_not_advance_state(self):
+        current = {"stance": "LONG LEAN"}
+        previous = {"stance": "NEUTRAL"}
+        with (
+            mock.patch.object(sa, "send_email", return_value=False),
+            mock.patch.object(sa, "save_state") as save_state,
+            self.assertRaisesRegex(RuntimeError, "state not persisted"),
+        ):
+            sa.process_signal(current, previous)
+
+        save_state.assert_not_called()
+
+    def test_successful_delivery_is_persisted_after_send(self):
+        current = {"stance": "LONG LEAN"}
+        previous = {"stance": "NEUTRAL"}
+        events = []
+        with (
+            mock.patch.object(
+                sa,
+                "send_email",
+                side_effect=lambda *_: events.append("sent") or True,
+            ),
+            mock.patch.object(
+                sa,
+                "save_state",
+                side_effect=lambda *_: events.append("saved") or True,
+            ),
+        ):
+            sa.process_signal(current, previous)
+
+        self.assertEqual(events, ["sent", "saved"])
 
 
 if __name__ == "__main__":
