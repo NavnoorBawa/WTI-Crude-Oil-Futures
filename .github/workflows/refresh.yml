@@ -71,15 +71,6 @@ jobs:
       - name: Validate frozen payload invariants
         run: python scripts/validate_frozen_payload.py public/data.json --max-age-minutes 30
 
-      - name: Check 1W signal and send alert on stance change
-        env:
-          # Add GMAIL_APP_PASSWORD as a GitHub Secret to enable email alerts.
-          # Generate at: myaccount.google.com > Security > App passwords
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          GMAIL_USER: navnoorquant@gmail.com
-          ALERT_EMAIL: navnoorquant@gmail.com
-        run: python backend/signal_alert.py --data public/data.json
-
       - name: Record + resolve live 1W track record
         run: python backend/live_record.py --data public/data.json
 
@@ -115,7 +106,7 @@ jobs:
         run: npm run lint
 
       - name: Audit JS dependencies
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=low
 
       - name: Build static site (Vite copies public/data.json into dist/)
         env:
@@ -126,7 +117,29 @@ jobs:
           VITE_POLL_INTERVAL_MS: '86400000'
         run: npm run build
 
+      - name: Deploy to GitHub Pages
+        id: pages_deploy
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          publish_branch: gh-pages
+
+      # Never announce a stance that was not successfully published.
+      - name: Check 1W signal and send alert on stance change
+        env:
+          # Add GMAIL_APP_PASSWORD as a GitHub Secret to enable email alerts.
+          # Generate at: myaccount.google.com > Security > App passwords
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GMAIL_USER: navnoorquant@gmail.com
+          ALERT_EMAIL: navnoorquant@gmail.com
+        run: python backend/signal_alert.py --data public/data.json
+
+      # Persist only after a successful Pages publish. The explicit status check
+      # lets the live record persist even if alert delivery itself fails, while
+      # signal_alert.py leaves an unsent stance unchanged so the next run retries.
       - name: Persist signal state + live record to main branch
+        if: ${{ !cancelled() && steps.pages_deploy.outcome == 'success' }}
         env:
           STATE_SNAPSHOT_DIR: ${{ runner.temp }}/wti-state-snapshot
           GH_TOKEN: ${{ github.token }}
@@ -172,10 +185,3 @@ jobs:
             fi
             sleep "$((attempt * 5))"
           done
-
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./dist
-          publish_branch: gh-pages
