@@ -1,11 +1,13 @@
 name: Tests
 
-# Fast, deterministic checks for every pull request and main-branch change. The
+# Fast, deterministic checks for every pull request and branch change. The
 # scheduled data/state bot uses [skip ci], so its evidence-only commits do not
 # consume runners.
 
 on:
-  push: {}
+  push:
+    branches:
+      - '**'
   pull_request:
   workflow_dispatch: {}
   schedule:
@@ -102,7 +104,7 @@ jobs:
         run: npm run lint
 
       - name: Audit JS dependencies
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=low
 
       - name: Build static site
         env:
@@ -165,6 +167,7 @@ jobs:
         env:
           TOOL_DIR: ${{ runner.temp }}/workflow-tools
           EVENT_NAME: ${{ github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           BEFORE_SHA: ${{ github.event.before }}
@@ -175,6 +178,16 @@ jobs:
             scan_range="${BASE_SHA}..${HEAD_SHA}"
           elif [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "$zero_sha" ] && git cat-file -e "${BEFORE_SHA}^{commit}"; then
             scan_range="${BEFORE_SHA}..${HEAD_SHA}"
+          elif [ "$BEFORE_SHA" = "$zero_sha" ] && [ -n "$DEFAULT_BRANCH" ]; then
+            default_ref="origin/${DEFAULT_BRANCH}"
+            base_sha="$(git merge-base "$HEAD_SHA" "$default_ref" 2>/dev/null || true)"
+            if [ -n "$base_sha" ] && [ "$base_sha" != "$HEAD_SHA" ]; then
+              scan_range="${base_sha}..${HEAD_SHA}"
+            elif git rev-parse "${HEAD_SHA}^" >/dev/null 2>&1; then
+              scan_range="${HEAD_SHA}^..${HEAD_SHA}"
+            else
+              scan_range="$HEAD_SHA"
+            fi
           elif git rev-parse "${HEAD_SHA}^" >/dev/null 2>&1; then
             scan_range="${HEAD_SHA}^..${HEAD_SHA}"
           else
