@@ -62,8 +62,9 @@ jobs:
           set -euo pipefail
           mkdir -p "$STATE_RESTORE_DIR"
 
-          expected_origin="https://github.com/${GITHUB_REPOSITORY}.git"
-          if [ "$(git remote get-url origin)" != "$expected_origin" ]; then
+          expected_origin="https://github.com/${GITHUB_REPOSITORY}"
+          origin_url="$(git remote get-url origin)"
+          if [ "${origin_url%.git}" != "$expected_origin" ]; then
             echo "Refusing unexpected git origin" >&2
             exit 1
           fi
@@ -206,8 +207,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          expected_origin="https://github.com/${GITHUB_REPOSITORY}.git"
-          if [ "$(git remote get-url origin)" != "$expected_origin" ]; then
+          expected_origin="https://github.com/${GITHUB_REPOSITORY}"
+          origin_url="$(git remote get-url origin)"
+          if [ "${origin_url%.git}" != "$expected_origin" ]; then
             echo "Refusing unexpected git origin" >&2
             exit 1
           fi
