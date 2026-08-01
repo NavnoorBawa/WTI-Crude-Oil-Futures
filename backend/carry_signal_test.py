@@ -50,7 +50,8 @@ def _eia_series(series: str, key: str, length: int = 5000) -> pd.Series:
         "api_key": key, "frequency": "daily", "data[0]": "value", "facets[series][]": series,
         "sort[0][column]": "period", "sort[0][direction]": "desc", "length": str(length),
     }, doseq=True)
-    with urllib.request.urlopen(url, timeout=40) as r:
+    # The scheme and host are fixed to EIA; only query values are encoded above.
+    with urllib.request.urlopen(url, timeout=40) as r:  # nosec B310
         data = json.load(r)["response"]["data"]
     s = pd.Series({pd.Timestamp(x["period"]): float(x["value"])
                    for x in data if x["value"] is not None})

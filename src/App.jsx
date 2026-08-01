@@ -1,6 +1,31 @@
 import React, { useState, useEffect, useRef } from "react";
 import Chart from "./Chart";
 
+const clampMilliseconds = (rawValue, fallback, minimum, maximum) => {
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(maximum, Math.max(minimum, parsed));
+};
+
+const pollIntervalMs = clampMilliseconds(
+  import.meta.env.VITE_POLL_INTERVAL_MS,
+  15000,
+  5000,
+  24 * 60 * 60 * 1000
+);
+const startupRetryMs = clampMilliseconds(
+  import.meta.env.VITE_STARTUP_RETRY_MS,
+  5000,
+  2000,
+  60 * 1000
+);
+const REQUEST_TIMEOUT_MS = 30 * 1000;
+const MAX_INITIAL_FETCH_ATTEMPTS = 5;
+const LIVE_PRICE_POLL_MS = 3 * 60 * 1000;
+const LIVE_PRICE_FRESH_MS = 25 * 60 * 1000;
+const LIVE_PRICE_MAX_AGE_MS = 3 * 60 * 60 * 1000;
+const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
+
 // RETRACTED 2026-06-20: the 1W "edge" (Sharpe 2.44/2.07, 65.8% acc) was a look-ahead leak —
 // the walk-forward trained on rows whose 5-day targets matured after the prediction point. After a
 // purge/embargo the signal is a coin flip (48-52% acc, p>0.2, negative Sharpe). No tradeable edge.
@@ -19,16 +44,13 @@ function App() {
   const [livePricePct, setLivePricePct] = useState(null);
   const [livePriceChange, setLivePriceChange] = useState(null);
   const [livePriceFresh, setLivePriceFresh] = useState(false);
-  const pollIntervalMs = Number(import.meta.env.VITE_POLL_INTERVAL_MS || 15000);
-  const startupRetryMs = Number(import.meta.env.VITE_STARTUP_RETRY_MS || 5000);
   const configuredApiBase = import.meta.env.VITE_API_BASE_URL;
   // Static-snapshot mode (GitHub Pages): the React app reads a frozen data.json produced by
   // freeze.py in CI instead of polling a live backend. BASE_URL handles the Pages sub-path.
   const staticDataMode = import.meta.env.VITE_STATIC_DATA === "true";
   const staticDataUrl = `${import.meta.env.BASE_URL}data.json`;
   const latestDataRef = useRef(null);
-  const requestInFlightRef = useRef(false);
-  const startupRetryPendingRef = useRef(false);
+  const liveQuoteMetaRef = useRef(null);
 
   latestDataRef.current = data;
 
@@ -53,11 +75,15 @@ function App() {
     // Set title
     document.title = "WTI Crude Oil Futures · Quant Forecast & Geo Risk";
     let isDisposed = false;
+    let requestInFlight = false;
+    let retryPending = false;
+    let initialAttemptCount = 0;
     let retryTimeoutId = null;
+    const activeControllers = new Set();
 
     // Update time every second
     const timeInterval = setInterval(() => {
-      setCurrentTime(new Date());
+      if (!isDisposed) setCurrentTime(new Date());
     }, 1000);
 
     const clearRetryTimeout = () => {
@@ -67,49 +93,63 @@ function App() {
       }
     };
 
-    const scheduleRetry = (retryAfterSeconds) => {
-      const delayMs = Math.max(
-        2000,
-        Number.isFinite(Number(retryAfterSeconds))
-          ? Number(retryAfterSeconds) * 1000
-          : startupRetryMs
-      );
+    const retryDelayMs = (requestedDelayMs) =>
+      clampMilliseconds(requestedDelayMs, startupRetryMs, 2000, 60 * 1000);
 
+    const scheduleInitialRetry = (requestedDelayMs, message) => {
+      if (
+        isDisposed ||
+        latestDataRef.current ||
+        initialAttemptCount >= MAX_INITIAL_FETCH_ATTEMPTS
+      ) {
+        return false;
+      }
+
+      const nextAttempt = initialAttemptCount + 1;
+      retryPending = true;
       clearRetryTimeout();
+      setLoading(true);
+      setError(null);
+      setLoadingMessage(
+        `${message} Retrying (${nextAttempt}/${MAX_INITIAL_FETCH_ATTEMPTS})…`
+      );
       retryTimeoutId = setTimeout(() => {
-        if (!isDisposed) {
-          fetchData(true);
-        }
-      }, delayMs);
+        retryTimeoutId = null;
+        retryPending = false;
+        if (!isDisposed) fetchData(true);
+      }, retryDelayMs(requestedDelayMs));
+      return true;
     };
 
     // Fetch data function
-    const fetchData = async (isInitial = false) => {
-      let didStartRequest = false;
+    async function fetchData(isInitial = false) {
+      if (isDisposed || requestInFlight) return;
+      if (!isInitial && retryPending && !latestDataRef.current) return;
+
+      requestInFlight = true;
+      if (isInitial && !latestDataRef.current) initialAttemptCount += 1;
+
       try {
-        if (isInitial) {
+        if (isInitial && !latestDataRef.current) {
           setLoading(true);
           setError(null);
           setLoadingMessage("Connecting to Real-Time Data Feeds");
         }
-
-        if (requestInFlightRef.current) {
-          return;
-        }
-        if (!isInitial && startupRetryPendingRef.current && !latestDataRef.current) {
-          return;
-        }
-
-        requestInFlightRef.current = true;
-        didStartRequest = true;
         
         const apiCandidates = getApiBaseCandidates();
-        let response = null;
+        let result = null;
         let lastAttemptError = null;
 
         for (const apiBase of apiCandidates) {
+          if (isDisposed) return;
+
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 30000);
+          activeControllers.add(controller);
+          let requestTimedOut = false;
+          const timeoutId = setTimeout(() => {
+            requestTimedOut = true;
+            controller.abort();
+          }, REQUEST_TIMEOUT_MS);
 
           try {
             const attempt = await fetch(buildRequestUrl(apiBase), {
@@ -117,63 +157,65 @@ function App() {
               method: 'GET',
               headers: {
                 'Accept': 'application/json',
-                'Content-Type': 'application/json',
               },
             });
 
-            clearTimeout(timeoutId);
-
             let responsePayload = null;
-            const responseType = attempt.headers.get('content-type') || '';
-            const canParseJson = responseType.includes('application/json');
-
-            if (!attempt.ok || attempt.status === 503) {
-              if (canParseJson) {
-                try {
-                  responsePayload = await attempt.json();
-                } catch {
-                  responsePayload = null;
-                }
-              }
+            let responseParseError = null;
+            try {
+              responsePayload = await attempt.json();
+            } catch (parseError) {
+              responseParseError = parseError;
             }
 
             const retryAfterHeader = Number(attempt.headers.get('Retry-After'));
             if (responsePayload?.error === 'SYSTEM_INITIALIZING') {
               const startupError = new Error(responsePayload.message || 'Backend is waking up');
               startupError.code = 'SYSTEM_INITIALIZING';
-              startupError.retryAfterSeconds = Number(responsePayload.retry_after_seconds) || retryAfterHeader || (startupRetryMs / 1000);
+              const retryAfterSeconds = Number(responsePayload.retry_after_seconds);
+              startupError.retryAfterMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+                ? retryAfterSeconds * 1000
+                : Number.isFinite(retryAfterHeader) && retryAfterHeader > 0
+                  ? retryAfterHeader * 1000
+                  : startupRetryMs;
               throw startupError;
             }
 
-            if (attempt.ok) {
-              response = attempt;
-              break;
+            if (!attempt.ok) {
+              const errorMessage = responsePayload?.message || responsePayload?.error || attempt.statusText || 'Request failed';
+              throw new Error(`HTTP ${attempt.status}: ${errorMessage}`);
             }
 
-            const errorMessage = responsePayload?.message || responsePayload?.error || attempt.statusText || 'Request failed';
-            lastAttemptError = new Error(`HTTP ${attempt.status}: ${errorMessage}`);
+            if (responseParseError || responsePayload == null) {
+              throw new Error('The data endpoint returned invalid JSON');
+            }
+
+            result = responsePayload;
+            break;
           } catch (attemptErr) {
+            if (isDisposed) return;
+            if (requestTimedOut && attemptErr?.name === 'AbortError') {
+              const timeoutError = new Error('Server timeout - Please wait and refresh');
+              timeoutError.code = 'REQUEST_TIMEOUT';
+              lastAttemptError = timeoutError;
+            } else {
+              lastAttemptError = attemptErr;
+            }
+          } finally {
             clearTimeout(timeoutId);
-            lastAttemptError = attemptErr;
+            activeControllers.delete(controller);
           }
         }
 
-        if (!response) {
+        if (isDisposed) return;
+        if (!result) {
           throw lastAttemptError || new Error("No reachable API endpoint found");
         }
 
-        const result = await response.json();
-
-        if (result?.error === 'SYSTEM_INITIALIZING') {
-          const startupError = new Error(result.message || 'Backend is waking up');
-          startupError.code = 'SYSTEM_INITIALIZING';
-          startupError.retryAfterSeconds = Number(result.retry_after_seconds) || (startupRetryMs / 1000);
-          throw startupError;
-        }
-        
         // Update state in correct order
         clearRetryTimeout();
-        startupRetryPendingRef.current = false;
+        retryPending = false;
+        initialAttemptCount = 0;
         setData(result);
         setLastUpdate(new Date());
         setError(null);
@@ -181,53 +223,57 @@ function App() {
         setLoadingMessage("Connecting to Real-Time Data Feeds");
         
       } catch (err) {
-        if (err.code === 'SYSTEM_INITIALIZING') {
-          const retryAfterSeconds = Number(err.retryAfterSeconds) || (startupRetryMs / 1000);
-          const startupMessage = err.message || 'Backend is warming up the model. This can take a minute on first start.';
-          startupRetryPendingRef.current = true;
+        if (isDisposed) return;
 
-          if (isInitial || !latestDataRef.current) {
-            setLoading(true);
-            setError(null);
-            setLoadingMessage(startupMessage);
-          } else {
-            setError(`LIVE DATA DELAY: ${startupMessage} Showing last good market snapshot.`);
-          }
+        const isStarting = err?.code === 'SYSTEM_INITIALIZING';
+        const userMessage = isStarting
+          ? err.message || 'Backend is warming up the model.'
+          : err?.code === 'REQUEST_TIMEOUT' || err?.name === 'AbortError'
+            ? 'Server timeout - Please wait and refresh'
+            : err?.name === 'TypeError' && err.message.includes('Failed to fetch')
+              ? 'Cannot connect to the data service'
+              : `Network error: ${err?.message || 'Unknown request failure'}`;
 
-          scheduleRetry(retryAfterSeconds);
-          return;
-        } else if (err.name === 'AbortError') {
-          setError('Server timeout - Please wait and refresh');
-        } else if (err.name === 'TypeError' && err.message.includes('Failed to fetch')) {
-          setError('Cannot connect to backend API - verify VITE_API_BASE_URL in frontend environment');
-        } else {
-          setError(`Network error: ${err.message}`);
+        if (!latestDataRef.current) {
+          const scheduled = scheduleInitialRetry(
+            isStarting ? err.retryAfterMs : startupRetryMs,
+            userMessage
+          );
+          if (scheduled) return;
         }
-        startupRetryPendingRef.current = false;
+
+        retryPending = false;
+        setError(
+          latestDataRef.current
+            ? `LIVE DATA DELAY: ${userMessage}. Showing last good market snapshot.`
+            : userMessage
+        );
         setLoading(false);
       } finally {
-        if (didStartRequest) {
-          requestInFlightRef.current = false;
-        }
+        requestInFlight = false;
       }
-    };
+    }
 
     // Initial fetch
     fetchData(true);
 
     // Backend prediction cadence is minutes, so lower polling frequency cuts load.
-    const interval = setInterval(() => fetchData(false), pollIntervalMs);
+    const interval = setInterval(() => {
+      if (latestDataRef.current) fetchData(false);
+    }, pollIntervalMs);
 
     return () => {
       isDisposed = true;
       clearRetryTimeout();
       clearInterval(interval);
       clearInterval(timeInterval);
+      activeControllers.forEach((controller) => controller.abort());
+      activeControllers.clear();
     };
     // getApiBaseCandidates is a render-local helper whose only reactive input, configuredApiBase,
     // is already a dependency; adding the function itself would re-run this fetch loop every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [configuredApiBase, pollIntervalMs, startupRetryMs]);
+  }, [configuredApiBase, staticDataMode, staticDataUrl]);
 
   // Client-side live price — reads a tiny snapshot from VITE_LIVE_PRICE_URL. Production
   // points this at the repo's dedicated live-data branch, so a price tick does not trigger
@@ -240,48 +286,185 @@ function App() {
   // the frozen data.json price takes over. The header's "Data as of" carries the honesty.
   useEffect(() => {
     if (!staticDataMode) return; // local dev: the backend price is already live
+    let isDisposed = false;
+    let requestInFlight = false;
+    let expiryTimeoutId = null;
+    let freshnessTimeoutId = null;
+    const activeControllers = new Set();
+
+    const clearQuoteTimers = () => {
+      if (expiryTimeoutId) clearTimeout(expiryTimeoutId);
+      if (freshnessTimeoutId) clearTimeout(freshnessTimeoutId);
+      expiryTimeoutId = null;
+      freshnessTimeoutId = null;
+    };
+
+    const clearLiveOverlay = () => {
+      liveQuoteMetaRef.current = null;
+      clearQuoteTimers();
+      if (isDisposed) return;
+      setLivePrice(null);
+      setLivePricePct(null);
+      setLivePriceChange(null);
+      setLivePriceFresh(false);
+    };
+
+    const scheduleQuoteTimers = () => {
+      clearQuoteTimers();
+      const meta = liveQuoteMetaRef.current;
+      if (!meta || isDisposed) return;
+
+      const now = Date.now();
+      const remainingLifetime = meta.expiresAtMs - now;
+      if (remainingLifetime <= 0) {
+        clearLiveOverlay();
+        return;
+      }
+
+      expiryTimeoutId = setTimeout(clearLiveOverlay, remainingLifetime);
+      const remainingFreshness = (meta.freshUntilMs || 0) - now;
+      setLivePriceFresh(remainingFreshness > 0);
+      if (remainingFreshness > 0) {
+        freshnessTimeoutId = setTimeout(() => {
+          freshnessTimeoutId = null;
+          if (!isDisposed) setLivePriceFresh(false);
+        }, remainingFreshness);
+      }
+    };
+
+    const asFiniteNumber = (value) => {
+      if (
+        value == null ||
+        (typeof value !== 'number' && typeof value !== 'string') ||
+        (typeof value === 'string' && value.trim() === '')
+      ) {
+        return null;
+      }
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    const normalizeQuote = (rawQuote) => {
+      const now = Date.now();
+      const price = asFiniteNumber(rawQuote?.price);
+      const fetchedAtMs = new Date(rawQuote?.fetched_at).getTime();
+      const ageMs = now - fetchedAtMs;
+      if (
+        price == null ||
+        price <= 0 ||
+        !Number.isFinite(fetchedAtMs) ||
+        ageMs < -MAX_CLOCK_SKEW_MS ||
+        ageMs > LIVE_PRICE_MAX_AGE_MS
+      ) {
+        return null;
+      }
+
+      const effectiveFetchedAtMs = Math.min(fetchedAtMs, now);
+      const changePct = asFiniteNumber(rawQuote?.change_pct);
+      const previousClose = asFiniteNumber(rawQuote?.prev_close);
+      const isLiveTick =
+        typeof rawQuote?.source === "string" &&
+        rawQuote.source.toLowerCase().startsWith("yahoo");
+      const rawChange = previousClose != null && previousClose > 0
+        ? price - previousClose
+        : null;
+
+      return {
+        price,
+        changePct,
+        change: Number.isFinite(rawChange)
+          ? Number(rawChange.toFixed(2))
+          : null,
+        fetchedAtMs: effectiveFetchedAtMs,
+        expiresAtMs: effectiveFetchedAtMs + LIVE_PRICE_MAX_AGE_MS,
+        freshUntilMs: isLiveTick
+          ? effectiveFetchedAtMs + LIVE_PRICE_FRESH_MS
+          : null,
+      };
+    };
+
     const fetchLivePrice = async () => {
+      if (isDisposed || requestInFlight) return;
+      requestInFlight = true;
+
       try {
         const fallbackUrl = `${import.meta.env.BASE_URL}price.json`;
         const priceUrls = [import.meta.env.VITE_LIVE_PRICE_URL, fallbackUrl]
           .filter((url, index, urls) => url && urls.indexOf(url) === index);
-        let q = null;
+        let quote = null;
 
         for (const sourceUrl of priceUrls) {
+          if (isDisposed) return;
+          const controller = new AbortController();
+          activeControllers.add(controller);
+          const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
           try {
             // The query string avoids reusing an older browser cache entry. GitHub's raw
             // CDN can still cache for a few minutes, which is included in the freshness gate.
             const requestUrl = new URL(sourceUrl, window.location.href);
             requestUrl.searchParams.set("_", String(Date.now()));
-            const res = await fetch(requestUrl, { cache: 'no-store' });
-            if (!res.ok) continue;
-            q = await res.json();
+            const response = await fetch(requestUrl, {
+              cache: 'no-store',
+              signal: controller.signal,
+              headers: { 'Accept': 'application/json' },
+            });
+            if (!response.ok) continue;
+            const candidate = normalizeQuote(await response.json());
+            if (!candidate) continue;
+            quote = candidate;
             break;
           } catch {
             // Try the baked same-origin snapshot next.
+          } finally {
+            clearTimeout(timeoutId);
+            activeControllers.delete(controller);
           }
         }
 
-        if (!q) return;
-        const ageMin = (Date.now() - new Date(q.fetched_at).getTime()) / 60000;
-        if (!q.price || !Number.isFinite(ageMin) || ageMin > 180) return;
-        setLivePrice(q.price);
-        // Badge a genuine real-time tick only: the freeze baseline (source "freeze
-        // snapshot …") is the deploy-time price, not streaming — show it, never badge it.
-        const isLiveTick = typeof q.source === "string" && q.source.toLowerCase().startsWith("yahoo");
-        setLivePriceFresh(ageMin <= 25 && isLiveTick);
-        // Always reflect THIS quote — null when it omits the field — so a fresh live
-        // price can't be paired with a stale change carried over from an earlier quote.
-        setLivePricePct(q.change_pct != null ? q.change_pct : null);
-        setLivePriceChange(q.prev_close != null ? Number((q.price - q.prev_close).toFixed(2)) : null);
-      } catch {
-        // Best-effort only: the price overlay is optional. Any failure is non-fatal — the
-        // frozen data.json price stays shown and "Data as of" remains honest.
+        if (isDisposed) return;
+        if (!quote) {
+          if (
+            liveQuoteMetaRef.current &&
+            liveQuoteMetaRef.current.expiresAtMs <= Date.now()
+          ) {
+            clearLiveOverlay();
+          }
+          return;
+        }
+
+        // Never replace a still-valid tick with an older fallback snapshot.
+        const previousMeta = liveQuoteMetaRef.current;
+        if (
+          previousMeta &&
+          previousMeta.expiresAtMs > Date.now() &&
+          previousMeta.fetchedAtMs > quote.fetchedAtMs
+        ) {
+          scheduleQuoteTimers();
+          return;
+        }
+
+        liveQuoteMetaRef.current = quote;
+        setLivePrice(quote.price);
+        setLivePricePct(quote.changePct);
+        setLivePriceChange(quote.change);
+        scheduleQuoteTimers();
+      } finally {
+        requestInFlight = false;
       }
     };
+
+    // Restore expiry/freshness timers if React StrictMode remounts this effect.
+    scheduleQuoteTimers();
     fetchLivePrice();
-    const id = setInterval(fetchLivePrice, 3 * 60 * 1000);
-    return () => clearInterval(id);
+    const id = setInterval(fetchLivePrice, LIVE_PRICE_POLL_MS);
+    return () => {
+      isDisposed = true;
+      clearInterval(id);
+      clearQuoteTimers();
+      activeControllers.forEach((controller) => controller.abort());
+      activeControllers.clear();
+    };
   }, [staticDataMode]);
 
   // Loading screen

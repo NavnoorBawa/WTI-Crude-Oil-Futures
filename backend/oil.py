@@ -1221,7 +1221,7 @@ class PremiumWTIPredictor:
             'tail_target': tail_values,
         }
         payload_str = json.dumps(payload, sort_keys=True)
-        return hashlib.sha1(payload_str.encode('utf-8')).hexdigest()
+        return hashlib.sha256(payload_str.encode('utf-8')).hexdigest()
 
     def _drop_horizon_noise_features(self, features_df, target_column, horizon):
         """Prune feature families that are structurally mismatched to a horizon."""
@@ -1666,15 +1666,8 @@ class PremiumWTIPredictor:
     def _date_feature_key(self, timestamp_value):
         """Normalize timestamps to date-only keys for cross-asset joins."""
         ts = pd.Timestamp(timestamp_value)
-        try:
-            if ts.tzinfo is not None:
-                ts = ts.tz_convert(None)
-        except Exception:
-            pass
-        try:
-            ts = ts.tz_localize(None)
-        except Exception:
-            pass
+        if ts.tzinfo is not None:
+            ts = ts.tz_convert(None)
         return ts.normalize()
 
     def _historical_external_feature_defaults(self):
@@ -1746,10 +1739,13 @@ class PremiumWTIPredictor:
                 if not period or value in (None, '', '.'):
                     continue
                 try:
-                    periods.append(pd.Timestamp(period))
-                    values.append(float(value))
-                except Exception:
-                    continue
+                    parsed_period = pd.Timestamp(period)
+                    parsed_value = float(value)
+                except (TypeError, ValueError) as exc:
+                    logger.debug("Skipping malformed EIA history row %r: %s", row, exc)
+                else:
+                    periods.append(parsed_period)
+                    values.append(parsed_value)
 
             if not periods:
                 self._historical_external_mem_cache[cache_key] = None
@@ -1760,7 +1756,7 @@ class PremiumWTIPredictor:
             self._historical_external_mem_cache[cache_key] = series
             return series.copy()
         except Exception as e:
-            logger.warning(f"Historical EIA series fetch failed: {e}")
+            logger.warning("Historical EIA series fetch failed (%s)", type(e).__name__)
             self._historical_external_mem_cache[cache_key] = None
             return None
 
@@ -1810,7 +1806,11 @@ class PremiumWTIPredictor:
             self._historical_external_mem_cache[cache_key] = series
             return series.copy()
         except Exception as e:
-            logger.warning(f"Historical FRED series fetch failed for {series_id}: {e}")
+            logger.warning(
+                "Historical FRED series fetch failed for %s (%s)",
+                series_id,
+                type(e).__name__,
+            )
             self._historical_external_mem_cache[cache_key] = None
             return None
 
@@ -1897,7 +1897,7 @@ class PremiumWTIPredictor:
                     wti_data.index, eia_draw_4w, self.eia_release_lag_days
                 ).values
         except Exception as e:
-            logger.warning(f"Historical EIA feature assembly failed: {e}")
+            logger.warning("Historical EIA feature assembly failed (%s)", type(e).__name__)
 
         fred_start = (pd.Timestamp(wti_data.index[0]) - pd.Timedelta(days=600)).strftime('%Y-%m-%d')
         fred_end = (pd.Timestamp(wti_data.index[-1]) + pd.Timedelta(days=7)).strftime('%Y-%m-%d')
@@ -1932,7 +1932,11 @@ class PremiumWTIPredictor:
                         wti_data.index, transformed, lag_days
                     ).values
             except Exception as e:
-                logger.warning(f"Historical FRED feature assembly failed for {series_id}: {e}")
+                logger.warning(
+                    "Historical FRED feature assembly failed for %s (%s)",
+                    series_id,
+                    type(e).__name__,
+                )
 
         feature_frame['hist_macro_growth_vs_rates'] = (
             feature_frame['hist_fred_indpro_yoy'].fillna(0.0)
@@ -2006,7 +2010,9 @@ class PremiumWTIPredictor:
             }
             return close_series
         except Exception as e:
-            logger.warning(f"Market context fetch failed for {symbol}: {e}")
+            logger.warning(
+                "Market context fetch failed for %s (%s)", symbol, type(e).__name__
+            )
             return None
 
     def build_market_context_feature_map(self, wti_data):
@@ -2267,11 +2273,13 @@ class PremiumWTIPredictor:
                 try:
                     external_data[source_name] = future.result()
                 except Exception as e:
-                    logger.warning(f"External source {source_name} failed: {e}")
+                    logger.warning(
+                        "External source %s failed (%s)", source_name, type(e).__name__
+                    )
                     external_data[source_name] = {
                         'data_quality': 0,
                         'source': f'{source_name}_exception',
-                        'error': str(e),
+                        'error': 'EXTERNAL_SOURCE_FAILED',
                         'timestamp': datetime.now().isoformat()
                     }
         
@@ -2365,10 +2373,17 @@ class PremiumWTIPredictor:
                     }
             except Exception as e:
                 if attempt < max_retries:
-                    logger.warning(f"EIA API attempt {attempt+1} error: {e}, retrying in {2 ** attempt}s...")
+                    logger.warning(
+                        "EIA API attempt %s failed (%s); retrying in %ss",
+                        attempt + 1,
+                        type(e).__name__,
+                        2 ** attempt,
+                    )
                     time.sleep(2 ** attempt)
                 else:
-                    logger.warning(f"EIA data fetch failed after retries: {e}")
+                    logger.warning(
+                        "EIA data fetch failed after retries (%s)", type(e).__name__
+                    )
                     return {
                         'data_quality': 0,
                         'supply_level': 0,
@@ -2428,7 +2443,7 @@ class PremiumWTIPredictor:
             }
             
         except Exception as e:
-            logger.warning(f"FRED data fetch failed: {e}")
+            logger.warning("FRED data fetch failed (%s)", type(e).__name__)
             return {
                 'data_quality': 0,
                 'dollar_strength': 0,
@@ -2494,7 +2509,7 @@ class PremiumWTIPredictor:
             }
             
         except Exception as e:
-            logger.warning(f"Alpha Vantage data fetch failed: {e}")
+            logger.warning("Alpha Vantage data fetch failed (%s)", type(e).__name__)
             return {
                 'data_quality': 0,
                 'volatility': 0,
@@ -2558,7 +2573,7 @@ class PremiumWTIPredictor:
             }
             
         except Exception as e:
-            logger.warning(f"Finnhub data fetch failed: {e}")
+            logger.warning("Finnhub data fetch failed (%s)", type(e).__name__)
             return {
                 'data_quality': 0,
                 'sector_strength': 0,
@@ -2694,7 +2709,7 @@ class PremiumWTIPredictor:
             }
             
         except Exception as e:
-            logger.warning(f"NewsAPI fetch failed: {e}")
+            logger.warning("NewsAPI fetch failed (%s)", type(e).__name__)
             return {
                 'data_quality': 0,
                 'market_buzz': 50,       # Neutral, not bearish (50 = no signal)
@@ -2867,7 +2882,7 @@ class PremiumWTIPredictor:
             return result
 
         except Exception as e:
-            logger.warning(f"Geopolitical risk fetch failed: {e}")
+            logger.warning("Geopolitical risk fetch failed (%s)", type(e).__name__)
             return {
                 'data_quality': 0,
                 'geo_risk_score': 0,
@@ -2882,7 +2897,7 @@ class PremiumWTIPredictor:
                 'total_articles_scanned': 0,
                 'recent_24h_articles': 0,
                 'novelty_spike': False,
-                'error': str(e),
+                'error': 'GEOPOLITICAL_SOURCE_FAILED',
                 'source': 'geopolitical_error',
                 'timestamp': datetime.now().isoformat(),
             }
@@ -2946,7 +2961,7 @@ class PremiumWTIPredictor:
             }
             
         except Exception as e:
-            logger.warning(f"USDA API error: {e}")
+            logger.warning("USDA API failed (%s)", type(e).__name__)
             return {
                 'data_quality': 0,
                 'agricultural_impact': 0,
@@ -3010,7 +3025,7 @@ class PremiumWTIPredictor:
             }
             
         except Exception as e:
-            logger.warning(f"NOAA data fetch failed: {e}")
+            logger.warning("NOAA data fetch failed (%s)", type(e).__name__)
             return {
                 'data_quality': 0,
                 'weather_impact': 0,
@@ -4726,10 +4741,10 @@ def get_multi_horizon_wti_predictions():
         }
         
     except Exception as e:
-        logger.error(f"❌ ML prediction system failed: {e}")
+        logger.error("❌ ML prediction system failed (%s)", type(e).__name__)
         logger.error("❌ NO SHORTCUTS ALLOWED - System refuses to bypass ML logic")
         # STRICT POLICY: Fail completely rather than use shortcuts
-        raise Exception(f"ML prediction system failed - no shortcuts permitted: {e}")
+        raise RuntimeError("ML prediction system failed - no shortcuts permitted") from e
 
 def get_prediction_accuracy_metrics():
     """Get prediction accuracy metrics"""
@@ -4763,8 +4778,9 @@ def get_historical_data(limit=50):
                 parsed = parsed.tz_convert('UTC').tz_localize(None)
             else:
                 parsed = parsed.tz_localize(backend_timezone).tz_convert('UTC').tz_localize(None)
-        except Exception:
-            pass
+        except (TypeError, ValueError) as exc:
+            logger.debug("Could not normalize chart timezone for %r: %s", timestamp_value, exc)
+            return None
 
         try:
             return parsed.to_pydatetime()
@@ -4786,8 +4802,8 @@ def get_historical_data(limit=50):
             else:
                 parsed = parsed.tz_convert('UTC')
             return parsed.tz_convert('UTC').isoformat().replace('+00:00', 'Z')
-        except Exception:
-            pass
+        except (TypeError, ValueError) as exc:
+            logger.debug("Using fallback timestamp normalization for %r: %s", timestamp_value, exc)
 
         try:
             return parsed.to_pydatetime().isoformat()

@@ -5,10 +5,12 @@ name: Tests
 # consume runners.
 
 on:
-  push:
-    branches: [main]
+  push: {}
   pull_request:
   workflow_dispatch: {}
+  schedule:
+    # Re-check dependencies when new vulnerability advisories are published.
+    - cron: '31 6 * * 1'
 
 permissions:
   contents: read
@@ -37,17 +39,26 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --disable-pip-version-check --retries 5 --timeout 60 -r requirements.txt
-          python -m pip install --disable-pip-version-check ruff==0.15.18
+          python -m pip install --disable-pip-version-check ruff==0.15.18 pip-audit==2.10.1 bandit==1.9.4
           python -m pip check
+
+      - name: Audit Python dependencies
+        run: python -m pip_audit -r requirements.txt
 
       - name: Lint Python
         run: ruff check backend/ scripts/ tests/ freeze.py ./*.py --select F,E9
+
+      - name: Scan Python for insecure constructs
+        run: python -m bandit -q -r backend scripts freeze.py
 
       - name: Run unit tests
         env:
           PYTHONDONTWRITEBYTECODE: '1'
           PYTHONPATH: .
         run: python -B -m unittest discover -s tests -v
+
+      - name: Validate checked-in dashboard fixture
+        run: python scripts/validate_frozen_payload.py tests/fixtures/valid_frozen_payload.json
 
   frontend:
     name: Frontend
@@ -107,6 +118,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Install pinned workflow scanners
@@ -148,3 +160,24 @@ jobs:
           mkdir -p "$SCAN_DIR"
           git archive HEAD | tar -x -C "$SCAN_DIR"
           "$TOOL_DIR/gitleaks" dir --redact=100 --no-banner "$SCAN_DIR"
+
+      - name: Scan new commit history for secrets
+        env:
+          TOOL_DIR: ${{ runner.temp }}/workflow-tools
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          zero_sha="0000000000000000000000000000000000000000"
+          if [ "$EVENT_NAME" = "pull_request" ] && [ -n "$BASE_SHA" ]; then
+            scan_range="${BASE_SHA}..${HEAD_SHA}"
+          elif [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "$zero_sha" ] && git cat-file -e "${BEFORE_SHA}^{commit}"; then
+            scan_range="${BEFORE_SHA}..${HEAD_SHA}"
+          elif git rev-parse "${HEAD_SHA}^" >/dev/null 2>&1; then
+            scan_range="${HEAD_SHA}^..${HEAD_SHA}"
+          else
+            scan_range="$HEAD_SHA"
+          fi
+          "$TOOL_DIR/gitleaks" git --redact=100 --no-banner --log-opts="$scan_range" .

@@ -16,6 +16,7 @@ same stage" read carries any signal before we build anything on top of it.
 import bisect
 import datetime as dt
 import json
+import logging
 import os
 import statistics
 from pathlib import Path
@@ -24,6 +25,7 @@ import requests
 
 EIA_BASE = "https://api.eia.gov/v2/petroleum/pri/spt/data/"
 _CACHE = Path(__file__).parent.parent / "data" / "eia_wti_spot_daily.json"
+logger = logging.getLogger(__name__)
 
 
 # ── Verified events ───────────────────────────────────────────────────────────
@@ -193,8 +195,8 @@ def fetch_wti_daily(api_key=None, use_cache=True):
     try:
         _CACHE.parent.mkdir(parents=True, exist_ok=True)
         _CACHE.write_text(json.dumps({"fetched_at": dt.date.today().isoformat(), "rows": out}))
-    except Exception:
-        pass
+    except OSError as exc:
+        logger.warning("Could not update EIA spot cache %s: %s", _CACHE, exc)
     return out
 
 

@@ -1,0 +1,50 @@
+{
+  "current_price": 80.25,
+  "frozen_at": "2026-01-15T12:00:00Z",
+  "contract": {
+    "symbol": "CLG26"
+  },
+  "multi_horizon_predictions": {
+    "is_real_prediction": true,
+    "predictions": {
+      "1h": 80.35,
+      "1d": 80.75,
+      "1w": 81.5
+    },
+    "percentage_changes": {
+      "1h": 0.12,
+      "1d": 0.62,
+      "1w": 1.56
+    },
+    "prediction_intervals": {
+      "1h": {
+        "lower": 80.1,
+        "upper": 80.6
+      },
+      "1d": {
+        "lower": 79.9,
+        "upper": 81.6
+      },
+      "1w": {
+        "lower": 78.5,
+        "upper": 84.5
+      }
+    }
+  },
+  "unified_data": {
+    "actual": {
+      "timestamps": [
+        "2026-01-15T11:00:00Z",
+        "2026-01-15T12:00:00Z"
+      ],
+      "values": [
+        80.1,
+        80.25
+      ],
+      "volumes": [
+        1000,
+        1200
+      ]
+    }
+  }
+}

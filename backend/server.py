@@ -13,7 +13,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 import logging
-from flask import Flask, jsonify, make_response
+from flask import Flask, jsonify, make_response, request
 from flask_cors import CORS
 
 # Configure logging
@@ -21,7 +21,20 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app, origins=["*"])
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ALLOWED_ORIGINS",
+        "https://navnoorbawa.github.io,http://127.0.0.1:3000,http://localhost:3000",
+    ).split(",")
+    if origin.strip()
+]
+CORS(
+    app,
+    origins=ALLOWED_ORIGINS,
+    methods=["GET", "OPTIONS"],
+    allow_headers=["Accept", "Content-Type"],
+)
 
 # FIX #6: Global startup synchronization event
 _startup_ready = threading.Event()
@@ -33,6 +46,8 @@ _startup_error = None
 _startup_attempts = 0
 _startup_next_retry_at = 0.0
 _prediction_refresh_lock = threading.Lock()
+_rate_limit_lock = threading.Lock()
+_data_request_times = {}
 
 # Import oil.py functions - CRITICAL DEPENDENCY
 try:
@@ -60,11 +75,24 @@ system_state = {
     'cached_accuracy': None
 }
 
+
+def _bounded_env_int(name, default, minimum, maximum):
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        logger.warning("Invalid %s; using %s", name, default)
+        value = default
+    return max(minimum, min(maximum, value))
+
+
 EAGER_ML_WARMUP = os.getenv('EAGER_ML_WARMUP', 'false').lower() == 'true'
 _PLAYBOOK_CACHE: dict = {"data": None, "built_at": 0.0}
-API_STARTUP_RETRY_SECONDS = max(2, int(os.getenv('API_STARTUP_RETRY_SECONDS', '5')))
-STARTUP_RETRY_COOLDOWN_SECONDS = max(5, int(os.getenv('STARTUP_RETRY_COOLDOWN_SECONDS', '20')))
+API_STARTUP_RETRY_SECONDS = _bounded_env_int('API_STARTUP_RETRY_SECONDS', 5, 2, 60)
+STARTUP_RETRY_COOLDOWN_SECONDS = _bounded_env_int(
+    'STARTUP_RETRY_COOLDOWN_SECONDS', 20, 5, 600
+)
 PRIMARY_DISPLAY_HORIZON = os.getenv('PRIMARY_DISPLAY_HORIZON', '1d').lower()
+DATA_RATE_LIMIT_PER_MINUTE = _bounded_env_int('DATA_RATE_LIMIT_PER_MINUTE', 30, 5, 600)
 
 
 def json_response(payload, status_code=200, retry_after=None):
@@ -75,6 +103,19 @@ def json_response(payload, status_code=200, retry_after=None):
     response.headers['Expires'] = '0'
     if retry_after is not None:
         response.headers['Retry-After'] = str(int(retry_after))
+    return response
+
+
+@app.after_request
+def _set_security_headers(response):
+    """Apply browser hardening to every API response, including errors."""
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'no-referrer'
+    response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    )
     return response
 
 
@@ -91,8 +132,6 @@ def startup_payload(message, retry_after_seconds=None):
         'retry_after_seconds': retry_seconds,
         'server_time': datetime.now().isoformat()
     }
-    if _startup_error:
-        payload['startup_error'] = _startup_error
     if _startup_attempts:
         payload['startup_attempts'] = _startup_attempts
     if _startup_next_retry_at and not _startup_ready.is_set():
@@ -294,51 +333,46 @@ def test_ml_system_readiness():
         if not contract_info or not contract_info.get('current_price'):
             return False
 
-        current_time = time.time()
-        cached_predictions = system_state.get('cached_predictions')
-        if cached_predictions and current_time - system_state.get('last_prediction_time', 0) < 300:
-            predictions = cached_predictions
-        else:
-            with _prediction_refresh_lock:
-                cached_predictions = system_state.get('cached_predictions')
-                if cached_predictions and current_time - system_state.get('last_prediction_time', 0) < 300:
-                    predictions = cached_predictions
-                else:
-                    predictions = get_multi_horizon_wti_predictions()
+        predictions, _ = get_cached_ml_data()
         if not predictions or not predictions.get('is_real_prediction'):
             return False
             
         # Cache the predictions for serving
         system_state['cached_predictions'] = predictions
         system_state['ml_ready'] = True
-        system_state['last_prediction_time'] = time.time()
-        
         return True
         
     except Exception as e:
         logger.debug(f"ML system not ready: {e}")
         return False
 
-def get_cached_ml_data():
-    """Get cached ML predictions and accuracy data"""
+def get_cached_ml_data(force_refresh=False, refresh_if_stale=True):
+    """Get ML data, optionally forcing generation outside request handlers."""
     try:
-        # Use cached predictions if available and recent (less than 5 minutes old)
         current_time = time.time()
-        if (system_state['cached_predictions'] and 
-            current_time - system_state['last_prediction_time'] < 300):
-            predictions = system_state['cached_predictions']
+        cached_predictions = system_state.get('cached_predictions')
+        cache_age = current_time - system_state.get('last_prediction_time', 0)
+        cache_is_fresh = bool(cached_predictions) and cache_age < 300
+
+        if cache_is_fresh and not force_refresh:
+            predictions = cached_predictions
+        elif not refresh_if_stale and not force_refresh:
+            # Requests may serve the last successful prediction while the background
+            # worker refreshes it, but must never start an expensive model build.
+            predictions = cached_predictions
         else:
             with _prediction_refresh_lock:
                 cached_predictions = system_state.get('cached_predictions')
                 cache_age = current_time - system_state.get('last_prediction_time', 0)
-                if cached_predictions and cache_age < 300:
+                if cached_predictions and cache_age < 300 and not force_refresh:
                     predictions = cached_predictions
                 else:
-                    # Get fresh predictions
                     predictions = get_multi_horizon_wti_predictions()
                     if predictions and predictions.get('is_real_prediction'):
                         system_state['cached_predictions'] = predictions
-                        system_state['last_prediction_time'] = current_time
+                        # Timestamp the completed generation, not when it started.
+                        system_state['last_prediction_time'] = time.time()
+                        system_state['ml_ready'] = True
                     else:
                         predictions = None
         
@@ -425,6 +459,8 @@ def update_predictions():
                     # Test if ML system became ready
                     if test_ml_system_readiness():
                         logger.info("✅ ML system is now ready")
+                        system_state['error_count'] = 0
+                        continue
                     else:
                         logger.debug("⚠️ ML system still not ready")
                         continue
@@ -432,10 +468,9 @@ def update_predictions():
                 logger.info(f"🔄 Updating predictions ({time_since_last:.0f}s since last)...")
                 
                 # Get fresh predictions
-                predictions, accuracy = get_cached_ml_data()
+                predictions, accuracy = get_cached_ml_data(force_refresh=True)
                 
                 if predictions and predictions.get('is_real_prediction'):
-                    system_state['last_prediction_time'] = current_time  # Update AFTER success
                     system_state['error_count'] = 0
                     logger.info(f"✅ Predictions updated - 1H: ${predictions['prediction_1h']:.2f}")
                 else:
@@ -499,41 +534,25 @@ def root():
             200
         )
     
-    try:
-        # Test contract detection
-        contract_info = get_current_wti_contract()
-        if not contract_info or not contract_info.get('current_price'):
-            raise Exception("Contract detection not ready")
-
-        return json_response({
-            'service': 'WTI Oil Price Prediction API',
-            'status': 'ACTIVE' if system_state['ml_ready'] else 'INITIALIZING',
-            'version': '4.0.0-real-data-only',
-            'ml_ready': system_state['ml_ready'],
-            'startup_ready': True,
-            'ready': bool(system_state['ml_ready']),
-            'contract': contract_info['symbol'],
-            'current_price': contract_info['current_price'],
-            'data_source': 'oil.py REAL DATA ONLY',
-            'last_prediction_time': system_state['last_prediction_time'],
-            'error_count': system_state['error_count'],
-            'endpoints': {
-                '/': 'Server status',
-                '/data': 'Real WTI data and ML predictions',
-                '/health': 'Health check'
-            },
-            'server_time': datetime.now().isoformat()
-        })
-        
-    except Exception as e:
-        return json_response({
-            'service': 'WTI Oil Price Prediction API',
-            'status': 'INITIALIZING',
-            'message': 'System initializing - oil.py engine starting...',
-            'error': str(e),
-            'ready': False,
-            'server_time': datetime.now().isoformat()
-        }, 200)
+    ready = bool(system_state['ml_ready'] and system_state.get('cached_predictions'))
+    return json_response({
+        'service': 'WTI Oil Price Prediction API',
+        'status': 'ACTIVE' if ready else 'INITIALIZING',
+        'version': '4.0.0-real-data-only',
+        'ml_ready': system_state['ml_ready'],
+        'startup_ready': True,
+        'ready': ready,
+        'data_source': 'oil.py REAL DATA ONLY',
+        'last_prediction_time': system_state['last_prediction_time'],
+        'error_count': system_state['error_count'],
+        'endpoints': {
+            '/': 'Server status',
+            '/data': 'Real WTI data and ML predictions',
+            '/health': 'Readiness check',
+            '/live': 'Process liveness check',
+        },
+        'server_time': datetime.now().isoformat()
+    }, 200 if ready else 503)
 
 @app.route('/data')
 def get_data():
@@ -565,11 +584,16 @@ def get_data():
                 retry_after=startup_retry_seconds()
             )
         
-        # Test ML readiness and get predictions
+        # Model generation belongs to the background worker. Requests receive a
+        # bounded 503 while the first real prediction warms up.
         if not system_state['ml_ready']:
-            system_state['ml_ready'] = test_ml_system_readiness()
-        
-        predictions, accuracy_metrics = get_cached_ml_data() if system_state['ml_ready'] else (None, None)
+            return json_response(
+                startup_payload('ML predictions are warming up in the background.', startup_retry_seconds()),
+                503,
+                retry_after=startup_retry_seconds(),
+            )
+
+        predictions, accuracy_metrics = get_cached_ml_data(refresh_if_stale=False)
         
         # Calculate all values from REAL data
         current_price = contract_info['current_price']
@@ -599,12 +623,13 @@ def get_data():
                 for i, timestamp_str in enumerate(actual_timestamps):
                     try:
                         point_timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00')).timestamp()
+                    except (AttributeError, TypeError, ValueError) as exc:
+                        logger.debug("Ignoring malformed history timestamp %r: %s", timestamp_str, exc)
+                    else:
                         time_diff = abs(point_timestamp - target_timestamp)
                         if time_diff < min_time_diff and i < len(actual_values):
                             min_time_diff = time_diff
                             closest_price = actual_values[i]
-                    except Exception:
-                        continue
                 
                 # FIX #5: Calculate change with quality indicator
                 if closest_price is not None and closest_price > 0:
@@ -841,13 +866,22 @@ def get_data():
             'timestamp': datetime.now().isoformat()
         })
         
-    except Exception as e:
-        logger.error(f"❌ Data endpoint error: {e}")
+    except Exception as exc:
+        logger.error("Data endpoint failed (%s)", type(exc).__name__)
         return json_response({
             'error': 'DATA_UNAVAILABLE',
-            'message': f'Cannot get real data from oil.py: {str(e)}',
+            'message': 'Live market data is temporarily unavailable.',
             'server_time': datetime.now().isoformat()
         }, 500)
+
+
+@app.route('/live')
+def live():
+    """Process-only liveness probe; never calls an upstream provider."""
+    return json_response({
+        'status': 'ALIVE',
+        'timestamp': datetime.now().isoformat(),
+    })
 
 @app.route('/health')
 def health():
@@ -862,7 +896,6 @@ def health():
                 'timestamp': datetime.now().isoformat()
             }, 503)
 
-        # Keep platform health checks passing while async startup completes.
         if not _startup_ready.is_set():
             return json_response({
                 'status': 'INITIALIZING',
@@ -871,47 +904,31 @@ def health():
                 'ml_ready': False,
                 'message': 'Background startup in progress',
                 'retry_after_seconds': startup_retry_seconds(),
-                'startup_error': _startup_error,
                 'startup_attempts': _startup_attempts,
                 'timestamp': datetime.now().isoformat()
-            }, 200)
-        
-        contract_info = None
-        try:
-            contract_info = get_current_wti_contract()
-        except Exception as contract_error:
-            logger.warning(f"Health contract probe failed: {contract_error}")
-            return json_response({
-                'status': 'DEGRADED',
-                'ready': False,
-                'startup_ready': True,
-                'ml_ready': system_state['ml_ready'],
-                'error': 'CONTRACT_DATA_UNAVAILABLE',
-                'message': str(contract_error),
-                'error_count': system_state['error_count'],
-                'data_source': 'oil.py REAL DATA',
-                'timestamp': datetime.now().isoformat()
-            }, 200)
-        
+            }, 503, retry_after=startup_retry_seconds())
+
+        ready = bool(system_state['ml_ready'] and system_state.get('cached_predictions'))
         return json_response({
-            'status': 'HEALTHY' if system_state['ml_ready'] else 'INITIALIZING',
-            'ready': bool(system_state['ml_ready']),
+            'status': 'HEALTHY' if ready else 'INITIALIZING',
+            'ready': ready,
             'startup_ready': True,
             'ml_ready': system_state['ml_ready'],
-            'contract': contract_info.get('symbol') if contract_info else None,
-            'current_price': contract_info.get('current_price') if contract_info else None,
+            'last_prediction_time': system_state['last_prediction_time'],
+            'last_price_update_time': system_state['last_price_update_time'],
             'error_count': system_state['error_count'],
             'data_source': 'oil.py REAL DATA',
             'timestamp': datetime.now().isoformat()
-        }, 200)
-        
-    except Exception as e:
+        }, 200 if ready else 503)
+
+    except Exception as exc:
+        logger.error("Health endpoint failed (%s)", type(exc).__name__)
         return json_response({
             'status': 'UNHEALTHY',
             'ready': False,
-            'error': str(e),
+            'error': 'HEALTH_CHECK_FAILED',
             'timestamp': datetime.now().isoformat()
-        }, 200)
+        }, 503)
 
 # Initialize system on startup
 def startup_initialization():
@@ -977,7 +994,27 @@ def _ensure_startup_for_requests():
     """Guarantee startup thread is running when the app is imported by a WSGI server."""
     ensure_startup_started()
 
-def run_server(host='0.0.0.0', port=9000, debug=False):
+    if request.path != '/data':
+        return None
+    now = time.time()
+    client = request.remote_addr or 'unknown'
+    with _rate_limit_lock:
+        if len(_data_request_times) > 1024:
+            for stale_client, stamps in list(_data_request_times.items()):
+                if not stamps or now - stamps[-1] >= 60:
+                    _data_request_times.pop(stale_client, None)
+        recent = [stamp for stamp in _data_request_times.get(client, []) if now - stamp < 60]
+        if len(recent) >= DATA_RATE_LIMIT_PER_MINUTE:
+            _data_request_times[client] = recent
+            return json_response({
+                'error': 'RATE_LIMITED',
+                'message': 'Too many data requests; retry shortly.',
+            }, 429, retry_after=60)
+        recent.append(now)
+        _data_request_times[client] = recent
+    return None
+
+def run_server(host='127.0.0.1', port=9000, debug=False):
     """Run the Flask development server (python -m backend.server)."""
     ensure_startup_started()
     app.run(host=host, port=port, debug=debug)

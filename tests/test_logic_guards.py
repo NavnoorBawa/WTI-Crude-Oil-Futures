@@ -1,12 +1,15 @@
 import unittest
+import json
 import math
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 from backend.oil import PremiumWTIPredictor, get_historical_data
+from backend import server as server_module
 from backend.server import _build_horizon_metrics
 
 
@@ -94,6 +97,24 @@ class OilLogicGuardsTest(unittest.TestCase):
 
         predictor.contract_info = {"current_price": 0}
         self.assertEqual(predictor._get_prediction_reference_price(99.0), 99.0)
+
+    def test_provider_exception_does_not_copy_api_key_into_payload_or_logs(self):
+        predictor = PremiumWTIPredictor.__new__(PremiumWTIPredictor)
+        secret = "news-provider-secret-value"
+        predictor.config = SimpleNamespace(NEWSAPI_KEY=secret)
+
+        with (
+            patch(
+                "backend.oil.requests.get",
+                side_effect=RuntimeError(f"request failed at ?apiKey={secret}"),
+            ),
+            self.assertLogs("backend.oil", level="WARNING") as logs,
+        ):
+            payload = predictor.get_geopolitical_risk()
+
+        self.assertEqual(payload["error"], "GEOPOLITICAL_SOURCE_FAILED")
+        self.assertNotIn(secret, json.dumps(payload))
+        self.assertNotIn(secret, "\n".join(logs.output))
 
     def test_return_target_encoding_round_trips_back_to_price(self):
         predictor = self._make_predictor_stub()
@@ -294,6 +315,86 @@ class ServerMetricSelectionTest(unittest.TestCase):
         self.assertEqual(headline_horizon, "1h")
         self.assertEqual(metrics_by_horizon["1d"]["display_accuracy"], 39.4)
         self.assertEqual(metrics_by_horizon["1d"]["display_accuracy_source"], "backtest")
+
+
+class ServerRuntimeGuardTest(unittest.TestCase):
+    def setUp(self):
+        patcher = patch("backend.server._load_walk_forward_stats", return_value={})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _state(self, cached=None, timestamp=0, ml_ready=False):
+        return {
+            "initialized": True,
+            "ml_ready": ml_ready,
+            "last_prediction_time": timestamp,
+            "last_price_update_time": 0,
+            "error_count": 0,
+            "cached_predictions": cached,
+            "cached_accuracy": None,
+        }
+
+    def test_force_refresh_bypasses_a_recent_prediction_cache(self):
+        cached = {"is_real_prediction": True, "prediction_1h": 80.0}
+        fresh = {"is_real_prediction": True, "prediction_1h": 81.0}
+        with (
+            patch.dict(server_module.system_state, self._state(cached, 990, True), clear=True),
+            patch.object(server_module.time, "time", side_effect=[1000, 1001]),
+            patch.object(
+                server_module,
+                "get_multi_horizon_wti_predictions",
+                return_value=fresh,
+            ) as generate,
+            patch.object(server_module, "get_prediction_accuracy_metrics", return_value={}),
+        ):
+            predictions, _ = server_module.get_cached_ml_data(force_refresh=True)
+
+            self.assertIs(predictions, fresh)
+            self.assertIs(server_module.system_state["cached_predictions"], fresh)
+            self.assertEqual(server_module.system_state["last_prediction_time"], 1001)
+            generate.assert_called_once_with()
+
+    def test_request_path_can_serve_stale_cache_without_model_generation(self):
+        cached = {"is_real_prediction": True, "prediction_1h": 80.0}
+        with (
+            patch.dict(server_module.system_state, self._state(cached, 100, True), clear=True),
+            patch.object(server_module.time, "time", return_value=1000),
+            patch.object(server_module, "get_multi_horizon_wti_predictions") as generate,
+            patch.object(server_module, "get_prediction_accuracy_metrics", return_value={}),
+        ):
+            predictions, _ = server_module.get_cached_ml_data(refresh_if_stale=False)
+
+            self.assertIs(predictions, cached)
+            generate.assert_not_called()
+
+    def test_health_is_cached_readiness_only_and_has_security_headers(self):
+        cached = {"is_real_prediction": True}
+        with (
+            patch.dict(server_module.system_state, self._state(cached, 900, True), clear=True),
+            patch.object(server_module, "ensure_startup_started"),
+            patch.object(server_module._startup_ready, "is_set", return_value=True),
+            patch.object(server_module, "get_current_wti_contract") as upstream,
+        ):
+            response = server_module.app.test_client().get(
+                "/health", headers={"Origin": "https://evil.example"}
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
+        self.assertEqual(response.headers["X-Frame-Options"], "DENY")
+        self.assertNotIn("Access-Control-Allow-Origin", response.headers)
+        upstream.assert_not_called()
+
+    def test_health_returns_503_until_predictions_are_ready(self):
+        with (
+            patch.dict(server_module.system_state, self._state(), clear=True),
+            patch.object(server_module, "ensure_startup_started"),
+            patch.object(server_module._startup_ready, "is_set", return_value=True),
+        ):
+            response = server_module.app.test_client().get("/health")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(response.get_json()["ready"])
 
     def test_headline_horizon_prefers_qualified_horizon(self):
         accuracy_metrics = {
