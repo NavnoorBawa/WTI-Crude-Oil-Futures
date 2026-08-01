@@ -125,6 +125,7 @@ class WorkflowGuardTest(unittest.TestCase):
         self.assertIn('if [ -L "$state_directory_path" ]', source)
         self.assertIn("cp --remove-destination --", source)
         self.assertIn("http.followRedirects=false", source)
+        self.assertEqual(source.count('if [ "${origin_url%.git}" != "$expected_origin" ]'), 2)
 
         restore = source.index("- name: Restore mutable runtime state from live-data")
         freeze = source.index("- name: Freeze data snapshot")
