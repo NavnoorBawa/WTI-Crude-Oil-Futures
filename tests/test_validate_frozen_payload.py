@@ -10,9 +10,10 @@ from scripts.validate_frozen_payload import validate_payload
 class FrozenPayloadValidationTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.valid = json.loads(Path("public/data.json").read_text(encoding="utf-8"))
+        fixture = Path(__file__).parent / "fixtures" / "valid_frozen_payload.json"
+        cls.valid = json.loads(fixture.read_text(encoding="utf-8"))
 
-    def test_repository_payload_satisfies_render_invariants(self):
+    def test_valid_fixture_satisfies_render_invariants(self):
         self.assertEqual(validate_payload(self.valid), [])
 
     def test_rejects_string_and_non_finite_prices(self):

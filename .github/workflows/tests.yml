@@ -58,7 +58,7 @@ jobs:
         run: python -B -m unittest discover -s tests -v
 
       - name: Validate checked-in dashboard fixture
-        run: python scripts/validate_frozen_payload.py public/data.json
+        run: python scripts/validate_frozen_payload.py tests/fixtures/valid_frozen_payload.json
 
   frontend:
     name: Frontend
