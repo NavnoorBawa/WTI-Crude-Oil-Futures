@@ -4779,7 +4779,10 @@ def get_historical_data(limit=50):
             else:
                 parsed = parsed.tz_localize(backend_timezone).tz_convert('UTC').tz_localize(None)
         except (TypeError, ValueError) as exc:
-            logger.debug("Could not normalize chart timezone for %r: %s", timestamp_value, exc)
+            logger.debug(
+                "chart_timezone_normalization_failed error_type=%s",
+                type(exc).__name__,
+            )
             return None
 
         try:
@@ -4803,7 +4806,10 @@ def get_historical_data(limit=50):
                 parsed = parsed.tz_convert('UTC')
             return parsed.tz_convert('UTC').isoformat().replace('+00:00', 'Z')
         except (TypeError, ValueError) as exc:
-            logger.debug("Using fallback timestamp normalization for %r: %s", timestamp_value, exc)
+            logger.debug(
+                "chart_timestamp_fallback_used error_type=%s",
+                type(exc).__name__,
+            )
 
         try:
             return parsed.to_pydatetime().isoformat()

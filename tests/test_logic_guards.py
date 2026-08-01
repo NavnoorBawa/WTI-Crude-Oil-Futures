@@ -457,6 +457,49 @@ class ServerRuntimeGuardTest(unittest.TestCase):
 
 
 class HistoricalPayloadTest(unittest.TestCase):
+    def test_historical_data_debug_logs_exclude_untrusted_content(self):
+        untrusted_timestamp = "2026-03-28T10:00:00Z\nFORGED_LOG_ENTRY"
+        exception_secret = "provider-secret-value\nFAKE_SUCCESS"
+
+        class PredictorStub:
+            storage_timezone = timezone.utc
+            stored_actual_prices = {
+                untrusted_timestamp: {
+                    "timestamp": untrusted_timestamp,
+                    "price": 100.0,
+                    "volume": 1200,
+                }
+            }
+            stored_predictions = {}
+
+            def get_wti_historical_data(self, period="6mo", interval="1d"):
+                return pd.DataFrame()
+
+            def _safe_parse_iso(self, value):
+                return None
+
+        class TimestampStub:
+            tzinfo = None
+
+            def tz_localize(self, timezone_value):
+                raise ValueError(f"{exception_secret}: {untrusted_timestamp}")
+
+            def to_pydatetime(self):
+                return datetime(2026, 3, 28, 10, 0, 0)
+
+        with (
+            patch("backend.oil.get_premium_predictor", return_value=PredictorStub()),
+            patch("backend.oil.pd.Timestamp", return_value=TimestampStub()),
+            self.assertLogs("backend.oil", level="DEBUG") as logs,
+        ):
+            get_historical_data(limit=50)
+
+        output = "\n".join(logs.output)
+        self.assertIn("chart_timezone_normalization_failed error_type=ValueError", output)
+        self.assertIn("chart_timestamp_fallback_used error_type=ValueError", output)
+        self.assertNotIn(untrusted_timestamp, output)
+        self.assertNotIn(exception_secret, output)
+
     def test_historical_data_uses_matured_target_timestamps(self):
         class PredictorStub:
             def __init__(self):

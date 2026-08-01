@@ -39,7 +39,11 @@ import argparse
 import json
 from datetime import datetime, timezone
 from math import erf, sqrt
-from pathlib import Path
+
+try:
+    from .safe_paths import data_json_path
+except ImportError:  # Direct invocation: python backend/serial_correlation.py
+    from safe_paths import data_json_path
 
 TRANSACTION_COST_USD = 100.0  # must match backtest_walk_forward.TRANSACTION_COST_USD
 NEWEY_WEST_LAGS = 5           # L: matches the walk-forward stride (step=5)
@@ -136,19 +140,20 @@ def main() -> None:
                         help="path to write the audit JSON")
     args = parser.parse_args()
 
-    report = json.loads(Path(args.backtest).read_text())
+    backtest_path = data_json_path(args.backtest)
+    report = json.loads(backtest_path.read_text(encoding="utf-8"))
     horizon_result = report.get("results", {}).get(args.horizon, {})
     trades = horizon_result.get("trades", [])
     if not trades:
-        raise SystemExit(f"No '{args.horizon}' trades found in {args.backtest}")
+        raise SystemExit("No trades found for the requested audit horizon")
 
     result = analyze(trades, args.horizon)
 
-    out_path = Path(args.out)
+    out_path = data_json_path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
 
-    print(f"Serial-correlation audit written to: {out_path}")
+    print("Serial-correlation audit written successfully")
     print(f"  hit rate:        {result['hit_rate_pct']}%  (n={result['n_nominal']})")
     print(f"  autocorr lag-1:  {result['autocorr_hits_lag1_10'][0]}")
     print(f"  ESS (Bartlett):  {result['ess_bartlett_L5']} / {result['n_nominal']}")

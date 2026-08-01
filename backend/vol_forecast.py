@@ -46,7 +46,11 @@ from __future__ import annotations
 import argparse
 import json
 from datetime import datetime, timezone
-from pathlib import Path
+
+try:
+    from .safe_paths import data_json_path
+except ImportError:  # Direct invocation: python backend/vol_forecast.py
+    from safe_paths import data_json_path
 
 import numpy as np
 import pandas as pd
@@ -220,8 +224,9 @@ def main() -> None:
                         "model": report["overall"].get("model", "HAR"), "period": args.period}
     report["generated_at"] = datetime.now(timezone.utc).isoformat()
 
-    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    Path(args.out).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    output_path = data_json_path(args.out)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     o = report["overall"]
     print(f"Vol-forecast validation ({args.period}, {o.get('model')}, purged walk-forward, n={o['n']}):")
@@ -233,7 +238,7 @@ def main() -> None:
     print(f"  level MAE (HAR vs persistence): {o['har_level_mae']} vs {o['persistence_level_mae']}")
     print(f"  live: next-week vol {report['live']['forecast_next_week_vol_annualized_pct']}% "
           f"({report['live']['direction']}) vs current {report['live']['current_realized_vol_5d_annualized_pct']}%")
-    print(f"  -> {args.out}")
+    print("  -> report written successfully")
 
 
 if __name__ == "__main__":
