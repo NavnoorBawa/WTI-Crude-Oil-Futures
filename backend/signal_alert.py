@@ -4,9 +4,9 @@ Signal change detector for the 1W WTI direction model.
 
 Reads the current frozen data.json, compares the 1W stance to the last
 known state, and emails navnoorquant@gmail.com if the stance changed.
-Updates data/signal_state.json only when the stance changes. Avoiding timestamp-
-only rewrites keeps the scheduled workflow from creating six meaningless commits
-per day while preserving the state needed for the next comparison.
+Updates data/signal_state.json only when the stance changes. The workflow restores
+and persists that mutable file on the dedicated live-data branch, keeping automation
+off protected main while preserving the state needed for the next comparison.
 
 Required env vars (add as GitHub Secrets):
   GMAIL_APP_PASSWORD  — Gmail App Password for navnoorquant@gmail.com

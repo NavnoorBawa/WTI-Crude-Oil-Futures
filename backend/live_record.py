@@ -4,9 +4,10 @@ Git-auditable live track record for the 1W direction signal.
 
 Each CI run records at most one 1W call per UTC day (entry price + forecast) into
 data/live_track_record.json, and resolves any call that is at least 168 hours old
-against the current price. The workflow commits the file back to main, so every
-entry and every resolution is timestamped by a git commit that cannot be back-dated.
-This is the evidence a backtest can never provide: the record only exists forward.
+against the current price. The workflow persists the mutable file on the dedicated
+live-data branch, so every entry and resolution remains timestamped by an auditable
+git commit without granting automation a path around main-branch protection. This
+is the evidence a backtest can never provide: the record only exists forward.
 
 Resolution rules (conservative by construction):
 - A call is scored only if the front contract is unchanged between entry and
