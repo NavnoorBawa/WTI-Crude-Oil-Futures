@@ -28,7 +28,7 @@ on:
       - '.github/workflows/refresh.yml'
 
 permissions:
-  contents: write              # peaceiris needs write access to push the gh-pages branch
+  contents: write              # publish gh-pages and mutable state on live-data
 
 concurrency:
   group: pages-refresh-${{ github.repository }}
@@ -49,6 +49,64 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
+
+      # Keep generated state off protected main. The live-data branch is seeded
+      # before this workflow ships; missing or partial state therefore fails closed.
+      - name: Restore mutable runtime state from live-data
+        env:
+          STATE_BRANCH: live-data
+          STATE_DIRECTORY: runtime-state
+          STATE_MARKER: .initialized-v1
+          STATE_RESTORE_DIR: ${{ runner.temp }}/wti-state-restore
+        run: |
+          set -euo pipefail
+          mkdir -p "$STATE_RESTORE_DIR"
+
+          expected_origin="https://github.com/${GITHUB_REPOSITORY}.git"
+          if [ "$(git remote get-url origin)" != "$expected_origin" ]; then
+            echo "Refusing unexpected git origin" >&2
+            exit 1
+          fi
+
+          for attempt in 1 2 3; do
+            if git fetch --no-tags origin \
+              "+refs/heads/${STATE_BRANCH}:refs/remotes/origin/${STATE_BRANCH}"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Unable to fetch mutable runtime state after 3 attempts" >&2
+              exit 1
+            fi
+            sleep "$((attempt * 5))"
+          done
+
+          marker_path="${STATE_DIRECTORY}/${STATE_MARKER}"
+          marker_mode="$(git ls-tree "origin/${STATE_BRANCH}" -- "$marker_path" | awk '{print $1}')"
+          if [ "$marker_mode" != "100644" ]; then
+            echo "Runtime-state initialization marker is missing or invalid" >&2
+            exit 1
+          fi
+
+          for state_file in signal_state.json live_track_record.json; do
+            branch_path="${STATE_DIRECTORY}/${state_file}"
+            state_mode="$(git ls-tree "origin/${STATE_BRANCH}" -- "$branch_path" | awk '{print $1}')"
+            if [ "$state_mode" != "100644" ]; then
+              echo "Runtime state is missing, partial, or not a regular file" >&2
+              exit 1
+            fi
+
+            restore_path="${STATE_RESTORE_DIR}/${state_file}"
+            git show "origin/${STATE_BRANCH}:${branch_path}" > "$restore_path"
+            python -m json.tool "$restore_path" >/dev/null
+            cp "$restore_path" "data/.${state_file}.tmp"
+            mv "data/.${state_file}.tmp" "data/${state_file}"
+            echo "Restored ${branch_path}"
+          done
+
+          # Syntax is not enough: fail closed unless both restored objects satisfy
+          # the same structural contracts used by the runtime writers.
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python -c \
+            'from backend.live_record import load_record; from backend.signal_alert import load_state; load_record(); load_state()'
 
       - name: Install Python dependencies
         run: python -m pip install --disable-pip-version-check --retries 5 --timeout 60 -r requirements.txt
@@ -138,45 +196,87 @@ jobs:
       # Persist only after a successful Pages publish. The explicit status check
       # lets the live record persist even if alert delivery itself fails, while
       # signal_alert.py leaves an unsent stance unchanged so the next run retries.
-      - name: Persist signal state + live record to main branch
+      - name: Persist signal state + live record to live-data branch
         if: ${{ !cancelled() && steps.pages_deploy.outcome == 'success' }}
         env:
           STATE_SNAPSHOT_DIR: ${{ runner.temp }}/wti-state-snapshot
+          STATE_BRANCH: live-data
+          STATE_DIRECTORY: runtime-state
+          STATE_MARKER: .initialized-v1
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          expected_origin="https://github.com/${GITHUB_REPOSITORY}.git"
+          if [ "$(git remote get-url origin)" != "$expected_origin" ]; then
+            echo "Refusing unexpected git origin" >&2
+            exit 1
+          fi
+
           auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${auth_header}"
           mkdir -p "$STATE_SNAPSHOT_DIR"
           cp data/signal_state.json "$STATE_SNAPSHOT_DIR/signal_state.json"
           cp data/live_track_record.json "$STATE_SNAPSHOT_DIR/live_track_record.json"
+
+          state_worktree=""
+          cleanup_worktree() {
+            if [ -n "$state_worktree" ] && [ -d "$state_worktree" ]; then
+              git worktree remove --force "$state_worktree" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup_worktree EXIT
 
           git worktree prune
           for attempt in 1 2 3; do
             state_worktree="${RUNNER_TEMP}/wti-state-worktree-${attempt}"
 
-            if ! git -c http.https://github.com/.extraheader="AUTHORIZATION: basic ${auth_header}" fetch --no-tags origin main; then
+            if ! git fetch --no-tags origin \
+              "+refs/heads/${STATE_BRANCH}:refs/remotes/origin/${STATE_BRANCH}"; then
               echo "git fetch failed on attempt ${attempt}" >&2
-            elif git worktree add --detach "$state_worktree" origin/main; then
-              cp "$STATE_SNAPSHOT_DIR/signal_state.json" "$state_worktree/data/signal_state.json"
-              cp "$STATE_SNAPSHOT_DIR/live_track_record.json" "$state_worktree/data/live_track_record.json"
-              git -C "$state_worktree" add data/signal_state.json data/live_track_record.json
+            elif git worktree add --detach "$state_worktree" "origin/${STATE_BRANCH}"; then
+              state_directory_path="$state_worktree/$STATE_DIRECTORY"
+              if [ -L "$state_directory_path" ] || \
+                { [ -e "$state_directory_path" ] && [ ! -d "$state_directory_path" ]; }; then
+                echo "Refusing unsafe runtime-state directory" >&2
+                exit 1
+              fi
+              mkdir -p "$state_directory_path"
+              if [ ! -f "$state_directory_path/$STATE_MARKER" ] || \
+                [ -L "$state_directory_path/$STATE_MARKER" ]; then
+                echo "Runtime-state initialization marker is unavailable" >&2
+                exit 1
+              fi
+
+              cp --remove-destination -- "$STATE_SNAPSHOT_DIR/signal_state.json" \
+                "$state_worktree/$STATE_DIRECTORY/signal_state.json"
+              cp --remove-destination -- "$STATE_SNAPSHOT_DIR/live_track_record.json" \
+                "$state_worktree/$STATE_DIRECTORY/live_track_record.json"
+              git -C "$state_worktree" add \
+                "$STATE_DIRECTORY/signal_state.json" \
+                "$STATE_DIRECTORY/live_track_record.json"
 
               if git -C "$state_worktree" diff --staged --quiet; then
                 echo "Signal state unchanged — no commit"
                 git worktree remove "$state_worktree"
+                state_worktree=""
                 exit 0
               fi
 
               git -C "$state_worktree" config user.name "WTI Signal Bot"
               git -C "$state_worktree" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-              git -C "$state_worktree" commit -m "chore: update 1W signal state [skip ci]"
-              if git -C "$state_worktree" -c http.https://github.com/.extraheader="AUTHORIZATION: basic ${auth_header}" push origin HEAD:main; then
+              git -C "$state_worktree" commit -m "chore: refresh runtime state [skip ci]"
+              if git -C "$state_worktree" \
+                -c http.https://github.com/.extraheader="AUTHORIZATION: basic ${auth_header}" \
+                -c http.followRedirects=false \
+                push origin "HEAD:${STATE_BRANCH}"; then
                 git worktree remove "$state_worktree"
+                state_worktree=""
                 exit 0
               fi
 
-              echo "git push raced with another main update on attempt ${attempt}" >&2
+              echo "git push raced with another live-data update on attempt ${attempt}" >&2
               git worktree remove --force "$state_worktree"
+              state_worktree=""
             fi
 
             if [ "$attempt" -eq 3 ]; then

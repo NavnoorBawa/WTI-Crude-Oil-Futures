@@ -237,9 +237,10 @@ but it has no real edge to size. Kept because the plumbing is the reusable part:
   a contracts-per-account translation at 2% risk. Correct given inputs; the inputs are no longer
   a real edge.
 - **Live track record** — CI records one 1W call per day and scores it when it resolves a
-  week later ([`backend/live_record.py`](backend/live_record.py), record in
-  [`data/live_track_record.json`](data/live_track_record.json)). **Every entry and every
-  resolution is timestamped by a bot commit, so the record cannot be back-dated.** Calls
+  week later ([`backend/live_record.py`](backend/live_record.py),
+  [current record on `live-data`](https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures/blob/live-data/runtime-state/live_track_record.json),
+  [bootstrap snapshot on `main`](data/live_track_record.json)). Every entry and resolution
+  is timestamped by a bot commit, making the forward chronology auditable. Calls
   spanning a contract roll are skipped, not scored; NEUTRAL means "no trade" and is never
   counted. Displayed separately from the backtest and flagged too-few-to-validate until
   n ≥ 18. A GitHub Actions job also emails on stance changes
@@ -307,11 +308,14 @@ python backend/supply_shock_playbook.py   # print the full event-study table fro
   — four-hour frozen snapshot deployed to GitHub Pages (no running server).
 - **[`.github/workflows/price.yml`](.github/workflows/price.yml)** — lightweight price refresh
   every 15 minutes on an isolated `live-data` branch, with the frozen Pages price as fallback.
+  The same branch stores generated signal/live-record state so automation never pushes to
+  protected `main`.
 - **[`src/`](src)** — React dashboard (lightweight-charts, hand-written CSS).
-- **[`data/`](data)** — evidence artifacts only: the walk-forward backtest, the macro- and
-  timing-leakage comparisons, the EIA spot cache, the live track record, and the signal
-  state. Per-contract runtime files are gitignored.
-- **[`tests/`](tests)** — 74 unit tests, network-free, run in CI on every branch push
+- **[`data/`](data)** — checked-in evidence and bootstrap artifacts: the walk-forward
+  backtest, leakage comparisons, EIA spot cache, live track record, and signal state.
+  Current mutable state is restored from `live-data/runtime-state/`; per-contract runtime
+  files remain gitignored.
+- **[`tests/`](tests)** — 77 unit tests, network-free, run in CI on every branch push
   ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)). They include a look-ahead **leak
   check** on the vol-forecast feature builder, a **purge-invariant guard** on the backtest fix, the
   live-record resolution/contract-roll logic, and the **retraction guarantee** (a non-significant
@@ -368,7 +372,8 @@ The dashboard runs with **zero running infrastructure** using the "frozen Flask"
    snapshot stays live.
 4. **`.github/workflows/price.yml`** updates `live-data/price.json` every 15 minutes without
    redeploying Pages. The client tries that CORS-enabled raw file first, then falls back to the
-   price baked into the last full snapshot.
+   price baked into the last full snapshot. The four-hour workflow also restores and commits
+   generated state under `live-data/runtime-state/`, keeping mutable automation off `main`.
 
 This removes the failure modes of a live free-tier server (cold starts, spin-downs, OOM during
 model training). Model/event-study data is as fresh as the last four-hour refresh, while the
