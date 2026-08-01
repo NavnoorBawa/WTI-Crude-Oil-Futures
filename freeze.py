@@ -22,6 +22,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from backend.safe_paths import public_output_directory
+
 # Must be set BEFORE importing the server so the module-level flag is read as eager.
 # Eager warmup makes initialize_oil_system() generate predictions synchronously instead
 # of deferring them to a background thread (which a one-shot freeze job cannot wait on).
@@ -68,7 +70,11 @@ def freeze(out_dir: Path) -> dict:
               f"@ {data['vol_forecast']['live']['forecast_next_week_vol_annualized_pct']}% "
               f"(OOS dir acc {data['vol_forecast']['validation']['har_dir_acc_pct']}%)", flush=True)
     except Exception as exc:  # pragma: no cover - never block the deploy on the vol add-on
-        print(f"   vol_forecast unavailable ({exc}) — dashboard will omit the card", flush=True)
+        print(
+            "   vol_forecast unavailable "
+            f"(error_type={type(exc).__name__}) — dashboard will omit the card",
+            flush=True,
+        )
 
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "data.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -108,11 +114,15 @@ def main():
     parser.add_argument("--out", default="public", help="output directory (default: public)")
     args = parser.parse_args()
     try:
-        freeze(Path(args.out))
+        freeze(public_output_directory(args.out))
     except SystemExit:
         raise
     except Exception as exc:  # surface any failure as a non-zero exit for CI
-        print(f"❌ Freeze failed: {exc}", file=sys.stderr, flush=True)
+        print(
+            f"❌ Freeze failed error_type={type(exc).__name__}",
+            file=sys.stderr,
+            flush=True,
+        )
         sys.exit(1)
 
 

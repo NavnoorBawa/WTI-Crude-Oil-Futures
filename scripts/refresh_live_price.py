@@ -29,6 +29,10 @@ COLLISION_STATUSES = frozenset({409, 422})
 BRANCH = "live-data"
 DESTINATION = "price.json"
 MAX_ATTEMPTS = 5
+GITHUB_API_ORIGIN = "https://api.github.com"
+GITHUB_OWNER = "NavnoorBawa"
+GITHUB_REPOSITORY_NAME = "WTI-Crude-Oil-Futures"
+GITHUB_REPOSITORY = f"{GITHUB_OWNER}/{GITHUB_REPOSITORY_NAME}"
 
 
 class ApiError(RuntimeError):
@@ -53,16 +57,49 @@ def _retry_delay(attempt: int, headers: Any | None = None) -> float:
         return min(30.0, (2 ** attempt) + (secrets.randbelow(1000) / 1000.0))
 
 
-def _require_https_url(url: str) -> None:
-    """Reject plaintext, relative, or credential-bearing outbound URLs."""
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never forward the workflow token through an HTTP redirect."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_AUTHENTICATED_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def _github_repo_url(*segments: str, query: dict[str, str] | None = None) -> str:
+    """Build one authenticated API URL on the fixed repository origin."""
+    encoded = [
+        urllib.parse.quote(segment, safe="")
+        for segment in ("repos", GITHUB_OWNER, GITHUB_REPOSITORY_NAME, *segments)
+    ]
+    return urllib.parse.urlunsplit(
+        (
+            "https",
+            "api.github.com",
+            "/" + "/".join(encoded),
+            urllib.parse.urlencode(query or {}),
+            "",
+        )
+    )
+
+
+def _require_github_api_url(url: str) -> None:
+    """Reject any authenticated destination outside the fixed GitHub repository."""
     parsed = urllib.parse.urlsplit(url)
     if (
         parsed.scheme != "https"
-        or not parsed.hostname
+        or parsed.netloc != "api.github.com"
+        or parsed.hostname != "api.github.com"
+        or parsed.port is not None
         or parsed.username is not None
         or parsed.password is not None
+        or parsed.fragment
+        or not parsed.path.startswith(
+            f"/repos/{GITHUB_OWNER}/{GITHUB_REPOSITORY_NAME}/"
+        )
     ):
-        raise ValueError("outbound URL must be absolute HTTPS without embedded credentials")
+        raise ValueError("authenticated URL must target the fixed GitHub repository API")
 
 
 def request_json(
@@ -76,7 +113,7 @@ def request_json(
 ) -> dict:
     """Call GitHub's JSON API with bounded retry/backoff."""
 
-    _require_https_url(url)
+    _require_github_api_url(url)
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
     headers = {
         "Accept": "application/vnd.github+json",
@@ -92,7 +129,7 @@ def request_json(
         request = urllib.request.Request(url, data=body, headers=headers, method=method)
         try:
             # URL was validated as absolute HTTPS immediately above.
-            with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310
+            with _AUTHENTICATED_OPENER.open(request, timeout=30) as response:  # nosec B310
                 raw = response.read()
             return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as exc:
@@ -132,7 +169,6 @@ def fetch_quote() -> tuple[float, float | None] | None:
                 f"https://{host}.finance.yahoo.com/v8/finance/chart/"
                 "CL%3DF?interval=1d&range=1d"
             )
-            _require_https_url(url)
             request = urllib.request.Request(
                 url,
                 headers={"User-Agent": "Mozilla/5.0 (compatible; WTI-price-refresh/1.0)"},
@@ -149,7 +185,10 @@ def fetch_quote() -> tuple[float, float | None] | None:
                 raise ValueError("provider returned a non-positive quote")
             except (KeyError, TypeError, ValueError, json.JSONDecodeError,
                     TimeoutError, urllib.error.URLError, OSError) as exc:
-                print(f"{host} quote attempt failed: {exc}", file=sys.stderr)
+                print(
+                    f"{host} quote attempt failed error_type={type(exc).__name__}",
+                    file=sys.stderr,
+                )
 
         if attempt < 2:
             time.sleep(2 ** attempt)
@@ -170,14 +209,11 @@ def build_payload(price: float, previous: float | None) -> dict:
 
 def ensure_branch(
     *,
-    api_url: str,
-    repository: str,
     branch: str,
     start_sha: str,
     token: str,
 ) -> None:
-    encoded_branch = urllib.parse.quote(branch, safe="")
-    ref_url = f"{api_url}/repos/{repository}/git/ref/heads/{encoded_branch}"
+    ref_url = _github_repo_url("git", "ref", "heads", branch)
     try:
         request_json("GET", ref_url, token=token)
         return
@@ -185,7 +221,7 @@ def ensure_branch(
         if exc.status != 404:
             raise
 
-    refs_url = f"{api_url}/repos/{repository}/git/refs"
+    refs_url = _github_repo_url("git", "refs")
     try:
         request_json(
             "POST",
@@ -204,8 +240,6 @@ def ensure_branch(
 def publish_price(
     quote: dict,
     *,
-    api_url: str,
-    repository: str,
     branch: str,
     start_sha: str,
     token: str,
@@ -213,16 +247,12 @@ def publish_price(
     """Upsert price.json, re-reading its SHA after optimistic-lock races."""
 
     ensure_branch(
-        api_url=api_url,
-        repository=repository,
         branch=branch,
         start_sha=start_sha,
         token=token,
     )
-    encoded_path = urllib.parse.quote(DESTINATION, safe="/")
-    encoded_branch = urllib.parse.quote(branch, safe="")
-    contents_url = f"{api_url}/repos/{repository}/contents/{encoded_path}"
-    lookup_url = f"{contents_url}?ref={encoded_branch}"
+    contents_url = _github_repo_url("contents", DESTINATION)
+    lookup_url = _github_repo_url("contents", DESTINATION, query={"ref": branch})
     content = base64.b64encode(
         json.dumps(quote, separators=(",", ":")).encode("utf-8")
     ).decode("ascii")
@@ -254,7 +284,7 @@ def publish_price(
             )
             print(
                 f"Published ${quote['price']:.2f} to "
-                f"{repository}@{branch}/{DESTINATION}"
+                f"{GITHUB_REPOSITORY}@{branch}/{DESTINATION}"
             )
             return
         except ApiError as exc:
@@ -274,10 +304,17 @@ def publish_price(
 
 
 def main() -> int:
-    required = ("GH_TOKEN", "GITHUB_REPOSITORY", "GITHUB_SHA")
+    required = ("GH_TOKEN", "GITHUB_API_URL", "GITHUB_REPOSITORY", "GITHUB_SHA")
     missing = [name for name in required if not os.environ.get(name)]
     if missing:
         print(f"Missing required environment: {', '.join(missing)}", file=sys.stderr)
+        return 1
+
+    if os.environ["GITHUB_API_URL"].rstrip("/") != GITHUB_API_ORIGIN:
+        print("Refusing unexpected GitHub API origin", file=sys.stderr)
+        return 1
+    if os.environ["GITHUB_REPOSITORY"] != GITHUB_REPOSITORY:
+        print("Refusing unexpected GitHub repository", file=sys.stderr)
         return 1
 
     quote = fetch_quote()
@@ -293,8 +330,6 @@ def main() -> int:
     try:
         publish_price(
             payload,
-            api_url=os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/"),
-            repository=os.environ["GITHUB_REPOSITORY"],
             branch=BRANCH,
             start_sha=os.environ["GITHUB_SHA"],
             token=os.environ["GH_TOKEN"],
@@ -306,7 +341,10 @@ def main() -> int:
         )
         return 0
     except ApiError as exc:
-        print(f"Live price publish failed: {exc}", file=sys.stderr)
+        print(
+            f"Live price publish failed status={exc.status}",
+            file=sys.stderr,
+        )
         return 1
     return 0
 

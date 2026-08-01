@@ -24,10 +24,14 @@ import smtplib
 import sys
 from datetime import datetime, timezone
 from email.mime.text import MIMEText
-from pathlib import Path
+
+try:
+    from .safe_paths import data_json_path, public_json_path
+except ImportError:  # Direct invocation: python backend/signal_alert.py
+    from safe_paths import data_json_path, public_json_path
 
 
-STATE_PATH = Path("data/signal_state.json")
+STATE_PATH = data_json_path("signal_state.json")
 SITE_URL = "https://navnoorbawa.github.io/WTI-Crude-Oil-Futures/"
 GMAIL_USER = os.environ.get("GMAIL_USER", "navnoorquant@gmail.com")
 ALERT_EMAIL = os.environ.get("ALERT_EMAIL", "navnoorquant@gmail.com")
@@ -158,7 +162,10 @@ Walk-forward research demo. Edge retracted. No execution infrastructure.
         print(f"Email sent: {subject}")
         return True
     except Exception as exc:
-        print(f"Email failed: {exc}", file=sys.stderr)
+        print(
+            f"Email failed error_type={type(exc).__name__}",
+            file=sys.stderr,
+        )
         return False
 
 
@@ -184,9 +191,9 @@ def main() -> None:
     parser.add_argument("--force", action="store_true", help="Send alert even if stance unchanged")
     args = parser.parse_args()
 
-    data_path = Path(args.data)
+    data_path = public_json_path(args.data)
     if not data_path.exists():
-        print(f"Data file not found: {data_path}", file=sys.stderr)
+        print("Required dashboard payload is unavailable", file=sys.stderr)
         sys.exit(1)
 
     data = json.loads(data_path.read_text())

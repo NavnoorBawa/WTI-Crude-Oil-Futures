@@ -28,6 +28,7 @@ from backend.backtest_walk_forward import (
     evaluate_horizon,
 )
 from backend.oil import PremiumWTIPredictor
+from backend.safe_paths import data_json_path
 
 
 PERIOD = "5y"
@@ -104,7 +105,7 @@ def main():
         print("TIMING LEAKAGE: same-day context closes materially inflate the result — "
               "headline numbers must be revised to the lagged config")
 
-    out_path = Path(args.output)
+    out_path = data_json_path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps({
         "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -112,7 +113,7 @@ def main():
                    "estimators": args.estimators, "feature_mode": "no_macro"},
         "results": results,
     }, indent=2), encoding="utf-8")
-    print(f"\nFull results written to {out_path}")
+    print("\nFull results written successfully")
 
 
 if __name__ == "__main__":

@@ -25,9 +25,13 @@ import argparse
 import json
 import sys
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
-RECORD_PATH = Path("data/live_track_record.json")
+try:
+    from .safe_paths import data_json_path, public_json_path
+except ImportError:  # Direct invocation: python backend/live_record.py
+    from safe_paths import data_json_path, public_json_path
+
+RECORD_PATH = data_json_path("live_track_record.json")
 RESOLUTION_DAYS = 7
 CONVICTION_GATE_PCT = 0.6  # same gate as the dashboard stance
 # Every record currently in the repository was created after the corrected,
@@ -159,7 +163,7 @@ def main():
     parser.add_argument("--data", default="public/data.json", help="frozen payload path")
     args = parser.parse_args()
 
-    data_path = Path(args.data)
+    data_path = public_json_path(args.data)
     payload = json.loads(data_path.read_text(encoding="utf-8"))
     if payload.get("error") or not payload.get("current_price"):
         print("live_record: payload not usable — skipping", file=sys.stderr)

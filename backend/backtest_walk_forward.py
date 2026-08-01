@@ -11,13 +11,13 @@ import json
 import sys
 import time
 from datetime import datetime
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from scipy.stats import binom
 
 from .oil import PremiumWTIPredictor
+from .safe_paths import data_json_path
 
 # 1 WTI futures contract = 1000 barrels.
 # $100 round-trip is conservative (spread ~$0.03-0.05/bbl + commission).
@@ -521,11 +521,11 @@ def main():
         "results": results,
     }
 
-    output_path = Path(args.output)
+    output_path = data_json_path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
-    print(f"Backtest report written to: {output_path}")
+    print("Backtest report written successfully")
     for horizon in horizons:
         hr  = report["results"][horizon]
         ens = hr["metrics"]["ensemble"]

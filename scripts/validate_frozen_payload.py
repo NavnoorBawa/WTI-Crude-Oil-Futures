@@ -6,9 +6,16 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from backend.safe_paths import dashboard_payload_path
 
 
 HORIZONS = ("1h", "1d", "1w")
@@ -115,15 +122,18 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        payload = json.loads(Path(args.path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise SystemExit(f"Frozen payload is unreadable: {exc}") from exc
+        payload_path = dashboard_payload_path(args.path)
+        payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise SystemExit(
+            f"Frozen payload is unreadable error_type={type(exc).__name__}"
+        ) from exc
 
     errors = validate_payload(payload, max_age_minutes=args.max_age_minutes)
     if errors:
         rendered = "\n".join(f"- {error}" for error in errors)
         raise SystemExit(f"Frozen payload validation failed:\n{rendered}")
-    print(f"Frozen payload validation passed: {args.path}")
+    print("Frozen payload validation passed")
 
 
 if __name__ == "__main__":
