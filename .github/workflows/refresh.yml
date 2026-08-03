@@ -164,8 +164,21 @@ jobs:
       - name: Lint frontend (ESLint — real bugs only, no style)
         run: npm run lint
 
-      - name: Audit JS dependencies
-        run: npm audit --audit-level=low
+      # Only the shipped dependency tree can reach a visitor's browser, so a
+      # vulnerability there blocks the deploy. Build-only devDependencies (eslint,
+      # vite) never leave the runner, and a fresh upstream advisory in that chain must
+      # not freeze the dashboard on stale prices — which is exactly what happened when
+      # GHSA-rgw5-rvv9-x895 landed in eslint's brace-expansion. tests.yml still fails
+      # the full audit on every pull request and on its weekly schedule, so a dev-tree
+      # advisory is still caught and still blocks code changes.
+      - name: Audit shipped JS dependencies
+        run: npm audit --omit=dev --audit-level=low
+
+      - name: Report build-only dependency advisories
+        run: |
+          if ! npm audit --audit-level=low; then
+            echo "::warning title=Build-only dependency advisory::npm audit reported an advisory outside the shipped dependency tree. The deploy continued because these packages are not served to visitors. Fix it via the Tests workflow, which still fails on this."
+          fi
 
       - name: Build static site (Vite copies public/data.json into dist/)
         env:
