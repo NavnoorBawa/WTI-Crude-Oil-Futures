@@ -179,7 +179,11 @@ def fetch_wti_daily(api_key=None, use_cache=True):
                 "facets[series][]": "RWTC", "sort[0][column]": "period",
                 "sort[0][direction]": "asc", "length": 5000, "offset": offset,
             }
-            resp = requests.get(EIA_BASE, params=params, timeout=30)
+            resp = requests.get(EIA_BASE, params=params, timeout=30, allow_redirects=False)
+            # raise_for_status() covers 4xx/5xx but not 3xx, and api_key rides in the query
+            # string, so treat a redirect as a hard failure instead of forwarding the key.
+            if resp.is_redirect or resp.is_permanent_redirect:
+                raise RuntimeError("EIA API attempted a redirect; refusing to forward the key")
             resp.raise_for_status()
             data = resp.json().get("response", {}).get("data", [])
             if not data:
