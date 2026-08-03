@@ -1724,7 +1724,12 @@ class PremiumWTIPredictor:
                 'length': 5000,
                 'api_key': self.config.EIA_API_KEY,
             }
-            response = requests.get(url, params=params, timeout=20)
+            response = requests.get(url, params=params, timeout=20, allow_redirects=False)
+            # raise_for_status() covers 4xx/5xx but not 3xx, and the api_key rides in the
+            # query string, so a redirect must fail here rather than fall through to a
+            # confusing JSON decode error.
+            if response.is_redirect or response.is_permanent_redirect:
+                raise RuntimeError('EIA API attempted a redirect; refusing to forward the key')
             response.raise_for_status()
             rows = response.json().get('response', {}).get('data', [])
             if not rows:
@@ -2325,7 +2330,7 @@ class PremiumWTIPredictor:
                 }
                 
                 # Increased timeout to 15s to handle sluggish EIA v2 API responses
-                response = requests.get(url, params=params, timeout=15)
+                response = requests.get(url, params=params, timeout=15, allow_redirects=False)
                 if response.status_code == 200:
                     data = response.json()
                     supply_data = data.get('response', {}).get('data', [])
@@ -2468,7 +2473,7 @@ class PremiumWTIPredictor:
                 'apikey': self.config.ALPHA_VANTAGE_KEY
             }
             
-            response = requests.get(url, params=params, timeout=10)
+            response = requests.get(url, params=params, timeout=10, allow_redirects=False)
             if response.status_code == 200:
                 data = response.json()
                 
@@ -2538,7 +2543,7 @@ class PremiumWTIPredictor:
                         'token': self.config.FINNHUB_KEY
                     }
                     
-                    response = requests.get(url, params=params, timeout=5)
+                    response = requests.get(url, params=params, timeout=5, allow_redirects=False)
                     if response.status_code == 200:
                         quote = response.json()
                         if 'c' in quote and quote['c'] > 0:  # Current price
@@ -2599,7 +2604,7 @@ class PremiumWTIPredictor:
                 'apiKey': self.config.NEWSAPI_KEY
             }
             
-            response = requests.get(url, params=params, timeout=10)
+            response = requests.get(url, params=params, timeout=10, allow_redirects=False)
             if response.status_code == 200:
                 data = response.json()
                 articles = data.get('articles', [])
@@ -2757,7 +2762,7 @@ class PremiumWTIPredictor:
                 'pageSize': 30,
                 'apiKey': self.config.NEWSAPI_KEY,
             }
-            response = requests.get(url, params=params, timeout=10)
+            response = requests.get(url, params=params, timeout=10, allow_redirects=False)
             if response.status_code != 200:
                 return {
                     'data_quality': 0,
@@ -2920,7 +2925,7 @@ class PremiumWTIPredictor:
                 'format': 'JSON'
             }
             
-            response = requests.get(url, params=params, timeout=5)
+            response = requests.get(url, params=params, timeout=5, allow_redirects=False)
             if response.status_code == 200:
                 data = response.json()
                 if 'data' in data and data['data']:
@@ -2994,7 +2999,7 @@ class PremiumWTIPredictor:
                 'limit': 30
             }
             
-            response = requests.get(url, headers=headers, params=params, timeout=10)
+            response = requests.get(url, headers=headers, params=params, timeout=10, allow_redirects=False)
             if response.status_code == 200:
                 data = response.json()
                 if 'results' in data:
