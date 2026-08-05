@@ -570,7 +570,11 @@
       "entry_price": 83.05,
       "forecast_pct": 0.2,
       "stance": "NEUTRAL",
-      "resolved": false
+      "resolved": true,
+      "resolution_date": "2026-08-05",
+      "resolution_at": "2026-08-05T03:33:11.822977+00:00",
+      "resolution_price": 74.57,
+      "realized_pct": -10.211
     },
     {
       "date": "2026-07-30",
@@ -628,18 +632,29 @@
       "wf_is_significant": false,
       "eligible_for_validation": false,
       "resolved": false
+    },
+    {
+      "date": "2026-08-05",
+      "entry_at": "2026-08-05T03:33:11.822977+00:00",
+      "contract": "CLU26",
+      "entry_price": 74.57,
+      "forecast_pct": -0.2,
+      "stance": "NEUTRAL",
+      "wf_is_significant": false,
+      "eligible_for_validation": false,
+      "resolved": false
     }
   ],
   "summary": {
-    "n_calls": 56,
+    "n_calls": 57,
     "n_resolved_directional": 0,
     "n_hits": 0,
     "hit_rate_pct": null,
     "n_pending": 7,
     "n_skipped_roll": 13,
-    "n_neutral": 11,
+    "n_neutral": 12,
     "n_ineligible_directional": 45,
     "first_call_date": "2026-06-10",
-    "updated_at": "2026-08-04T03:37:02.936963+00:00"
+    "updated_at": "2026-08-05T03:33:12.704646+00:00"
   }
 }
