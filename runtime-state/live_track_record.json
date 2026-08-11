@@ -719,18 +719,29 @@
       "wf_is_significant": false,
       "eligible_for_validation": false,
       "resolved": false
+    },
+    {
+      "date": "2026-08-11",
+      "entry_at": "2026-08-11T02:28:16.073288+00:00",
+      "contract": "CLU26",
+      "entry_price": 82.39,
+      "forecast_pct": -0.7,
+      "stance": "NEUTRAL",
+      "wf_is_significant": false,
+      "eligible_for_validation": false,
+      "resolved": false
     }
   ],
   "summary": {
-    "n_calls": 62,
+    "n_calls": 63,
     "n_resolved_directional": 0,
     "n_hits": 0,
     "hit_rate_pct": null,
-    "n_pending": 7,
+    "n_pending": 8,
     "n_skipped_roll": 13,
-    "n_neutral": 17,
+    "n_neutral": 18,
     "n_ineligible_directional": 45,
     "first_call_date": "2026-06-10",
-    "updated_at": "2026-08-10T05:45:13.624287+00:00"
+    "updated_at": "2026-08-11T02:28:16.825553+00:00"
   }
 }
