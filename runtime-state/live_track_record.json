@@ -767,7 +767,10 @@
       "stance": "NEUTRAL",
       "wf_is_significant": false,
       "eligible_for_validation": false,
-      "resolved": false
+      "resolved": true,
+      "resolution_date": "2026-08-19",
+      "resolution_at": "2026-08-19T04:53:29.049195+00:00",
+      "skipped_contract_roll": true
     },
     {
       "date": "2026-08-13",
@@ -852,11 +855,11 @@
     "n_resolved_directional": 0,
     "n_hits": 0,
     "hit_rate_pct": null,
-    "n_pending": 8,
-    "n_skipped_roll": 18,
+    "n_pending": 7,
+    "n_skipped_roll": 19,
     "n_neutral": 26,
     "n_ineligible_directional": 45,
     "first_call_date": "2026-06-10",
-    "updated_at": "2026-08-19T01:55:06.118953+00:00"
+    "updated_at": "2026-08-19T04:53:29.875847+00:00"
   }
 }
