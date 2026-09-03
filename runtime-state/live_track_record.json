@@ -1057,18 +1057,29 @@
       "wf_is_significant": false,
       "eligible_for_validation": false,
       "resolved": false
+    },
+    {
+      "date": "2026-09-03",
+      "entry_at": "2026-09-03T04:22:39.731400+00:00",
+      "contract": "CLV26",
+      "entry_price": 90.92,
+      "forecast_pct": -0.7,
+      "stance": "NEUTRAL",
+      "wf_is_significant": false,
+      "eligible_for_validation": false,
+      "resolved": false
     }
   ],
   "summary": {
-    "n_calls": 85,
+    "n_calls": 86,
     "n_resolved_directional": 0,
     "n_hits": 0,
     "hit_rate_pct": null,
-    "n_pending": 7,
+    "n_pending": 8,
     "n_skipped_roll": 20,
-    "n_neutral": 40,
+    "n_neutral": 41,
     "n_ineligible_directional": 45,
     "first_call_date": "2026-06-10",
-    "updated_at": "2026-09-02T04:32:44.952174+00:00"
+    "updated_at": "2026-09-03T04:22:40.534634+00:00"
   }
 }
