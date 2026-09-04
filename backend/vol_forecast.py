@@ -9,15 +9,16 @@ replicated facts in financial econometrics, so a properly validated vol forecast
 out-of-sample skill. This module forecasts next-week (5-trading-day) realized volatility from a heterogeneous-
 autoregressive feature set augmented with implied volatility (HAR-IV: RV over 5/22/66 days plus
 OVX, the free CBOE oil implied-vol index), validated with the SAME purged walk-forward used to
-expose the direction leak. Adding OVX nearly doubles the level R^2 (0.30 -> 0.50, and 0.23 -> 0.40
-ex-2020, improving in almost every year), because implied vol is forward-looking — a real, leak-free
-gain, not a tuning artifact. If OVX is unavailable it falls back to the pure-HAR feature set.
+expose the direction leak. Adding OVX materially raises the level R^2 versus pure HAR (0.30 -> 0.50, and 0.23 -> 0.40
+ex-2020 when first measured; validate() reports the current figures), because implied vol is
+forward-looking — a real, leak-free gain, not a tuning artifact. If OVX is unavailable it falls back to the pure-HAR feature set.
 
 What is honest about the result (10y, leak-free, n=439 OOS, see validate()):
-  - Vol-DIRECTION (will next week's realized vol rise or fall vs this week): ~72% accuracy vs a
-    51.7% base rate, STABLE every year (62-86%), and 2020/COVID is the weakest year, not the
-    driver. Beats a smart mean-reversion baseline (~65%) by ~7pp in nearly every year.
-  - Vol-LEVEL: log-HAR roughly ties naive persistence on R^2 (~0.30) and beats it ~15% on MAE.
+  - Vol-DIRECTION (will next week's realized vol rise or fall vs this week): ~71% accuracy vs a
+    ~53% base rate (as of 2026-09; figures drift as OOS weeks accrue), above the base rate in
+    every year (64.7-81.8%), and 2020/COVID is not the driver (ex-2020 ~71%). Beats a smart
+    mean-reversion baseline (~62%) in 7 of 10 years, ~9pp overall; loses to it in 2018 and 2025.
+  - Vol-LEVEL: log-HAR beats naive persistence on R^2 (~0.37 vs ~0.11) and by ~26% on MAE.
     The level calibration is the weaker part; the direction/regime signal is the strong, usable one.
   - This is a clean implementation of a KNOWN effect, not novel alpha. It is a validated
     volatility/regime INDICATOR, not a directional return signal.
@@ -187,6 +188,18 @@ def validate(period: str = "10y") -> dict:
     ex20 = d[d.year != 2020]
     overall["ex_2020_har_dir_acc_pct"] = dir_acc(ex20.har_up, ex20.act_up)
     overall["ex_2020_n"] = int(len(ex20))
+    # Significance and year-by-year robustness are shipped in the payload so the dashboard renders
+    # them from live data instead of hardcoding figures that drift as OOS weeks accrue.
+    acc_frac = float((d.har_up == d.act_up).mean()) if n_total else 0.0
+    se = float(np.sqrt(base_rate * (1.0 - base_rate) / n_total)) if n_total else 0.0
+    overall["har_dir_z_score"] = round((acc_frac - base_rate) / se, 2) if se > 0 else 0.0
+    yr_accs = [v["har_dir_acc_pct"] for v in yearly.values()]
+    overall["yearly_acc_min_pct"] = min(yr_accs) if yr_accs else None
+    overall["yearly_acc_max_pct"] = max(yr_accs) if yr_accs else None
+    overall["years_total"] = len(yearly)
+    overall["years_beating_mean_reversion"] = sum(
+        1 for v in yearly.values() if v["har_dir_acc_pct"] > v["mean_reversion_dir_acc_pct"]
+    )
     overall["model"] = "HAR-IV (RV5,RV22,RV66,OVX)" if ovx is not None else "HAR (RV5,RV22,RV66)"
 
     return {"overall": overall, "yearly": yearly}

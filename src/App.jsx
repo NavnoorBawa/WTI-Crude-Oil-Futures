@@ -560,6 +560,16 @@ function App() {
 
   // Volatility forecast — the project's validated signal (backend/vol_forecast.py).
   const vol = data?.vol_forecast || null;
+  // Significance + robustness come from the live validation payload, never hardcoded, so they
+  // cannot drift out of sync with the accuracy rendered beside them.
+  const volZ = vol?.validation?.har_dir_z_score ?? null;
+  const volP = vol?.validation?.har_dir_p_value_vs_base_rate;
+  const volPBound = (typeof volP === 'number' && volP > 0)
+    ? `1e-${Math.max(0, Math.ceil(-Math.log10(volP)) - 1)}`
+    : (volP === 0 ? '1e-16' : null);  // 1 - cdf underflows to 0 below ~1e-16 in float64
+  const volYearly = (vol?.validation?.yearly_acc_min_pct != null && vol?.validation?.years_total)
+    ? `; ${vol.validation.yearly_acc_min_pct}–${vol.validation.yearly_acc_max_pct}% across ${vol.validation.years_total} years, beats mean-reversion in ${vol.validation.years_beating_mean_reversion}/${vol.validation.years_total}`
+    : '';
 
   // Live record — git-committed daily calls, resolved after 1 week (backend/live_record.py).
   // Every entry/resolution is timestamped by a bot commit, so the record can't be back-dated.
@@ -831,7 +841,7 @@ function App() {
           </div>
           <div className="tv-tearsheet-foot">
             Next-week realized-volatility direction, 10y purged walk-forward: {vol.validation.har_dir_acc_pct}% accuracy
-            vs a {vol.validation.majority_class_pct}% base rate (z ≈ 8.5, p &lt; 1e-15; ex-2020 {vol.validation.ex_2020_har_dir_acc_pct}%, stable every year).
+            vs a {vol.validation.majority_class_pct}% base rate ({volZ != null ? `z ≈ ${volZ}, ` : ''}{volPBound ? <>p &lt; {volPBound}</> : 'binomial test'}; ex-2020 {vol.validation.ex_2020_har_dir_acc_pct}%{volYearly}).
             Beats a mean-reversion baseline ({vol.validation.mean_reversion_dir_acc_pct}%). A clean implementation of a known
             effect (vol clustering/mean-reversion), not novel alpha — a validated volatility/regime indicator, not a directional
             trade. A vol-targeting overlay was tested and did NOT beat buy-and-hold (Sharpe 0.27 vs 0.36), so no P&L is claimed.

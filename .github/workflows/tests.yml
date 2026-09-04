@@ -104,7 +104,28 @@ jobs:
         run: npm run lint
 
       - name: Audit JS dependencies
-        run: npm audit --audit-level=low
+        # A real advisory still fails this step. A registry/network error (the 2026-09-03 deploy
+        # died on an npm advisory-endpoint timeout) is retried, then only warned: an unreachable
+        # audit endpoint is not a vulnerability. Keeps a registry blip from turning CI red without a real finding.
+        run: |
+          set -uo pipefail
+          for attempt in 1 2 3; do
+            if output="$(npm audit --audit-level=low 2>&1)"; then
+              printf '%s\n' "$output"
+              exit 0
+            fi
+            if printf '%s' "$output" | grep -qiE 'audit endpoint returned an error|network timeout|ENOTFOUND|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ECONNREFUSED|socket hang up|fetch failed'; then
+              echo "npm audit registry/network error on attempt ${attempt}" >&2
+              if [ "$attempt" -eq 3 ]; then
+                echo "::warning title=npm audit unreachable::The npm advisory endpoint was unreachable after 3 attempts, so this audit was skipped for this run. It is re-run on every pull request and on the weekly Tests schedule."
+                exit 0
+              fi
+              sleep $((attempt * 20))
+              continue
+            fi
+            printf '%s\n' "$output"
+            exit 1
+          done
 
       - name: Build static site
         env:
