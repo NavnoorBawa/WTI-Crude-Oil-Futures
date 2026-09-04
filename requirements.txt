@@ -1,6 +1,6 @@
 # Direct runtime dependencies are pinned to the versions validated by CI.
 # Dependabot proposes upgrades, which must pass Python + frontend checks first.
-yfinance==1.6.0
+yfinance==1.7.0
 curl_cffi==0.16.0
 pandas==3.0.5
 numpy==2.5.2
