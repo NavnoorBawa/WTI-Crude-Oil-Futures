@@ -9,8 +9,9 @@ A machine-learning research project on WTI crude, with a clear arc. The original
 edge was look-ahead leakage**, and once corrected the signal is a coin flip. Rather than chase a
 direction edge that theory says should not exist on a liquid contract, the project pivots to what
 genuinely is forecastable: **volatility**. A leak-free HAR-IV model (realized vol plus OVX implied
-vol) calls next-week vol direction at **72.7%** versus a 51.7% base rate (z ≈ 8.5, p < 1e-15),
-stable across every year of a decade. So the project carries one honest negative result (direction
+vol) calls next-week vol direction at **about 71%** versus a 53% base rate (z ≈ 7.6, p < 1e-13; figures as of 2026-09-04,
+recomputed every 4 hours on the live dashboard, which is authoritative), above the base rate in
+every year of a decade. So the project carries one honest negative result (direction
 is unforecastable here, and the headline that said otherwise was a leak) and one honest positive
 result (vol is forecastable, validated with the same purged walk-forward — though even that is a
 risk/regime indicator, not a demonstrated source of trading profit). Plus honest tests of two more
@@ -78,16 +79,19 @@ implied-vol index**. Validated over 10 years, leak-free, n=439 OOS:
 
 | Metric | HAR-IV model | Baselines |
 |---|---|---|
-| Vol-direction accuracy (rise/fall vs current) | **72.7%** | 65.1% mean-reversion · 51.7% majority |
-| Vol-direction, ex-2020 (n=389) | **74.0%** | — |
-| Level forecast R² | **0.50** | 0.32 persistence |
-| Level forecast MAE | **0.120** | 0.160 persistence (25% worse) |
+| Vol-direction accuracy (rise/fall vs current) | **71.1%** | 61.7% mean-reversion · 53.1% majority |
+| Vol-direction, ex-2020 (n=389) | **70.7%** | — |
+| Level forecast R² | **0.37** | 0.11 persistence |
+| Level forecast MAE | **0.116** | 0.158 persistence (26% worse) |
 
-The direction call is stable in **every** year of the decade (62% to 86%), and 2020 is the
-*weakest* year, not the driver — removing COVID *raises* the accuracy to 74%. It also beats a
-smart mean-reversion baseline by about 7 points in nearly every year, so the model captures more
-than just "vol reverts to its average." Against the 51.7% majority-class base rate the result is
-overwhelmingly significant: **z ≈ 8.5, p < 1e-15** (binomial, n=439).
+The direction call is above the 53% base rate in **every** year of the decade (64.7% to 81.8%),
+and 2020 is not the driver: removing COVID leaves accuracy essentially unchanged (70.7% ex-2020
+vs 71.1% overall). It beats the smart mean-reversion baseline in 7 of 10 years, by about 9 points
+overall, so the model captures more than just "vol reverts to its average" — and it loses to that
+baseline in 2018 and 2025, which is reported here rather than hidden. Against the 53.1%
+majority-class base rate the result is overwhelmingly significant: **z ≈ 7.6, p < 1e-13**
+(binomial, n=439). *All figures as of 2026-09-04; they drift slightly as out-of-sample weeks
+accrue, and the live dashboard recomputes them (including z and p) every 4 hours.*
 
 Adding OVX is the one principled free-data upgrade that earned its keep: implied vol is
 forward-looking, so the level R² nearly **doubled (0.30 → 0.50, and 0.23 → 0.40 ex-2020), improving
@@ -293,8 +297,8 @@ python backend/supply_shock_playbook.py   # print the full event-study table fro
   rows per step** so no label matures after the prediction point — the fix that exposed the
   headline as leakage.
 - **[`backend/vol_forecast.py`](backend/vol_forecast.py)** — HAR-IV realized-volatility forecaster
-  (realized vol + OVX implied vol), the project's validated signal (next-week vol direction 72.7%
-  OOS, p < 1e-15, leak-free). Falls back to pure HAR if OVX is unavailable.
+  (realized vol + OVX implied vol), the project's validated signal (next-week vol direction ~71%
+  OOS, p < 1e-13, leak-free). Falls back to pure HAR if OVX is unavailable.
 - **[`backend/carry_signal_test.py`](backend/carry_signal_test.py)** — documented NEGATIVE result:
   term-structure carry (EIA futures curve) does not time WTI direction.
 - **[`backend/supply_shock_playbook.py`](backend/supply_shock_playbook.py)** — EIA-computed
