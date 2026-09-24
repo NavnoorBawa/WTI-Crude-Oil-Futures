@@ -662,10 +662,15 @@ def get_data():
         # in-memory actual-price store below has no history and used to report a fake 0.00%.
         price_change = contract_info.get('price_change')
         price_change_percent = contract_info.get('price_change_percent')
-        price_change_quality = 'daily_close' if price_change is not None else 'unavailable'
+        price_change_quality = contract_info.get('price_change_quality') or (
+            'daily_close' if price_change is not None else 'unavailable'
+        )
+        # On the first session after a roll, oil.py reports no change rather than compare two
+        # contracts; the in-memory quote history below would reintroduce exactly that splice.
+        roll_day = price_change_quality == 'unavailable_contract_roll'
 
         try:
-            if price_change is None and len(actual_values) >= 2 and len(actual_timestamps) >= 2:
+            if price_change is None and not roll_day and len(actual_values) >= 2 and len(actual_timestamps) >= 2:
                 # Find a price point from roughly 24 hours ago (86400 seconds)
                 current_timestamp = datetime.now().timestamp()
                 target_timestamp = current_timestamp - 86400  # 24 hours ago

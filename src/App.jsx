@@ -676,7 +676,13 @@ function Dashboard({ data, error, quote, modelTarget, showRetracted, onToggleRet
 
   return (
     <>
-      {mlCaveat && (
+      {mlCaveat && (geoRegime === "UNKNOWN" ? (
+        <div className="tv-caveat info" role="note">
+          News-flow regime unavailable: the headline feed could not be read, so the tail-risk guardrail
+          cannot assess current conditions. The supply-shock event study below still shows how similar
+          shocks have resolved.
+        </div>
+      ) : (
         <div className="tv-caveat" role="note">
           ⚠ News-flow regime{geoRegime ? `: ${geoRegime}` : " elevated"}. Models trained on normal markets
           understate tail risk here.{modelSignificant
@@ -684,7 +690,7 @@ function Dashboard({ data, error, quote, modelTarget, showRetracted, onToggleRet
             : " The 1W direction model is retracted, so do not use its output at all;"} the supply-shock
           event study below shows how similar shocks have resolved.
         </div>
-      )}
+      ))}
 
       {error && (
         <div className="tv-caveat info" role="status">{error}</div>
