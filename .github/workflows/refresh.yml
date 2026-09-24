@@ -4,12 +4,18 @@ name: Refresh frozen dashboard
 # No running server required — the published site is pure static HTML/JS + a data.json
 # snapshot. If a run fails (e.g. an upstream API is rate-limited), the previous good
 # snapshot stays live and the next scheduled run retries.
+#
+# Least privilege: the `build` job runs every third-party install and build tool with a
+# read-only token and no alert credentials. The `publish` job holds the write token and the
+# mail credential, and installs and builds nothing: it runs only this repository's own
+# standard-library scripts against the artifacts `build` produced.
 
 on:
   schedule:
     # Every 4 hours (UTC). The ML signal is 1-week cadence so hourly rebuilds were
-    # wasteful. 6 runs/day keeps the frozen price fresh enough and stays well under
-    # NewsAPI's 100-call/day free limit. For on-demand refresh use workflow_dispatch.
+    # wasteful. 6 runs/day stays well under NewsAPI's 100-call/day free limit. GitHub
+    # delays or drops scheduled runs under load, so gaps of several hours happen; the
+    # dashboard shows the snapshot's age. For on-demand refresh use workflow_dispatch.
     - cron: '17 */4 * * *'
   workflow_dispatch: {}        # allow manual runs from the Actions tab
   push:
@@ -28,16 +34,19 @@ on:
       - '.github/workflows/refresh.yml'
 
 permissions:
-  contents: write              # publish gh-pages and mutable state on live-data
+  contents: read
 
 concurrency:
   group: pages-refresh-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
-  refresh:
+  build:
+    name: Freeze and build
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -127,8 +136,11 @@ jobs:
           NOAA_CDO_KEY: ${{ secrets.NOAA_CDO_KEY }}
         run: python freeze.py --out public
 
+      # frozen_at is stamped seconds earlier in this job, so its age proves nothing; the quote's
+      # own exchange time catches a provider that silently serves a stale series (4 days covers
+      # a holiday weekend).
       - name: Validate frozen payload invariants
-        run: python scripts/validate_frozen_payload.py public/data.json --max-age-minutes 30
+        run: python scripts/validate_frozen_payload.py public/data.json --max-age-minutes 30 --max-market-age-days 4
 
       - name: Record + resolve live 1W track record
         run: python backend/live_record.py --data public/data.json
@@ -146,10 +158,11 @@ jobs:
           npm config set fetch-retry-mintimeout 10000
           npm config set fetch-retry-maxtimeout 120000
 
+      # --ignore-scripts: no dependency lifecycle script ever runs; the toolchain needs none.
       - name: Install JS dependencies
         run: |
           for attempt in 1 2 3; do
-            if npm ci --no-audit --no-fund; then
+            if npm ci --ignore-scripts --no-audit --no-fund; then
               exit 0
             fi
             if [ "$attempt" -eq 3 ]; then
@@ -206,9 +219,82 @@ jobs:
           VITE_STATIC_DATA: 'true'
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
           VITE_LIVE_PRICE_URL: https://raw.githubusercontent.com/${{ github.repository }}/live-data/price.json
-          # In static mode the app loads data.json once — no need to re-poll every 15s.
-          VITE_POLL_INTERVAL_MS: '86400000'
+          # Static mode re-reads data.json every 15 minutes so an open tab picks up each new
+          # snapshot (an unchanged file is a cheap conditional request).
+          VITE_POLL_INTERVAL_MS: '900000'
         run: npm run build
+
+      - name: Stage runtime state for the publish job
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/runtime-state"
+          cp data/signal_state.json data/live_track_record.json "${RUNNER_TEMP}/runtime-state/"
+
+      - name: Upload site
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: site
+          path: dist/
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload runtime state
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: runtime-state
+          path: ${{ runner.temp }}/runtime-state/
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    name: Deploy, alert and persist state
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write              # publish gh-pages and mutable state on live-data
+    steps:
+      # Trusted code only: a fresh checkout of this commit. Nothing is installed or built in
+      # this job, so no third-party code ever runs next to the write token or mail credential.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download site
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: site
+          path: dist
+
+      - name: Download runtime state
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: runtime-state
+          path: ${{ runner.temp }}/runtime-state
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      # The artifacts are data, and data from the build job is re-checked here before anything
+      # acts on it: the payload against the dashboard invariants, the state against the same
+      # structural contracts the runtime writers enforce (all standard-library code).
+      - name: Place and verify build outputs
+        run: |
+          set -euo pipefail
+          mkdir -p public
+          cp dist/data.json public/data.json
+          for state_file in signal_state.json live_track_record.json; do
+            cp "${RUNNER_TEMP}/runtime-state/${state_file}" "data/${state_file}"
+          done
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python -c \
+            'from backend.live_record import load_record; from backend.signal_alert import load_state; load_record(); load_state()'
+          python -c 'import json, sys; json.load(open("public/data.json"))' || {
+            echo "Published payload is not valid JSON" >&2
+            exit 1
+          }
 
       - name: Deploy to GitHub Pages
         id: pages_deploy

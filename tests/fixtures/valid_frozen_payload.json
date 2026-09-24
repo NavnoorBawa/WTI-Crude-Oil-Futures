@@ -2,7 +2,8 @@
   "current_price": 80.25,
   "frozen_at": "2026-01-15T12:00:00Z",
   "contract": {
-    "symbol": "CLG26"
+    "symbol": "CLG26",
+    "market_time": "2026-01-15T11:55:00Z"
   },
   "multi_horizon_predictions": {
     "is_real_prediction": true,
@@ -46,5 +47,46 @@
         1200
       ]
     }
+  },
+  "price_change": -0.35,
+  "price_change_percent": -0.43,
+  "performance_metrics": {
+    "by_horizon": {
+      "1w": {
+        "wf_is_significant": false,
+        "wf_p_value": 0.71
+      }
+    }
+  },
+  "vol_forecast": {
+    "live": {
+      "current_realized_vol_5d_annualized_pct": 31.2,
+      "forecast_next_week_vol_annualized_pct": 33.4,
+      "direction": "RISING",
+      "implied_vol_ovx_pct": 36.0,
+      "model": "HAR-IV (RV5,RV22,RV66,OVX)",
+      "as_of": "2026-01-15"
+    },
+    "validation": {
+      "n": 900,
+      "har_dir_acc_pct": 72.0,
+      "majority_class_pct": 51.8,
+      "mean_reversion_dir_acc_pct": 66.3,
+      "har_dir_p_value_vs_base_rate": 1e-35,
+      "har_dir_z_score": 12.3,
+      "har_dir_z_score_hac": 15.7
+    },
+    "economic": {}
+  },
+  "supply_shock_playbook": {
+    "event_count": 35,
+    "distributions": {},
+    "analogues": [],
+    "priced_in_stats": {}
+  },
+  "live_record": {
+    "n_calls": 0,
+    "n_resolved_directional": 0,
+    "n_independent_directional": 0
   }
 }

@@ -222,7 +222,6 @@ class OilLogicGuardsTest(unittest.TestCase):
             return pd.Series([50 + offset + (i * 0.1) for i in range(90)], index=index)
 
         predictor._fetch_market_series = fake_market_series
-        predictor._get_next_wti_contract_symbol = lambda: "CLM26"
 
         feature_map = predictor.build_market_context_feature_map(wti_data)
         latest_row = feature_map[max(feature_map.keys())]
@@ -230,7 +229,6 @@ class OilLogicGuardsTest(unittest.TestCase):
         for feature_name in [
             "risk_off_pressure_5d",
             "macro_stress_score",
-            "term_spread_pct",
             "energy_equity_relative_20d",
             "wti_dxy_corr_20d",
             "brent_return_1d",
@@ -240,6 +238,9 @@ class OilLogicGuardsTest(unittest.TestCase):
         ]:
             self.assertIn(feature_name, latest_row)
             self.assertTrue(math.isfinite(latest_row[feature_name]))
+        # The front/next term-structure family was always constant zero (its bare contract symbol
+        # never resolved on Yahoo) and was removed rather than left as dead model inputs.
+        self.assertFalse(any(name.startswith("term_spread") for name in latest_row))
 
     def test_historical_external_feature_map_uses_release_lag_without_leakage(self):
         predictor = PremiumWTIPredictor.__new__(PremiumWTIPredictor)
@@ -312,7 +313,8 @@ class ServerMetricSelectionTest(unittest.TestCase):
             min_live_accuracy_samples=18,
         )
 
-        self.assertEqual(headline_horizon, "1h")
+        # 1H is computed but retracted from display, so it can never be the headline.
+        self.assertEqual(headline_horizon, "1w")
         self.assertEqual(metrics_by_horizon["1d"]["display_accuracy"], 39.4)
         self.assertEqual(metrics_by_horizon["1d"]["display_accuracy_source"], "backtest")
 
@@ -422,7 +424,9 @@ class ServerRuntimeGuardTest(unittest.TestCase):
             min_live_accuracy_samples=18,
         )
 
-        self.assertEqual(headline_horizon, "1h")
+        # Even as the only "qualified" horizon, the retracted 1H is never promoted to headline;
+        # its metrics are still reported per horizon.
+        self.assertEqual(headline_horizon, "1w")
         self.assertEqual(metrics_by_horizon["1h"]["display_accuracy_source"], "live_sparse")
         self.assertEqual(metrics_by_horizon["1d"]["display_accuracy_source"], "backtest")
 
@@ -452,7 +456,8 @@ class ServerRuntimeGuardTest(unittest.TestCase):
             min_live_accuracy_samples=18,
         )
 
-        self.assertEqual(headline_horizon, "1h")
+        # Best available among the displayed horizons: 1W's 42.4% beats 1D's 39.4%.
+        self.assertEqual(headline_horizon, "1w")
         self.assertEqual(metrics_by_horizon["1h"]["display_accuracy"], 45.4)
 
 

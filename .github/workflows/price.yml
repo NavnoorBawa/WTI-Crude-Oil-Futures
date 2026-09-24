@@ -3,11 +3,16 @@ name: Refresh live price
 # Fetches the latest WTI front-month quote and writes price.json to the dedicated
 # live-data branch. The dashboard reads it through raw.githubusercontent.com, whose
 # CORS policy allows the Pages site to consume it directly. Keeping price ticks off
-# gh-pages prevents every 15-minute update from launching a full Pages deployment.
+# gh-pages prevents every update from launching a full Pages deployment.
+#
+# Cadence is best-effort: the schedule asks for every 15 minutes, but GitHub throttles
+# frequent schedules and in practice runs land every few hours. The published file
+# carries the quote's exchange timestamp (market_time), which the dashboard uses to show
+# how old the price really is.
 #
 # Quote/provider and transient GitHub API outages are best-effort: the previous good
-# file remains live and the run emits a warning. Authentication/configuration errors
-# still fail visibly.
+# file remains live and the run emits a warning — until the published quote is over a
+# day old, which fails the run. Authentication/configuration errors fail visibly.
 
 on:
   schedule:
@@ -25,7 +30,9 @@ concurrency:
 jobs:
   price:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    # Above the script's own retry budget (quote attempts plus bounded GitHub API retries),
+    # so a slow API ends in the script's intended warning, not a hard job kill.
+    timeout-minutes: 15
     steps:
       - name: Checkout updater
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

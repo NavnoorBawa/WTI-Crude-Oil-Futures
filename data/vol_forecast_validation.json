@@ -1,93 +1,213 @@
 {
   "overall": {
-    "n": 439,
-    "har_dir_acc_pct": 72.7,
-    "har_dir_p_value_vs_base_rate": 0.0,
-    "mean_reversion_dir_acc_pct": 65.1,
-    "majority_class_pct": 51.7,
-    "har_level_r2": 0.497,
-    "persistence_level_r2": 0.32,
-    "har_level_mae": 0.1195,
-    "persistence_level_mae": 0.1597,
-    "ex_2020_har_dir_acc_pct": 74.0,
-    "ex_2020_n": 389,
+    "n": 924,
+    "sample_start": "2008-05-07",
+    "sample_end": "2026-09-14",
+    "har_dir_acc_pct": 72.1,
+    "majority_class_pct": 51.8,
+    "har_dir_p_value_vs_base_rate": 2.8012103916587474e-36,
+    "har_dir_z_score": 12.31,
+    "har_dir_z_score_hac": 15.72,
+    "hac_lags": 6,
+    "mean_reversion_dir_acc_pct": 66.3,
+    "har_vs_mean_reversion_z_hac": 3.93,
+    "har_vs_mean_reversion_p_value": 4.3253249310870506e-05,
+    "har_level_r2": 0.457,
+    "persistence_level_r2": 0.193,
+    "har_level_mae": 0.105,
+    "persistence_level_mae": 0.1402,
+    "har_qlike": 0.417,
+    "persistence_qlike": 0.88,
+    "har_no_ovx_dir_acc_pct": 68.8,
+    "har_no_ovx_level_r2": 0.369,
+    "har_no_ovx_qlike": 0.516,
+    "ovx_gain_dir_z_hac": 2.71,
+    "leverage_variant_dir_acc_pct": 72.7,
+    "leverage_variant_level_r2": 0.456,
+    "leverage_variant_qlike": 0.419,
+    "leverage_gain_dir_z_hac": 1.41,
+    "ex_2020_har_dir_acc_pct": 72.0,
+    "ex_2020_n": 874,
+    "yearly_acc_min_pct": 64.0,
+    "yearly_acc_max_pct": 80.4,
+    "years_total": 19,
+    "years_above_base_rate": 19,
+    "years_beating_mean_reversion": 15,
     "model": "HAR-IV (RV5,RV22,RV66,OVX)"
   },
   "yearly": {
+    "2008": {
+      "n": 34,
+      "har_dir_acc_pct": 73.5,
+      "majority_class_pct": 55.9,
+      "mean_reversion_dir_acc_pct": 76.5,
+      "level_r2": 0.414
+    },
+    "2009": {
+      "n": 50,
+      "har_dir_acc_pct": 76.0,
+      "majority_class_pct": 52.0,
+      "mean_reversion_dir_acc_pct": 72.0,
+      "level_r2": 0.582
+    },
+    "2010": {
+      "n": 50,
+      "har_dir_acc_pct": 76.0,
+      "majority_class_pct": 54.0,
+      "mean_reversion_dir_acc_pct": 72.0,
+      "level_r2": 0.065
+    },
+    "2011": {
+      "n": 51,
+      "har_dir_acc_pct": 80.4,
+      "majority_class_pct": 54.9,
+      "mean_reversion_dir_acc_pct": 76.5,
+      "level_r2": -0.055
+    },
+    "2012": {
+      "n": 50,
+      "har_dir_acc_pct": 72.0,
+      "majority_class_pct": 52.0,
+      "mean_reversion_dir_acc_pct": 68.0,
+      "level_r2": -0.005
+    },
+    "2013": {
+      "n": 50,
+      "har_dir_acc_pct": 66.0,
+      "majority_class_pct": 54.0,
+      "mean_reversion_dir_acc_pct": 72.0,
+      "level_r2": -0.194
+    },
+    "2014": {
+      "n": 51,
+      "har_dir_acc_pct": 76.5,
+      "majority_class_pct": 52.9,
+      "mean_reversion_dir_acc_pct": 70.6,
+      "level_r2": 0.374
+    },
+    "2015": {
+      "n": 50,
+      "har_dir_acc_pct": 64.0,
+      "majority_class_pct": 52.0,
+      "mean_reversion_dir_acc_pct": 60.0,
+      "level_r2": 0.031
+    },
+    "2016": {
+      "n": 50,
+      "har_dir_acc_pct": 76.0,
+      "majority_class_pct": 50.0,
+      "mean_reversion_dir_acc_pct": 66.0,
+      "level_r2": 0.419
+    },
     "2017": {
-      "n": 14,
-      "har_dir_acc_pct": 78.6,
-      "mean_reversion_dir_acc_pct": 71.4,
-      "level_r2": -0.208
+      "n": 50,
+      "har_dir_acc_pct": 80.0,
+      "majority_class_pct": 58.0,
+      "mean_reversion_dir_acc_pct": 72.0,
+      "level_r2": 0.047
     },
     "2018": {
       "n": 50,
       "har_dir_acc_pct": 70.0,
-      "mean_reversion_dir_acc_pct": 70.0,
-      "level_r2": 0.26
+      "majority_class_pct": 52.0,
+      "mean_reversion_dir_acc_pct": 76.0,
+      "level_r2": 0.285
     },
     "2019": {
       "n": 51,
-      "har_dir_acc_pct": 68.6,
-      "mean_reversion_dir_acc_pct": 62.7,
-      "level_r2": 0.019
+      "har_dir_acc_pct": 70.6,
+      "majority_class_pct": 56.9,
+      "mean_reversion_dir_acc_pct": 58.8,
+      "level_r2": 0.04
     },
     "2020": {
       "n": 50,
-      "har_dir_acc_pct": 62.0,
-      "mean_reversion_dir_acc_pct": 62.0,
-      "level_r2": 0.448
+      "har_dir_acc_pct": 74.0,
+      "majority_class_pct": 52.0,
+      "mean_reversion_dir_acc_pct": 60.0,
+      "level_r2": 0.305
     },
     "2021": {
-      "n": 50,
-      "har_dir_acc_pct": 74.0,
-      "mean_reversion_dir_acc_pct": 60.0,
-      "level_r2": 0.063
+      "n": 51,
+      "har_dir_acc_pct": 68.6,
+      "majority_class_pct": 52.9,
+      "mean_reversion_dir_acc_pct": 56.9,
+      "level_r2": 0.093
     },
     "2022": {
-      "n": 51,
-      "har_dir_acc_pct": 80.4,
-      "mean_reversion_dir_acc_pct": 68.6,
-      "level_r2": 0.228
+      "n": 50,
+      "har_dir_acc_pct": 66.0,
+      "majority_class_pct": 52.0,
+      "mean_reversion_dir_acc_pct": 56.0,
+      "level_r2": 0.395
     },
     "2023": {
       "n": 50,
-      "har_dir_acc_pct": 74.0,
-      "mean_reversion_dir_acc_pct": 70.0,
-      "level_r2": 0.036
+      "har_dir_acc_pct": 72.0,
+      "majority_class_pct": 58.0,
+      "mean_reversion_dir_acc_pct": 58.0,
+      "level_r2": 0.178
     },
     "2024": {
       "n": 50,
-      "har_dir_acc_pct": 76.0,
-      "mean_reversion_dir_acc_pct": 62.0,
-      "level_r2": 0.375
+      "har_dir_acc_pct": 72.0,
+      "majority_class_pct": 52.0,
+      "mean_reversion_dir_acc_pct": 64.0,
+      "level_r2": 0.283
     },
     "2025": {
-      "n": 50,
-      "har_dir_acc_pct": 74.0,
-      "mean_reversion_dir_acc_pct": 64.0,
-      "level_r2": 0.058
+      "n": 51,
+      "har_dir_acc_pct": 64.7,
+      "majority_class_pct": 51.0,
+      "mean_reversion_dir_acc_pct": 66.7,
+      "level_r2": 0.159
     },
     "2026": {
-      "n": 23,
-      "har_dir_acc_pct": 73.9,
-      "mean_reversion_dir_acc_pct": 65.2,
-      "level_r2": 0.397
+      "n": 35,
+      "har_dir_acc_pct": 71.4,
+      "majority_class_pct": 51.4,
+      "mean_reversion_dir_acc_pct": 60.0,
+      "level_r2": 0.461
+    }
+  },
+  "economic": {
+    "vol_target_overlay": {
+      "n_weeks": 924,
+      "sharpe_buy_hold": 0.18,
+      "sharpe_trailing_vol_target": 0.04,
+      "sharpe_forecast_vol_target": 0.07,
+      "target_vol_pct": 35.0,
+      "leverage_cap": 2.0,
+      "cost_bps_per_turn": 5.0,
+      "method": "Weekly rebalanced long WTI (CL=F); position = min(cap, target vol / forecast vol). Trailing-vol sizing uses 22-day realized vol; costs on every unit of turnover."
+    },
+    "variance_risk_premium": {
+      "n_periods": 231,
+      "mean_premium_vol_pts": 2.4,
+      "share_positive_pct": 71.0,
+      "short_vol_swap_sharpe": 0.49,
+      "short_variance_sharpe": 0.0,
+      "worst_period_vol_pts": -173.2,
+      "timed_rich_mean_pnl": 0.013,
+      "timed_cheap_mean_pnl": -0.0042,
+      "timing_p_value": 0.32,
+      "method": "OVX vs realized vol over the next 20 trading days, non-overlapping. Short-vol proxies: vol swap = IV - RV; variance swap per unit vega = (IV^2 - RV^2) / (2 IV). Timing: rich = OVX minus the model's forecast above its trailing median."
     }
   },
   "live": {
-    "current_realized_vol_5d_annualized_pct": 55.8,
-    "forecast_next_week_vol_annualized_pct": 38.1,
-    "direction": "FALLING",
-    "implied_vol_ovx_pct": 51.5,
-    "as_of": "2026-06-19"
+    "current_realized_vol_5d_annualized_pct": 43.1,
+    "forecast_next_week_vol_annualized_pct": 43.9,
+    "direction": "RISING",
+    "implied_vol_ovx_pct": 53.2,
+    "model": "HAR-IV (RV5,RV22,RV66,OVX)",
+    "as_of": "2026-09-23"
   },
   "config": {
     "horizon_days": 5,
     "min_train": 250,
     "step": 5,
     "model": "HAR-IV (RV5,RV22,RV66,OVX)",
-    "period": "10y"
+    "period": "max"
   },
-  "generated_at": "2026-06-20T12:38:14.087355+00:00"
+  "generated_at": "2026-09-24T01:13:17.893095+00:00"
 }

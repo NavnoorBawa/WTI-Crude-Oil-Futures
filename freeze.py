@@ -54,22 +54,27 @@ def freeze(out_dir: Path) -> dict:
     if not data or data.get("error"):
         raise SystemExit(f"/data returned an error payload: {(data or {}).get('error')}")
 
-    # Stamp when this snapshot was frozen so the UI can show an honest "data as of" label.
+    # Stamp when this snapshot was frozen so the UI can show an honest "data as of" label, and say
+    # what it is: a periodic snapshot, not a live feed.
     frozen_at = datetime.now(timezone.utc).isoformat()
     data["frozen_at"] = frozen_at
+    data["feed_status"] = "SNAPSHOT"
 
     # Attach the validated volatility forecast (the project's real signal). Guarded so a vol-model
     # or data hiccup can never fail the deploy — the dashboard simply omits the card if absent.
+    # One download feeds both the live forecast and its validation, and the block is attached only
+    # once it is complete, so a failure can never publish a half-built card.
     try:
         from backend import vol_forecast
-        data["vol_forecast"] = {
-            "live": vol_forecast.live_forecast(),
-            "validation": vol_forecast.validate()["overall"],
-        }
-        print(f"   vol_forecast: next-week {data['vol_forecast']['live']['direction']} "
-              f"@ {data['vol_forecast']['live']['forecast_next_week_vol_annualized_pct']}% "
-              f"(OOS dir acc {data['vol_forecast']['validation']['har_dir_acc_pct']}%)", flush=True)
+        # /data already carries it when the server could build it; otherwise try once more here.
+        bundle = data.get("vol_forecast") or vol_forecast.forecast_bundle()
+        print(f"   vol_forecast: next-week {bundle['live']['direction']} "
+              f"@ {bundle['live']['forecast_next_week_vol_annualized_pct']}% "
+              f"(OOS dir acc {bundle['validation']['har_dir_acc_pct']}%, n={bundle['validation']['n']})",
+              flush=True)
+        data["vol_forecast"] = bundle
     except Exception as exc:  # pragma: no cover - never block the deploy on the vol add-on
+        data.pop("vol_forecast", None)
         print(
             "   vol_forecast unavailable "
             f"(error_type={type(exc).__name__}) — dashboard will omit the card",
@@ -81,18 +86,23 @@ def freeze(out_dir: Path) -> dict:
 
     # Bake a baseline price.json into the same output dir. Vite copies public/* into
     # dist/, so the dashboard always has a same-origin fallback with this freeze's
-    # price + timestamp. The 15-minute price workflow publishes fresher ticks on the
-    # separate live-data branch so those updates do not trigger Pages deployments.
+    # price + timestamp. The price workflow (scheduled every 15 minutes; GitHub runs it
+    # far less often in practice) publishes fresher quotes on the separate live-data
+    # branch so those updates do not trigger Pages deployments.
     price = data.get("current_price")
     if isinstance(price, (int, float)) and price > 0:
         pct = data.get("price_change_percent")
         change = data.get("price_change")
         prev_close = round(price - change, 2) if isinstance(change, (int, float)) else None
+        contract_block = data.get("contract") if isinstance(data.get("contract"), dict) else {}
         price_payload = {
             "price": round(float(price), 2),
             "prev_close": prev_close,
             "change_pct": round(float(pct), 2) if isinstance(pct, (int, float)) else None,
             "fetched_at": frozen_at,
+            # The exchange time of the quote itself; the UI keys freshness on this, not on when
+            # the job happened to run (a Saturday freeze still carries Friday's close).
+            "market_time": contract_block.get("market_time"),
             "source": "freeze snapshot (CL=F)",
         }
         (out_dir / "price.json").write_text(json.dumps(price_payload), encoding="utf-8")

@@ -10,7 +10,7 @@ import argparse
 import json
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
@@ -86,11 +86,12 @@ def compute_metrics(actuals, predictions, references):
     actual_direction = np.sign(y_true - y_ref)
 
     n = int(len(y_true))
-    dir_acc = float(np.mean(pred_direction == actual_direction) * 100.0)
-    n_correct = int(round(dir_acc / 100 * n))
+    n_correct = int(np.sum(pred_direction == actual_direction))
+    dir_acc = float(n_correct / n * 100.0)
 
-    # One-sided binomial p-value: H0 = direction accuracy = 50% (coin flip)
-    p_value = float(1.0 - binom.cdf(n_correct - 1, n, 0.5)) if n > 0 else 1.0
+    # One-sided binomial p-value: H0 = direction accuracy = 50% (coin flip). The survival
+    # function stays accurate in the far tail, where 1 - cdf rounds to exactly 0.
+    p_value = float(binom.sf(n_correct - 1, n, 0.5)) if n > 0 else 1.0
 
     # Wilson 95% confidence interval on direction accuracy
     z = 1.96
@@ -455,6 +456,10 @@ def main():
                         help="rolling training window in bars (0 = expanding, production uses ~378 for 18mo)")
     parser.add_argument("--horizons", default="1d,1w",
                         help="comma-separated horizons to evaluate (default: 1d,1w; use 1w to skip the dead 1d)")
+    parser.add_argument("--start", metavar="YYYY-MM-DD",
+                        help="first data date; with --end, pins the window so a run is reproducible "
+                             "(--period is relative to today)")
+    parser.add_argument("--end", metavar="YYYY-MM-DD", help="last data date (inclusive)")
     parser.add_argument("--output", default="data/walk_forward_backtest_latest.json", help="path to write JSON report")
     args = parser.parse_args()
 
@@ -462,7 +467,18 @@ def main():
     predictor.model_n_estimators = max(20, int(args.estimators))
     predictor.model_cpu_workers = max(1, int(predictor.model_cpu_workers))
 
-    wti_data = predictor.get_wti_historical_data(period=args.period, interval="1d")
+    pinned = bool(args.start or args.end)
+    wti_data = predictor.get_wti_historical_data(period="max" if pinned else args.period, interval="1d")
+    if pinned:
+        dates = wti_data.index.tz_localize(None) if wti_data.index.tz is not None else wti_data.index
+        keep = pd.Series(True, index=wti_data.index)
+        if args.start:
+            keep &= dates >= pd.Timestamp(args.start)
+        if args.end:
+            keep &= dates <= pd.Timestamp(args.end)
+        wti_data = wti_data[keep.to_numpy()].copy()
+        if wti_data.empty:
+            raise RuntimeError("No price history inside --start/--end")
 
     # Drop non-positive prices (e.g. the 2020-04-20 WTI negative settlement, -$37.63). That
     # print is a May-contract expiry artifact, not a tradeable level for a weekly continuous
@@ -506,9 +522,12 @@ def main():
         )
 
     report = {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "config": {
-            "period": args.period,
+            "period": args.period if not pinned else None,
+            # The exact data window, so any report can be re-run with --start/--end.
+            "data_start": str(wti_data.index[0].date()),
+            "data_end": str(wti_data.index[-1].date()),
             "min_train": int(args.min_train),
             "step": int(args.step),
             "estimators": int(args.estimators),

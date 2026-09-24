@@ -2,21 +2,27 @@
 """
 Git-auditable live track record for the 1W direction signal.
 
-Each CI run records at most one 1W call per UTC day (entry price + forecast) into
-data/live_track_record.json, and resolves any call that is at least 168 hours old
-against the current price. The workflow persists the mutable file on the dedicated
-live-data branch, so every entry and resolution remains timestamped by an auditable
-git commit without granting automation a path around main-branch protection. This
-is the evidence a backtest can never provide: the record only exists forward.
+Each CI run records at most one 1W call per CME trading session (entry price + forecast) into
+data/live_track_record.json, and resolves every call whose fifth trading session has arrived
+against the current price. The workflow persists the mutable file on the dedicated live-data
+branch, so every entry and resolution remains timestamped by an auditable git commit without
+granting automation a path around main-branch protection. This is the evidence a backtest can
+never provide: the record only exists forward.
 
-Resolution rules (conservative by construction):
-- A call is scored only if the front contract is unchanged between entry and
-  resolution; calls spanning a contract roll are marked skipped (roll basis would
-  contaminate the realized move).
-- Only directional calls (LONG/SHORT lean, |forecast| > 0.6%) count toward the hit
+Rules (conservative by construction; all dates are CME trading sessions, see contract_calendar):
+- Calls are recorded only while the market is open. A weekend or holiday run would otherwise
+  re-record the previous session's closing price as a "new" call (the pre-2026-09 record holds
+  several such duplicates).
+- A call resolves in the session exactly RESOLUTION_TRADING_DAYS after its entry session. If no
+  run lands in that session or the next one (GitHub schedules are best-effort), the call is marked
+  skipped_late rather than scored at an arbitrary later price.
+- A call is scored only if CL=F points at the same contract at entry and resolution. The check
+  uses the exchange calendar, not the payload's label: CL=F follows the expiring contract through
+  its last trade date, so a label-based check alone skipped clean calls and scored spliced ones.
+- Only directional calls (LONG/SHORT, |forecast| > 0.6%, significant model) count toward the hit
   rate. NEUTRAL is "no trade" and is recorded but never scored.
-- The resolution price is the frozen price of the first scheduled run >= 168 hours
-  later (normally within the workflow's four-hour cadence).
+- Daily calls with a 5-session horizon overlap, so the summary also reports the number of
+  NON-overlapping scored calls; that is the count the ">= 18 to validate" gate uses.
 
 Usage (CI, after freeze.py):
     python backend/live_record.py --data public/data.json
@@ -25,16 +31,20 @@ Usage (CI, after freeze.py):
 import argparse
 import json
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 
 try:
+    from .contract_calendar import business_days_between, market_is_open, spans_roll, trading_date
     from .safe_paths import data_json_path, public_json_path
 except ImportError:  # Direct invocation: python backend/live_record.py
+    from contract_calendar import business_days_between, market_is_open, spans_roll, trading_date
     from safe_paths import data_json_path, public_json_path
 
 RECORD_PATH = data_json_path("live_track_record.json")
-RESOLUTION_DAYS = 7
-CONVICTION_GATE_PCT = 0.6  # same gate as the dashboard stance
+RESOLUTION_TRADING_DAYS = 5
+MAX_LATE_SESSIONS = 1       # resolve in the target session or the next one, never later
+CONVICTION_GATE_PCT = 0.6   # same gate as the dashboard stance
+MIN_INDEPENDENT_TO_VALIDATE = 18
 # Every record currently in the repository was created after the corrected,
 # leakage-free backtest retracted the directional edge. Legacy records did not
 # store significance, so this cutoff keeps those audit rows but prevents them from
@@ -50,14 +60,18 @@ def _parse_utc(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def extract_call(data: dict) -> dict:
-    """Pull the current 1W call from a frozen data.json payload."""
-    pct = float(
-        data.get("multi_horizon_predictions", {})
-            .get("percentage_changes", {})
-            .get("1w", 0) or 0
-    )
-    h1w = data.get("performance_metrics", {}).get("by_horizon", {}).get("1w", {})
+def one_week_stance(data: dict) -> dict:
+    """The dashboard's 1W stance, shared by this recorder and signal_alert.py.
+
+    The gate compares the UNROUNDED forecast when the payload carries it: the display values are
+    rounded to one decimal, which silently moved the +-0.6% gate to about +-0.65%.
+    """
+    mh = data.get("multi_horizon_predictions") or {}
+    exact = (mh.get("percentage_changes_exact") or {}).get("1w")
+    shown = (mh.get("percentage_changes") or {}).get("1w")
+    raw = exact if isinstance(exact, (int, float)) else shown
+    pct = float(raw) if isinstance(raw, (int, float)) else 0.0
+    h1w = (data.get("performance_metrics") or {}).get("by_horizon", {}).get("1w", {})
     is_significant = h1w.get("wf_is_significant") is True
     if is_significant and pct > CONVICTION_GATE_PCT:
         stance = "LONG"
@@ -65,18 +79,25 @@ def extract_call(data: dict) -> dict:
         stance = "SHORT"
     else:
         stance = "NEUTRAL"
+    return {"pct": pct, "is_significant": is_significant, "stance": stance}
+
+
+def extract_call(data: dict) -> dict:
+    """Pull the current 1W call from a frozen data.json payload."""
+    signal = one_week_stance(data)
     contract = data.get("contract") or {}
-    entry_at = str(data.get("frozen_at") or datetime.now(timezone.utc).isoformat())
-    entry_at = _parse_utc(entry_at).isoformat()
+    entry_at = _parse_utc(str(data.get("frozen_at") or datetime.now(timezone.utc).isoformat()))
+    session = trading_date(entry_at).isoformat()
     return {
-        "date": entry_at[:10],
-        "entry_at": entry_at,
+        "date": session,
+        "trading_date": session,
+        "entry_at": entry_at.isoformat(),
         "contract": contract.get("symbol") if isinstance(contract, dict) else str(contract),
         "entry_price": float(data.get("current_price") or 0),
-        "forecast_pct": round(pct, 3),
-        "stance": stance,
-        "wf_is_significant": is_significant,
-        "eligible_for_validation": is_significant and stance in ("LONG", "SHORT"),
+        "forecast_pct": round(signal["pct"], 3),
+        "stance": signal["stance"],
+        "wf_is_significant": signal["is_significant"],
+        "eligible_for_validation": signal["is_significant"] and signal["stance"] in ("LONG", "SHORT"),
         "resolved": False,
     }
 
@@ -93,19 +114,36 @@ def load_record() -> dict:
     return {"calls": []}
 
 
-def resolve_calls(record: dict, today: str, current_symbol: str, current_price: float) -> None:
-    """Score every unresolved call that has reached the resolution horizon."""
-    resolution_at = _parse_utc(today)
+def _entry_session(call: dict) -> date:
+    if call.get("trading_date"):
+        return date.fromisoformat(call["trading_date"])
+    # Legacy rows stored only a UTC timestamp/date; map it to its CME session.
+    return trading_date(_parse_utc(call.get("entry_at") or call["date"]))
+
+
+def resolve_calls(record: dict, now: str, current_symbol: str, current_price: float) -> None:
+    """Score every unresolved call whose resolution session has arrived.
+
+    `now` is the moment of the current (frozen) price; the caller only resolves while the market
+    is open, so `current_price` belongs to the session `trading_date(now)`.
+    """
+    resolution_at = _parse_utc(now)
+    session = trading_date(resolution_at)
     for call in record["calls"]:
         if call.get("resolved"):
             continue
-        entry_at = _parse_utc(call.get("entry_at") or call["date"])
-        if resolution_at - entry_at < timedelta(days=RESOLUTION_DAYS):
+        entry_session = _entry_session(call)
+        elapsed = business_days_between(entry_session, session)
+        if elapsed < RESOLUTION_TRADING_DAYS:
             continue
         call["resolved"] = True
-        call["resolution_date"] = resolution_at.date().isoformat()
+        call["resolution_date"] = session.isoformat()
+        call["resolution_trading_date"] = session.isoformat()
         call["resolution_at"] = resolution_at.isoformat()
-        if call.get("contract") != current_symbol:
+        if elapsed > RESOLUTION_TRADING_DAYS + MAX_LATE_SESSIONS:
+            call["skipped_late"] = True
+            continue
+        if spans_roll(entry_session, session) or call.get("contract") != current_symbol:
             call["skipped_contract_roll"] = True
             continue
         entry = float(call.get("entry_price") or 0)
@@ -130,6 +168,24 @@ def _is_validation_eligible(call: dict) -> bool:
     return str(call.get("date", "")) < RETRACTION_EFFECTIVE_DATE
 
 
+def _count_non_overlapping(calls: list) -> int:
+    """Greedy count of scored calls whose entry-to-resolution windows do not overlap."""
+    windows = []
+    for c in calls:
+        try:
+            start = _entry_session(c)
+            end = date.fromisoformat(c.get("resolution_trading_date") or c["resolution_date"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        windows.append((start, end))
+    count, last_end = 0, None
+    for start, end in sorted(windows):
+        if last_end is None or start >= last_end:
+            count += 1
+            last_end = end
+    return count
+
+
 def summarize(record: dict) -> dict:
     calls = record["calls"]
     scored = [
@@ -141,10 +197,13 @@ def summarize(record: dict) -> dict:
     summary = {
         "n_calls": len(calls),
         "n_resolved_directional": len(scored),
+        "n_independent_directional": _count_non_overlapping(scored),
+        "min_independent_to_validate": MIN_INDEPENDENT_TO_VALIDATE,
         "n_hits": hits,
         "hit_rate_pct": round(hits / len(scored) * 100.0, 1) if scored else None,
         "n_pending": sum(1 for c in calls if not c.get("resolved")),
         "n_skipped_roll": sum(1 for c in calls if c.get("skipped_contract_roll")),
+        "n_skipped_late": sum(1 for c in calls if c.get("skipped_late")),
         "n_neutral": sum(1 for c in calls if c.get("stance") == "NEUTRAL"),
         "n_ineligible_directional": sum(
             1 for c in calls
@@ -174,14 +233,18 @@ def main():
     record = load_record()
     original_record = json.dumps(record, sort_keys=True)
 
-    resolve_calls(record, call["entry_at"], call["contract"], call["entry_price"])
-
-    if not any(c["date"] == call["date"] for c in record["calls"]):
-        record["calls"].append(call)
-        print(f"live_record: recorded {call['date']} {call['stance']} "
-              f"{call['forecast_pct']:+.2f}% @ ${call['entry_price']:.2f} ({call['contract']})")
+    if market_is_open(_parse_utc(call["entry_at"])):
+        resolve_calls(record, call["entry_at"], call["contract"], call["entry_price"])
+        if not any(c.get("trading_date", c["date"]) == call["trading_date"] for c in record["calls"]):
+            record["calls"].append(call)
+            print(f"live_record: recorded session {call['trading_date']} {call['stance']} "
+                  f"{call['forecast_pct']:+.2f}% @ ${call['entry_price']:.2f} ({call['contract']})")
+        else:
+            print(f"live_record: call for session {call['trading_date']} already recorded")
     else:
-        print(f"live_record: call for {call['date']} already recorded")
+        # The quote is the last close of a finished session; neither a new entry nor a
+        # resolution may be priced from it.
+        print("live_record: market closed — no call recorded or resolved this run")
 
     summary = summarize(record)
     record_changed = json.dumps(record, sort_keys=True) != original_record
@@ -197,7 +260,8 @@ def main():
     if payload.get("live_record") != summary:
         payload["live_record"] = summary
         data_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    print(f"live_record: {summary['n_resolved_directional']} resolved directional, "
+    print(f"live_record: {summary['n_resolved_directional']} resolved directional "
+          f"({summary['n_independent_directional']} non-overlapping), "
           f"hit rate {summary['hit_rate_pct']}%, {summary['n_pending']} pending, "
           f"{summary['n_neutral']} neutral")
 

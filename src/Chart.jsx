@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   AreaSeries,
   ColorType,
@@ -6,440 +6,303 @@ import {
   CrosshairMode,
   LineSeries,
   LineStyle,
+  TickMarkType,
 } from "lightweight-charts";
+import { DASH, fmtNum, fmtSigned, fmtSignedPct, fmtUsd, num, signClass, toMs } from "./format";
 
 // RETRACTED 2026-06-20: the 1W "edge" (Sharpe 2.44, 65.8% acc) was a look-ahead leak in the
 // walk-forward (5-day targets maturing after the prediction point, no purge). Purged = coin flip
-// (48-52%, p>0.2). 1D/1H never worked. Chart kept as engineering; no tradeable signal is claimed.
-const FORECAST_HORIZONS = ["1W"];
+// (48-52%, p>0.2). 1D/1H never worked. So the model's output is hidden by default and, when the
+// reader asks for it, drawn gray and dashed as "retracted model output" — never as a forecast.
 
-const HORIZON_META = {
-  "1W": { key: "1w", color: "#5cb0d6", softFill: "rgba(92, 176, 214, 0.16)", lens: "1W Walk-Forward" },
+const MONO_STACK = 'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace';
+
+// One colour per series; the footer legend reads this table so its swatches always match the lines.
+const SERIES_COLORS = {
+  actual: "#d4d7dd",
+  model: "#5cb0d6",            // only if a future purged backtest ever re-validates the signal
+  retracted: "#9aa3b2",
+  band: "rgba(154, 163, 178, 0.55)",
+  pastOutput: "#7d8590",
 };
 
+const HOUR = 60 * 60;
+const DAY = 24 * HOUR;
+
+// Multi-month views plot one bar per session: on an index-based time axis, ~2,500 daily bars
+// mixed with ~500 hourly ones would stretch the last month over a fifth of the width.
 const RANGE_PRESETS = {
-  "8H": { lookbackSec: 8 * 60 * 60, rightPaddingSec: 90 * 60, barSpacing: 18 },
-  "1D": { lookbackSec: 24 * 60 * 60, rightPaddingSec: 4 * 60 * 60, barSpacing: 12 },
-  "1W": { lookbackSec: 7 * 24 * 60 * 60, rightPaddingSec: 18 * 60 * 60, barSpacing: 9 },
-  "1M": { lookbackSec: 30 * 24 * 60 * 60, rightPaddingSec: 36 * 60 * 60, barSpacing: 6 },
-  ALL: { lookbackSec: null, rightPaddingSec: null, barSpacing: 5 },
+  "8H": { lookbackSec: 8 * HOUR, cadence: "intraday", label: "last 8 hours" },
+  "1D": { lookbackSec: DAY, cadence: "intraday", label: "last day" },
+  "1W": { lookbackSec: 7 * DAY, cadence: "intraday", label: "last week" },
+  "1M": { lookbackSec: 30 * DAY, cadence: "intraday", label: "last month" },
+  "1Y": { lookbackSec: 365 * DAY, cadence: "daily", label: "last year, daily closes" },
+  ALL: { lookbackSec: null, cadence: "daily", label: "full history, daily closes" },
 };
-
-const HISTORICAL_MIN_SPACING_SEC = {
-  "1H": 20 * 60,
-  "1D": 6 * 60 * 60,
-  "1W": 24 * 60 * 60,
-};
-
-const HISTORICAL_GAP_BREAK_SEC = {
-  "1H": 8 * 60 * 60,
-  "1D": 3 * 24 * 60 * 60,
-  "1W": 14 * 24 * 60 * 60,
-};
-
-const HISTORY_BRIDGE_MAX_GAP_SEC = {
-  "1H": 3 * 60 * 60,
-  "1D": 36 * 60 * 60,
-  "1W": 10 * 24 * 60 * 60,
-};
-
 const DEFAULT_RANGE = "ALL";
-
-const toNum = (value) => {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : null;
-};
-
-const toUnixSeconds = (value) => {
-  if (!value) return null;
-  const dateValue = new Date(value);
-  const timestamp = dateValue.getTime();
-  return Number.isFinite(timestamp) ? Math.floor(timestamp / 1000) : null;
-};
+const DAILY_BAR_MIN_GAP_SEC = 20 * HOUR;   // a bar this far from both neighbours is a daily bar
+const PAST_OUTPUT_MIN_SPACING_SEC = DAY;
+const PAST_OUTPUT_GAP_BREAK_SEC = 14 * DAY;
 
 const round2 = (value) => Number(Number(value).toFixed(2));
 
-const formatSignedPercent = (value) => {
-  if (!Number.isFinite(value)) return "--";
-  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+// lightweight-charts renders timestamps in UTC. Shifting each one by Chicago's offset at that
+// instant makes the axis, crosshair and legend read CME wall-clock time (CT), DST included.
+const ctWallParts = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Chicago",
+  hourCycle: "h23",
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  minute: "numeric",
+});
+const ctOffsetCache = new Map();
+const ctOffsetSec = (unixSec) => {
+  const hourStart = Math.floor(unixSec / HOUR) * HOUR; // Chicago's offset only changes on the hour
+  if (!ctOffsetCache.has(hourStart)) {
+    const parts = {};
+    ctWallParts.formatToParts(new Date(hourStart * 1000)).forEach(({ type, value }) => {
+      parts[type] = Number(value);
+    });
+    const wall = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour % 24, parts.minute) / 1000;
+    ctOffsetCache.set(hourStart, wall - hourStart);
+  }
+  return ctOffsetCache.get(hourStart);
+};
+const toWall = (unixSec) => unixSec + ctOffsetSec(unixSec);
+
+// CME Globex sessions open at 17:00 CT, so from 17:00 a print belongs to the NEXT trading day.
+const sessionDay = (wallSec) => Math.floor((wallSec + 7 * HOUR) / DAY);
+const sessionClose = (day) => day * DAY + 16 * HOUR;
+
+const isTradingSlot = (wallSec, cadence) => {
+  const date = new Date(wallSec * 1000);
+  const weekday = date.getUTCDay();
+  if (cadence === "daily") return weekday >= 1 && weekday <= 5;
+  const hour = date.getUTCHours();
+  if (weekday === 6) return false;       // Saturday: closed
+  if (weekday === 0) return hour >= 17;  // Sunday evening reopen
+  if (weekday === 5) return hour < 16;   // Friday close
+  return hour !== 16;                    // daily maintenance break
 };
 
+const wallFormat = (options) => new Intl.DateTimeFormat("en-US", { timeZone: "UTC", ...options });
+const WALL_DAY = wallFormat({ weekday: "short", month: "short", day: "numeric", year: "numeric" });
+const WALL_TIME = wallFormat({ month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+const WALL_CLOCK = wallFormat({ hour: "numeric", minute: "2-digit" });
+const WALL_MONTH = wallFormat({ month: "short" });
 
-const formatSignedPrice = (value) => {
-  if (!Number.isFinite(value)) return "--";
-  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}`;
+const formatWallTime = (wallSec, cadence) => {
+  if (!Number.isFinite(wallSec)) return DASH;
+  return cadence === "daily"
+    ? WALL_DAY.format(wallSec * 1000)
+    : `${WALL_TIME.format(wallSec * 1000)} CT`;
 };
 
-const formatCurrency = (value) => {
-  if (!Number.isFinite(value)) return "--";
-  return `$${Number(value).toFixed(2)}`;
+const tickMarkFormatter = (time, tickMarkType) => {
+  const date = new Date(Number(time) * 1000);
+  if (tickMarkType === TickMarkType.Year) return String(date.getUTCFullYear());
+  if (tickMarkType === TickMarkType.Month) return WALL_MONTH.format(date);
+  if (tickMarkType === TickMarkType.DayOfMonth) return String(date.getUTCDate());
+  return WALL_CLOCK.format(date);
 };
 
 const formatCompactVolume = (value) => {
-  if (!Number.isFinite(value) || value <= 0) return "--";
+  if (!Number.isFinite(value) || value <= 0) return DASH;
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
   return `${Math.round(value)}`;
 };
 
-const formatLegendTime = (time) => {
-  if (!Number.isFinite(time)) return "--";
-  return new Date(time * 1000).toLocaleString("en-US", {
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-};
+const buildActualPoints = (actualPayload, fallbackValues) => {
+  const values = Array.isArray(actualPayload?.values)
+    ? actualPayload.values
+    : (Array.isArray(fallbackValues) ? fallbackValues : []);
+  const timestamps = Array.isArray(actualPayload?.timestamps) ? actualPayload.timestamps : [];
+  const volumes = Array.isArray(actualPayload?.volumes) ? actualPayload.volumes : [];
 
-
-const rgba = (hex, alpha) => {
-  const clean = hex.replace("#", "");
-  const value = clean.length === 3
-    ? clean.split("").map((char) => char + char).join("")
-    : clean;
-  const red = parseInt(value.slice(0, 2), 16);
-  const green = parseInt(value.slice(2, 4), 16);
-  const blue = parseInt(value.slice(4, 6), 16);
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
-};
-
-const uniqueSeriesPoints = (points) => {
   const deduped = new Map();
-  (points || []).forEach((point) => {
-    if (!Number.isFinite(point?.time) || !Number.isFinite(point?.value)) return;
-    deduped.set(point.time, point);
+  values.forEach((value, index) => {
+    const ms = toMs(timestamps[index]);
+    const price = num(value);
+    if (ms == null || price == null || price <= 0) return;
+    const time = Math.floor(ms / 1000);
+    deduped.set(time, { time, value: round2(price), volume: Math.max(0, Math.round(num(volumes[index]) || 0)) });
   });
   return [...deduped.values()].sort((a, b) => a.time - b.time);
 };
 
-const buildActualPoints = (actualPayload, actualArray) => {
-  const actualValues = Array.isArray(actualPayload?.values) ? actualPayload.values : actualArray;
-  const actualTimestamps = Array.isArray(actualPayload?.timestamps) ? actualPayload.timestamps : [];
-  const actualVolumes = Array.isArray(actualPayload?.volumes) ? actualPayload.volumes : [];
-
-  const points = actualValues
-    .map((value, index) => {
-      const time = toUnixSeconds(actualTimestamps[index]);
-      const price = toNum(value);
-      const volume = toNum(actualVolumes[index]) || 0;
-      if (!Number.isFinite(time) || !Number.isFinite(price) || price <= 0) {
-        return null;
-      }
-      return {
-        time,
-        value: round2(price),
-        volume: Math.max(0, Math.round(volume)),
-      };
-    })
-    .filter(Boolean)
-    .sort((a, b) => a.time - b.time);
-
-  const deduped = new Map();
-  points.forEach((point) => deduped.set(point.time, point));
-  return [...deduped.values()].sort((a, b) => a.time - b.time);
+// Two views of the same prices, both in CT wall time. Intraday keeps the hourly bars (older daily
+// bars move to their session's 16:00 CT close); daily keeps the latest print of every session.
+const buildPriceViews = (points) => {
+  const intraday = new Map();
+  const daily = new Map();
+  points.forEach((point, index) => {
+    const wall = toWall(point.time);
+    const close = sessionClose(sessionDay(wall));
+    const previous = points[index - 1];
+    const next = points[index + 1];
+    const isDailyBar = (!previous || point.time - previous.time >= DAILY_BAR_MIN_GAP_SEC)
+      && (!next || next.time - point.time >= DAILY_BAR_MIN_GAP_SEC);
+    const intradayTime = isDailyBar ? close : wall;
+    intraday.set(intradayTime, { ...point, time: intradayTime });
+    const bar = daily.get(close);
+    daily.set(close, { ...point, time: close, volume: (bar?.volume || 0) + point.volume });
+  });
+  const sorted = (map) => [...map.values()].sort((a, b) => a.time - b.time);
+  return { intraday: sorted(intraday), daily: sorted(daily) };
 };
 
-const buildHistoricalPredictionModel = (predictedPayload, activeHorizon) => {
-  const horizonKey = HORIZON_META[activeHorizon]?.key || "1h";
-  const issuedByHorizon = predictedPayload?.issued_by_horizon?.[horizonKey];
-  const byHorizon = predictedPayload?.historical_by_horizon?.[horizonKey];
-  const fallbackPayload = predictedPayload?.historical || {};
-  const source = (Array.isArray(issuedByHorizon?.values) && issuedByHorizon.values.length > 0)
-    ? issuedByHorizon
-    : (byHorizon || fallbackPayload);
-
+// Past 1W outputs whose target date has already passed (the current output is the projection).
+const buildPastOutputs = (predictedPayload, lastRealTime) => {
+  const issued = predictedPayload?.issued_by_horizon?.["1w"];
+  const source = Array.isArray(issued?.values) && issued.values.length > 0
+    ? issued
+    : (predictedPayload?.historical_by_horizon?.["1w"] || predictedPayload?.historical || {});
   const values = Array.isArray(source?.values) ? source.values : [];
-  const targetTimestamps = Array.isArray(source?.target_timestamps) && source.target_timestamps.length > 0
+  const targets = Array.isArray(source?.target_timestamps) && source.target_timestamps.length > 0
     ? source.target_timestamps
     : (Array.isArray(source?.timestamps) ? source.timestamps : []);
-  const issueTimestamps = Array.isArray(source?.issue_timestamps) ? source.issue_timestamps : [];
-  const minSpacingSec = HISTORICAL_MIN_SPACING_SEC[activeHorizon] || 0;
-  const gapBreakSec = HISTORICAL_GAP_BREAK_SEC[activeHorizon] || Number.POSITIVE_INFINITY;
+  const issues = Array.isArray(source?.issue_timestamps) ? source.issue_timestamps : [];
 
-  const rawPoints = values
+  const points = values
     .map((value, index) => {
-      const time = toUnixSeconds(targetTimestamps[index]);
-      const numeric = toNum(value);
-      const issueTime = toUnixSeconds(issueTimestamps[index]);
-      if (!Number.isFinite(time) || !Number.isFinite(numeric) || numeric <= 0) {
-        return null;
-      }
-      return {
-        time,
-        value: round2(numeric),
-        issueTime: Number.isFinite(issueTime) ? issueTime : time,
-      };
+      const ms = toMs(targets[index]);
+      const price = num(value);
+      if (ms == null || price == null || price <= 0) return null;
+      const time = Math.floor(ms / 1000);
+      return { time, value: round2(price), issueTime: Math.floor((toMs(issues[index]) ?? ms) / 1000) };
     })
-    .filter(Boolean)
+    .filter((point) => point && point.time <= lastRealTime)
     .sort((a, b) => (a.time - b.time) || (a.issueTime - b.issueTime));
 
-  const collapsedPoints = [];
-  rawPoints.forEach((point) => {
-    const previous = collapsedPoints[collapsedPoints.length - 1];
-    if (previous && (point.time - previous.time) <= minSpacingSec) {
-      collapsedPoints[collapsedPoints.length - 1] = point.issueTime >= previous.issueTime ? point : previous;
+  const collapsed = [];
+  points.forEach((point) => {
+    const previous = collapsed[collapsed.length - 1];
+    if (previous && point.time - previous.time <= PAST_OUTPUT_MIN_SPACING_SEC) {
+      collapsed[collapsed.length - 1] = point.issueTime >= previous.issueTime ? point : previous;
       return;
     }
-    collapsedPoints.push(point);
+    collapsed.push(point);
   });
+  return collapsed;
+};
 
-  const points = collapsedPoints.map(({ time, value }) => ({ time, value }));
+const mapPastOutputs = (points, cadence) => {
+  const mapped = new Map();
+  points.forEach(({ time, value }) => {
+    const wall = toWall(time);
+    const slot = cadence === "daily" ? sessionClose(sessionDay(wall)) : wall;
+    mapped.set(slot, { time: slot, value, realTime: time });
+  });
+  const sorted = [...mapped.values()].sort((a, b) => a.time - b.time);
+  // Break the line across long gaps instead of drawing a straight segment through them.
   const seriesData = [];
-  points.forEach((point, index) => {
-    seriesData.push(point);
-    const nextPoint = points[index + 1];
-    if (!nextPoint) return;
-
-    const gapSeconds = nextPoint.time - point.time;
-    if (gapSeconds <= gapBreakSec) return;
-
-    const whitespaceTime = Math.max(
-      point.time + 1,
-      Math.min(nextPoint.time - 1, point.time + Math.floor(gapSeconds / 2))
-    );
-    if (whitespaceTime > point.time && whitespaceTime < nextPoint.time) {
-      seriesData.push({ time: whitespaceTime });
+  sorted.forEach((point, index) => {
+    seriesData.push({ time: point.time, value: point.value });
+    const next = sorted[index + 1];
+    if (next && next.realTime - point.realTime > PAST_OUTPUT_GAP_BREAK_SEC && next.time - point.time > 2) {
+      seriesData.push({ time: point.time + Math.floor((next.time - point.time) / 2) });
     }
   });
+  return seriesData;
+};
 
+// Straight line from the last price to the model's 1W output, sampled at the data's own cadence
+// (trading days or trading hours) so a week ahead spans a week of bars and the slope is honest.
+const buildProjection = (anchor, forecast, cadence) => {
+  if (!anchor || !forecast) return null;
+  const snap = (wallSec) => (cadence === "daily" ? sessionClose(sessionDay(wallSec)) : wallSec);
+  let end = forecast.timeSec != null ? snap(toWall(forecast.timeSec)) : null;
+  if (end == null || end <= anchor.time) end = snap(anchor.time + 7 * DAY);
+
+  const step = cadence === "daily" ? DAY : HOUR;
+  const slots = [];
+  let slot = cadence === "daily" ? anchor.time + DAY : (Math.floor(anchor.time / HOUR) + 1) * HOUR;
+  for (; slot < end && slots.length < 400; slot += step) {
+    if (isTradingSlot(slot, cadence)) slots.push(slot);
+  }
+  slots.push(Math.max(end, (slots[slots.length - 1] ?? anchor.time) + 1));
+
+  const path = (target) => {
+    const value = num(target);
+    if (value == null || value <= 0) return [];
+    return [
+      { time: anchor.time, value: anchor.value },
+      ...slots.map((time, index) => ({
+        time,
+        value: round2(anchor.value + ((value - anchor.value) * (index + 1)) / slots.length),
+      })),
+    ];
+  };
   return {
-    points,
-    seriesData,
+    path: path(forecast.value),
+    upper: path(forecast.upper),
+    lower: path(forecast.lower),
+    end: slots[slots.length - 1],
   };
 };
 
-const buildForecastMap = (futurePayload, multiHorizonPredictions, latestTime, latestClose) => {
-  const map = {};
-  const futureValues = Array.isArray(futurePayload?.values) ? futurePayload.values : [];
-  const futureTimestamps = Array.isArray(futurePayload?.timestamps) ? futurePayload.timestamps : [];
-  const futureUpper = Array.isArray(futurePayload?.upper_bound) ? futurePayload.upper_bound : [];
-  const futureLower = Array.isArray(futurePayload?.lower_bound) ? futurePayload.lower_bound : [];
-  const futureByHorizon = futurePayload?.by_horizon || {};
-
-  for (let index = 0; index < FORECAST_HORIZONS.length; index += 1) {
-    const horizon = FORECAST_HORIZONS[index];
-    const meta = HORIZON_META[horizon];
-    const keyedFuture = futureByHorizon?.[meta.key];
-    if (keyedFuture) {
-      const keyedTime = toUnixSeconds(keyedFuture.timestamp);
-      const keyedValue = toNum(keyedFuture.value);
-      if (Number.isFinite(keyedTime) && Number.isFinite(keyedValue) && keyedValue > 0) {
-        map[horizon] = {
-          time: keyedTime,
-          value: round2(keyedValue),
-          upper: toNum(keyedFuture.upper),
-          lower: toNum(keyedFuture.lower),
-        };
-        continue;
-      }
-    }
-
-    const time = toUnixSeconds(futureTimestamps[index]);
-    const value = toNum(futureValues[index]);
-    if (Number.isFinite(time) && Number.isFinite(value) && value > 0) {
-      map[horizon] = {
-        time,
-        value: round2(value),
-        upper: toNum(futureUpper[index]),
-        lower: toNum(futureLower[index]),
-      };
-    }
-  }
-
-  FORECAST_HORIZONS.forEach((horizon) => {
-    if (map[horizon]) return;
-    const meta = HORIZON_META[horizon];
-    const predictedValue = toNum(multiHorizonPredictions?.predictions?.[meta.key]);
-    if (!Number.isFinite(predictedValue) || predictedValue <= 0) return;
-
-    map[horizon] = {
-      time: latestTime + (
-        horizon === "1H" ? 60 * 60 :
-        horizon === "1D" ? 24 * 60 * 60 :
-        7 * 24 * 60 * 60
-      ),
-      value: round2(predictedValue),
-      upper: toNum(multiHorizonPredictions?.prediction_intervals?.[meta.key]?.upper),
-      lower: toNum(multiHorizonPredictions?.prediction_intervals?.[meta.key]?.lower),
-    };
-  });
-
-  FORECAST_HORIZONS.forEach((horizon) => {
-    if (!map[horizon]) return;
-    const minimumFutureTime = latestTime + (
-      horizon === "1H" ? 60 * 60 :
-      horizon === "1D" ? 24 * 60 * 60 :
-      7 * 24 * 60 * 60
-    );
-    if (!Number.isFinite(map[horizon].time) || map[horizon].time <= latestTime) {
-      map[horizon].time = minimumFutureTime;
-    }
-    map[horizon].changePct = Number.isFinite(latestClose) && latestClose > 0
-      ? ((map[horizon].value - latestClose) / latestClose) * 100
-      : null;
-  });
-
-  return map;
-};
-
-const buildProjectionPath = (lastActual, forecast) => {
-  if (!lastActual || !forecast) return [];
-
-  const forecastTime = Math.max(lastActual.time + 60, forecast.time);
-  const totalTime = Math.max(60, forecastTime - lastActual.time);
-  const delta = forecast.value - lastActual.value;
-  const mid1Time = Math.max(lastActual.time + 1, lastActual.time + Math.round(totalTime * 0.28));
-  const mid2Time = Math.max(mid1Time + 1, lastActual.time + Math.round(totalTime * 0.62));
-  const endTime = Math.max(mid2Time + 1, forecastTime);
-
-  return uniqueSeriesPoints([
-    { time: lastActual.time, value: lastActual.value },
-    {
-      time: mid1Time,
-      value: round2(lastActual.value + delta * 0.18),
-    },
-    {
-      time: mid2Time,
-      value: round2(lastActual.value + delta * 0.58),
-    },
-    { time: endTime, value: forecast.value },
-  ]);
-};
-
-const buildPredictionBridge = (historicalPredictions, projectionPoints, lastActual, activeHorizon) => {
-  const bridge = [];
-  const tail = historicalPredictions.length > 0 ? historicalPredictions[historicalPredictions.length - 1] : null;
-  const maxGapSec = HISTORY_BRIDGE_MAX_GAP_SEC[activeHorizon] || 0;
-
-  if (
-    tail
-    && lastActual
-    && tail.time < lastActual.time
-    && (lastActual.time - tail.time) <= maxGapSec
-  ) {
-    bridge.push(tail, { time: lastActual.time, value: lastActual.value });
-  }
-
-  return uniqueSeriesPoints([...bridge, ...projectionPoints]);
-};
-
-const buildScenarioPath = (lastActual, forecastTime, scenarioValue) => {
-  if (!lastActual || !Number.isFinite(forecastTime) || !Number.isFinite(scenarioValue)) return [];
-  return buildProjectionPath(lastActual, {
-    time: forecastTime,
-    value: round2(scenarioValue),
-  });
-};
-
-
-export default function Chart({
-  actualArray = [],
-  unifiedData = null,
-  multiHorizonPredictions = null,
-  currentPrice = 0,
-  contractInfo = null,
-  priceChange = 0,
-  priceChangePercent = 0,
-  livePrice = null,
-  livePriceChange = null,
-  livePricePct = null,
-  feedStatus = "UNKNOWN",
+function Chart({
+  actualPayload = null,
+  fallbackValues = null,
+  predictedPayload = null,
+  snapshotPrice = null,
+  contract = null,
+  feedLabel = "",
+  quote = null,
+  forecast = null,
+  forecastRetracted = true,
+  showForecast = false,
+  onToggleForecast = null,
 }) {
-  const chartHostRef = useRef(null);
+  const hostRef = useRef(null);
+  const chartRef = useRef(null);
   const [selectedRange, setSelectedRange] = useState(DEFAULT_RANGE);
-  const [legendSnapshot, setLegendSnapshot] = useState(null);
-  const resolvedActiveHorizon = "1W"; // hard-locked: only validated horizon
+  const [hovered, setHovered] = useState(null);
+  const cadence = RANGE_PRESETS[selectedRange].cadence;
+  const showModel = Boolean(showForecast && forecast);
 
-  const chartModel = useMemo(() => {
-    const actualPayload = unifiedData?.actual || {};
-    const predictedPayload = unifiedData?.predicted || {};
-    const futurePayload = predictedPayload?.future || {};
+  const model = useMemo(() => {
+    const points = buildActualPoints(actualPayload, fallbackValues);
+    const snapshot = num(snapshotPrice);
+    const resolved = points.length > 0
+      ? points
+      : (snapshot > 0 ? [{ time: Math.floor(Date.now() / 1000), value: round2(snapshot), volume: 0 }] : []);
+    if (resolved.length === 0) return null;
 
-    const actualPoints = buildActualPoints(actualPayload, actualArray);
-    const lastActual = actualPoints.length > 0
-      ? actualPoints[actualPoints.length - 1]
-      : (Number.isFinite(Number(currentPrice)) && Number(currentPrice) > 0
-        ? { time: Math.floor(Date.now() / 1000), value: round2(Number(currentPrice)), volume: 0 }
-        : null);
-    const resolvedActualPoints = actualPoints.length > 0 || !lastActual
-      ? actualPoints
-      : [lastActual];
-
-    const historicalPredictionModel = buildHistoricalPredictionModel(predictedPayload, resolvedActiveHorizon);
-    const historicalPredictionPoints = historicalPredictionModel.points;
-    const forecasts = buildForecastMap(
-      futurePayload,
-      multiHorizonPredictions,
-      lastActual?.time || Math.floor(Date.now() / 1000),
-      lastActual?.value || toNum(currentPrice) || 0
-    );
-
-    const activeForecast = forecasts[resolvedActiveHorizon] || null;
-    const projectionPoints = buildProjectionPath(lastActual, activeForecast);
-    const predictionBridge = buildPredictionBridge(historicalPredictionPoints, projectionPoints, lastActual, resolvedActiveHorizon);
-    const upperScenarioPoints = buildScenarioPath(lastActual, activeForecast?.time, activeForecast?.upper);
-    const lowerScenarioPoints = buildScenarioPath(lastActual, activeForecast?.time, activeForecast?.lower);
-
-    return {
-      actualPoints: resolvedActualPoints,
-      lastActual,
-      historicalPredictionPoints,
-      historicalPredictionSeriesData: historicalPredictionModel.seriesData,
-      forecasts,
-      activeForecast,
-      projectionPoints,
-      predictionBridge,
-      upperScenarioPoints,
-      lowerScenarioPoints,
+    const views = buildPriceViews(resolved);
+    const pastOutputs = buildPastOutputs(predictedPayload, resolved[resolved.length - 1].time);
+    const build = (cadenceKey) => {
+      const prices = views[cadenceKey];
+      const anchor = prices[prices.length - 1];
+      const projection = buildProjection(anchor, forecast, cadenceKey);
+      const lookup = new Map(prices.map((point) => [point.time, { kind: "price", ...point }]));
+      (projection?.path || []).slice(1).forEach((point) => {
+        if (!lookup.has(point.time)) lookup.set(point.time, { kind: "model", ...point });
+      });
+      return { prices, anchor, projection, past: mapPastOutputs(pastOutputs, cadenceKey), lookup };
     };
-  }, [actualArray, currentPrice, multiHorizonPredictions, resolvedActiveHorizon, unifiedData]);
+    return { daily: build("daily"), intraday: build("intraday") };
+  }, [actualPayload, fallbackValues, predictedPayload, snapshotPrice, forecast]);
 
-  const displaySpotPrice = Number.isFinite(Number(currentPrice)) && Number(currentPrice) > 0
-    ? Number(currentPrice)
-    : (chartModel.lastActual?.value ?? 0);
+  const hasData = model != null;
 
-  // The big toolbar readout prefers the same-origin live quote when present (matching the
-  // trading-chart convention: the headline price is live while the plotted candles are
-  // history). The chart series/price-line stay anchored to the frozen actuals below.
-  const hasLivePrice = Number.isFinite(Number(livePrice)) && Number(livePrice) > 0;
-  const toolbarPrice = hasLivePrice ? Number(livePrice) : displaySpotPrice;
-  // Change follows the SAME source as the price: with a live price, use the live change
-  // or null (renders "--" via formatSigned*) — never the frozen day's change, which is
-  // computed against a different reference and would not match the live price shown.
-  const toolbarChange = hasLivePrice
-    ? (livePriceChange != null ? Number(livePriceChange) : null)
-    : (Number(priceChange) || 0);
-  const toolbarChangePct = hasLivePrice
-    ? (livePricePct != null ? Number(livePricePct) : null)
-    : (Number(priceChangePercent) || 0);
-
+  // One chart instance for the component's lifetime: range clicks and data refreshes update the
+  // series in place instead of tearing the canvas down.
   useEffect(() => {
-    if (!chartModel.lastActual) {
-      setLegendSnapshot(null);
-      return;
-    }
-    setLegendSnapshot({
-      time: chartModel.lastActual.time,
-      price: chartModel.lastActual.value,
-      volume: chartModel.lastActual.volume || 0,
-    });
-  }, [chartModel.lastActual]);
+    const host = hostRef.current;
+    if (!hasData || !host) return undefined;
 
-  useEffect(() => {
-    const host = chartHostRef.current;
-    if (!host || !chartModel.lastActual || chartModel.actualPoints.length === 0) return undefined;
-
-    const activeMeta = HORIZON_META[resolvedActiveHorizon];
     const chart = createChart(host, {
       width: host.clientWidth || 800,
-      height: host.clientHeight || 540,
+      height: host.clientHeight || 420,
       attributionLogo: true,
       layout: {
         background: { type: ColorType.Solid, color: "#000000" },
-        textColor: "#7d8088",
-        fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+        textColor: "#8b949e",
+        fontFamily: MONO_STACK,
       },
       grid: {
         vertLines: { color: "rgba(255,255,255,0.035)" },
@@ -447,190 +310,69 @@ export default function Chart({
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: {
-          color: "rgba(255,255,255,0.16)",
-          labelBackgroundColor: "#26262c",
-          width: 1,
-        },
-        horzLine: {
-          color: "rgba(255,255,255,0.16)",
-          labelBackgroundColor: "#26262c",
-          width: 1,
-        },
+        vertLine: { color: "rgba(255,255,255,0.16)", labelBackgroundColor: "#26262c", width: 1 },
+        horzLine: { color: "rgba(255,255,255,0.16)", labelBackgroundColor: "#26262c", width: 1 },
       },
       rightPriceScale: {
         borderColor: "rgba(255,255,255,0.08)",
-        scaleMargins: {
-          top: 0.08,
-          bottom: 0.06,
-        },
+        scaleMargins: { top: 0.14, bottom: 0.06 },
       },
       timeScale: {
         borderColor: "rgba(255,255,255,0.08)",
-        timeVisible: true,
+        timeVisible: false,
         secondsVisible: false,
-        barSpacing: RANGE_PRESETS[selectedRange].barSpacing,
-        minBarSpacing: 0.5,
-        rightOffset: 8,
+        rightOffset: 4,
+        minBarSpacing: 0.05, // lets the full daily history fit a 320px phone
+        fixLeftEdge: true,
+        tickMarkFormatter,
       },
       localization: {
         priceFormatter: (price) => `$${Number(price).toFixed(2)}`,
+        timeFormatter: (time) => formatWallTime(Number(time), "daily"),
       },
-      handleScroll: {
-        mouseWheel: true,
-        pressedMouseMove: true,
-        horzTouchDrag: true,
-        vertTouchDrag: false,
-      },
-      handleScale: {
-        axisPressedMouseMove: true,
-        mouseWheel: true,
-        pinch: true,
-      },
+      // Page scrolling wins over the chart: the wheel never pans or zooms; drag and pinch still do.
+      handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+      handleScale: { mouseWheel: false, pinch: true, axisPressedMouseMove: true, axisDoubleClickReset: true },
     });
 
-    const actualSeries = chart.addSeries(AreaSeries, {
-      lineColor: "#d4d7dd",
-      topColor: "rgba(255, 255, 255, 0.05)",
-      bottomColor: "rgba(255, 255, 255, 0.004)",
-      lineWidth: 2,
-      lastValueVisible: true,
-      priceLineVisible: true,
-      crosshairMarkerVisible: true,
-      crosshairMarkerRadius: 4,
-      crosshairMarkerBorderColor: "#d4d7dd",
-      crosshairMarkerBackgroundColor: "#0c0c0e",
-    });
-    actualSeries.setData(chartModel.actualPoints.map((point) => ({ time: point.time, value: point.value })));
-
-    const historicalPredictionSeries = chart.addSeries(LineSeries, {
-      color: rgba(activeMeta.color, 0.92),
-      lineWidth: 2,
-      lineStyle: LineStyle.Solid,
-      lastValueVisible: false,
-      priceLineVisible: false,
-      crosshairMarkerVisible: false,
-    });
-    historicalPredictionSeries.setData(chartModel.historicalPredictionSeriesData);
-
-    const futureAreaSeries = chart.addSeries(AreaSeries, {
-      lineColor: activeMeta.color,
-      topColor: activeMeta.softFill,
-      bottomColor: "rgba(0,0,0,0.01)",
-      lineWidth: 2.2,
-      lastValueVisible: false,
-      priceLineVisible: false,
-      crosshairMarkerVisible: false,
-    });
-    futureAreaSeries.setData(chartModel.projectionPoints);
-
-    const bridgeSeries = chart.addSeries(LineSeries, {
-      color: activeMeta.color,
-      lineWidth: 2.25,
-      lineStyle: LineStyle.Solid,
-      lastValueVisible: false,
-      priceLineVisible: false,
-      crosshairMarkerVisible: false,
-    });
-    bridgeSeries.setData(chartModel.predictionBridge);
-
-    const upperScenarioSeries = chart.addSeries(LineSeries, {
-      color: rgba(activeMeta.color, 0.36),
-      lineWidth: 1,
-      lineStyle: LineStyle.Dotted,
-      lastValueVisible: false,
-      priceLineVisible: false,
-      crosshairMarkerVisible: false,
-    });
-    upperScenarioSeries.setData(chartModel.upperScenarioPoints);
-
-    const lowerScenarioSeries = chart.addSeries(LineSeries, {
-      color: rgba(activeMeta.color, 0.36),
-      lineWidth: 1,
-      lineStyle: LineStyle.Dotted,
-      lastValueVisible: false,
-      priceLineVisible: false,
-      crosshairMarkerVisible: false,
-    });
-    lowerScenarioSeries.setData(chartModel.lowerScenarioPoints);
-
-    const currentPriceLine = actualSeries.createPriceLine({
-      price: chartModel.lastActual.value,
-      color: "rgba(212, 215, 221, 0.4)",
-      lineWidth: 1,
-      lineStyle: LineStyle.Dotted,
-      axisLabelVisible: false,
-      title: "",
-    });
-
-    const createdLines = [currentPriceLine];
-    if (chartModel.activeForecast) {
-      createdLines.push(
-        actualSeries.createPriceLine({
-          price: chartModel.activeForecast.value,
-          color: activeMeta.color,
-          lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: `${resolvedActiveHorizon} FC`,
-        })
-      );
-    }
-
-    const actualLookup = new Map(chartModel.actualPoints.map((point) => [point.time, point]));
-
-    const updateLegendFromTime = (timeValue, fallbackValue) => {
-      if (!Number.isFinite(timeValue)) {
-        setLegendSnapshot({
-          time: chartModel.lastActual.time,
-          price: chartModel.lastActual.value,
-          volume: chartModel.lastActual.volume || 0,
-        });
-        return;
-      }
-
-      const actualPoint = actualLookup.get(Number(timeValue));
-      const predictedPoint = chartModel.historicalPredictionPoints.find((point) => point.time === Number(timeValue));
-      const price = actualPoint?.value ?? predictedPoint?.value ?? fallbackValue ?? chartModel.lastActual.value;
-
-      setLegendSnapshot({
-        time: Number(timeValue),
-        price,
-        volume: actualPoint?.volume || 0,
-      });
+    const quietLine = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false };
+    const series = {
+      actual: chart.addSeries(AreaSeries, {
+        lineColor: SERIES_COLORS.actual,
+        topColor: "rgba(255, 255, 255, 0.05)",
+        bottomColor: "rgba(255, 255, 255, 0.004)",
+        lineWidth: 2,
+        lastValueVisible: true,
+        priceLineVisible: true,
+        crosshairMarkerVisible: true,
+        crosshairMarkerRadius: 4,
+        crosshairMarkerBorderColor: SERIES_COLORS.actual,
+        crosshairMarkerBackgroundColor: "#0c0c0e",
+      }),
+      past: chart.addSeries(LineSeries, {
+        ...quietLine, color: SERIES_COLORS.pastOutput, lineWidth: 1, lineStyle: LineStyle.LargeDashed,
+      }),
+      upper: chart.addSeries(LineSeries, {
+        ...quietLine, color: SERIES_COLORS.band, lineWidth: 1, lineStyle: LineStyle.Dotted,
+      }),
+      lower: chart.addSeries(LineSeries, {
+        ...quietLine, color: SERIES_COLORS.band, lineWidth: 1, lineStyle: LineStyle.Dotted,
+      }),
+      projection: chart.addSeries(LineSeries, {
+        ...quietLine, color: SERIES_COLORS.retracted, lineWidth: 2, lineStyle: LineStyle.Dashed,
+      }),
     };
 
+    const state = { chart, series, lookup: new Map(), cadence: "daily", viewKey: null, hoverTime: null };
     const handleCrosshairMove = (param) => {
-      if (!param?.time || !param?.seriesData) {
-        updateLegendFromTime(null, null);
-        return;
-      }
-
-      const actualData = param.seriesData.get(actualSeries);
-      const historicalPredData = param.seriesData.get(historicalPredictionSeries);
-      const futureData = param.seriesData.get(futureAreaSeries)
-        || param.seriesData.get(bridgeSeries)
-        || param.seriesData.get(upperScenarioSeries)
-        || param.seriesData.get(lowerScenarioSeries);
-      const fallbackValue = actualData?.value ?? historicalPredData?.value ?? futureData?.value ?? null;
-      updateLegendFromTime(Number(param.time), fallbackValue);
+      const time = Number(param?.time);
+      const entry = param?.point && Number.isFinite(time) ? state.lookup.get(time) : null;
+      const hoverTime = entry ? time : null;
+      if (hoverTime === state.hoverTime) return;
+      state.hoverTime = hoverTime;
+      setHovered(entry ? { ...entry, cadence: state.cadence } : null);
     };
-
     chart.subscribeCrosshairMove(handleCrosshairMove);
-
-    const rangeConfig = RANGE_PRESETS[selectedRange];
-    if (rangeConfig.lookbackSec && chartModel.lastActual) {
-      const forecastEnd = chartModel.activeForecast?.time || chartModel.lastActual.time;
-      chart.timeScale().setVisibleRange({
-        from: chartModel.lastActual.time - rangeConfig.lookbackSec,
-        to: Math.max(
-          chartModel.lastActual.time + rangeConfig.rightPaddingSec,
-          forecastEnd + Math.round(rangeConfig.rightPaddingSec * 0.35)
-        ),
-      });
-    } else {
-      chart.timeScale().fitContent();
-    }
 
     const resizeObserver = new ResizeObserver((entries) => {
       const entry = entries[0];
@@ -638,16 +380,70 @@ export default function Chart({
       chart.resize(Math.floor(entry.contentRect.width), Math.floor(entry.contentRect.height));
     });
     resizeObserver.observe(host);
+    chartRef.current = state;
 
     return () => {
       chart.unsubscribeCrosshairMove(handleCrosshairMove);
-      createdLines.forEach((line) => actualSeries.removePriceLine(line));
       resizeObserver.disconnect();
       chart.remove();
+      chartRef.current = null;
     };
-  }, [chartModel, resolvedActiveHorizon, selectedRange]);
+  }, [hasData]);
 
-  if (!chartModel.lastActual) {
+  useEffect(() => {
+    const state = chartRef.current;
+    if (!state || !model) return;
+    const view = model[cadence];
+    const { chart, series } = state;
+    const projection = showModel ? view.projection : null;
+
+    series.actual.setData(view.prices.map(({ time, value }) => ({ time, value })));
+    series.projection.setData(projection?.path || []);
+    series.upper.setData(projection?.upper || []);
+    series.lower.setData(projection?.lower || []);
+    series.past.setData(showModel ? view.past : []);
+    series.projection.applyOptions({ color: forecastRetracted ? SERIES_COLORS.retracted : SERIES_COLORS.model });
+    state.lookup = view.lookup;
+    state.cadence = cadence;
+    state.hoverTime = null;
+    setHovered(null);
+    chart.applyOptions({
+      timeScale: { timeVisible: cadence === "intraday" },
+      localization: { timeFormatter: (time) => formatWallTime(Number(time), cadence) },
+    });
+
+    // Re-frame only when the reader changes range or toggles the model output; a background data
+    // refresh keeps whatever they have panned or zoomed to.
+    const viewKey = `${selectedRange}|${showModel}`;
+    if (state.viewKey === viewKey) return;
+    state.viewKey = viewKey;
+    const { lookbackSec } = RANGE_PRESETS[selectedRange];
+    if (lookbackSec == null) {
+      chart.timeScale().fitContent();
+      return;
+    }
+    const lastTime = view.anchor.time;
+    const to = projection && lookbackSec >= 7 * DAY ? projection.end : lastTime;
+    chart.timeScale().setVisibleRange({ from: lastTime - lookbackSec, to });
+  }, [model, cadence, selectedRange, showModel, forecastRetracted]);
+
+  const summary = useMemo(() => {
+    if (!model) return "";
+    const view = model[cadence];
+    const { lookbackSec, label } = RANGE_PRESETS[selectedRange];
+    const from = lookbackSec == null ? -Infinity : view.anchor.time - lookbackSec;
+    const visible = view.prices.filter((point) => point.time >= from);
+    if (visible.length === 0) return "";
+    const values = visible.map((point) => point.value);
+    const first = visible[0];
+    return `WTI front-month futures price, ${label}, times in US Central: ${fmtUsd(first.value)} on `
+      + `${formatWallTime(first.time, cadence)} to ${fmtUsd(view.anchor.value)} on `
+      + `${formatWallTime(view.anchor.time, cadence)}; low ${fmtUsd(Math.min(...values))}, `
+      + `high ${fmtUsd(Math.max(...values))}.`
+      + (showModel ? ` A dashed gray line shows the retracted 1-week model output of ${fmtUsd(forecast.value)}, which is not a forecast.` : "");
+  }, [model, cadence, selectedRange, showModel, forecast]);
+
+  if (!model) {
     return (
       <div className="tv-chart-shell">
         <div className="tv-chart-empty">
@@ -658,89 +454,113 @@ export default function Chart({
     );
   }
 
+  const view = model[cadence];
+  const legend = hovered || { kind: "price", ...view.anchor, cadence };
+  const hasBand = showModel && (view.projection?.upper.length > 0 || view.projection?.lower.length > 0);
+  const hasPast = showModel && view.past.filter((point) => point.value != null).length > 1;
+  const forecastBand = forecast && num(forecast.lower) != null && num(forecast.upper) != null
+    ? `${fmtUsd(forecast.lower)} – ${fmtUsd(forecast.upper)}`
+    : null;
+  const modelLabel = forecastRetracted ? "Retracted model — not a forecast" : "1W model forecast";
+  const priceClass = signClass(quote?.changePct ?? quote?.change, "is-up", "is-down");
+
   return (
     <div className="tv-chart-shell">
       <div className="tv-chart-toolbar">
         <div className="tv-toolbar-main">
           <div className="tv-symbol-block">
-            <div className="tv-symbol-chip">{contractInfo?.symbol || "WTI"}</div>
+            <div className="tv-symbol-chip">{contract?.symbol || DASH}</div>
             <div className="tv-symbol-copy">
-              <div className="tv-symbol-title">{contractInfo?.description || "WTI CRUDE OIL FUTURES"}</div>
+              <div className="tv-symbol-title">{contract?.description || "WTI crude oil futures"}</div>
               <div className="tv-toolbar-meta">
-                <span>{feedStatus}</span>
-                {contractInfo?.quote_symbol && <span>{contractInfo.quote_symbol}</span>}
+                {feedLabel && <span>{feedLabel}</span>}
+                {contract?.quote_symbol && <span>{contract.quote_symbol}</span>}
+                <span>Times in CT</span>
               </div>
             </div>
           </div>
 
-          <div className="tv-price-block">
-            <div className="tv-price-main">${toolbarPrice.toFixed(2)}</div>
-            <div className={`tv-price-change ${toolbarChange > 0 ? "is-up" : toolbarChange < 0 ? "is-down" : ""}`}>
-              <span>{formatSignedPrice(toolbarChange)}</span>
-              <span>{formatSignedPercent(toolbarChangePct)}</span>
+          {quote && num(quote.price) > 0 && (
+            <div className="tv-price-block" title={quote.label || undefined}>
+              <div className="tv-price-main">{fmtUsd(quote.price)}</div>
+              <div className={`tv-price-change ${priceClass}`}>
+                <span>{fmtSigned(quote.change, 2)}</span>
+                <span>{fmtSignedPct(quote.changePct, 2)}</span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
-        <div className="tv-1w-strip">
-          <span className="tv-1w-horizon">1W TARGET</span>
-          <span className="tv-1w-target">
-            {chartModel.forecasts["1W"] ? `$${chartModel.forecasts["1W"].value.toFixed(2)}` : "--"}
+        {forecast && onToggleForecast && (
+          <button
+            type="button"
+            className={`tv-model-toggle ${showForecast ? "is-on" : ""}`}
+            aria-pressed={showForecast}
+            onClick={onToggleForecast}
+          >
+            {forecastRetracted ? "Show retracted model output" : "Show 1W model forecast"}
+          </button>
+        )}
+      </div>
+
+      {showModel && (
+        <div className="tv-model-strip">
+          <span className="tv-model-tag">{modelLabel}</span>
+          <span className="tv-model-value">
+            1W output {fmtUsd(forecast.value)} ({fmtSignedPct(forecast.pct, 2)} vs the {fmtUsd(forecast.ref)} snapshot)
+            {forecastBand && <> · band {forecastBand}</>}
           </span>
-          {chartModel.forecasts["1W"]?.changePct != null && (
-            <span className={`tv-1w-change ${chartModel.forecasts["1W"].changePct >= 0 ? "is-up" : "is-down"}`}>
-              {formatSignedPercent(chartModel.forecasts["1W"].changePct)}
+          {forecastRetracted && (
+            <span className="tv-model-note">
+              Its backtested edge was a look-ahead leak; purged, it is a coin flip. Shown for transparency only.
             </span>
           )}
-          <span className="tv-1w-meta">model output, reference only — backtested edge retracted (look-ahead leak)</span>
         </div>
-      </div>
+      )}
 
-      {/* Thesis banner removed — the Desk Call header now carries the verdict. */}
-
-      {/* Scenario rail removed for minimalism — the chart overlay already shows the
-          1-week target and scenario band; the Desk Call header carries the verdict. */}
-
-      <div className="tv-chart-stage">
-        <div className="tv-chart-overlay tv-overlay-left">
+      <figure className="tv-chart-stage">
+        <figcaption className="sr-only">{summary}</figcaption>
+        <div className="tv-chart-overlays" aria-hidden="true">
           <div className="tv-legend-card">
-            <div className="tv-legend-time">{formatLegendTime(legendSnapshot?.time)}</div>
+            <div className="tv-legend-time">{formatWallTime(legend.time, legend.cadence)}</div>
             <div className="tv-legend-grid">
-              <span>PX {legendSnapshot?.price?.toFixed(2) || "--"}</span>
-              <span>VOL {formatCompactVolume(legendSnapshot?.volume)}</span>
-              <span>{resolvedActiveHorizon} FC {chartModel.activeForecast ? `$${chartModel.activeForecast.value.toFixed(2)}` : "--"}</span>
+              {legend.kind === "model" ? (
+                <span className="tv-legend-model">{modelLabel}: {fmtUsd(legend.value)}</span>
+              ) : (
+                <>
+                  <span>PX {fmtNum(legend.value, 2)}</span>
+                  <span>VOL {formatCompactVolume(legend.volume)}</span>
+                </>
+              )}
             </div>
           </div>
-        </div>
 
-        <div className="tv-chart-overlay tv-overlay-right">
-          <div className="tv-active-forecast-card">
-            <div className="tv-active-forecast-label">{resolvedActiveHorizon} Target</div>
-            <div className="tv-active-forecast-value">
-              {chartModel.activeForecast ? formatCurrency(chartModel.activeForecast.value) : "--"}
+          {showModel && (
+            <div className="tv-model-card">
+              <div className="tv-model-card-label">{modelLabel}</div>
+              <div className="tv-model-card-value">{fmtUsd(forecast.value)}</div>
+              <div className="tv-model-card-range">{forecastBand ? `Band ${forecastBand}` : "Band unavailable"}</div>
             </div>
-            <div className="tv-active-forecast-range">
-              {chartModel.activeForecast && Number.isFinite(chartModel.activeForecast.lower) && Number.isFinite(chartModel.activeForecast.upper)
-                ? `Range ${formatCurrency(chartModel.activeForecast.lower)} - ${formatCurrency(chartModel.activeForecast.upper)}`
-                : "Range unavailable"}
-            </div>
-          </div>
+          )}
         </div>
 
-        <div className="tv-chart-watermark">
-          <span className="tv-watermark-symbol">{contractInfo?.symbol || "WTI"}</span>
-          <span className="tv-watermark-caption">Actual + prediction path</span>
+        <div className="tv-chart-watermark" aria-hidden="true">
+          <span className="tv-watermark-symbol">{contract?.symbol || "WTI"}</span>
+          <span className="tv-watermark-caption">{showModel ? "Price + retracted model output" : "Price"}</span>
         </div>
 
-        <div ref={chartHostRef} className="tv-chart-host" />
-      </div>
+        <div ref={hostRef} className="tv-chart-host" />
+      </figure>
 
       <div className="tv-chart-footer">
-        <div className="tv-range-strip">
+        <div className="tv-range-strip" role="group" aria-label="Chart range">
           {Object.keys(RANGE_PRESETS).map((rangeKey) => (
             <button
               key={rangeKey}
+              type="button"
               className={`tv-range-button ${selectedRange === rangeKey ? "is-active" : ""}`}
+              aria-pressed={selectedRange === rangeKey}
+              title={`Show the ${RANGE_PRESETS[rangeKey].label}`}
               onClick={() => setSelectedRange(rangeKey)}
             >
               {rangeKey}
@@ -749,12 +569,23 @@ export default function Chart({
         </div>
 
         <div className="tv-footer-copy">
-          <span><i className="tv-dot actual" />Actual</span>
-          <span><i className="tv-dot history" />Past predictions</span>
-          <span><i className="tv-dot future" style={{ "--dot-color": HORIZON_META[resolvedActiveHorizon]?.color }} />1W forecast</span>
-          <span><i className="tv-dot band" style={{ "--dot-color": rgba(HORIZON_META[resolvedActiveHorizon]?.color, 0.55) }} />Forecast band</span>
+          <span><i className="tv-swatch" style={{ "--swatch-color": SERIES_COLORS.actual }} />Price</span>
+          {hasPast && (
+            <span><i className="tv-swatch is-dashed" style={{ "--swatch-color": SERIES_COLORS.pastOutput }} />Past model outputs</span>
+          )}
+          {showModel && (
+            <span>
+              <i className="tv-swatch is-dashed" style={{ "--swatch-color": forecastRetracted ? SERIES_COLORS.retracted : SERIES_COLORS.model }} />
+              {forecastRetracted ? "Retracted model output" : "1W model forecast"}
+            </span>
+          )}
+          {hasBand && (
+            <span><i className="tv-swatch is-dotted" style={{ "--swatch-color": SERIES_COLORS.band }} />Model band</span>
+          )}
         </div>
       </div>
     </div>
   );
 }
+
+export default memo(Chart);

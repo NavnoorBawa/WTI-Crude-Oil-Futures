@@ -1,9 +1,18 @@
 """
-PREMIUM WTI Oil Price Prediction Engine - REAL DATA ONLY
-========================================================
-Advanced ML-based WTI crude oil price prediction system using premium data sources.
-NO RANDOM DATA - REAL MULTI-SOURCE PREDICTIONS ONLY.
-Fallbacks and weak horizons are labeled explicitly so the API can distinguish them from qualified forecasts.
+WTI crude oil data, feature and forecasting engine behind the dashboard payload
+===============================================================================
+Ingests real market data (Yahoo's CL=F front-month quote and history plus cross-asset context)
+and, where they are actually used, external sources (the NewsAPI news-flow regime for the payload;
+EIA/FRED/Alpha Vantage/Finnhub/USDA/NOAA only when external model features are enabled), engineers
+features, and runs the 6-model ensemble.
+
+Status of the direction forecast: RETRACTED. After the purge/embargo fix removed a look-ahead leak,
+the 1-week direction ensemble is a coin flip out of sample (backend/backtest_walk_forward.py, README),
+so the dashboard shows it as NEUTRAL / reference only. The project's validated forecast is the
+realized-volatility model in backend/vol_forecast.py.
+
+No synthetic or random inputs are used. Fallbacks and weak horizons are labeled explicitly so the
+API can distinguish them from qualified forecasts.
 """
 
 import pandas as pd
@@ -11,8 +20,14 @@ import numpy as np
 import yfinance as yf
 import requests
 import json
+import math
+import re
+import statistics
+import threading
 import warnings
-from datetime import datetime, timedelta, timezone
+from contextlib import nullcontext
+from datetime import date, datetime, timedelta, timezone
+from datetime import time as clock_time
 from dataclasses import dataclass, field
 from io import StringIO
 from typing import Dict, Optional, List
@@ -27,6 +42,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
+
+try:
+    from . import contract_calendar
+except ImportError:  # Direct invocation: python backend/oil.py
+    import contract_calendar
 
 # Load environment variables from .env file
 load_dotenv()
@@ -47,10 +67,10 @@ warnings.filterwarnings('ignore')
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# yfinance emits HTTP 404 ERROR logs while probing future-dated WTI contracts (e.g. CLN26,
-# CLQ26) that are not yet listed during contract discovery. These are expected and handled
-# gracefully downstream, so quiet yfinance's own logger to keep operational output clean.
-logging.getLogger('yfinance').setLevel(logging.CRITICAL)
+# yfinance logs failed downloads itself (HTTP 404 for a symbol Yahoo does not list, 429 rate
+# limits). Callers here handle those failures, but they are real failures (a bare contract code
+# such as 'CLX26' never resolves, only 'CLX26.NYM' does), so keep them visible at WARNING and above.
+logging.getLogger('yfinance').setLevel(logging.WARNING)
 
 
 def _build_yf_session():
@@ -89,41 +109,63 @@ def _is_rate_limit_error(err) -> bool:
     return 'too many requests' in msg or 'rate limit' in msg or '429' in msg
 
 
+def _as_utc_datetime(value) -> Optional[datetime]:
+    """Aware UTC datetime from a pandas/datetime/epoch-seconds value, or None."""
+    if value is None:
+        return None
+    try:
+        if isinstance(value, (int, float, np.integer, np.floating)) and not isinstance(value, bool):
+            stamp = pd.Timestamp(float(value), unit='s', tz='UTC')
+        else:
+            stamp = pd.Timestamp(value)
+            stamp = stamp.tz_localize('UTC') if stamp.tzinfo is None else stamp.tz_convert('UTC')
+    except Exception:
+        return None
+    if pd.isna(stamp):
+        return None
+    return stamp.to_pydatetime()
+
+
 def _yf_history_with_retry(symbol, *, period, interval, timeout, max_attempts=3, base_delay=2.0):
     """Fetch yfinance history, retrying ONLY on transient Yahoo rate-limit errors with backoff.
 
     Empty results are returned as-is (a not-yet-listed future contract legitimately has no data),
     so callers keep their existing empty-handling. Non-rate-limit errors propagate immediately.
+    When Yahoo reports the time of the latest quote (history metadata 'regularMarketTime', which
+    arrives with the history, so no extra request), it is attached as frame.attrs['quote_time'].
     """
     for attempt in range(max_attempts):
         try:
-            return _yf_ticker(symbol).history(period=period, interval=interval, timeout=timeout)
+            ticker = _yf_ticker(symbol)
+            frame = ticker.history(period=period, interval=interval, timeout=timeout)
+            if frame is not None and not frame.empty:
+                try:
+                    quote_time = _as_utc_datetime(ticker.get_history_metadata().get('regularMarketTime'))
+                except Exception:
+                    quote_time = None
+                if quote_time is not None:
+                    frame.attrs['quote_time'] = quote_time
+            return frame
         except Exception as err:
             if not _is_rate_limit_error(err) or attempt == max_attempts - 1:
                 raise
             time.sleep(base_delay * (2 ** attempt))  # 2s, then 4s
 
-# Backward-compatible API key fallback: use env vars first, then legacy embedded keys.
-ALLOW_LEGACY_EMBEDDED_KEYS = os.getenv('ALLOW_LEGACY_EMBEDDED_KEYS', 'false').lower() == 'true'
 
-
-def _resolve_api_key(env_name: str, legacy_value: str) -> str:
-    env_value = os.getenv(env_name, '').strip()
-    if env_value:
-        return env_value
-    return legacy_value if ALLOW_LEGACY_EMBEDDED_KEYS else ''
+def _env_api_key(env_name: str) -> str:
+    return os.getenv(env_name, '').strip()
 
 # Premium API Configuration - Load from environment variables (FIX #1)
 @dataclass
 class PremiumAPIConfig:
     # Keys are read ONLY from environment variables (locally: .env; in CI: GitHub Actions
     # Secrets). No credentials are committed to source — required so the repo can be public.
-    USDA_NASS_KEY: str = field(default_factory=lambda: _resolve_api_key('USDA_NASS_KEY', ''))
-    NOAA_CDO_KEY: str = field(default_factory=lambda: _resolve_api_key('NOAA_CDO_KEY', ''))
-    ALPHA_VANTAGE_KEY: str = field(default_factory=lambda: _resolve_api_key('ALPHA_VANTAGE_KEY', ''))
-    NEWSAPI_KEY: str = field(default_factory=lambda: _resolve_api_key('NEWSAPI_KEY', ''))
-    FINNHUB_KEY: str = field(default_factory=lambda: _resolve_api_key('FINNHUB_KEY', ''))
-    EIA_API_KEY: str = field(default_factory=lambda: _resolve_api_key('EIA_API_KEY', ''))
+    USDA_NASS_KEY: str = field(default_factory=lambda: _env_api_key('USDA_NASS_KEY'))
+    NOAA_CDO_KEY: str = field(default_factory=lambda: _env_api_key('NOAA_CDO_KEY'))
+    ALPHA_VANTAGE_KEY: str = field(default_factory=lambda: _env_api_key('ALPHA_VANTAGE_KEY'))
+    NEWSAPI_KEY: str = field(default_factory=lambda: _env_api_key('NEWSAPI_KEY'))
+    FINNHUB_KEY: str = field(default_factory=lambda: _env_api_key('FINNHUB_KEY'))
+    EIA_API_KEY: str = field(default_factory=lambda: _env_api_key('EIA_API_KEY'))
     EIA_BASE_URL: str = "https://api.eia.gov/v2"
     FRED_BASE_URL: str = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 
@@ -146,15 +188,95 @@ class PremiumAPIConfig:
             logger.warning(f"⚠️  Missing API keys: {', '.join(missing)}")
             logger.warning("Set environment variables: export KEY=value")
 
-# Month codes for futures contracts
-MONTH_CODES = {
-    1: 'F', 2: 'G', 3: 'H', 4: 'J', 5: 'K', 6: 'M',
-    7: 'N', 8: 'Q', 9: 'U', 10: 'V', 11: 'X', 12: 'Z'
+# FRED DEXUSEU trend calibration: typical slope of the daily euro/dollar rate, used to scale the
+# 'economic_stability' score in get_fred_economic_data.
+FRED_TYPICAL_VOLATILITY = 0.005
+
+HORIZONS = ('1h', '1d', '1w')
+# Bars between a daily forecast and its target close (1d = next session, 1w = 5th session).
+DAILY_HORIZON_STEPS = {'1d': 1, '1w': 5}
+# Training rows whose label overlaps the next forecast (horizon steps - 1); the walk-forward
+# backtest purges exactly this many rows (backtest_walk_forward.purge_count).
+TARGET_PURGE_ROWS = {'1h': 0, '1d': 0, '1w': 4}
+
+# Per-source cache lifetimes, sized to each provider's free-tier quota. Failures are cached too
+# and retried with exponential backoff starting at EXTERNAL_SOURCE_FAILURE_BACKOFF_SECONDS.
+EXTERNAL_SOURCE_TTL_SECONDS = {
+    'geopolitical': 1800,    # NewsAPI: 100 requests/day shared with 'news' -> 48/day at 30 min
+    'news': 3600,            # NewsAPI sentiment (only fetched when external model features are on)
+    'alpha_vantage': 21600,  # 25 requests/day; the WTI series is daily
+    'finnhub': 900,          # 60 requests/min, five quotes per refresh
+    'eia': 21600,            # weekly series
+    'fred': 21600,           # daily series
+    'usda': 86400,           # monthly survey prices
+    'noaa': 43200,           # daily station data
+}
+EXTERNAL_SOURCE_FAILURE_BACKOFF_SECONDS = 300
+# While a source keeps failing, its last good payload is served (flagged 'stale') this long.
+EXTERNAL_SOURCE_MAX_STALE_SECONDS = 21600
+
+
+def _term_patterns(terms):
+    """Compile keyword terms into whole-word regexes (text is lowercased before matching).
+
+    Raw substring tests matched 'up' inside 'supply', 'rise' inside 'enterprise' and 'war' inside
+    'forward'/'warn'/'award'. Each term lists its accepted inflections separated by '|', and a
+    match must not be preceded or followed by a letter or digit ('opec+' still matches).
+    """
+    return [
+        re.compile(r'(?<![a-z0-9])(?:' + '|'.join(re.escape(form) for form in term.split('|')) + r')(?![a-z0-9])')
+        for term in terms
+    ]
+
+
+def _count_term_hits(patterns, text):
+    """Number of distinct terms present in text."""
+    return sum(1 for pattern in patterns if pattern.search(text))
+
+
+NEWS_POSITIVE_PATTERNS = _term_patterns([
+    'rise|rises|rising|rose', 'gain|gains|gained', 'up', 'higher', 'surge|surges|surged|surging',
+    'boost|boosts|boosted', 'strong|stronger', 'increase|increases|increased',
+    'rally|rallies|rallied', 'bullish', 'jump|jumps|jumped', 'soar|soars|soared|soaring',
+    'climb|climbs|climbed|climbing', 'recover|recovers|recovered|recovery',
+    'spike|spikes|spiked', 'breakout', 'demand', 'supply cut|supply cuts',
+    'shortage|shortages', 'opec cut|opec cuts', 'production cut|production cuts',
+])
+NEWS_NEGATIVE_PATTERNS = _term_patterns([
+    'fall|falls|falling|fell', 'drop|drops|dropped', 'down', 'lower', 'decline|declines|declined',
+    'weak|weaker', 'decrease|decreases|decreased', 'plunge|plunges|plunged',
+    'bearish', 'crash|crashes|crashed', 'slump|slumps|slumped', 'tumble|tumbles|tumbled',
+    'sink|sinks|sank', 'collapse|collapses|collapsed', 'slide|slides|slid',
+    'oversupply', 'glut', 'recession', 'demand drop', 'production increase|production increases',
+])
+NEWS_UNCERTAINTY_PATTERNS = _term_patterns([
+    'uncertain', 'uncertainty', 'risk|risks', 'volatile', 'volatility', 'war|wars',
+    'sanction|sanctions|sanctioned', 'tariff|tariffs', 'disruption|disruptions',
+    'tension|tensions', 'conflict|conflicts', 'shock|shocks',
+])
+NEWS_FORWARD_PATTERNS = _term_patterns([
+    'outlook', 'forecast|forecasts', 'expected', 'expects', 'guidance', 'next week',
+    'next month', 'ahead', 'future', 'projection|projections', 'scenario|scenarios', 'target|targets',
+])
+NEWS_INTENSITY_PATTERNS = _term_patterns([
+    'sharply', 'significantly', 'strongly', 'materially', 'dramatically',
+    'severely', 'massively', 'rapidly', 'heavily', 'aggressively',
+])
+GEO_RISK_PATTERNS = {
+    'iran': _term_patterns(['iran', 'hormuz', 'tehran', 'iranian|iranians', 'persian gulf', 'irgc']),
+    'opec': _term_patterns([
+        'opec', 'opec+', 'saudi|saudis', 'riyadh', 'aramco', 'production cut|production cuts', 'quota|quotas',
+    ]),
+    'conflict': _term_patterns([
+        'conflict|conflicts', 'attack|attacks|attacked', 'strike|strikes', 'houthi|houthis',
+        'tanker|tankers', 'blockade|blockades', 'militia|militias', 'war|wars',
+    ]),
+    'sanctions': _term_patterns([
+        'sanction|sanctions|sanctioned', 'embargo|embargoes', 'restriction|restrictions',
+        'tariff|tariffs', 'export ban|export bans',
+    ]),
 }
 
-# API calibration constants (FIX: Remove magic numbers)
-FRED_TYPICAL_DAILY_CHANGE = 0.001
-FRED_TYPICAL_VOLATILITY = 0.005
 
 def ml_regime_caveat(geo_data: dict) -> Optional[str]:
     """Warn when the news-flow regime says the ML model is out of its depth.
@@ -164,199 +286,287 @@ def ml_regime_caveat(geo_data: dict) -> Optional[str]:
     explicit caveat instead of letting the point forecast look authoritative.
     Historical context for those regimes comes from the EIA-computed supply-shock
     event study (supply_shock_playbook), not from the model.
+
+    When the regime could not be computed at all (news feed down, quota exhausted or key
+    missing), the guardrail itself is unavailable; that is reported too, because returning
+    nothing would read as an all-clear.
     """
-    if str(geo_data.get('regime', 'LOW')) in ('HIGH', 'CRITICAL'):
+    regime = str((geo_data or {}).get('regime') or 'UNKNOWN').upper()
+    if regime in ('HIGH', 'CRITICAL'):
         return (
             'WARNING: ML ensemble trained on normal-market data. In HIGH/CRITICAL '
             'geopolitical regimes it may significantly underestimate upside tail risk. '
             'Weigh the supply-shock event study over the point forecast.'
         )
+    if regime not in ('LOW', 'ELEVATED'):
+        return (
+            'News-flow regime unavailable (geopolitical news feed down or not configured), '
+            'so the tail-risk guardrail could not be checked for this forecast.'
+        )
     return None
 
 
-# Contract discovery cache avoids repeated CL=F metadata fetches in a single run.
+# Contract discovery cache avoids repeated CL=F fetches within a short window (the server's price
+# thread polls every 30 s).
 CONTRACT_CACHE_TTL_SECONDS = max(30, int(os.getenv('CONTRACT_CACHE_TTL_SECONDS', '90')))
 _contract_cache = {
     'fetched_at': 0.0,
     'data': None,
 }
+_contract_cache_lock = threading.Lock()
+SESSION_CLOSE_ET = clock_time(17, 0)  # CL daily close; Globex reopens at 18:00 ET for the next session
+
+
+def _utc_now() -> datetime:
+    """Current time as an aware UTC datetime (one seam so tests can pin the clock)."""
+    return datetime.now(timezone.utc)
+
+
+def _iso_utc(moment: datetime) -> str:
+    return moment.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
+
+
+def _finite_float(value) -> Optional[float]:
+    """float(value) when it is a finite number, else None (NaN/inf must never reach a payload)."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def horizon_target_time(pred_time: datetime, horizon: str) -> datetime:
+    """When a forecast issued at pred_time matures (aware UTC; naive input is taken as UTC).
+
+    1h: one hour later. 1d / 1w: the same exchange wall-clock time 1 / 5 NYMEX business days later,
+    matching the models' targets (the next session's close / the 5th bar's close) rather than
+    +24 h / +7 calendar days, which put 1d targets on weekends and shifted 1w targets around holidays.
+    """
+    issued = pred_time if pred_time.tzinfo else pred_time.replace(tzinfo=timezone.utc)
+    if horizon not in DAILY_HORIZON_STEPS:
+        return (issued + timedelta(hours=1)).astimezone(timezone.utc)
+    local = issued.astimezone(contract_calendar.EXCHANGE_TZ)
+    target_day = contract_calendar.shift_business_days(local.date(), DAILY_HORIZON_STEPS[horizon])
+    # Wall-clock arithmetic in the exchange zone keeps the time of day across DST changes.
+    return (local + timedelta(days=(target_day - local.date()).days)).astimezone(timezone.utc)
+
+
+def split_conformal_quantile(scores, level):
+    """Finite-sample split-conformal quantile: the ceil((n + 1) * level)-th smallest score.
+
+    With n exchangeable calibration scores, |error| <= this value holds for a new sample with
+    probability >= level. When n is too small for that rank to exist, the largest score is returned
+    (the interval is then only approximately at the level). None when there are no finite scores.
+    """
+    values = np.sort(np.asarray([score for score in scores if _finite_float(score) is not None], dtype=float))
+    n = len(values)
+    if n == 0:
+        return None
+    rank = int(math.ceil((n + 1) * float(level)))
+    return float(values[min(max(rank, 1), n) - 1])
+
 
 def calculate_wti_expiry_date(year, month):
-    """Calculate WTI futures expiry date: third business day prior to 25th of the month before delivery month"""
-    expiry_month = month - 1
-    expiry_year = year
-    if expiry_month <= 0:
-        expiry_month = 12
-        expiry_year -= 1
-    
-    twenty_fifth = datetime(expiry_year, expiry_month, 25).date()
-    
-    business_days_back = 0
-    current_date = twenty_fifth
-    
-    while business_days_back < 3:
-        current_date -= timedelta(days=1)
-        if current_date.weekday() < 5:
-            business_days_back += 1
-    
-    return current_date
+    """Last trade date of the CL contract for delivery month (year, month).
+
+    Delegates to contract_calendar.last_trade_date: 3 business days before the 25th of the month
+    before delivery, 4 if the 25th is not a business day, with NYMEX holidays excluded.
+    """
+    return contract_calendar.last_trade_date(int(year), int(month))
+
+
+def _bar_session_date(index_value) -> date:
+    """Session date a Yahoo daily bar is labeled with (its index is midnight exchange time)."""
+    stamp = pd.Timestamp(index_value)
+    if stamp.tzinfo is not None:
+        stamp = stamp.tz_convert(contract_calendar.EXCHANGE_TZ)
+    return stamp.date()
+
+
+def _finite_closes(frame):
+    """Finite closes of a Yahoo frame (NaN rows dropped), or an empty series."""
+    if frame is None or frame.empty or 'Close' not in frame.columns:
+        return pd.Series(dtype=float)
+    closes = pd.to_numeric(frame['Close'], errors='coerce').replace([np.inf, -np.inf], np.nan)
+    return closes.dropna()
+
+
+def _bar_volume(frame, index_value) -> int:
+    volume = _finite_float(frame['Volume'].get(index_value)) if 'Volume' in frame.columns else None
+    return int(volume) if volume is not None and volume > 0 else 0
+
+
+def _contract_close_on(contract, session_date):
+    """Close of one specific contract for a session date, from its own '.NYM' history (or None)."""
+    symbol = contract_calendar.yahoo_symbol(*contract)
+    try:
+        history = _yf_history_with_retry(symbol, period="5d", interval="1d", timeout=10)
+    except Exception as exc:
+        logger.warning("History for %s unavailable (%s)", symbol, type(exc).__name__)
+        return None
+    closes = _finite_closes(history)
+    for index_value, close in closes.items():
+        if _bar_session_date(index_value) == session_date and close > 0:
+            return float(close)
+    return None
+
+
+def _contract_quote_payload(frame, contract, now, *, quote_symbol, data_source, spliced_series):
+    """Dashboard contract payload for the latest finite close in a Yahoo daily frame.
+
+    spliced_series=True for CL=F, whose previous bar may belong to the contract that just expired:
+    on the first session after a roll the daily change is measured against the NEW contract's own
+    previous close, and reported as unavailable (None) rather than as a cross-contract splice when
+    that close cannot be fetched.
+    """
+    closes = _finite_closes(frame)
+    if closes.empty:
+        return None
+    last_index = closes.index[-1]
+    current_price = float(closes.iloc[-1])
+    last_session = _bar_session_date(last_index)
+    quote_time = _as_utc_datetime(getattr(frame, 'attrs', {}).get('quote_time'))
+    market_time = quote_time or _as_utc_datetime(last_index)
+    quote_session = contract_calendar.trading_date(quote_time) if quote_time is not None else last_session
+
+    previous_close = None
+    previous_close_symbol = None
+    change_quality = 'unavailable'
+    if len(closes) >= 2:
+        previous_session = _bar_session_date(closes.index[-2])
+        if not spliced_series or contract_calendar.front_contract(previous_session) == contract:
+            previous_close = float(closes.iloc[-2])
+            previous_close_symbol = quote_symbol
+            change_quality = 'daily_close'
+        else:
+            previous_close = _contract_close_on(contract, previous_session)
+            if previous_close is not None:
+                previous_close_symbol = contract_calendar.yahoo_symbol(*contract)
+                change_quality = 'daily_close_new_contract'
+            else:
+                change_quality = 'unavailable_contract_roll'
+                logger.warning(
+                    "First session after the roll to %s and its previous close is unavailable; "
+                    "reporting no daily change instead of a cross-contract splice",
+                    contract_calendar.contract_code(*contract),
+                )
+    if previous_close is not None and previous_close > 0:
+        daily_change = round(current_price - previous_close, 2)
+        daily_change_pct = round((current_price - previous_close) / previous_close * 100, 2)
+    else:
+        previous_close, daily_change, daily_change_pct = None, None, None
+
+    code = contract_calendar.contract_code(*contract)
+    last_trade = contract_calendar.last_trade_date(*contract)
+    today_et = now.astimezone(contract_calendar.EXCHANGE_TZ).date()
+    return {
+        'symbol': code,
+        'yfinance_symbol': quote_symbol,
+        # Model/chart history always comes from the continuous CL=F series.
+        'history_symbol': 'CL=F',
+        'current_price': current_price,
+        'previous_close': previous_close,
+        'previous_close_symbol': previous_close_symbol,
+        'price_change': daily_change,
+        'price_change_percent': daily_change_pct,
+        'price_change_quality': change_quality,
+        'volume': _bar_volume(frame, last_index),
+        'expiry_date': last_trade.isoformat(),
+        'contract_last_trade_date': last_trade.isoformat(),
+        # Calendar days until the last trade date; 0 on (or, over a weekend, just after) expiry.
+        'days_to_expiry': max(0, (last_trade - today_et).days),
+        'market_time': _iso_utc(market_time) if market_time is not None else None,
+        # Yahoo labels the evening Globex session (18:00-24:00 ET) with the previous calendar date and
+        # drops that date's completed bar meanwhile, so the two differ then and the daily change spans
+        # two sessions (same contract, never a splice).
+        'market_session_date': last_session.isoformat(),
+        'quote_session_date': quote_session.isoformat(),
+        'description': f'WTI CRUDE OIL FUTURES {code}',
+        'security_name': f'{code} WTI CRUDE',
+        'data_source': data_source,
+        'timestamp': _iso_utc(now),
+    }
+
 
 def get_current_wti_contract(force_refresh: bool = False):
-    """Get current active WTI contract with auto-switching logic"""
+    """Current WTI front-month quote and the contract it actually belongs to.
+
+    Yahoo's CL=F is an UNADJUSTED front-month splice (it equals EIA's "contract 1", including the
+    -37.63 print of 2020-04-20): it follows the expiring contract through its last trade date and
+    switches to the next contract on the following trading day. The label therefore comes from
+    contract_calendar.front_contract() at the time of the quote (Yahoo's quote time when reported,
+    else the last bar's session), not from a days-to-expiry heuristic.
+    """
     now_ts = time.time()
-    cached = _contract_cache.get('data')
-    fetched_at = _contract_cache.get('fetched_at', 0.0)
+    with _contract_cache_lock:
+        cached = _contract_cache.get('data')
+        fetched_at = _contract_cache.get('fetched_at', 0.0)
     if (not force_refresh) and cached and (now_ts - fetched_at) <= CONTRACT_CACHE_TTL_SECONDS:
         return copy.deepcopy(cached)
 
     def _cache_and_return(payload: Dict) -> Dict:
-        _contract_cache['fetched_at'] = now_ts
-        _contract_cache['data'] = copy.deepcopy(payload)
+        with _contract_cache_lock:
+            _contract_cache['fetched_at'] = now_ts
+            _contract_cache['data'] = copy.deepcopy(payload)
         return payload
 
-    now = datetime.now()
-    current_month = now.month
-    current_year = now.year
-    
+    now = _utc_now()
+
     # Always try CL=F first as it's the most reliable continuous contract
     try:
-        logger.info("🔍 Fetching WTI data from CL=F (continuous contract)")
+        logger.info("🔍 Fetching WTI data from CL=F (continuous front-month contract)")
         validation_data = _yf_history_with_retry("CL=F", period="5d", interval="1d", timeout=10)
+        closes = _finite_closes(validation_data)
+        if not closes.empty:
+            quote_time = _as_utc_datetime(validation_data.attrs.get('quote_time'))
+            quote_session = (contract_calendar.trading_date(quote_time) if quote_time is not None
+                             else _bar_session_date(closes.index[-1]))
+            contract = contract_calendar.front_contract(quote_session)
+            payload = _contract_quote_payload(
+                validation_data, contract, now,
+                quote_symbol='CL=F', data_source='yfinance_continuous', spliced_series=True,
+            )
+            logger.info(f"✅ Found WTI data: {payload['symbol']} @ ${payload['current_price']:.2f}")
+            return _cache_and_return(payload)
+        logger.error("❌ CL=F returned no finite closes")
 
-        if not validation_data.empty and len(validation_data) >= 1:
-            current_price = float(validation_data['Close'].iloc[-1])
-            volume = int(validation_data['Volume'].iloc[-1]) if not pd.isna(validation_data['Volume'].iloc[-1]) else 0
-
-            # Real day-over-day change from the daily close series. This works in the one-shot
-            # freeze/CI deploy, unlike the long-running server's in-memory price store (which has no
-            # history in CI and so reported a fake 0.00% change). Back-adjustment preserves recent
-            # returns, so the daily % change is accurate.
-            _closes = validation_data['Close'].dropna()
-            previous_close = float(_closes.iloc[-2]) if len(_closes) >= 2 else None
-            daily_change = round(current_price - previous_close, 2) if previous_close else None
-            daily_change_pct = (round((current_price - previous_close) / previous_close * 100, 2)
-                                if previous_close else None)
-
-            # For continuous contract, map to the first delivery month that is not near expiry.
-            # This avoids returning expired/invalid symbols when month boundaries roll over.
-            selected_year = None
-            selected_month = None
-            selected_expiry = None
-            selected_days = None
-            for i in range(1, 7):
-                total_months = current_month - 1 + i
-                candidate_year = current_year + total_months // 12
-                candidate_month = (total_months % 12) + 1
-                candidate_expiry = calculate_wti_expiry_date(candidate_year, candidate_month)
-                candidate_days = (candidate_expiry - now.date()).days
-                if candidate_days >= 7:
-                    selected_year = candidate_year
-                    selected_month = candidate_month
-                    selected_expiry = candidate_expiry
-                    selected_days = candidate_days
-                    break
-
-            if selected_year is None:
-                # Last-resort fallback keeps symbol generation deterministic.
-                total_months = current_month + 5
-                selected_year = current_year + total_months // 12
-                selected_month = (total_months % 12) + 1
-                selected_expiry = calculate_wti_expiry_date(selected_year, selected_month)
-                selected_days = (selected_expiry - now.date()).days
-
-            contract_symbol = f"CL{MONTH_CODES[selected_month]}{str(selected_year)[-2:]}"
-            expiry_date = selected_expiry
-            days_to_expiry = selected_days
-
-            logger.info(f"✅ Found WTI data: {contract_symbol} @ ${current_price:.2f}")
-
-            return _cache_and_return({
-                'symbol': contract_symbol,
-                'yfinance_symbol': 'CL=F',
-                'history_symbol': contract_symbol,
-                'current_price': current_price,
-                'previous_close': previous_close,
-                'price_change': daily_change,
-                'price_change_percent': daily_change_pct,
-                'volume': volume,
-                'expiry_date': expiry_date.isoformat(),
-                'days_to_expiry': days_to_expiry,
-                'description': f'WTI CRUDE OIL FUTURES {contract_symbol}',
-                'security_name': f'{contract_symbol} WTI CRUDE',
-                'data_source': 'yfinance_continuous',
-                'timestamp': datetime.now().isoformat()
-            })
-            
     except Exception as e:
         logger.error(f"❌ Failed to get CL=F data: {e}")
-    
-    # If CL=F fails, try specific contract symbols
-    contracts_to_try = []
+
+    # If CL=F fails, quote the specific contracts, starting at the front contract so the label
+    # matches what CL=F would show. Yahoo only resolves exchange-suffixed tickers ('CLX26.NYM').
+    contracts_to_try = [contract_calendar.front_contract(now)]
+    while len(contracts_to_try) < 3:
+        contracts_to_try.append(contract_calendar.next_contract(*contracts_to_try[-1]))
     contract_failures = []
-    skipped_near_expiry = []
-    
-    # Generate next 6 months of contract symbols
-    # BUG24 FIX: Proper modulo arithmetic for month/year wraparound
-    for i in range(6):
-        total_months = current_month - 1 + i
-        target_year = current_year + total_months // 12
-        target_month = (total_months % 12) + 1
-        
-        month_code = MONTH_CODES[target_month]
-        year_code = str(target_year)[-2:]
-        contract_symbol = f"CL{month_code}{year_code}"
-        contracts_to_try.append((contract_symbol, target_year, target_month))
-    
-    # Try each contract. Space probes slightly so a burst of requests does not trip Yahoo's
-    # rate limiter, and retry each probe on transient 429s via the shared helper.
-    for probe_index, (contract_symbol, year, month) in enumerate(contracts_to_try):
+
+    # Space probes slightly so a burst of requests does not trip Yahoo's rate limiter, and retry
+    # each probe on transient 429s via the shared helper.
+    for probe_index, contract in enumerate(contracts_to_try):
+        symbol = contract_calendar.yahoo_symbol(*contract)
         try:
             if probe_index > 0:
                 time.sleep(0.4)
-            logger.info(f"🔍 Trying specific WTI contract: {contract_symbol}")
-            validation_data = _yf_history_with_retry(contract_symbol, period="3d", interval="1d", timeout=8)
-            
-            if not validation_data.empty and len(validation_data) >= 1:
-                current_price = float(validation_data['Close'].iloc[-1])
-                volume = int(validation_data['Volume'].iloc[-1]) if not pd.isna(validation_data['Volume'].iloc[-1]) else 0
-                expiry_date = calculate_wti_expiry_date(year, month)
-                days_to_expiry = (expiry_date - now.date()).days
-                
-                # Skip if contract expires in less than 7 days
-                if days_to_expiry < 7:
-                    logger.info(f"⚠️  Skipping {contract_symbol}: expires in {days_to_expiry} days")
-                    skipped_near_expiry.append(f"{contract_symbol}({days_to_expiry}d)")
-                    continue
-                
-                logger.info(f"✅ Found valid WTI contract: {contract_symbol} @ ${current_price:.2f}")
-                
-                return _cache_and_return({
-                    'symbol': contract_symbol,
-                    'yfinance_symbol': contract_symbol,
-                    'history_symbol': contract_symbol,
-                    'current_price': current_price,
-                    'volume': volume,
-                    'expiry_date': expiry_date.isoformat(),
-                    'days_to_expiry': days_to_expiry,
-                    'description': f'WTI CRUDE OIL FUTURES {contract_symbol}',
-                    'security_name': f'{contract_symbol} WTI CRUDE',
-                    'data_source': 'yfinance_specific',
-                    'timestamp': datetime.now().isoformat()
-                })
-                
+            logger.info(f"🔍 Trying specific WTI contract: {symbol}")
+            validation_data = _yf_history_with_retry(symbol, period="5d", interval="1d", timeout=8)
+            payload = _contract_quote_payload(
+                validation_data, contract, now,
+                quote_symbol=symbol, data_source='yfinance_specific', spliced_series=False,
+            )
+            if payload is not None:
+                logger.info(f"✅ Found valid WTI contract: {symbol} @ ${payload['current_price']:.2f}")
+                return _cache_and_return(payload)
+            contract_failures.append(f"{symbol}: no finite closes")
+
         except Exception as e:
-            logger.warning(f"Contract {contract_symbol} failed: {e}")
-            contract_failures.append(f"{contract_symbol}: {e}")
+            logger.warning(f"Contract {symbol} failed: {e}")
+            contract_failures.append(f"{symbol}: {type(e).__name__}")
             continue
-    
+
     # If all contracts fail, this is a critical error
-    details = []
-    if skipped_near_expiry:
-        details.append("near_expiry=" + ", ".join(skipped_near_expiry))
-    if contract_failures:
-        details.append("fetch_failures=" + "; ".join(contract_failures[:3]))
-    detail_msg = (" Details: " + " | ".join(details)) if details else ""
+    detail_msg = (" Details: fetch_failures=" + "; ".join(contract_failures[:3])) if contract_failures else ""
     raise Exception("CRITICAL: No valid WTI contracts found. Cannot operate without real data." + detail_msg)
+
 
 class PremiumWTIPredictor:
     """Premium WTI Oil Price Prediction Engine - REAL DATA ONLY"""
@@ -366,19 +576,22 @@ class PremiumWTIPredictor:
         self.config = PremiumAPIConfig()
         # Free-API mode by default: run with available real sources unless strict mode is explicitly enabled.
         self.strict_premium_api_required = os.getenv('STRICT_PREMIUM_API_REQUIRED', 'false').lower() == 'true'
-        # Floor of 0 (not 1) so a public auto-refresh deploy can produce a snapshot even when
-        # every keyed external API is unavailable — the core price/ML engine still runs.
-        self.min_required_external_sources = max(0, int(os.getenv('MIN_REQUIRED_EXTERNAL_SOURCES', '1')))
+        # Default 0 so a public auto-refresh deploy can produce a snapshot even when every keyed
+        # external API is unavailable: the price/ML engine needs only Yahoo market data, and by
+        # default the only external source fetched is the news-flow regime (payload only).
+        self.min_required_external_sources = max(0, int(os.getenv('MIN_REQUIRED_EXTERNAL_SOURCES', '0')))
         self.external_fetch_workers = max(2, int(os.getenv('EXTERNAL_FETCH_WORKERS', '4')))
-        self.model_n_estimators = max(20, int(os.getenv('MODEL_N_ESTIMATORS', '60')))
+        # 40 trees per model = the walk-forward backtest's default (--estimators 40).
+        self.model_n_estimators = max(20, int(os.getenv('MODEL_N_ESTIMATORS', '40')))
         self.model_cpu_workers = max(1, int(os.getenv('MODEL_CPU_WORKERS', '1')))
-        self.interval_quantile = min(0.95, max(0.60, float(os.getenv('INTERVAL_CALIBRATION_QUANTILE', '0.80'))))
+        # Nominal coverage of the split-conformal prediction intervals (reported as 'interval_level').
         self.target_interval_coverage = min(0.95, max(0.55, float(os.getenv('TARGET_INTERVAL_COVERAGE', '0.80'))))
         self.interval_coverage_gain = min(0.60, max(0.0, float(os.getenv('INTERVAL_COVERAGE_GAIN', '0.25'))))
         self.confidence_floor = max(5.0, min(50.0, float(os.getenv('CONFIDENCE_FLOOR_PERCENT', '10'))))
         self.min_live_quality_samples = max(4, int(os.getenv('MIN_LIVE_QUALITY_SAMPLES', '10')))
-        self.min_live_direction_accuracy = float(os.getenv('MIN_LIVE_DIRECTION_ACCURACY_PERCENT', '50'))
-        self.min_backtest_direction_accuracy = float(os.getenv('MIN_BACKTEST_DIRECTION_ACCURACY_PERCENT', '45'))
+        # Never below 50%: a horizon that calls direction worse than a coin flip must never be 'qualified'.
+        self.min_live_direction_accuracy = max(50.0, float(os.getenv('MIN_LIVE_DIRECTION_ACCURACY_PERCENT', '50')))
+        self.min_backtest_direction_accuracy = max(50.0, float(os.getenv('MIN_BACKTEST_DIRECTION_ACCURACY_PERCENT', '50')))
         self.min_backtest_samples = max(10, int(os.getenv('MIN_BACKTEST_SAMPLES', '30')))
         self.min_quality_confidence = float(os.getenv('MIN_QUALITY_CONFIDENCE_PERCENT', '15'))
         self.max_quality_drift_score = float(os.getenv('MAX_QUALITY_DRIFT_SCORE', '3.0'))
@@ -388,9 +601,14 @@ class PremiumWTIPredictor:
         self.time_series_cv_splits = max(2, int(os.getenv('TIME_SERIES_CV_SPLITS', '2')))
         self.max_hourly_training_samples = max(240, int(os.getenv('MAX_HOURLY_TRAINING_SAMPLES', '720')))
         self.max_selected_features = max(12, int(os.getenv('MAX_SELECTED_FEATURES', '24')))
+        # Floor for every external source's cache lifetime; each source's own TTL
+        # (EXTERNAL_SOURCE_TTL_SECONDS) is sized to its provider's quota and is usually longer.
         self.external_data_ttl_seconds = max(30, int(os.getenv('EXTERNAL_DATA_TTL_SECONDS', '180')))
         self.market_data_ttl_seconds = max(10, int(os.getenv('MARKET_DATA_TTL_SECONDS', '60')))
-        self.daily_training_period = os.getenv('DAILY_TRAINING_PERIOD', '18mo')
+        # Two years of daily bars so the model can train on the same rolling window as the validated
+        # backtest (--train-window 378 rows) after the 63-bar feature lookback.
+        self.daily_training_period = os.getenv('DAILY_TRAINING_PERIOD', '2y')
+        self.daily_training_rows = max(0, int(os.getenv('DAILY_TRAINING_ROWS', '378')))
         self.hourly_training_period = os.getenv('HOURLY_TRAINING_PERIOD', '90d')
         self.market_context_period = os.getenv('MARKET_CONTEXT_PERIOD', '3y')
         base_daily_lookback = max(30, int(os.getenv('DAILY_FEATURE_LOOKBACK_BARS', '63')))
@@ -401,20 +619,32 @@ class PremiumWTIPredictor:
         self.daily_target_mode = os.getenv('DAILY_TARGET_MODE', 'return').strip().lower() or 'return'
         if self.daily_target_mode not in {'price', 'return', 'excess_return'}:
             self.daily_target_mode = 'return'
-        # External API snapshots are point-in-time values; avoid injecting them into historical rows by default.
+        # Cross-asset context (Brent, DXY, VIX, OVX, rates, XLE/XOP, SPY) for each WTI bar is taken
+        # from the PREVIOUS trading day, exactly like the validated backtest (--lag-context 1): those
+        # closes print at 16:00 ET, after the ~14:30 ET WTI settlement being forecast from.
+        self.context_lag_days = 1
+        # External API snapshots are point-in-time values; injecting them into historical rows is a
+        # look-ahead by construction and is not part of the validated configuration (default off).
         self.use_external_features_in_training = os.getenv('USE_EXTERNAL_FEATURES_IN_TRAINING', 'false').lower() == 'true'
-        # Default OFF: walk-forward backtest showed the FRED/EIA macro family does not improve the
-        # 1W signal (Sharpe 2.07 without macro vs 1.90 with it) AND is the only revision-prone data
-        # source. Deploying without it makes the live model identical to the leakage-proof backtested
-        # configuration. Re-enable via env var only after auditing point-in-time (ALFRED) vintages.
+        # Default OFF: FRED/EIA macro is latest-vintage (revision-prone) data and is excluded from the
+        # validated backtest (--features no_macro). With it off, the daily 1D/1W models are the
+        # backtest's configuration: the same features (technical + one-day-lagged context), the same
+        # rolling 378-row window, estimators and CV, equal validation-score weights (no regime
+        # re-weighting) and the same stabilizer / drift-challenger blend. The one intended difference
+        # is that the forecast is anchored to the live quote rather than the last settlement.
+        # Re-enable macro via env var only after auditing point-in-time (ALFRED) vintages.
         self.use_historical_external_features_in_training = os.getenv('USE_HISTORICAL_EXTERNAL_FEATURES_IN_TRAINING', 'false').lower() == 'true'
         self.eia_release_lag_days = max(3, int(os.getenv('EIA_RELEASE_LAG_DAYS', '5')))
+        # Publication lags applied in _release_available_dates (see there for the conventions).
         self.fred_daily_release_lag_days = max(1, int(os.getenv('FRED_DAILY_RELEASE_LAG_DAYS', '1')))
-        self.fred_monthly_release_lag_days = max(5, int(os.getenv('FRED_MONTHLY_RELEASE_LAG_DAYS', '15')))
+        self.fred_weekly_release_lag_days = max(1, int(os.getenv('FRED_WEEKLY_RELEASE_LAG_DAYS', '7')))
+        self.fred_monthly_release_lag_days = max(5, int(os.getenv('FRED_MONTHLY_RELEASE_LAG_DAYS', '20')))
+        self.fred_quarterly_release_lag_days = max(5, int(os.getenv('FRED_QUARTERLY_RELEASE_LAG_DAYS', '30')))
         self.contract_refresh_ttl_seconds = max(30, int(os.getenv('CONTRACT_REFRESH_TTL_SECONDS', '120')))
+        # Stored forecasts older than this are pruned (quotes are kept 17 days longer so the oldest
+        # retained 1W forecasts can still be scored).
+        self.store_retention_days = max(14, int(os.getenv('STORE_RETENTION_DAYS', '90')))
         self.model_cache = {}
-        self.latest_diagnostics = {}
-        self._external_data_mem_cache = {'fetched_at': 0.0, 'data': None}
         self._market_data_mem_cache = {}
         self._historical_external_mem_cache = {}
         self._last_contract_refresh_ts = 0.0
@@ -422,12 +652,13 @@ class PremiumWTIPredictor:
             'daily_history': None,
             'hourly_history': None,
         }
+        self._init_runtime_state()
         
         # Get current contract info
         self.contract_info = get_current_wti_contract()
         self.contract_symbol = self.contract_info['symbol']
         self.yfinance_symbol = self.contract_info['yfinance_symbol']
-        self.history_symbol = self.contract_info.get('history_symbol', self.yfinance_symbol)
+        self.history_symbol = self.contract_info.get('history_symbol', 'CL=F')
         
         # Setup data storage paths
         self.data_dir = Path("data")
@@ -459,6 +690,32 @@ class PremiumWTIPredictor:
         
         logger.info(f"Premium WTI Predictor initialized for contract: {self.contract_symbol}")
 
+    def _init_runtime_state(self):
+        """Locks, change counters and caches shared by the server's price, prediction and request threads.
+
+        _store_lock guards every mutation of stored_actual_prices, stored_predictions and
+        predictions_1h/1d/1w; readers iterate over snapshots taken under it. _persist_lock
+        serializes the JSON writes and is always taken BEFORE _store_lock, never inside it.
+        """
+        self._store_lock = threading.RLock()
+        self._persist_lock = threading.Lock()
+        self._store_versions = {'actual': 0, 'predictions': 0, '1h': 0, '1d': 0, '1w': 0}
+        self._epoch_cache = {}
+        self._actual_index_cache = None
+        self._accuracy_cache = None
+        self._source_cache = {}
+        self._source_cache_lock = threading.Lock()
+
+    def _ensure_runtime_state(self):
+        """Create the runtime state lazily for instances built without __init__ (tests, tools)."""
+        if getattr(self, '_store_lock', None) is None:
+            self._init_runtime_state()
+
+    def _bump_store_version(self, *names):
+        """Record a store mutation (caller holds _store_lock) so cached indexes/metrics are rebuilt."""
+        for name in names:
+            self._store_versions[name] = self._store_versions.get(name, 0) + 1
+
     def _refresh_contract_storage_paths(self):
         """Update contract-bound storage paths when active contract rolls over."""
         self.predictions_file = self.data_dir / f"{self.contract_symbol}_predictions.json"
@@ -479,24 +736,26 @@ class PremiumWTIPredictor:
         self._last_contract_refresh_ts = now_ts
         latest_symbol = latest.get('symbol', self.contract_symbol)
         latest_yf_symbol = latest.get('yfinance_symbol', self.yfinance_symbol)
-        latest_history_symbol = latest.get('history_symbol', latest_yf_symbol)
+        latest_history_symbol = latest.get('history_symbol', 'CL=F')
 
         if latest_symbol != self.contract_symbol:
             logger.info(f"Contract rollover detected: {self.contract_symbol} -> {latest_symbol}")
-            self.contract_info = latest
-            self.contract_symbol = latest_symbol
-            self.yfinance_symbol = latest_yf_symbol
-            self.history_symbol = latest_history_symbol
-            self._refresh_contract_storage_paths()
+            self._ensure_runtime_state()
+            with self._persist_lock, self._store_lock:
+                self.contract_info = latest
+                self.contract_symbol = latest_symbol
+                self.yfinance_symbol = latest_yf_symbol
+                self.history_symbol = latest_history_symbol
+                self._refresh_contract_storage_paths()
 
-            self.stored_predictions = self._load_stored_predictions()
-            self.stored_actual_prices = self._load_stored_actual_prices()
-            self.accuracy_metrics = self._load_accuracy_metrics()
-            self.predictions_1h = self._load_horizon_predictions('1h')
-            self.predictions_1d = self._load_horizon_predictions('1d')
-            self.predictions_1w = self._load_horizon_predictions('1w')
+                self.stored_predictions = self._load_stored_predictions()
+                self.stored_actual_prices = self._load_stored_actual_prices()
+                self.accuracy_metrics = self._load_accuracy_metrics()
+                self.predictions_1h = self._load_horizon_predictions('1h')
+                self.predictions_1d = self._load_horizon_predictions('1d')
+                self.predictions_1w = self._load_horizon_predictions('1w')
+                self._bump_store_version('actual', 'predictions', *HORIZONS)
             self._market_data_mem_cache = {}
-            self._external_data_mem_cache = {'fetched_at': 0.0, 'data': None}
         else:
             self.contract_info = latest
             self.yfinance_symbol = latest_yf_symbol
@@ -604,12 +863,20 @@ class PremiumWTIPredictor:
         return {}
     
     def _load_horizon_predictions(self, horizon):
-        """Load horizon-specific predictions"""
+        """Load horizon-specific predictions, keeping the first forecast of each session (see _store_prediction_record)."""
         file_path = getattr(self, f'predictions_{horizon}_file')
         if file_path.exists():
             try:
                 with open(file_path, 'r') as f:
-                    return self._normalize_time_index_store(json.load(f))
+                    loaded = self._normalize_time_index_store(json.load(f))
+                # Files written before one-forecast-per-session storage hold a run every ~3 minutes.
+                collapsed, seen = {}, set()
+                for timestamp, row in self._sorted_time_items(loaded):
+                    bucket = self._forecast_bucket(horizon, timestamp)
+                    if bucket is None or bucket not in seen:
+                        seen.add(bucket)
+                        collapsed[timestamp] = row
+                return collapsed
             except Exception as e:
                 logger.warning(f"Could not load {horizon} predictions: {e}")
         return {}
@@ -636,8 +903,49 @@ class PremiumWTIPredictor:
 
     def _sort_timestamp_key(self, timestamp_value):
         """Return a numeric key safe for sorting naive and aware timestamps together."""
+        epoch = self._timestamp_epoch(timestamp_value)
+        return epoch if epoch is not None else float('-inf')
+
+    def _timestamp_epoch(self, timestamp_value):
+        """Epoch seconds of a stored timestamp key (naive keys are in storage_timezone), or None.
+
+        Parsed once per key: the stores are re-read on every accuracy computation and dedupe pass,
+        and re-parsing every key each time is what made those quadratic in practice.
+        """
+        key = str(timestamp_value)
+        cache = getattr(self, '_epoch_cache', None)
+        if cache is not None and key in cache:
+            return cache[key]
         parsed = self._safe_parse_iso(timestamp_value)
-        return parsed.timestamp() if parsed is not None else float('-inf')
+        epoch = parsed.timestamp() if parsed is not None else None
+        if cache is not None:
+            if len(cache) > 500_000:
+                cache.clear()
+            cache[key] = epoch
+        return epoch
+
+    def _latest_time_item(self, payload):
+        """(key, row) with the latest timestamp in a timestamp-keyed store, or None (ties: last inserted)."""
+        latest, latest_epoch = None, float('-inf')
+        for key, row in (payload or {}).items():
+            epoch = self._timestamp_epoch(key)
+            if epoch is not None and epoch >= latest_epoch:
+                latest, latest_epoch = (key, row), epoch
+        return latest
+
+    def _prune_store(self, payload, max_age_seconds):
+        """Drop entries older than max_age_seconds; returns (store, changed). Unparseable keys are kept."""
+        cutoff = time.time() - float(max_age_seconds)
+        stale = [key for key in payload if (self._timestamp_epoch(key) or cutoff) < cutoff]
+        if not stale:
+            return payload, False
+        stale_keys = set(stale)
+        return {key: row for key, row in payload.items() if key not in stale_keys}, True
+
+    def _retention_seconds(self, store_name):
+        days = int(getattr(self, 'store_retention_days', 90))
+        # Quotes outlive forecasts by the 1W horizon plus its 10-day matching window.
+        return (days + (17 if store_name == 'actual' else 0)) * 86400.0
 
     def _record_market_source(self, series_kind, symbol, rows, from_cache=False):
         """Persist the last market data provenance used for model/history fetches."""
@@ -679,17 +987,17 @@ class PremiumWTIPredictor:
 
     def _prices_match(self, left_price, left_volume, right_price, right_volume):
         """Compare two stored quotes conservatively to avoid duplicate actual points."""
-        left_numeric = pd.to_numeric(left_price, errors='coerce')
-        right_numeric = pd.to_numeric(right_price, errors='coerce')
-        if pd.isna(left_numeric) or pd.isna(right_numeric):
+        left_numeric = _finite_float(left_price)
+        right_numeric = _finite_float(right_price)
+        if left_numeric is None or right_numeric is None:
             return False
 
-        left_volume_numeric = pd.to_numeric(left_volume, errors='coerce')
-        right_volume_numeric = pd.to_numeric(right_volume, errors='coerce')
-        left_volume_value = int(left_volume_numeric) if not pd.isna(left_volume_numeric) else 0
-        right_volume_value = int(right_volume_numeric) if not pd.isna(right_volume_numeric) else 0
+        left_volume_numeric = _finite_float(left_volume)
+        right_volume_numeric = _finite_float(right_volume)
+        left_volume_value = int(left_volume_numeric) if left_volume_numeric is not None else 0
+        right_volume_value = int(right_volume_numeric) if right_volume_numeric is not None else 0
 
-        return abs(float(left_numeric) - float(right_numeric)) < 1e-9 and left_volume_value == right_volume_value
+        return abs(left_numeric - right_numeric) < 1e-9 and left_volume_value == right_volume_value
 
     def _dedupe_actual_price_store(self, payload):
         """Collapse redundant stored quote heartbeats while preserving the latest closed-session print."""
@@ -703,24 +1011,24 @@ class PremiumWTIPredictor:
                 changed = True
                 continue
 
-            price_value = pd.to_numeric(raw_data.get('price'), errors='coerce')
-            if pd.isna(price_value) or float(price_value) <= 0:
+            price_value = _finite_float(raw_data.get('price'))
+            if price_value is None or price_value <= 0:
                 changed = True
                 continue
 
-            volume_numeric = pd.to_numeric(raw_data.get('volume'), errors='coerce')
+            volume_numeric = _finite_float(raw_data.get('volume'))
             normalized_row = {
                 'timestamp': str(raw_data.get('timestamp') or timestamp),
-                'price': float(price_value),
-                'volume': int(volume_numeric) if not pd.isna(volume_numeric) and float(volume_numeric) > 0 else 0,
+                'price': price_value,
+                'volume': int(volume_numeric) if volume_numeric is not None and volume_numeric > 0 else 0,
             }
 
-            current_time = self._safe_parse_iso(timestamp)
+            current_time = self._timestamp_epoch(timestamp)
             if last_kept_timestamp and last_kept_data:
-                last_time = self._safe_parse_iso(last_kept_timestamp)
+                last_time = self._timestamp_epoch(last_kept_timestamp)
                 gap_seconds = None
                 if current_time is not None and last_time is not None:
-                    gap_seconds = (current_time - last_time).total_seconds()
+                    gap_seconds = current_time - last_time
 
                 if self._prices_match(
                     last_kept_data.get('price'),
@@ -894,34 +1202,60 @@ class PremiumWTIPredictor:
                 except OSError:
                     pass
     
+    def _persist_store(self, store_attr, version_name, file_path):
+        """Prune a store to its retention window and write a snapshot of it atomically.
+
+        _persist_lock is taken before _store_lock, so writes land in the order their snapshots
+        were taken and the (slow) file write never blocks readers of the in-memory stores.
+        """
+        self._ensure_runtime_state()
+        with self._persist_lock:
+            with self._store_lock:
+                store = getattr(self, store_attr)
+                pruned, changed = self._prune_store(store, self._retention_seconds(version_name))
+                if changed:
+                    setattr(self, store_attr, pruned)
+                    self._bump_store_version(version_name)
+                snapshot = dict(getattr(self, store_attr))
+            self._atomic_write_json(file_path, snapshot)
+
     def _save_predictions(self):
         """Save predictions to file"""
         try:
-            self._atomic_write_json(self.predictions_file, self.stored_predictions)
+            self._persist_store('stored_predictions', 'predictions', self.predictions_file)
         except Exception as e:
             logger.error(f"Could not save predictions: {e}")
     
     def _save_actual_prices(self):
-        """Save actual prices to file"""
+        """Dedupe, prune and save actual prices to file"""
+        self._ensure_runtime_state()
         try:
-            cleaned, _ = self._dedupe_actual_price_store(self.stored_actual_prices)
-            self.stored_actual_prices = cleaned
-            self._atomic_write_json(self.actual_prices_file, self.stored_actual_prices)
+            with self._persist_lock:
+                with self._store_lock:
+                    cleaned, deduped = self._dedupe_actual_price_store(self.stored_actual_prices)
+                    cleaned, pruned = self._prune_store(cleaned, self._retention_seconds('actual'))
+                    if deduped or pruned:
+                        self.stored_actual_prices = cleaned
+                        self._bump_store_version('actual')
+                    snapshot = dict(self.stored_actual_prices)
+                self._atomic_write_json(self.actual_prices_file, snapshot)
         except Exception as e:
             logger.error(f"Could not save actual prices: {e}")
     
     def _save_accuracy_metrics(self):
         """Save accuracy metrics to file"""
+        self._ensure_runtime_state()
         try:
-            self._atomic_write_json(self.accuracy_file, self.accuracy_metrics)
+            with self._persist_lock:
+                self._atomic_write_json(self.accuracy_file, self.accuracy_metrics)
         except Exception as e:
             logger.error(f"Could not save accuracy metrics: {e}")
     
-    def _save_horizon_predictions(self, horizon, data):
-        """Save horizon-specific predictions"""
+    def _save_horizon_predictions(self, horizon, data=None):
+        """Save horizon-specific predictions (the current store for `horizon`; `data` is ignored)."""
         file_path = getattr(self, f'predictions_{horizon}_file')
         try:
-            self._atomic_write_json(file_path, data)
+            self._persist_store(f'predictions_{horizon}', horizon, file_path)
         except Exception as e:
             logger.error(f"Could not save {horizon} predictions: {e}")
 
@@ -929,21 +1263,25 @@ class PremiumWTIPredictor:
         """Parse ISO timestamp safely and tolerate trailing Z."""
         if not timestamp_str:
             return None
+        text = str(timestamp_str)
         try:
-            parsed = pd.Timestamp(str(timestamp_str))
+            # Fast path for the canonical formats the stores use.
+            fast = datetime.fromisoformat(text.replace('Z', '+00:00'))
+        except ValueError:
+            fast = None
+        if fast is not None:
+            if fast.tzinfo is None:
+                fast = fast.replace(tzinfo=self.storage_timezone)
+            return fast.astimezone(timezone.utc)
+        try:
+            parsed = pd.Timestamp(text)
             if parsed.tzinfo is None:
                 parsed = parsed.tz_localize(self.storage_timezone)
             else:
                 parsed = parsed.tz_convert('UTC')
             return parsed.tz_convert('UTC').to_pydatetime()
         except Exception:
-            try:
-                fallback = datetime.fromisoformat(str(timestamp_str).replace('Z', '+00:00'))
-                if fallback.tzinfo is None:
-                    fallback = fallback.replace(tzinfo=self.storage_timezone)
-                return fallback.astimezone(timezone.utc)
-            except Exception:
-                return None
+            return None
 
     def _get_prediction_reference_price(self, fallback_price):
         """Use the live contract quote as the forecast baseline when available."""
@@ -957,9 +1295,8 @@ class PremiumWTIPredictor:
 
         return 0.0
 
-    def _get_horizon_delta_and_window(self, horizon):
-        """Return target delta and matching window for realized accuracy joins."""
-        time_deltas = {'1h': timedelta(hours=1), '1d': timedelta(days=1), '1w': timedelta(weeks=1)}
+    def _horizon_search_window(self, horizon):
+        """Forward matching window for realized-accuracy joins (after the target time)."""
         search_windows = {
             # Use forward-only joins plus slightly wider windows so exchange breaks/weekends
             # do not suppress otherwise matured forecasts.
@@ -967,38 +1304,57 @@ class PremiumWTIPredictor:
             '1d': timedelta(days=3),
             '1w': timedelta(days=10),
         }
-        return time_deltas[horizon], search_windows.get(horizon, timedelta(days=30))
+        return search_windows.get(horizon, timedelta(days=30))
+
+    def _horizon_target_time(self, pred_time, horizon):
+        return horizon_target_time(pred_time, horizon)
+
+    def _actual_price_index(self):
+        """Sorted epoch-second and price arrays over the stored quotes, rebuilt only when the store changes."""
+        self._ensure_runtime_state()
+        with self._store_lock:
+            version = self._store_versions.get('actual', 0)
+            cached = self._actual_index_cache
+            if cached is not None and cached[0] == version:
+                return cached[1], cached[2]
+            items = list(self.stored_actual_prices.items())
+
+        pairs = []
+        for timestamp, row in items:
+            epoch = self._timestamp_epoch(timestamp)
+            price = _finite_float(row.get('price')) if isinstance(row, dict) else None
+            if epoch is not None and price is not None and price > 0:
+                pairs.append((epoch, price))
+        pairs.sort(key=lambda pair: pair[0])  # stable: equal times keep insertion order
+        times = np.fromiter((pair[0] for pair in pairs), dtype=float, count=len(pairs))
+        prices = np.fromiter((pair[1] for pair in pairs), dtype=float, count=len(pairs))
+
+        with self._store_lock:
+            if self._store_versions.get('actual', 0) == version:
+                self._actual_index_cache = (version, times, prices)
+        return times, prices
 
     def _find_closest_actual_price(self, target_time, search_window):
         """Find the first realized price at/after target timestamp within a forward window."""
-        closest_actual = None
-        min_time_diff = timedelta.max
+        times, prices = self._actual_price_index()
+        if len(times) == 0:
+            return None
+        # Use forward-only matching so unmatured forecasts are never evaluated early.
+        target = target_time.timestamp()
+        position = int(np.searchsorted(times, target, side='left'))
+        if position >= len(times) or times[position] - target > search_window.total_seconds():
+            return None
+        return float(prices[position])
 
-        for actual_timestamp, actual_data in self.stored_actual_prices.items():
-            actual_time = self._safe_parse_iso(actual_timestamp)
-            if actual_time is None:
-                continue
-
-            # Use forward-only matching so unmatured forecasts are never evaluated early.
-            time_diff = actual_time - target_time
-            if time_diff < timedelta(0):
-                continue
-            if time_diff > search_window:
-                continue
-
-            if time_diff < min_time_diff:
-                min_time_diff = time_diff
-                closest_actual = float(actual_data.get('price', 0.0))
-
-        return closest_actual
-
-    def _get_recent_realized_abs_errors(self, horizon, limit=80):
-        """Collect recent absolute forecast errors for interval calibration."""
-        horizon_data = getattr(self, f'predictions_{horizon}', {})
+    def _get_recent_realized_abs_errors(self, horizon, limit=80, relative=False):
+        """Collect recent absolute forecast errors (optionally / the issue-time price) for interval calibration."""
+        self._ensure_runtime_state()
+        with self._store_lock:
+            horizon_data = dict(getattr(self, f'predictions_{horizon}', {}) or {})
         if not horizon_data:
             return []
 
-        delta, search_window = self._get_horizon_delta_and_window(horizon)
+        search_window = self._horizon_search_window(horizon)
         sorted_preds = sorted(
             horizon_data.items(),
             key=lambda kv: self._sort_timestamp_key(kv[0]),
@@ -1008,15 +1364,21 @@ class PremiumWTIPredictor:
         errors = []
         for pred_timestamp, pred_data in sorted_preds:
             pred_time = self._safe_parse_iso(pred_timestamp)
-            if pred_time is None:
+            if pred_time is None or not isinstance(pred_data, dict):
                 continue
 
-            actual_price = self._find_closest_actual_price(pred_time + delta, search_window)
-            if actual_price is None:
+            actual_price = self._find_closest_actual_price(self._horizon_target_time(pred_time, horizon), search_window)
+            predicted_price = _finite_float(pred_data.get('prediction'))
+            if actual_price is None or predicted_price is None:
                 continue
 
-            predicted_price = float(pred_data.get('prediction', 0.0))
-            errors.append(abs(predicted_price - actual_price))
+            error = abs(predicted_price - actual_price)
+            if relative:
+                reference = _finite_float(pred_data.get('current_price'))
+                if reference is None or reference <= 0:
+                    continue
+                error /= reference
+            errors.append(error)
             if len(errors) >= limit:
                 break
 
@@ -1031,46 +1393,60 @@ class PremiumWTIPredictor:
         except Exception:
             return 0.0
 
-    def _calibrated_interval_margin(self, horizon, pred_std, current_price, backtest_metrics, drift_score):
-        """Calibrate interval width using model dispersion plus realized-error history."""
-        floor_margin = max(0.05, current_price * 0.0015)
-        model_margin = 1.64 * max(0.0, float(pred_std))
+    def _conformal_interval_margin(self, horizon, current_price, oof_relative_residuals, backtest_metrics=None):
+        """Split-conformal half-width of the prediction interval at self.target_interval_coverage.
 
-        candidates = [floor_margin, model_margin]
-        adaptive_quantile = float(self.interval_quantile)
-        coverage_ratio = None
+        Conformity scores are the out-of-fold absolute errors of the stabilized ensemble relative to
+        the reference price (from the time-series CV in train_prediction_models), pooled with the
+        realized relative errors of this horizon's matured live forecasts. The half-width is the
+        ceil((n + 1) * level)-th smallest score (the finite-sample split-conformal quantile) times the
+        current price, so [forecast - margin, forecast + margin] covers ~`level` of outcomes when
+        errors are exchangeable (serially correlated market errors are only approximately so, which
+        is why realized live coverage is fed back). Once live coverage has been measured on enough
+        matured forecasts the level is nudged by the coverage gap, and an observed 0% coverage is
+        the worst case (widest interval), not a missing value. Returns (margin, metadata).
+        """
+        floor_margin = max(0.05, current_price * 0.0015)
+        level = float(self.target_interval_coverage)
+        effective_level = level
 
         horizon_accuracy = self.accuracy_metrics.get(horizon, {}) if isinstance(self.accuracy_metrics, dict) else {}
-        if isinstance(horizon_accuracy, dict):
-            coverage_pct = float(horizon_accuracy.get('interval_coverage', 0.0) or 0.0)
-            interval_total = int(horizon_accuracy.get('interval_total', 0) or 0)
-            if coverage_pct > 0 and interval_total > 0:
-                coverage_ratio = coverage_pct / 100.0
-                adaptive_shift = (self.target_interval_coverage - coverage_ratio) * 0.20
-                adaptive_quantile = float(np.clip(adaptive_quantile + adaptive_shift, 0.65, 0.98))
+        interval_total = int(horizon_accuracy.get('interval_total', 0) or 0) if isinstance(horizon_accuracy, dict) else 0
+        observed_coverage = None
+        if interval_total >= 8:
+            observed_coverage = float(horizon_accuracy.get('interval_hits', 0) or 0) / interval_total
+            effective_level = float(np.clip(
+                level + self.interval_coverage_gain * (level - observed_coverage), 0.5, 0.99
+            ))
 
-        if isinstance(backtest_metrics, dict):
-            backtest_mae = float(backtest_metrics.get('mae', 0.0) or 0.0)
-            backtest_rmse = float(backtest_metrics.get('rmse', 0.0) or 0.0)
-            if backtest_mae > 0:
-                candidates.append(backtest_mae * 1.1)
-            if backtest_rmse > 0:
-                candidates.append(backtest_rmse * 0.9)
+        scores = [float(value) for value in (oof_relative_residuals or []) if _finite_float(value) is not None]
+        scores += self._get_recent_realized_abs_errors(horizon, limit=80, relative=True)
+        meta = {
+            'interval_level': round(level, 4),
+            'effective_level': round(effective_level, 4),
+            'observed_live_coverage': round(observed_coverage, 4) if observed_coverage is not None else None,
+            'calibration_samples': len(scores),
+        }
 
-        realized_errors = self._get_recent_realized_abs_errors(horizon, limit=80)
-        if len(realized_errors) >= 8:
-            candidates.append(float(np.quantile(realized_errors, adaptive_quantile)))
+        quantile = split_conformal_quantile(scores, effective_level)
+        if quantile is not None:
+            margin = quantile * float(current_price)
+            meta['interval_method'] = 'split_conformal'
+            # With fewer than level / (1 - level) scores the conformal rank does not exist and the
+            # largest score is used instead.
+            meta['enough_calibration_samples'] = int(math.ceil((len(scores) + 1) * effective_level)) <= len(scores)
+        else:
+            rmse = _finite_float((backtest_metrics or {}).get('rmse')) if isinstance(backtest_metrics, dict) else None
+            if rmse is not None and rmse > 0:
+                # Gaussian fallback when no conformity scores exist (no CV folds): z at the same level.
+                margin = rmse * statistics.NormalDist().inv_cdf(0.5 + effective_level / 2.0)
+                meta['interval_method'] = 'normal_approx_rmse'
+            else:
+                margin = floor_margin
+                meta['interval_method'] = 'floor_only'
+            meta['enough_calibration_samples'] = False
 
-        margin = max(candidates)
-        drift_multiplier = 1.0 + min(0.35, max(0.0, drift_score - 1.5) * 0.10)
-        margin *= drift_multiplier
-
-        if coverage_ratio is not None:
-            gap = self.target_interval_coverage - coverage_ratio
-            coverage_multiplier = 1.0 + float(np.clip(gap * self.interval_coverage_gain, -0.18, 0.35))
-            margin *= coverage_multiplier
-
-        return float(max(floor_margin, margin))
+        return float(max(floor_margin, margin)), meta
 
     def _compose_horizon_confidence(self, base_score, current_price, interval_obj, drift_score, backtest_metrics):
         """Build confidence from validation score, uncertainty width, drift, and realized backtest direction."""
@@ -1160,12 +1536,16 @@ class PremiumWTIPredictor:
         }
 
     def _encode_target_value(self, reference_price, target_price, target_mode='price', baseline_return=0.0):
-        """Map absolute future price into the model target space."""
+        """Map absolute future price into the model target space.
+
+        Returns NaN when the reference or target price is missing/invalid: callers drop such rows
+        (train_prediction_models does) instead of learning a fabricated flat 0% label.
+        """
         if target_mode in {'return', 'excess_return'}:
             ref = pd.to_numeric(reference_price, errors='coerce')
             target = pd.to_numeric(target_price, errors='coerce')
             if pd.isna(ref) or pd.isna(target) or float(ref) <= 0:
-                return 0.0
+                return float('nan')
             target_return = float((float(target) / float(ref)) - 1.0)
             if target_mode == 'excess_return':
                 baseline = pd.to_numeric(baseline_return, errors='coerce')
@@ -1173,7 +1553,7 @@ class PremiumWTIPredictor:
                 return float(target_return - baseline_value)
             return target_return
         target = pd.to_numeric(target_price, errors='coerce')
-        return float(target) if not pd.isna(target) else 0.0
+        return float(target) if not pd.isna(target) else float('nan')
 
     def _decode_target_value(self, reference_price, target_value, target_mode='price', baseline_return=0.0):
         """Convert model outputs back into price space for evaluation and display."""
@@ -1223,44 +1603,6 @@ class PremiumWTIPredictor:
         payload_str = json.dumps(payload, sort_keys=True)
         return hashlib.sha256(payload_str.encode('utf-8')).hexdigest()
 
-    def _drop_horizon_noise_features(self, features_df, target_column, horizon):
-        """Prune feature families that are structurally mismatched to a horizon."""
-        if features_df is None or features_df.empty:
-            return features_df
-
-        feature_columns = [col for col in features_df.columns if col != target_column]
-        drop_columns = set()
-
-        if horizon == '1w':
-            drop_columns.update({
-                'open_gap_pct',
-                'intraday_return',
-                'candle_body_to_range',
-                'close_location_value',
-                'upper_wick_pct',
-                'lower_wick_pct',
-                'signed_volume_pressure',
-                'gap_reversal_pressure',
-                'range_to_atr14',
-            })
-        elif horizon == '1d':
-            drop_columns.update({
-                'hist_eia_stocks_level',
-                'hist_eia_stocks_zscore_12w',
-                'hist_eia_stock_draw_4w',
-                'hist_fred_curve_slope',
-                'hist_fred_fedfunds_level',
-                'hist_fred_indpro_yoy',
-                'hist_fred_umcsent_level',
-                'hist_fred_umcsent_change_3m',
-                'hist_macro_growth_vs_rates',
-            })
-
-        selected_drop_columns = [col for col in feature_columns if col in drop_columns]
-        if not selected_drop_columns:
-            return features_df
-        return features_df.drop(columns=selected_drop_columns, errors='ignore')
-
     def _compute_backtest_metrics(self, y_true, y_pred, baseline):
         """Compute leakage-safe fold metrics for objective monitoring."""
         y_true_arr = np.asarray(y_true, dtype=float)
@@ -1290,8 +1632,11 @@ class PremiumWTIPredictor:
         }
 
     def _train_or_reuse_model_package(self, features_df, target_column, horizon, target_mode='price'):
-        """Train a horizon package once and reuse it while source data fingerprint is unchanged."""
-        features_df = self._drop_horizon_noise_features(features_df, target_column, horizon)
+        """Train a horizon package once and reuse it while source data fingerprint is unchanged.
+
+        No per-horizon feature pruning happens here: the validated backtest trains on the full
+        feature set, so production does too.
+        """
         signature = self._build_training_signature(features_df, target_column, target_mode)
         cached = self.model_cache.get(horizon)
 
@@ -1332,7 +1677,7 @@ class PremiumWTIPredictor:
         """Centralize feature defaults so training, inference, and backtests stay aligned."""
         feature_name = str(feature_name or '')
         explicit_defaults = {
-            'fred_dollar_strength': 100.0,
+            'fred_dollar_strength': 0.9,  # euros per dollar (inverted DEXUSEU)
             'fred_economic_stability': 70.0,
             'news_market_buzz': 50.0,
             'news_bullish_ratio': 0.5,
@@ -1354,7 +1699,7 @@ class PremiumWTIPredictor:
         if feature_name in explicit_defaults:
             return float(explicit_defaults[feature_name])
         if 'dollar_strength' in feature_name:
-            return 100.0
+            return 0.9
         if 'bullish_ratio' in feature_name:
             return 0.5
         if 'trend' in feature_name or 'momentum' in feature_name or 'divergence' in feature_name:
@@ -1382,13 +1727,6 @@ class PremiumWTIPredictor:
         if not np.isfinite(base_value) or abs(base_value) < 1e-9 or not np.isfinite(latest_value):
             return 0.0
         return float((latest_value / base_value) - 1.0)
-
-    def _safe_diff_value(self, series, periods=1):
-        """Latest absolute difference over N bars."""
-        clean = self._safe_series(series)
-        if clean.empty or len(clean) <= periods:
-            return 0.0
-        return float(clean.iloc[-1] - clean.iloc[-periods - 1])
 
     def _safe_ratio(self, numerator, denominator, default=0.0):
         """Finite ratio helper used across normalized features."""
@@ -1484,19 +1822,6 @@ class PremiumWTIPredictor:
             return 0.0
         return float((tail.iloc[-1] / rolling_low) - 1.0)
 
-    def _latest_correlation(self, left_series, right_series, window):
-        """Rolling correlation helper for cross-asset context."""
-        left = self._safe_series(left_series)
-        right = self._safe_series(right_series)
-        if left.empty or right.empty:
-            return 0.0
-        aligned = pd.concat([left.pct_change(), right.pct_change()], axis=1).replace([np.inf, -np.inf], np.nan).dropna()
-        tail = aligned.tail(max(3, int(window)))
-        if len(tail) < 3:
-            return 0.0
-        corr = float(tail.iloc[:, 0].corr(tail.iloc[:, 1]))
-        return corr if np.isfinite(corr) else 0.0
-
     def _latest_skewness(self, series, window):
         """Rolling skewness for return asymmetry signals."""
         clean = self._safe_series(series)
@@ -1576,12 +1901,12 @@ class PremiumWTIPredictor:
             raise Exception(f"Cannot get real price data: {e}")
 
     def _get_market_symbol_candidates(self):
-        """Prefer the active contract for history, then fall back to the continuous quote."""
-        candidates = []
-        for symbol in [self.history_symbol, self.yfinance_symbol]:
-            if symbol and symbol not in candidates:
-                candidates.append(symbol)
-        return candidates
+        """History always comes from the continuous CL=F series.
+
+        A single contract's history ('CLX26.NYM') is not a substitute for the model's multi-year
+        training window, and the bare code ('CLX26') never resolves on Yahoo, so it is not tried.
+        """
+        return [getattr(self, 'history_symbol', None) or 'CL=F']
     
     def get_wti_historical_data(self, period=None, interval="1d"):
         """Get historical WTI data from yfinance"""
@@ -1700,7 +2025,12 @@ class PremiumWTIPredictor:
 
     def _fetch_eia_weekly_stocks_series(self):
         """Fetch the historical weekly U.S. crude stocks series from EIA."""
-        cache_key = 'eia:weekly_crude_stocks'
+        # Keyed by UTC date so a long-running server picks up each new weekly release (the old
+        # constant key cached the first fetch for the life of the process).
+        cache_prefix = 'eia:weekly_crude_stocks:'
+        cache_key = cache_prefix + _utc_now().date().isoformat()
+        for stale_key in [key for key in self._historical_external_mem_cache if key.startswith(cache_prefix) and key != cache_key]:
+            self._historical_external_mem_cache.pop(stale_key, None)
         cached = self._historical_external_mem_cache.get(cache_key)
         if cached is not None:
             return cached.copy() if hasattr(cached, 'copy') else cached
@@ -1819,7 +2149,30 @@ class PremiumWTIPredictor:
             self._historical_external_mem_cache[cache_key] = None
             return None
 
-    def _align_released_series_to_index(self, index_values, series, lag_days):
+    def _release_available_dates(self, observation_dates, frequency, lag_days):
+        """First date on which each lower-frequency observation was public (conservative).
+
+        FRED dates monthly/quarterly observations by the START of the period (INDPRO for August is
+        dated 08-01 but published mid-September), so a lag from the observation date alone let
+        values into rows up to a month before release. Availability conventions:
+          monthly:   period start + 1 month + lag_days (default 20)
+          quarterly: period start + 3 months + lag_days (default 30)
+          weekly:    observation date + lag_days (default 7)
+          daily:     observation date + lag_days business days (default 1)
+          None:      observation date + lag_days calendar days (EIA weekly stocks: week-ending
+                     Friday, published the following Wednesday)
+        """
+        dates = pd.DatetimeIndex(observation_dates)
+        lag = int(lag_days)
+        if frequency == 'monthly':
+            return dates + pd.DateOffset(months=1) + pd.Timedelta(days=lag)
+        if frequency == 'quarterly':
+            return dates + pd.DateOffset(months=3) + pd.Timedelta(days=lag)
+        if frequency == 'daily':
+            return dates + pd.offsets.BDay(lag)
+        return dates + pd.Timedelta(days=lag)
+
+    def _align_released_series_to_index(self, index_values, series, lag_days, frequency=None):
         """Align a lower-frequency series to market dates using conservative publication lags."""
         target_index = pd.Index(index_values)
         target_keys = pd.Index([self._date_feature_key(ts) for ts in target_index])
@@ -1837,7 +2190,7 @@ class PremiumWTIPredictor:
         # which raises "incompatible merge keys" and silently drops every FRED/EIA feature to its
         # zero default. Coerce both sides to nanosecond resolution before the join to prevent this.
         available_date = pd.to_datetime(
-            normalized.index + pd.to_timedelta(int(lag_days), unit='D')
+            self._release_available_dates(normalized.index, frequency, lag_days)
         ).astype('datetime64[ns]')
         left_date_key = pd.to_datetime(pd.Index(target_keys)).astype('datetime64[ns]')
 
@@ -1930,11 +2283,16 @@ class PremiumWTIPredictor:
                 series = self._fetch_fred_csv_series(series_id, start_date=fred_start, end_date=fred_end)
                 if series is None or len(series) < 2:
                     continue
-                lag_days = self.fred_monthly_release_lag_days if frequency == 'monthly' else self.fred_daily_release_lag_days
+                lag_days = {
+                    'daily': getattr(self, 'fred_daily_release_lag_days', 1),
+                    'weekly': getattr(self, 'fred_weekly_release_lag_days', 7),
+                    'monthly': getattr(self, 'fred_monthly_release_lag_days', 20),
+                    'quarterly': getattr(self, 'fred_quarterly_release_lag_days', 30),
+                }[frequency]
                 for feature_name, transform in transforms.items():
                     transformed = transform(series.astype(float))
                     feature_frame[feature_name] = self._align_released_series_to_index(
-                        wti_data.index, transformed, lag_days
+                        wti_data.index, transformed, lag_days, frequency=frequency
                     ).values
             except Exception as e:
                 logger.warning(
@@ -1964,31 +2322,6 @@ class PremiumWTIPredictor:
         }
         self._historical_external_mem_cache[cache_key] = copy.deepcopy(feature_map)
         return feature_map
-
-    def _get_next_wti_contract_symbol(self):
-        """Infer the next-month WTI contract symbol from the active contract code."""
-        try:
-            current = str(self.contract_symbol)
-            if len(current) < 5 or not current.startswith('CL'):
-                return None
-
-            month_lookup = {code: month for month, code in MONTH_CODES.items()}
-            month_code = current[2]
-            year_suffix = int(current[3:5])
-            month_value = month_lookup.get(month_code)
-            if month_value is None:
-                return None
-
-            year_value = 2000 + year_suffix
-            next_month = month_value + 1
-            next_year = year_value
-            if next_month > 12:
-                next_month = 1
-                next_year += 1
-
-            return f"CL{MONTH_CODES[next_month]}{str(next_year)[-2:]}"
-        except Exception:
-            return None
 
     def _fetch_market_series(self, symbol, period='2y', interval='1d'):
         """Fetch and cache close-price series for contextual cross-asset features."""
@@ -2021,7 +2354,12 @@ class PremiumWTIPredictor:
             return None
 
     def build_market_context_feature_map(self, wti_data):
-        """Build date-keyed cross-asset and term-structure features aligned to WTI history."""
+        """Build date-keyed cross-asset context features aligned to WTI history.
+
+        There is no term-structure (front/next spread) family: it was built from a bare next-contract
+        code that never resolved on Yahoo, so every such feature was a constant 0 in production and in
+        every backtest, and Yahoo has no per-date front/next contract pair to build it correctly.
+        """
         if wti_data is None or len(wti_data) < 10 or 'Close' not in wti_data.columns:
             return {}
 
@@ -2052,22 +2390,9 @@ class PremiumWTIPredictor:
             normalized_series = normalized_series[~normalized_series.index.duplicated(keep='last')].sort_index()
             feature_frame[col_name] = normalized_series.reindex(feature_frame.index).ffill()
 
-        next_contract = self._get_next_wti_contract_symbol()
-        if next_contract:
-            next_series = self._fetch_market_series(next_contract, period=self.market_context_period, interval='1d')
-            if next_series is not None and len(next_series) > 0:
-                next_index = pd.Index([self._date_feature_key(ts) for ts in next_series.index])
-                next_series_norm = pd.Series(next_series.values, index=next_index)
-                next_series_norm = next_series_norm[~next_series_norm.index.duplicated(keep='last')].sort_index()
-                feature_frame['next_contract_close'] = next_series_norm.reindex(feature_frame.index).ffill()
-            else:
-                feature_frame['next_contract_close'] = np.nan
-        else:
-            feature_frame['next_contract_close'] = np.nan
-
         for column_name in [
             'brent_close', 'dxy_close', 'vix_close', 'ovx_close', 'tnx_close',
-            'xle_close', 'xop_close', 'spy_close', 'next_contract_close'
+            'xle_close', 'xop_close', 'spy_close'
         ]:
             feature_frame[column_name] = pd.to_numeric(feature_frame[column_name], errors='coerce').ffill()
 
@@ -2131,18 +2456,6 @@ class PremiumWTIPredictor:
         feature_frame['wti_dxy_corr_20d'] = feature_frame['wti_return_1d'].rolling(20).corr(feature_frame['dxy_close'].pct_change(1))
         feature_frame['wti_brent_corr_20d'] = feature_frame['wti_return_1d'].rolling(20).corr(feature_frame['brent_close'].pct_change(1))
         feature_frame['wti_ovx_corr_20d'] = feature_frame['wti_return_1d'].rolling(20).corr(feature_frame['ovx_close'].pct_change(1))
-        feature_frame['term_spread_front_next'] = feature_frame['wti_close'] - feature_frame['next_contract_close']
-        feature_frame['term_spread_pct'] = feature_frame['term_spread_front_next'] / feature_frame['wti_close'].replace(0, np.nan)
-        feature_frame['is_contango'] = (feature_frame['term_spread_front_next'] < 0).astype(float)
-        feature_frame['term_spread_change_1d'] = feature_frame['term_spread_front_next'].diff(1)
-        feature_frame['term_spread_change_5d'] = feature_frame['term_spread_front_next'].diff(5)
-        spread_std = feature_frame['term_spread_front_next'].rolling(20).std().replace(0, np.nan)
-        feature_frame['term_spread_zscore_20d'] = (
-            feature_frame['term_spread_front_next'] - feature_frame['term_spread_front_next'].rolling(20).mean()
-        ) / spread_std
-        feature_frame['roll_yield_5d_ann'] = (
-            (feature_frame['wti_close'] / feature_frame['next_contract_close']) - 1.0
-        ) * (252.0 / 5.0)
         feature_frame['energy_equity_relative_5d'] = feature_frame['xle_return_5d'] - feature_frame['spy_return_5d']
         feature_frame['energy_equity_relative_20d'] = feature_frame['xle_return_20d'] - feature_frame['spy_return_20d']
         feature_frame['exploration_relative_5d'] = feature_frame['xop_return_5d'] - feature_frame['spy_return_5d']
@@ -2218,13 +2531,6 @@ class PremiumWTIPredictor:
             'wti_dxy_corr_20d': 0.0,
             'wti_brent_corr_20d': 0.0,
             'wti_ovx_corr_20d': 0.0,
-            'term_spread_front_next': 0.0,
-            'term_spread_pct': 0.0,
-            'term_spread_change_1d': 0.0,
-            'term_spread_change_5d': 0.0,
-            'term_spread_zscore_20d': 0.0,
-            'roll_yield_5d_ann': 0.0,
-            'is_contango': 0.0,
             'energy_equity_relative_5d': 0.0,
             'energy_equity_relative_20d': 0.0,
             'exploration_relative_5d': 0.0,
@@ -2248,56 +2554,125 @@ class PremiumWTIPredictor:
 
         return feature_map
     
-    def get_external_data_sources(self):
-        """Get all external data sources for premium predictions"""
-        now_ts = time.time()
-        cached_external = self._external_data_mem_cache.get('data')
-        cached_at = self._external_data_mem_cache.get('fetched_at', 0.0)
-        if cached_external and (now_ts - cached_at) <= self.external_data_ttl_seconds:
-            logger.info("Using cached external data sources")
-            return copy.deepcopy(cached_external)
+    def _external_source_fetchers(self):
+        """External sources worth calling.
 
-        source_fetchers = {
-            'eia': self.get_eia_oil_data,
-            'fred': self.get_fred_economic_data,
-            'alpha_vantage': self.get_alpha_vantage_data,
-            'finnhub': self.get_finnhub_market_data,
-            'news': self.get_news_sentiment,
-            'usda': self.get_usda_agricultural_data,
-            'noaa': self.get_noaa_weather_data,
-            'geopolitical': self.get_geopolitical_risk,
-        }
+        External values feed the model only when USE_EXTERNAL_FEATURES_IN_TRAINING is enabled (or
+        strict mode demands every premium source). Otherwise the only consumer is the payload's
+        news-flow regime, so only that source is fetched; the rest used to be called every cycle
+        purely to burn their free-tier quotas.
+        """
+        fetchers = {'geopolitical': self.get_geopolitical_risk}
+        if self.use_external_features_in_training or self.strict_premium_api_required:
+            fetchers.update({
+                'eia': self.get_eia_oil_data,
+                'fred': self.get_fred_economic_data,
+                'alpha_vantage': self.get_alpha_vantage_data,
+                'finnhub': self.get_finnhub_market_data,
+                'news': self.get_news_sentiment,
+                'usda': self.get_usda_agricultural_data,
+                'noaa': self.get_noaa_weather_data,
+            })
+        return fetchers
+
+    def _external_source_ttl(self, source_name):
+        return max(int(self.external_data_ttl_seconds), EXTERNAL_SOURCE_TTL_SECONDS.get(source_name, 1800))
+
+    @staticmethod
+    def _external_payload_ok(payload):
+        return (
+            isinstance(payload, dict)
+            and not payload.get('error')
+            and not payload.get('skipped')
+            and float(payload.get('data_quality', 0) or 0) > 0
+        )
+
+    def _record_external_source_result(self, source_name, payload, now_ts):
+        """Cache one fetch result (caller holds _source_cache_lock) and return the payload to serve.
+
+        Successes are reused for the source's TTL. Failures are cached as well and retried after an
+        exponential backoff (5 min, 10 min, ... capped at the TTL) instead of on every cycle; while a
+        source keeps failing, its last good payload is served, flagged 'stale', for up to
+        EXTERNAL_SOURCE_MAX_STALE_SECONDS, so a transient outage or an exhausted quota does not drop
+        the news-flow regime to UNKNOWN.
+        """
+        entry = self._source_cache.get(source_name) or {'failures': 0, 'last_good': None, 'last_good_at': 0.0}
+        ttl = self._external_source_ttl(source_name)
+        if self._external_payload_ok(payload) or (isinstance(payload, dict) and payload.get('skipped')):
+            # A missing key is configuration, not an outage: re-check it once per TTL.
+            served = payload
+            entry['failures'] = 0
+            entry['next_fetch_at'] = now_ts + ttl
+            if self._external_payload_ok(payload):
+                entry['last_good'], entry['last_good_at'] = payload, now_ts
+        else:
+            entry['failures'] = int(entry.get('failures', 0)) + 1
+            backoff = min(ttl, EXTERNAL_SOURCE_FAILURE_BACKOFF_SECONDS * (2 ** (entry['failures'] - 1)))
+            entry['next_fetch_at'] = now_ts + backoff
+            last_good = entry.get('last_good')
+            if last_good is not None and now_ts - entry['last_good_at'] <= EXTERNAL_SOURCE_MAX_STALE_SECONDS:
+                served = dict(last_good)
+                served['stale'] = True
+                served['last_success_at'] = _iso_utc(datetime.fromtimestamp(entry['last_good_at'], timezone.utc))
+            else:
+                served = payload
+            logger.warning(
+                "External source %s unavailable (failure #%s); next attempt in %ss%s",
+                source_name, entry['failures'], int(backoff),
+                ' - serving last good payload' if served is not payload else '',
+            )
+        entry['payload'] = served
+        self._source_cache[source_name] = entry
+        return copy.deepcopy(served)
+
+    def get_external_data_sources(self):
+        """Get the external data sources in use, through a per-source quota-aware cache."""
+        self._ensure_runtime_state()
+        now_ts = time.time()
+        source_fetchers = self._external_source_fetchers()
 
         external_data = {}
-        with ThreadPoolExecutor(max_workers=self.external_fetch_workers) as executor:
+        to_fetch = {}
+        with self._source_cache_lock:
+            for name, fetcher in source_fetchers.items():
+                entry = self._source_cache.get(name)
+                if entry and now_ts < entry.get('next_fetch_at', 0.0):
+                    external_data[name] = copy.deepcopy(entry['payload'])
+                else:
+                    to_fetch[name] = fetcher
+        if not to_fetch:
+            logger.info("Using cached external data sources")
+            return external_data
+
+        fetched = {}
+        with ThreadPoolExecutor(max_workers=max(1, min(self.external_fetch_workers, len(to_fetch)))) as executor:
             future_map = {
-                executor.submit(fetcher): name for name, fetcher in source_fetchers.items()
+                executor.submit(fetcher): name for name, fetcher in to_fetch.items()
             }
             for future in as_completed(future_map):
                 source_name = future_map[future]
                 try:
-                    external_data[source_name] = future.result()
+                    fetched[source_name] = future.result()
                 except Exception as e:
                     logger.warning(
                         "External source %s failed (%s)", source_name, type(e).__name__
                     )
-                    external_data[source_name] = {
+                    fetched[source_name] = {
                         'data_quality': 0,
                         'source': f'{source_name}_exception',
                         'error': 'EXTERNAL_SOURCE_FAILED',
                         'timestamp': datetime.now().isoformat()
                     }
+        with self._source_cache_lock:
+            for source_name, payload in fetched.items():
+                external_data[source_name] = self._record_external_source_result(source_name, payload, now_ts)
+        external_data = {name: external_data[name] for name in source_fetchers if name in external_data}
         
         # Cache external data
         try:
             self._atomic_write_json(self.external_data_cache, external_data)
         except Exception as e:
             logger.warning(f"Could not cache external data: {e}")
-
-        self._external_data_mem_cache = {
-            'fetched_at': now_ts,
-            'data': external_data
-        }
         
         return external_data
     
@@ -2401,7 +2776,9 @@ class PremiumWTIPredictor:
         """Fetch FRED economic indicators"""
         logger.info("Fetching FRED economic data...")
         try:
-            # Dollar Index (DXY is inversely correlated with oil)
+            # DEXUSEU is U.S. dollars per euro, so a HIGHER value is a WEAKER dollar. It is reported
+            # as usd_per_eur, and dollar_strength is its inverse (euros per dollar: higher = stronger
+            # dollar, the direction usually read as bearish for oil).
             url = f"{self.config.FRED_BASE_URL}?id=DEXUSEU&cosd=2024-01-01&coed={datetime.now().strftime('%Y-%m-%d')}&fmt=csv"
             
             response = requests.get(url, timeout=10)
@@ -2414,13 +2791,17 @@ class PremiumWTIPredictor:
                         parts = line.split(',')
                         if len(parts) >= 2 and parts[1] != '.' and parts[1] != 'VALUE':
                             try:
-                                recent_data.append(float(parts[1]))
+                                value = float(parts[1])
                             except ValueError:
                                 continue
+                            if value > 0:
+                                recent_data.append(value)
                     
                     if recent_data:
-                        dollar_strength = recent_data[-1]
-                        dollar_trend = self._calculate_trend(recent_data)
+                        usd_per_eur = recent_data[-1]
+                        eur_per_usd = [1.0 / value for value in recent_data]
+                        dollar_strength = eur_per_usd[-1]
+                        dollar_trend = self._calculate_trend(eur_per_usd)
                         
                         # FIX #8: Normalize trend using calibration constants instead of magic number
                         # Old: 100 - abs(dollar_trend * 2000)
@@ -2431,6 +2812,7 @@ class PremiumWTIPredictor:
                         logger.info(f"✅ FRED: USD economic data loaded (stability: {economic_stability:.0f})")
                         return {
                             'data_quality': 100,
+                            'usd_per_eur': usd_per_eur,
                             'dollar_strength': dollar_strength,
                             'dollar_trend': dollar_trend,
                             'economic_stability': economic_stability,
@@ -2551,7 +2933,9 @@ class PremiumWTIPredictor:
                             sector_data.append(change_percent)
                             
                 except Exception as e:
-                    logger.debug(f"Failed to get {symbol}: {e}")
+                    # Exception text from requests can embed the request URL, i.e. '?token=<key>';
+                    # log the exception type only.
+                    logger.debug("Finnhub quote for %s failed (%s)", symbol, type(e).__name__)
                     continue
             
             if sector_data:
@@ -2609,30 +2993,7 @@ class PremiumWTIPredictor:
                 data = response.json()
                 articles = data.get('articles', [])
                 
-                # Enhanced sentiment analysis with finance-specific keywords
-                positive_words = [
-                    'rise', 'gain', 'up', 'higher', 'surge', 'boost', 'strong', 'increase',
-                    'rally', 'bullish', 'jump', 'soar', 'climb', 'recover', 'spike', 'breakout',
-                    'demand', 'supply cut', 'shortage', 'opec cut', 'production cut'
-                ]
-                negative_words = [
-                    'fall', 'drop', 'down', 'lower', 'decline', 'weak', 'decrease', 'plunge',
-                    'bearish', 'crash', 'slump', 'tumble', 'sink', 'collapse', 'slide',
-                    'oversupply', 'glut', 'recession', 'demand drop', 'production increase'
-                ]
-                uncertainty_words = [
-                    'uncertain', 'uncertainty', 'risk', 'volatile', 'volatility', 'war',
-                    'sanction', 'tariff', 'disruption', 'tension', 'conflict', 'shock'
-                ]
-                forward_words = [
-                    'outlook', 'forecast', 'expected', 'expects', 'guidance', 'next week',
-                    'next month', 'ahead', 'future', 'projection', 'scenario', 'target'
-                ]
-                intensity_words = [
-                    'sharply', 'significantly', 'strongly', 'materially', 'dramatically',
-                    'severely', 'massively', 'rapidly', 'heavily', 'aggressively'
-                ]
-                
+                # Keyword sentiment with whole-word matching (see _term_patterns).
                 sentiment_scores = []
                 recency_weights = []
                 bullish_count = 0
@@ -2642,18 +3003,12 @@ class PremiumWTIPredictor:
                 intensity_scores = []
                 
                 for i, article in enumerate(articles[:20]):
-                    title = article.get('title', '').lower()
-                    description = article.get('description', '').lower() if article.get('description') else ''
+                    title = (article.get('title') or '').lower()
+                    description = (article.get('description') or '').lower()
                     text = f"{title} {description}"
                     
                     # Calculate sentiment score
-                    score = 0
-                    for word in positive_words:
-                        if word in text:
-                            score += 1
-                    for word in negative_words:
-                        if word in text:
-                            score -= 1
+                    score = _count_term_hits(NEWS_POSITIVE_PATTERNS, text) - _count_term_hits(NEWS_NEGATIVE_PATTERNS, text)
                     
                     # Track bullish/bearish articles
                     if score > 0:
@@ -2662,9 +3017,9 @@ class PremiumWTIPredictor:
                         bearish_count += 1
                     
                     sentiment_scores.append(score)
-                    uncertainty_scores.append(sum(1 for word in uncertainty_words if word in text))
-                    forward_scores.append(sum(1 for word in forward_words if word in text))
-                    intensity_scores.append(sum(1 for word in intensity_words if word in text))
+                    uncertainty_scores.append(_count_term_hits(NEWS_UNCERTAINTY_PATTERNS, text))
+                    forward_scores.append(_count_term_hits(NEWS_FORWARD_PATTERNS, text))
+                    intensity_scores.append(_count_term_hits(NEWS_INTENSITY_PATTERNS, text))
                     # Recency weighting: recent articles (first 5) get 2x weight
                     recency_weights.append(2.0 if i < 5 else 1.0)
                 
@@ -2736,18 +3091,15 @@ class PremiumWTIPredictor:
         always present) registers as ELEVATED, while a genuine breaking crisis (articles published
         in the last 6 hours) drives HIGH or CRITICAL. This separates signal from noise without
         needing a historical baseline or extra API calls.
+
+        Not cached here: get_external_data_sources caches it for 30 minutes (NewsAPI free tier =
+        100 requests/day) and backs off after failures.
         """
         logger.info("Fetching geopolitical risk signals...")
         if not self.config.NEWSAPI_KEY:
             return self._missing_key_source_payload('geopolitical', 'NEWSAPI_KEY')
 
-        # 30-minute cache: NewsAPI free tier = 100 req/day; frontend polls every 15s.
-        # Without this cache the free tier exhausts in < 25 minutes of use.
         now_utc = datetime.now(timezone.utc)
-        cache = getattr(self, '_geo_risk_cache', None)
-        if cache and (now_utc - cache['ts']).total_seconds() < 1800:
-            logger.info("✅ Geopolitical risk: serving from 30-min cache")
-            return cache['data']
 
         try:
             url = "https://newsapi.org/v2/everything"
@@ -2784,12 +3136,7 @@ class PremiumWTIPredictor:
 
             articles = response.json().get('articles', [])
 
-            risk_keywords = {
-                'iran': ['iran', 'hormuz', 'tehran', 'iranian', 'persian gulf', 'irgc'],
-                'opec': ['opec', 'opec+', 'saudi', 'riyadh', 'aramco', 'production cut', 'quota'],
-                'conflict': ['conflict', 'attack', 'strike', 'houthi', 'tanker', 'blockade', 'militia', 'war'],
-                'sanctions': ['sanction', 'embargo', 'restriction', 'tariff', 'export ban'],
-            }
+            risk_keywords = GEO_RISK_PATTERNS  # whole-word matching (see _term_patterns)
 
             def _recency_weight(published_at_str: str) -> float:
                 """Breaking news < 6h counts 20x more than week-old background articles."""
@@ -2811,15 +3158,15 @@ class PremiumWTIPredictor:
             novelty_spike = False
 
             for article in articles:
-                title = article.get('title', '').lower()
-                desc = (article.get('description', '') or '').lower()
+                title = (article.get('title') or '').lower()
+                desc = (article.get('description') or '').lower()
                 text = f"{title} {desc}"
-                pub_at = article.get('publishedAt', '')
+                pub_at = article.get('publishedAt') or ''
                 w = _recency_weight(pub_at)
 
                 matched_categories = []
-                for category, keywords in risk_keywords.items():
-                    if any(kw in text for kw in keywords):
+                for category, patterns in risk_keywords.items():
+                    if any(pattern.search(text) for pattern in patterns):
                         risk_counts[category] += 1
                         risk_weighted[category] += w
                         matched_categories.append(category)
@@ -2883,7 +3230,6 @@ class PremiumWTIPredictor:
                 'source': 'newsapi_geopolitical',
                 'timestamp': datetime.now().isoformat(),
             }
-            self._geo_risk_cache = {'data': result, 'ts': now_utc}
             return result
 
         except Exception as e:
@@ -3052,106 +3398,17 @@ class PremiumWTIPredictor:
         slope = np.polyfit(x, y, 1)[0]
         return slope
     
-    def engineer_premium_features(self, wti_data, external_data):
-        """Engineer premium features for ML models"""
-        logger.info("Engineering comprehensive features...")
-        
-        features = {}
-        
-        # Technical indicators from WTI data
-        closes = wti_data['Close'].values
-        volumes = wti_data['Volume'].values
-        
-        # Price-based features
-        # BUG11 FIX: Guard against zero divisor in price change calculations
-        features['current_price'] = closes[-1]
-        features['price_change_1d'] = (closes[-1] - closes[-2]) / closes[-2] if len(closes) > 1 and closes[-2] != 0 else 0
-        features['price_change_5d'] = (closes[-1] - closes[-6]) / closes[-6] if len(closes) > 5 and closes[-6] != 0 else 0
-        features['price_change_20d'] = (closes[-1] - closes[-21]) / closes[-21] if len(closes) > 20 and closes[-21] != 0 else 0
-        
-        # Volatility features
-        returns = np.diff(np.log(closes))
-        features['volatility_5d'] = np.std(returns[-5:]) if len(returns) >= 5 else 0
-        features['volatility_20d'] = np.std(returns[-20:]) if len(returns) >= 20 else 0
-        
-        # Volume features
-        # BUG19 FIX: Check for NaN/inf values in volume data
-        volume_current = volumes[-1] if len(volumes) > 0 and not np.isnan(volumes[-1]) else 0
-        features['volume_current'] = volume_current if not np.isinf(volume_current) else 0
-        volume_avg = np.nanmean(volumes[-20:]) if len(volumes) >= 20 else 0
-        features['volume_avg_20d'] = volume_avg if not np.isnan(volume_avg) and not np.isinf(volume_avg) else 0
-        features['volume_ratio'] = features['volume_current'] / max(features['volume_avg_20d'], 1)
-        
-        # Moving averages
-        features['ma_5'] = np.mean(closes[-5:]) if len(closes) >= 5 else closes[-1]
-        features['ma_20'] = np.mean(closes[-20:]) if len(closes) >= 20 else closes[-1]
-        features['ma_50'] = np.mean(closes[-50:]) if len(closes) >= 50 else closes[-1]
-        
-        # Technical ratios
-        # BUG12 FIX: Guard against zero moving averages (can occur with all-zero data)
-        features['price_to_ma20'] = closes[-1] / features['ma_20'] if features['ma_20'] > 0 else 1.0
-        features['ma5_to_ma20'] = features['ma_5'] / features['ma_20'] if features['ma_20'] > 0 else 1.0
-        
-        # External data features - ensure consistent feature set
-        # Define expected features from each source to maintain consistency
-        expected_external_features = {
-            'eia': ['data_quality', 'supply_level', 'supply_trend'],
-            'fred': ['data_quality', 'dollar_strength', 'dollar_trend', 'economic_stability'],
-            'alpha_vantage': ['data_quality', 'volatility', 'trend_strength', 'momentum_score'],
-            'finnhub': ['data_quality', 'sector_strength', 'sector_momentum'],
-            'news': ['data_quality', 'market_buzz', 'sentiment_score', 'sentiment_momentum', 'bullish_ratio', 'uncertainty_score', 'forwardness_score', 'intensity_score', 'news_volume'],
-            'usda': ['data_quality', 'agricultural_impact', 'corn_price_level', 'biofuel_demand'],
-            'noaa': ['data_quality', 'weather_impact', 'temperature_anomaly', 'seasonal_demand'],
-            'geopolitical': ['data_quality', 'geo_risk_score', 'iran_articles', 'opec_articles', 'conflict_articles'],
-        }
-        
-        for source, expected_features in expected_external_features.items():
-            data = external_data.get(source, {})
-            
-            # If source has error or is missing, use neutral default values
-            if 'error' in data or not data:
-                logger.debug(f"Using defaults for {source} - API unavailable")
-                # Use neutral baseline values to maintain feature consistency
-                features[f'{source}_data_quality'] = 0  # Indicates missing data
-                for feature in expected_features[1:]:  # Skip data_quality as already set
-                    if 'trend' in feature or 'momentum' in feature:
-                        features[f'{source}_{feature}'] = 0  # Neutral trend
-                    elif 'strength' in feature or 'level' in feature:
-                        features[f'{source}_{feature}'] = 50  # Mid-range baseline
-                    else:
-                        features[f'{source}_{feature}'] = 50  # Safe default
-            else:
-                # Use actual data if available
-                data_quality = data.get('data_quality', 100)
-                features[f'{source}_data_quality'] = data_quality
-                
-                for feature in expected_features[1:]:  # Skip data_quality as already handled
-                    if feature in data and isinstance(data[feature], (int, float)):
-                        features[f'{source}_{feature}'] = data[feature]
-                    else:
-                        # Use appropriate default for missing features
-                        if 'trend' in feature or 'momentum' in feature:
-                            features[f'{source}_{feature}'] = 0
-                        else:
-                            features[f'{source}_{feature}'] = 50
-        
-        # Time-based features from the BAR DATE (last row of wti_data), not datetime.now()
-        # This ensures historical training rows learn correct seasonal patterns
-        bar_date = wti_data.index[-1]
-        features['month'] = bar_date.month
-        features['quarter'] = (bar_date.month - 1) // 3 + 1
-        features['day_of_year'] = bar_date.timetuple().tm_yday
-        features['is_winter'] = 1 if bar_date.month in [12, 1, 2] else 0
-        features['is_summer'] = 1 if bar_date.month in [6, 7, 8] else 0
-        
-        logger.info(f"Created {len(features)} premium features")
-        return features
-    
     def train_prediction_models(self, features_df, target_column, target_mode='price'):
         """Train ensemble of ML models for oil prediction"""
         logger.info("Training oil-optimized ML models...")
         training_start = time.perf_counter()
         
+        # Rows without a finite label (missing close / reference) are dropped, never fabricated.
+        labels = pd.to_numeric(features_df[target_column], errors='coerce').replace([np.inf, -np.inf], np.nan)
+        if labels.isna().any():
+            logger.info(f"Dropping {int(labels.isna().sum())} rows without a finite {target_column} label")
+            features_df = features_df.loc[labels.notna().to_numpy()]
+
         # Drop ALL target columns to prevent data leakage and feature mismatch
         target_columns = ['target_1h', 'target_1d', 'target_1w']
         columns_to_drop = [col for col in target_columns if col in features_df.columns]
@@ -3244,9 +3501,12 @@ class PremiumWTIPredictor:
         trained_models = {}
         model_scores = {}
         
-        # Time series split for validation
-        # Use a small temporal gap to reduce look-ahead leakage between train and validation windows.
-        gap_size = max(0, min(3, len(X_values) // 100))
+        # Time series split for validation. The gap between each train and validation block must
+        # cover the label overlap: a 1W label is the close 5 bars ahead, so without a gap >= 4 the
+        # last training labels mature inside the validation block (the leak the backtest purge
+        # removes). A small size-scaled buffer is kept on top for the other horizons.
+        horizon_purge = TARGET_PURGE_ROWS.get(str(target_column).split('_', 1)[-1], 0)
+        gap_size = max(horizon_purge, min(3, len(X_values) // 100))
         cv_splits = []
         max_valid_splits = 0
         min_required_samples = max(10, self.time_series_cv_splits * 2 + gap_size + 1)
@@ -3366,6 +3626,32 @@ class PremiumWTIPredictor:
                 model_direction_scores.get(model_name, 50.0),
             )
 
+        # Split-conformal calibration scores: out-of-fold absolute errors of the weighted, stabilized
+        # ensemble (the same combination the forecast uses), relative to each row's reference price.
+        oof_relative_residuals = []
+        for fold in fold_store:
+            fold_names = [name for name in trained_models if name in fold['predictions']]
+            fold_true = fold.get('y_true')
+            fold_reference = fold.get('baseline')
+            if not fold_names or fold_true is None or fold_reference is None:
+                continue
+            fold_matrix = np.vstack([np.asarray(fold['predictions'][name], dtype=float) for name in fold_names])
+            fold_weights = np.asarray([max(0.3, min(1.0, model_scores.get(name, 0.5))) for name in fold_names])
+            fold_ensemble = np.average(fold_matrix, axis=0, weights=fold_weights)
+            for column, reference in enumerate(np.asarray(fold_reference, dtype=float)):
+                if not np.isfinite(reference) or reference <= 0:
+                    continue
+                stabilized, _ = self._stabilize_ensemble_prediction(
+                    reference,
+                    fold_ensemble[column],
+                    {name: fold_matrix[row, column] for row, name in enumerate(fold_names)},
+                    model_scores,
+                    model_direction_scores,
+                )
+                residual = abs(float(fold_true[column]) - stabilized) / reference
+                if np.isfinite(residual):
+                    oof_relative_residuals.append(float(residual))
+
         latest_fold_metrics = {
             'samples': 0,
             'mae': 0.0,
@@ -3405,96 +3691,11 @@ class PremiumWTIPredictor:
             'model_backtest_metrics': model_backtest_metrics,
             'model_weight_scores': model_scores,
             'latest_fold_backtest': latest_fold_metrics,
+            'oof_relative_residuals': oof_relative_residuals,
         }
         
         # Return all_feature_names for proper transform during prediction
         return trained_models, model_scores, scaler, selector, selected_features, all_feature_names, diagnostics
-    
-    def get_multi_horizon_predictions_simple(self):
-        """Generate predictions using only reliable yfinance data - no external dependencies"""
-        try:
-            logger.info("Starting SIMPLE multi-horizon prediction engine (yfinance only)...")
-            
-            # Get WTI historical data only
-            logger.info("Fetching WTI historical data...")
-            contract_info = get_current_wti_contract()
-            # Get WTI data directly using yfinance
-            ticker = _yf_ticker("CL=F")
-            wti_data = ticker.history(period="6mo", interval="1d")
-            
-            if wti_data is None or len(wti_data) < 30:
-                raise Exception("Insufficient historical WTI data")
-            
-            logger.info(f"Loaded {len(wti_data)} WTI data points")
-            
-            # Simple feature engineering (technical indicators only)
-            def create_simple_features(price_data):
-                closes = price_data['Close'].values
-                
-                features = {
-                    'current_price': closes[-1],
-                    'price_change': closes[-1] - closes[-2] if len(closes) > 1 else 0,
-                    'price_change_pct': ((closes[-1] - closes[-2]) / closes[-2] * 100) if len(closes) > 1 and closes[-2] != 0 else 0,
-                    'ma_5': closes[-5:].mean() if len(closes) >= 5 else closes[-1],
-                    'ma_10': closes[-10:].mean() if len(closes) >= 10 else closes[-1],
-                    'ma_20': closes[-20:].mean() if len(closes) >= 20 else closes[-1],
-                    'volatility': closes[-10:].std() if len(closes) >= 10 else 1.0,
-                    'rsi': self.calculate_rsi(closes) if len(closes) >= 14 else 50,
-                    'price_position': ((closes[-1] - closes[-20:].min()) / (closes[-20:].max() - closes[-20:].min())) if len(closes) >= 20 and (closes[-20:].max() - closes[-20:].min()) > 0 else 0.5
-                }
-                return features
-            
-            # Create current features
-            current_features = create_simple_features(wti_data)
-            
-            # Simple prediction logic based on technical analysis
-            current_price = current_features['current_price']
-            volatility = current_features['volatility']
-            trend = current_features['price_change_pct']
-            rsi = current_features['rsi']
-            
-            # Generate predictions using technical analysis rules
-            predictions = {}
-            
-            # 1H prediction: small variation based on current trend
-            pred_1h = current_price * (1 + trend * 0.1 / 100)  # 10% of current trend
-            
-            # 1D prediction: moderate variation based on RSI and trend
-            if rsi > 70:  # Overbought
-                pred_1d = current_price * (1 - volatility * 0.01)
-            elif rsi < 30:  # Oversold
-                pred_1d = current_price * (1 + volatility * 0.01)
-            else:  # Neutral
-                pred_1d = current_price * (1 + trend * 0.5 / 100)
-            
-            # 1W prediction: larger variation based on moving average convergence
-            ma_signal = (current_features['ma_5'] - current_features['ma_20']) / current_features['ma_20']
-            pred_1w = current_price * (1 + ma_signal + trend * 0.3 / 100)
-            
-            # Ensure positive prices
-            predictions = {
-                '1h': max(1.0, pred_1h),
-                '1d': max(1.0, pred_1d),
-                '1w': max(1.0, pred_1w)
-            }
-            
-            # Skip storage for simple system - just return predictions
-            
-            return {
-                'prediction_1h': predictions['1h'],
-                'prediction_1d': predictions['1d'],
-                'prediction_1w': predictions['1w'],
-                'is_real_prediction': True,
-                'processing_time': 0.5,
-                'feature_count': len(current_features),
-                'model_type': 'simple_technical_analysis',
-                'contract': contract_info['symbol'],
-                'timestamp': datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"Simple prediction engine failed: {e}")
-            raise Exception(f"Cannot generate simple predictions: {e}")
     
     def calculate_rsi(self, prices, period=14):
         """Calculate RSI using Wilder's Exponential Smoothing (industry standard)"""
@@ -3532,7 +3733,7 @@ class PremiumWTIPredictor:
             'eia_supply_level': 50,
             'eia_supply_trend': 0,
             'fred_data_quality': 0,
-            'fred_dollar_strength': 100,
+            'fred_dollar_strength': 0.9,  # euros per dollar (inverted DEXUSEU)
             'fred_dollar_trend': 0,
             'fred_economic_stability': 70,
             'alpha_vantage_data_quality': 0,
@@ -3580,7 +3781,8 @@ class PremiumWTIPredictor:
                 
                 for prefix in prefixes:
                     for key, value in data.items():
-                        if key not in ['source', 'timestamp', 'error', 'quality'] and isinstance(value, (int, float)):
+                        if (key not in ['source', 'timestamp', 'error', 'quality']
+                                and isinstance(value, (int, float)) and not isinstance(value, bool)):
                             feature_name = f'{prefix}_{key}'
                             template[feature_name] = value
         
@@ -3727,7 +3929,7 @@ class PremiumWTIPredictor:
             # Liquidity and participation.
             'volume_ratio': self._safe_ratio(latest_volume, float(volume_tail_20.mean()) if not volume_tail_20.empty else latest_volume, default=1.0),
             'volume_trend': self._safe_ratio(float(volume_series.tail(5).mean()), float(volume_tail_20.mean()) if not volume_tail_20.empty else latest_volume, default=1.0),
-            'volume_zscore_20': self._latest_rolling_zscore(volume_series.replace(0.0, np.nan).fillna(0.0), 20),
+            'volume_zscore_20': self._latest_rolling_zscore(volume_series, 20),
             'dollar_volume_zscore_20': self._latest_rolling_zscore(dollar_volume_series, 20),
             'obv_slope_10': obv_slope_10,
             'signed_volume_pressure': intraday_return * self._safe_ratio(latest_volume, float(volume_tail_20.mean()) if not volume_tail_20.empty else latest_volume, default=1.0),
@@ -3789,48 +3991,185 @@ class PremiumWTIPredictor:
         """
         Detect current market regime (Volatility State)
         Returns: 'LOW_VOLATILITY', 'HIGH_VOLATILITY', or 'NORMAL'
+
+        Relative, not absolute: the latest ATR14 (% of price) is ranked within its own trailing
+        year. Top quintile -> HIGH_VOLATILITY, bottom quintile -> LOW_VOLATILITY. The old fixed
+        1.5% cut-off sits far below WTI's typical daily range (median ATR14 ~3.7% of price), so it
+        returned HIGH_VOLATILITY for every window. Informational only: the regime is reported with
+        the forecast but does not re-weight the ensemble (the validated backtest never did).
         """
         try:
-            if len(data_window) < 20:
+            if data_window is None or len(data_window) < 20:
                 return 'NORMAL'
-                
-            closes = data_window['Close'].values
-            highs = data_window['High'].values
-            lows = data_window['Low'].values
-            
-            # Calculate ATR (Average True Range)
-            tr_list = []
-            for i in range(1, len(closes)):
-                hl = highs[i] - lows[i]
-                hc = abs(highs[i] - closes[i-1])
-                lc = abs(lows[i] - closes[i-1])
-                tr_list.append(max(hl, hc, lc))
-            
-            atr = np.mean(tr_list[-14:]) if len(tr_list) >= 14 else np.mean(tr_list)
-            
-            # ATR as percentage of price
-            atr_pct = (atr / closes[-1]) * 100
-            
-            # Calculate Bollinger Band Width
-            bb_std = pd.Series(closes).rolling(window=20).std().iloc[-1]
-            bb_mid = pd.Series(closes).rolling(window=20).mean().iloc[-1]
-            bb_width = (4 * bb_std) / bb_mid * 100
-            
-            logger.info(f"Market Regime Metrics: ATR={atr_pct:.2f}%, BB_Width={bb_width:.2f}%")
-            
-            # Define Regimes
-            # High Volatility: Price moving > 1.5% avg daily range OR Bands are very wide
-            if atr_pct > 1.5 or bb_width > 5.0:
+
+            closes = self._safe_series(data_window['Close'], index=data_window.index)
+            highs = self._safe_series(data_window['High'], index=data_window.index)
+            lows = self._safe_series(data_window['Low'], index=data_window.index)
+            true_range = pd.concat(
+                [highs - lows, (highs - closes.shift(1)).abs(), (lows - closes.shift(1)).abs()],
+                axis=1,
+            ).max(axis=1)
+            atr_pct = (true_range.rolling(14).mean() / closes.where(closes > 0) * 100.0)
+            atr_pct = atr_pct.replace([np.inf, -np.inf], np.nan).dropna().tail(252)
+            if len(atr_pct) < 20:
+                return 'NORMAL'
+
+            current = float(atr_pct.iloc[-1])
+            history = atr_pct.to_numpy(dtype=float)
+            # Mid-rank percentile, so a flat history ranks at 0.5 instead of at an extreme.
+            percentile = (np.sum(history < current) + 0.5 * np.sum(history == current)) / len(history)
+            logger.info(
+                f"Market Regime Metrics: ATR14={current:.2f}% of price, "
+                f"percentile={percentile:.0%} of trailing {len(history)} bars"
+            )
+
+            if percentile >= 0.8:
                 return 'HIGH_VOLATILITY'
-            # Low Volatility: Price moving < 0.8% avg daily range (Tight consolidation)
-            elif atr_pct < 0.8 and bb_width < 2.0:
+            if percentile <= 0.2:
                 return 'LOW_VOLATILITY'
-            else:
-                return 'NORMAL'
-                
+            return 'NORMAL'
+
         except Exception as e:
             logger.warning(f"Failed to detect market regime: {e}")
             return 'NORMAL'
+
+    @staticmethod
+    def _fallback_span_interval(prediction, reference_price):
+        """Span between a derived fallback forecast and the reference price: not a calibrated interval."""
+        return {
+            'lower': float(min(prediction, reference_price)),
+            'upper': float(max(prediction, reference_price)),
+            'std': 0.0,
+            'calibrated_margin': float(abs(prediction - reference_price)),
+            'interval_level': None,
+            'interval_method': 'fallback_span',
+        }
+
+    def _drop_in_progress_daily_bar(self, wti_data, now=None):
+        """Drop the last daily bar while its CME session is still trading.
+
+        Models train on completed bars only (every backtest row is one), so the live inference row
+        and the newest training label must be completed bars too. A session ends at 17:00 ET on its
+        trading date (contract_calendar.trading_date). Yahoo also keeps the calendar date on the
+        evening Globex bar: from the 18:00 ET reopen until midnight, the bar dated today holds the
+        NEXT session's live prices, so it is dropped as well.
+        """
+        if wti_data is None or len(wti_data) == 0:
+            return wti_data
+        now = now or _utc_now()
+        now_et = now.astimezone(contract_calendar.EXCHANGE_TZ)
+        session = contract_calendar.trading_date(now)
+        bar_date = _bar_session_date(wti_data.index[-1])
+        if bar_date >= session:
+            session_close = datetime.combine(bar_date, SESSION_CLOSE_ET, tzinfo=contract_calendar.EXCHANGE_TZ)
+            in_progress = now_et < session_close
+        else:
+            evening_session_open = session == now_et.date() + timedelta(days=1) and now_et.time() >= contract_calendar.SESSION_OPEN_ET
+            in_progress = evening_session_open and bar_date == now_et.date()
+        return wti_data.iloc[:-1] if in_progress else wti_data
+
+    def _prepare_daily_history(self, wti_data, now=None):
+        """Daily history for the 1D/1W models: completed, finite, positive closes only.
+
+        Non-positive closes are dropped exactly as backtest_walk_forward.main drops them (the
+        2020-04-20 -37.63 expiry print); NaN closes are dropped too, then the in-progress bar.
+        """
+        if wti_data is None or len(wti_data) == 0:
+            return wti_data
+        closes = pd.to_numeric(wti_data['Close'], errors='coerce')
+        cleaned = wti_data[(closes > 0).to_numpy()]
+        return self._drop_in_progress_daily_bar(cleaned, now=now)
+
+    def _context_feature_key(self, index_values, position, lag_days=None):
+        """Date key of the cross-asset context used for the WTI bar at `position`.
+
+        Same rule as backtest_walk_forward.prepare_daily_dataset(lag_context_days=N): the context of
+        the bar N trading days earlier (N = self.context_lag_days = 1), or the bar's own date when
+        there is no earlier bar.
+        """
+        lag = int(getattr(self, 'context_lag_days', 1) if lag_days is None else lag_days)
+        if lag > 0 and position - lag >= 0:
+            return self._date_feature_key(index_values[position - lag])
+        return self._date_feature_key(index_values[position])
+
+    def _daily_feature_row(self, wti_data, position, horizon, lookback, market_context_map,
+                           historical_external_map=None, external_features=None):
+        """Features of the daily bar at `position`, built exactly like one backtest row.
+
+        Mirrors backtest_walk_forward.prepare_daily_dataset: technical features over the trailing
+        `lookback` bars, lagged cross-asset context, FRED/EIA macro keyed to the bar itself (only when
+        enabled, i.e. the backtest's 'all' mode), then the horizon's baseline return. The optional
+        external-API snapshot (off by default) is not part of the validated configuration.
+        """
+        window_data = wti_data.iloc[position - lookback + 1:position + 1]
+        features = self.engineer_technical_features(window_data)
+        row_key = self._date_feature_key(window_data.index[-1])
+        if market_context_map is not None:
+            features.update(market_context_map.get(self._context_feature_key(wti_data.index, position), {}))
+        if historical_external_map is not None:
+            features.update(historical_external_map.get(row_key, self._historical_external_feature_defaults()))
+        features[f'baseline_return_{horizon}'] = self._compute_target_baseline_return(window_data['Close'], horizon)
+        if external_features:
+            features.update(external_features)
+        return features
+
+    @staticmethod
+    def _sanitize_feature_values(frame):
+        """Non-finite feature values -> 0.0, as the backtest does for its dataset."""
+        return frame.apply(pd.to_numeric, errors='coerce').replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+    def _build_daily_model_inputs(self, wti_data, horizon, market_context_map,
+                                  historical_external_map=None, external_features=None):
+        """Training frame and inference row for a daily horizon, matching the validated backtest.
+
+        The newest bar is the inference row. Training rows are the rolling window the backtest uses
+        (--train-window, self.daily_training_rows = 378 rows ending at the inference row) minus the
+        rows whose label has not matured yet (the purge: labels are the close `horizon_steps` bars
+        ahead). Returns (training frame with the target column, inference feature dict, first row
+        position of the window); the drift challenger uses the closes from that position up to, but
+        not including, the inference bar, as the backtest's does.
+        """
+        lookback = max(30, int(self._get_daily_feature_lookback(horizon)))
+        horizon_steps = DAILY_HORIZON_STEPS[horizon]
+        inference_position = len(wti_data) - 1
+        first_position = lookback - 1
+        train_window = int(getattr(self, 'daily_training_rows', 0) or 0)
+        if train_window > 0:
+            first_position = max(first_position, inference_position - train_window)
+        closes = pd.to_numeric(wti_data['Close'], errors='coerce')
+
+        rows, targets = [], []
+        for position in range(first_position, inference_position - horizon_steps + 1):
+            try:
+                features = self._daily_feature_row(
+                    wti_data, position, horizon, lookback, market_context_map,
+                    historical_external_map, external_features,
+                )
+                target = self._encode_target_value(
+                    closes.iloc[position],
+                    closes.iloc[position + horizon_steps],
+                    self.daily_target_mode,
+                    baseline_return=features[f'baseline_return_{horizon}'],
+                )
+            except Exception as exc:
+                logger.debug(f"Skipping daily {horizon} row due to: {exc}")
+                continue
+            if not np.isfinite(target):
+                continue  # a missing close must not become a flat label
+            rows.append(features)
+            targets.append(target)
+
+        train_frame = self._sanitize_feature_values(pd.DataFrame(rows))
+        train_frame[f'target_{horizon}'] = targets
+        inference_row = self._daily_feature_row(
+            wti_data, inference_position, horizon, lookback, market_context_map,
+            historical_external_map, external_features,
+        )
+        inference_row = {
+            name: (value if _finite_float(value) is not None else 0.0)
+            for name, value in inference_row.items()
+        }
+        return train_frame, inference_row, first_position
 
     def get_multi_horizon_predictions(self):
         """Generate multi-horizon predictions using real ML models - DUAL PIPELINE"""
@@ -3844,7 +4183,8 @@ class PremiumWTIPredictor:
         # Enforce strict premium API readiness before prediction
         self._validate_required_api_keys()
         
-        # Fetch all 7 external data sources (EIA, FRED, Alpha Vantage, Finnhub, NewsAPI, USDA, NOAA)
+        # External sources in use: the news-flow regime always; EIA/FRED/Alpha Vantage/Finnhub/
+        # NewsAPI sentiment/USDA/NOAA only when external model features (or strict mode) are enabled.
         external_start = time.perf_counter()
         external_data = self.get_external_data_sources()
         self._validate_external_data_sources(external_data)
@@ -3915,67 +4255,42 @@ class PremiumWTIPredictor:
             timings['hourly_pipeline_seconds'] = float(time.perf_counter() - hourly_pipeline_start)
 
             # === PIPELINE B: DAILY DATA (For 1D/1W Prediction) ===
+            # The 1D/1W models reproduce the validated walk-forward configuration
+            # (backtest_walk_forward: --features no_macro --lag-context 1 --train-window 378):
+            # completed bars only, one-day-lagged context, the rolling window with the purge, equal
+            # validation-score weights and the same stabilizer / drift-challenger blend.
             logger.info("--- PIPELINE B: DAILY DATA PROCESSING ---")
             daily_pipeline_start = time.perf_counter()
             logger.info("Fetching WTI historical data...")
             wti_data = self.get_wti_historical_data(period=self.daily_training_period, interval="1d")
+            wti_data = self._prepare_daily_history(wti_data)
             daily_horizons = ['1d', '1w']
-            daily_lookbacks = {horizon: self._get_daily_feature_lookback(horizon) for horizon in daily_horizons}
-            max_daily_lookback = max(daily_lookbacks.values())
             
-            # Use ONLY technical features for consistent ML training
             logger.info("Engineering daily features...")
             market_context_map = self.build_market_context_feature_map(wti_data)
-            historical_external_map = self.build_historical_external_feature_map(wti_data)
-            historical_external_defaults = self._historical_external_feature_defaults()
-            
-            # Process each historical point with consistent feature engineering
-            daily_features_by_horizon = {horizon: [] for horizon in daily_horizons}
-            daily_targets = {'1d': [], '1w': []}
-            
-            for i in range(max_daily_lookback - 1, len(wti_data) - 5):  # Leave room for targets
-                try:
-                    current_close = float(wti_data['Close'].iloc[i])
-                    target_prices = {
-                        '1d': float(wti_data['Close'].iloc[i + 1]),
-                        '1w': float(wti_data['Close'].iloc[i + 5]),
-                    }
-                    for horizon in daily_horizons:
-                        lookback = daily_lookbacks[horizon]
-                        if i < lookback - 1:
-                            continue
-                        window_data = wti_data.iloc[i - lookback + 1:i + 1]
-                        point_features = self.engineer_technical_features(window_data)
-                        row_key = self._date_feature_key(window_data.index[-1])
-                        point_features.update(market_context_map.get(row_key, {}))
-                        point_features.update(historical_external_map.get(row_key, historical_external_defaults))
-                        baseline_return = self._compute_target_baseline_return(window_data['Close'], horizon)
-                        point_features[f'baseline_return_{horizon}'] = baseline_return
-                        if self.use_external_features_in_training:
-                            # Optional: merge external snapshots into daily rows (off by default to avoid leakage/noise).
-                            point_features.update(external_features_dict)
-                        daily_features_by_horizon[horizon].append(point_features)
-                        daily_targets[horizon].append(
-                            self._encode_target_value(
-                                current_close,
-                                target_prices[horizon],
-                                self.daily_target_mode,
-                                baseline_return=baseline_return,
-                            )
-                        )
-                    
-                except Exception as exc:
-                    logger.debug(f"Skipping daily prediction row due to: {exc}")
-                    continue
+            historical_external_map = (
+                self.build_historical_external_feature_map(wti_data)
+                if self.use_historical_external_features_in_training else None
+            )
 
             features_df_daily_by_horizon = {}
+            current_features_by_horizon = {}
+            drift_closes_by_horizon = {}
             for horizon in daily_horizons:
-                horizon_df = pd.DataFrame(daily_features_by_horizon[horizon])
-                horizon_df[f'target_{horizon}'] = daily_targets[horizon]
+                horizon_df, inference_row, first_position = self._build_daily_model_inputs(
+                    wti_data,
+                    horizon,
+                    market_context_map,
+                    historical_external_map,
+                    external_features_dict if self.use_external_features_in_training else None,
+                )
                 features_df_daily_by_horizon[horizon] = horizon_df
+                current_features_by_horizon[horizon] = inference_row
+                # Drift challenger inputs: the window's closes before the inference bar (backtest's train_reference_closes).
+                drift_closes_by_horizon[horizon] = wti_data['Close'].iloc[first_position:len(wti_data) - 1]
                 logger.info(
                     f"Created {len(horizon_df.columns)} features for {horizon} model "
-                    f"using lookback={daily_lookbacks[horizon]} bars and rows={len(horizon_df)}"
+                    f"using lookback={self._get_daily_feature_lookback(horizon)} bars and rows={len(horizon_df)}"
                 )
             
             # === PREDICTION GENERATION ===
@@ -3989,24 +4304,9 @@ class PremiumWTIPredictor:
             horizon_model_counts = {'1h': 0, '1d': 0, '1w': 0}
             reference_price = self._get_prediction_reference_price(wti_data['Close'].iloc[-1])
             total_model_count = 0
-
-            # Calculate current daily features per horizon.
-            current_features_by_horizon = {}
-            for horizon in daily_horizons:
-                lookback = daily_lookbacks[horizon]
-                current_window = wti_data.iloc[-lookback:]
-                current_features_dict = self.engineer_technical_features(current_window)
-                current_key = self._date_feature_key(current_window.index[-1])
-                current_features_dict.update(market_context_map.get(current_key, {}))
-                current_features_dict.update(historical_external_map.get(current_key, historical_external_defaults))
-                current_features_dict[f'baseline_return_{horizon}'] = self._compute_target_baseline_return(current_window['Close'], horizon)
-                if self.use_external_features_in_training:
-                    # Keep train/inference feature schema aligned when external training features are enabled.
-                    current_features_dict.update(external_features_dict)
-                current_features_by_horizon[horizon] = current_features_dict
             
-            # DETECT MARKET REGIME
-            market_regime = self.detect_market_regime(wti_data.iloc[-max_daily_lookback:])
+            # Volatility regime: reported with the forecast, not used to weight the models.
+            market_regime = self.detect_market_regime(wti_data)
             logger.info(f"📊 Current Market Regime: {market_regime}")
             
             horizon_models = {}
@@ -4034,7 +4334,8 @@ class PremiumWTIPredictor:
                     scaler = model_package['scaler']
                     selector = model_package['selector']
                     all_feature_names = model_package['all_feature_names']
-                    horizon_backtests[horizon] = model_package.get('diagnostics', {}).get('latest_fold_backtest', {})
+                    diagnostics = model_package.get('diagnostics', {})
+                    horizon_backtests[horizon] = diagnostics.get('latest_fold_backtest', {})
                     
                     if models:
                         horizon_models[horizon] = model_package
@@ -4055,7 +4356,7 @@ class PremiumWTIPredictor:
                     h_preds = []
                     h_weights = []
                     model_pred_map = {}
-                    direction_scores = model_package.get('diagnostics', {}).get('model_direction_scores', {})
+                    direction_scores = diagnostics.get('model_direction_scores', {})
                     
                     for name, model in models.items():
                         raw_pred = model.predict(current_features_scaled)[0]
@@ -4070,21 +4371,8 @@ class PremiumWTIPredictor:
                             baseline_return=target_baseline_return,
                         )
                         
-                        # BASE WEIGHT (Validation Score)
+                        # Validation-score weight, exactly as in the backtest (no regime multiplier).
                         weight = max(0.3, min(1.0, scores[name]))
-                        
-                        # DYNAMIC REGIME WEIGHTING
-                        # High Volatility -> Trust Trend Followers (Trees)
-                        if market_regime == 'HIGH_VOLATILITY':
-                            if any(x in name.lower() for x in ['xgboost', 'lightgbm', 'gradient']):
-                                weight *= 1.5
-                                logger.debug(f"🚀 Boosting {name} weight for High Volatility")
-                        
-                        # Low Volatility -> Trust Mean Reversion (Forests/Ensembles)
-                        elif market_regime == 'LOW_VOLATILITY':
-                            if any(x in name.lower() for x in ['random_forest', 'extra_trees', 'bagging']):
-                                weight *= 1.5
-                                logger.debug(f"🛡️ Boosting {name} weight for Low Volatility")
                         
                         h_preds.append(pred)
                         h_weights.append(weight)
@@ -4101,6 +4389,8 @@ class PremiumWTIPredictor:
                             'lower': float(reference_price),
                             'upper': float(reference_price),
                             'std': 0.0,
+                            'interval_level': None,
+                            'interval_method': 'fallback_point',
                         }
                         continue
 
@@ -4113,38 +4403,38 @@ class PremiumWTIPredictor:
                         direction_scores,
                     )
                     backtest_metrics = horizon_backtests.get(horizon, {})
-                    lookback = daily_lookbacks[horizon]
-                    drift_window = wti_data.iloc[-lookback:]
-                    drift_challenger = self._compute_drift_challenger(drift_window['Close'], reference_price, horizon)
+                    drift_challenger = self._compute_drift_challenger(drift_closes_by_horizon[horizon], reference_price, horizon)
+                    # Same blend inputs as backtest_walk_forward.build_ensemble_prediction: the latest
+                    # fold's backtest metrics, with the default drift score and direction consensus.
                     final_pred, challenger_blend = self._blend_with_drift_challenger(
                         reference_price,
                         final_pred,
                         drift_challenger,
                         backtest_metrics,
-                        drift_score,
-                        stabilization_meta.get('direction_consensus', 1.0),
                         horizon=horizon,
                     )
+                    if not np.isfinite(final_pred):
+                        raise ValueError(f"non-finite {horizon} ensemble output")
                     predictions[horizon] = final_pred
                     all_scores[horizon] = np.mean(list(scores.values()))
 
-                    # Uncertainty from model dispersion, calibrated by historical realized errors.
+                    # Uncertainty: split-conformal interval from out-of-fold residuals (+ matured live errors).
                     if len(h_preds) >= 2:
                         pred_std = float(np.std(h_preds))
                     else:
                         pred_std = 0.0
-                    ci_margin = self._calibrated_interval_margin(
+                    ci_margin, interval_meta = self._conformal_interval_margin(
                         horizon,
-                        pred_std,
                         reference_price,
+                        diagnostics.get('oof_relative_residuals', []),
                         backtest_metrics,
-                        drift_score,
                     )
                     prediction_intervals[horizon] = {
                         'lower': float(final_pred - ci_margin),
                         'upper': float(final_pred + ci_margin),
                         'std': float(pred_std),
                         'calibrated_margin': float(ci_margin),
+                        **interval_meta,
                         'direction_consensus': stabilization_meta.get('direction_consensus'),
                         'stabilization_shrink': stabilization_meta.get('shrink_factor'),
                         'drift_challenger': float(drift_challenger),
@@ -4170,6 +4460,8 @@ class PremiumWTIPredictor:
                         'upper': float(reference_price),
                         'std': 0.0,
                         'calibrated_margin': 0.0,
+                        'interval_level': None,
+                        'interval_method': 'fallback_point',
                     }
                     horizon_confidence[horizon] = self.confidence_floor
             
@@ -4224,19 +4516,21 @@ class PremiumWTIPredictor:
                             h1_std = float(np.std(h1_preds))
                         else:
                             h1_std = 0.0
+                        if not np.isfinite(predictions['1h']):
+                            raise ValueError("non-finite 1h ensemble output")
                         h1_backtest = horizon_backtests.get('1h', {})
-                        h1_margin = self._calibrated_interval_margin(
+                        h1_margin, h1_interval_meta = self._conformal_interval_margin(
                             '1h',
-                            h1_std,
                             reference_price,
+                            hourly_model_package.get('diagnostics', {}).get('oof_relative_residuals', []),
                             h1_backtest,
-                            h1_drift_score,
                         )
                         prediction_intervals['1h'] = {
                             'lower': float(predictions['1h'] - h1_margin),
                             'upper': float(predictions['1h'] + h1_margin),
                             'std': h1_std,
                             'calibrated_margin': float(h1_margin),
+                            **h1_interval_meta,
                             'direction_consensus': stabilization_meta.get('direction_consensus'),
                             'stabilization_shrink': stabilization_meta.get('shrink_factor'),
                         }
@@ -4258,22 +4552,12 @@ class PremiumWTIPredictor:
                     horizon_drift_scores['1h'] = 0.0
                     if '1d' in predictions and isinstance(predictions['1d'], (int, float)) and predictions['1d'] > 0:
                         predictions['1h'] = reference_price + (predictions['1d'] - reference_price) * 0.1
-                        prediction_intervals['1h'] = {
-                            'lower': float(min(predictions['1h'], reference_price)),
-                            'upper': float(max(predictions['1h'], reference_price)),
-                            'std': float(abs(predictions['1h'] - reference_price) / 1.64),
-                            'calibrated_margin': float(abs(predictions['1h'] - reference_price)),
-                        }
+                        prediction_intervals['1h'] = self._fallback_span_interval(predictions['1h'], reference_price)
                         horizon_confidence['1h'] = self.confidence_floor
                         logger.info(f"1H: Using 1D fallback: ${predictions['1h']:.2f}")
                     elif '1w' in predictions and isinstance(predictions['1w'], (int, float)) and predictions['1w'] > 0:
                         predictions['1h'] = reference_price + (predictions['1w'] - reference_price) * 0.05
-                        prediction_intervals['1h'] = {
-                            'lower': float(min(predictions['1h'], reference_price)),
-                            'upper': float(max(predictions['1h'], reference_price)),
-                            'std': float(abs(predictions['1h'] - reference_price) / 1.64),
-                            'calibrated_margin': float(abs(predictions['1h'] - reference_price)),
-                        }
+                        prediction_intervals['1h'] = self._fallback_span_interval(predictions['1h'], reference_price)
                         horizon_confidence['1h'] = self.confidence_floor
                         logger.info(f"1H: Using 1W fallback: ${predictions['1h']:.2f}")
                     else:
@@ -4294,22 +4578,12 @@ class PremiumWTIPredictor:
                 horizon_drift_scores['1h'] = 0.0
                 if '1d' in predictions and isinstance(predictions['1d'], (int, float)) and predictions['1d'] > 0:
                     predictions['1h'] = reference_price + (predictions['1d'] - reference_price) * 0.1
-                    prediction_intervals['1h'] = {
-                        'lower': float(min(predictions['1h'], reference_price)),
-                        'upper': float(max(predictions['1h'], reference_price)),
-                        'std': float(abs(predictions['1h'] - reference_price) / 1.64),
-                        'calibrated_margin': float(abs(predictions['1h'] - reference_price)),
-                    }
+                    prediction_intervals['1h'] = self._fallback_span_interval(predictions['1h'], reference_price)
                     horizon_confidence['1h'] = self.confidence_floor
                     logger.info(f"1H: Using 1D fallback: ${predictions['1h']:.2f}")
                 elif '1w' in predictions and isinstance(predictions['1w'], (int, float)) and predictions['1w'] > 0:
                     predictions['1h'] = reference_price + (predictions['1w'] - reference_price) * 0.05
-                    prediction_intervals['1h'] = {
-                        'lower': float(min(predictions['1h'], reference_price)),
-                        'upper': float(max(predictions['1h'], reference_price)),
-                        'std': float(abs(predictions['1h'] - reference_price) / 1.64),
-                        'calibrated_margin': float(abs(predictions['1h'] - reference_price)),
-                    }
+                    prediction_intervals['1h'] = self._fallback_span_interval(predictions['1h'], reference_price)
                     horizon_confidence['1h'] = self.confidence_floor
                     logger.info(f"1H: Using 1W fallback: ${predictions['1h']:.2f}")
                 else:
@@ -4331,6 +4605,8 @@ class PremiumWTIPredictor:
                         'upper': float(predictions[horizon]),
                         'std': 0.0,
                         'calibrated_margin': 0.0,
+                        'interval_level': None,
+                        'interval_method': 'fallback_point',
                     }
                 if horizon not in horizon_drift_scores:
                     horizon_drift_scores[horizon] = 0.0
@@ -4369,9 +4645,8 @@ class PremiumWTIPredictor:
             
             # Store predictions with timestamp
             timestamp = self._current_timestamp_iso()
-            # Get feature count from first available horizon model
-            first_horizon = next(iter(horizon_models.values()), None)
-            feature_count = len(first_horizon['selected_features']) if first_horizon else 0
+            # Feature count of the 1W model (the horizon the dashboard reports), not the hidden 1H one.
+            feature_count = len(horizon_models['1w']['selected_features']) if '1w' in horizon_models else 0
             has_any_fallback = any(horizon_fallbacks.values())
             has_critical_fallback = horizon_fallbacks.get('1d', False) or horizon_fallbacks.get('1w', False)
             
@@ -4407,18 +4682,23 @@ class PremiumWTIPredictor:
                 },
                 'geopolitical_risk': external_data.get('geopolitical', {}),
                 'ml_caveat': ml_regime_caveat(external_data.get('geopolitical', {})),
+                'market_regime': market_regime,
+                'model_configuration': {
+                    'feature_mode': 'all' if self.use_historical_external_features_in_training else 'no_macro',
+                    'context_lag_days': int(self.context_lag_days),
+                    'train_window_rows': int(self.daily_training_rows),
+                    'n_estimators': int(self.model_n_estimators),
+                    'regime_weighting': False,
+                    'completed_bars_only': True,
+                },
             }
             
-            # Store in main predictions file
-            self.stored_predictions[timestamp] = prediction_record
-            self._save_predictions()
-            
-            # Store in horizon-specific files
+            # Store in the main and horizon-specific files (one forecast per session per horizon).
+            horizon_rows = {}
             for horizon in horizons:
-                horizon_data = getattr(self, f'predictions_{horizon}')
                 horizon_confidence_pct = float(horizon_confidence.get(horizon, all_scores.get(horizon, 0.5) * 100.0))
                 horizon_interval = prediction_intervals.get(horizon, {})
-                horizon_data[timestamp] = {
+                horizon_rows[horizon] = {
                     'timestamp': timestamp,
                     'prediction': predictions[horizon],
                     'percentage_change': percentage_changes[horizon],
@@ -4431,7 +4711,7 @@ class PremiumWTIPredictor:
                     'model_count': horizon_model_counts.get(horizon, 0),
                     'processing_time': processing_time
                 }
-                self._save_horizon_predictions(horizon, horizon_data)
+            self._store_prediction_record(timestamp, prediction_record, horizon_rows)
             
             # Store current actual price with the latest observed contract volume.
             self.store_actual_price(reference_price, self.contract_info.get('volume'))
@@ -4441,12 +4721,6 @@ class PremiumWTIPredictor:
             logger.info(f"1D: {predictions['1d']:.2f} ({percentage_changes['1d']:+.2f}%)")
             logger.info(f"1W: {predictions['1w']:.2f} ({percentage_changes['1w']:+.2f}%)")
             logger.info(f"Diagnostics: cache hits={cache_stats['hits']}, misses={cache_stats['misses']}")
-
-            self.latest_diagnostics = {
-                'timings': timings,
-                'cache_stats': cache_stats,
-                'horizon_backtests': horizon_backtests,
-            }
             
             return prediction_record
             
@@ -4454,40 +4728,125 @@ class PremiumWTIPredictor:
             logger.error(f"Premium prediction engine failed: {e}")
             raise Exception(f"Cannot generate real predictions: {e}")
     
+    def _forecast_bucket(self, horizon, timestamp_value):
+        """Slot a stored forecast occupies: its CME trading session (1d/1w) or clock hour (1h)."""
+        epoch = self._timestamp_epoch(timestamp_value)
+        if epoch is None:
+            return None
+        if horizon == '1h':
+            return int(epoch // 3600)
+        return contract_calendar.trading_date(datetime.fromtimestamp(epoch, timezone.utc)).isoformat()
+
+    @staticmethod
+    def _same_value(left, right):
+        left_value, right_value = _finite_float(left), _finite_float(right)
+        return left_value is not None and right_value is not None and abs(left_value - right_value) < 1e-9
+
+    def _is_forecast_rerun(self, previous, current):
+        """Same forecasts from the same reference price (e.g. reruns while the market is closed)."""
+        if not isinstance(previous, dict):
+            return False
+        if not self._same_value(previous.get('current_price'), current.get('current_price')):
+            return False
+        if 'predictions' in current:
+            previous_predictions = previous.get('predictions') or {}
+            return all(
+                self._same_value(previous_predictions.get(horizon), value)
+                for horizon, value in (current.get('predictions') or {}).items()
+            )
+        return self._same_value(previous.get('prediction'), current.get('prediction'))
+
+    def _store_prediction_record(self, timestamp, prediction_record, horizon_rows):
+        """Store one forecast run: at most one forecast per horizon per trading session.
+
+        The server reruns the pipeline every ~3 minutes, including identical reruns while the market
+        is closed; storing every run made live accuracy and the 'qualified' gate count the same
+        overlapping call dozens of times. The horizon stores (what accuracy is scored on) keep the
+        FIRST forecast of each CME trading session for 1d/1w and of each hour for 1h, and skip exact
+        reruns. The main record store (the chart's issued-forecast series) keeps the latest run of
+        each hour. Returns the names of the stores that changed.
+        """
+        self._ensure_runtime_state()
+        changed = []
+        with self._store_lock:
+            latest = self._latest_time_item(self.stored_predictions)
+            if latest is None or not self._is_forecast_rerun(latest[1], prediction_record):
+                if latest is not None and self._forecast_bucket('1h', latest[0]) == self._forecast_bucket('1h', timestamp):
+                    self.stored_predictions.pop(latest[0], None)
+                self.stored_predictions[timestamp] = prediction_record
+                changed.append('predictions')
+            for horizon, row in horizon_rows.items():
+                store = getattr(self, f'predictions_{horizon}')
+                latest_row = self._latest_time_item(store)
+                if latest_row is not None and (
+                    self._forecast_bucket(horizon, latest_row[0]) == self._forecast_bucket(horizon, timestamp)
+                    or self._is_forecast_rerun(latest_row[1], row)
+                ):
+                    continue
+                store[timestamp] = row
+                changed.append(horizon)
+            self._bump_store_version(*changed)
+
+        if 'predictions' in changed:
+            self._save_predictions()
+        for horizon in horizon_rows:
+            if horizon in changed:
+                self._save_horizon_predictions(horizon)
+        return changed
+
     def store_actual_price(self, price, volume=None, force=False):
         """Store actual price with dedupe/session guards so closed-market heartbeats do not pollute evaluation."""
+        price_value = _finite_float(price)
+        if price_value is None or price_value <= 0:
+            return False  # never persist NaN/inf or non-positive quotes
+        self._ensure_runtime_state()
         timestamp = self._current_timestamp_iso()
         new_time = self._safe_parse_iso(timestamp)
-        normalized_volume = int(volume) if volume is not None else 0
+        volume_value = _finite_float(volume)
+        normalized_volume = int(volume_value) if volume_value is not None and volume_value > 0 else 0
 
-        last_items = self._sorted_time_items(self.stored_actual_prices)
-        if last_items:
-            last_timestamp, last_row = last_items[-1]
-            last_time = self._safe_parse_iso(last_timestamp)
-            last_price = last_row.get('price') if isinstance(last_row, dict) else None
-            last_volume = last_row.get('volume') if isinstance(last_row, dict) else 0
-            same_quote = self._prices_match(last_price, last_volume, price, normalized_volume)
+        with self._store_lock:
+            last_item = self._latest_time_item(self.stored_actual_prices)
+            if last_item:
+                last_timestamp, last_row = last_item
+                last_time = self._safe_parse_iso(last_timestamp)
+                last_price = last_row.get('price') if isinstance(last_row, dict) else None
+                last_volume = last_row.get('volume') if isinstance(last_row, dict) else 0
+                same_quote = self._prices_match(last_price, last_volume, price_value, normalized_volume)
 
-            gap_seconds = None
-            if new_time is not None and last_time is not None:
-                gap_seconds = (new_time - last_time).total_seconds()
+                gap_seconds = None
+                if new_time is not None and last_time is not None:
+                    gap_seconds = (new_time - last_time).total_seconds()
 
-            if not force and same_quote:
-                if not self._is_cme_cl_session_open():
-                    return False
-                if gap_seconds is not None and gap_seconds < self.actual_quote_heartbeat_seconds:
-                    return False
+                if not force and same_quote:
+                    if not self._is_cme_cl_session_open():
+                        return False
+                    if gap_seconds is not None and gap_seconds < self.actual_quote_heartbeat_seconds:
+                        return False
 
-        self.stored_actual_prices[timestamp] = {
-            'timestamp': timestamp,
-            'price': float(price),
-            'volume': normalized_volume,
-        }
+            self.stored_actual_prices[timestamp] = {
+                'timestamp': timestamp,
+                'price': price_value,
+                'volume': normalized_volume,
+            }
+            self._bump_store_version('actual')
         self._save_actual_prices()
         return True
     
     def calculate_prediction_accuracy(self):
-        """Calculate prediction accuracy from stored data"""
+        """Calculate prediction accuracy from stored data.
+
+        Cached on the stores' change counters: the server calls this on every request, and it is
+        recomputed only after a new quote or forecast has been stored. Works on snapshots taken
+        under the store lock, so the price thread can keep writing meanwhile.
+        """
+        self._ensure_runtime_state()
+        with self._store_lock:
+            versions = tuple(self._store_versions.get(name, 0) for name in ('actual', *HORIZONS))
+            cached = self._accuracy_cache
+            if cached is not None and cached[0] == versions:
+                return copy.deepcopy(cached[1])
+            horizon_snapshots = {horizon: dict(getattr(self, f'predictions_{horizon}')) for horizon in HORIZONS}
         logger.info("Calculating prediction accuracy...")
         
         accuracy_metrics = {
@@ -4508,7 +4867,7 @@ class PremiumWTIPredictor:
         
         # Calculate accuracy for each horizon
         for horizon in ['1h', '1d', '1w']:
-            horizon_data = getattr(self, f'predictions_{horizon}')
+            horizon_data = horizon_snapshots[horizon]
             
             if len(horizon_data) < 2:
                 continue
@@ -4544,7 +4903,9 @@ class PremiumWTIPredictor:
             }
         
         # Store accuracy metrics
-        self.accuracy_metrics = accuracy_metrics
+        with self._store_lock:
+            self.accuracy_metrics = accuracy_metrics
+            self._accuracy_cache = (versions, copy.deepcopy(accuracy_metrics))
         self._save_accuracy_metrics()
         
         logger.info(f"📊 Accuracy calculated: {accuracy_metrics['overall']['direction_accuracy']:.1f}% "
@@ -4571,7 +4932,7 @@ class PremiumWTIPredictor:
                 'rolling_mae_20': 0,
             }
 
-        delta, search_window = self._get_horizon_delta_and_window(horizon)
+        search_window = self._horizon_search_window(horizon)
         
         correct_directions = 0
         total_predictions = 0
@@ -4590,10 +4951,10 @@ class PremiumWTIPredictor:
         
         for pred_timestamp, pred_data in sorted_predictions:
             try:
-                pred_time = self._safe_parse_iso(pred_timestamp)
-                if pred_time is None:
+                pred_epoch = self._timestamp_epoch(pred_timestamp)
+                if pred_epoch is None:
                     continue
-                target_time = pred_time + delta
+                target_time = self._horizon_target_time(datetime.fromtimestamp(pred_epoch, timezone.utc), horizon)
                 
                 closest_actual = self._find_closest_actual_price(target_time, search_window)
                 
@@ -4693,13 +5054,23 @@ class PremiumWTIPredictor:
 
 # Global predictor instance
 premium_predictor_instance = None
+_premium_predictor_lock = threading.Lock()
 
 def get_premium_predictor():
-    """Get or create premium predictor instance"""
+    """Get or create the shared predictor instance.
+
+    Double-checked locking: the server's price, prediction and request threads can all ask for it
+    at startup, and a second concurrent construction would build a separate set of stores.
+    """
     global premium_predictor_instance
-    if premium_predictor_instance is None:
-        premium_predictor_instance = PremiumWTIPredictor()
-    return premium_predictor_instance
+    instance = premium_predictor_instance
+    if instance is None:
+        with _premium_predictor_lock:
+            instance = premium_predictor_instance
+            if instance is None:
+                instance = PremiumWTIPredictor()
+                premium_predictor_instance = instance
+    return instance
 
 def get_multi_horizon_wti_predictions():
     """Get multi-horizon WTI predictions using premium ML system - NO SHORTCUTS"""
@@ -4742,6 +5113,8 @@ def get_multi_horizon_wti_predictions():
             'contract_metadata': result.get('contract_metadata', {}),
             'geopolitical_risk': result.get('geopolitical_risk', {}),
             'ml_caveat': result.get('ml_caveat'),
+            'market_regime': result.get('market_regime'),
+            'model_configuration': result.get('model_configuration', {}),
             'timestamp': result['timestamp']
         }
         
@@ -4883,9 +5256,15 @@ def get_historical_data(limit=50):
         for idx, row in intraday_history.iterrows():
             _store_actual_point(idx, row.get('Close'), row.get('Volume'))
 
+    # Iterate over snapshots: the price thread keeps writing to the live stores meanwhile.
+    store_lock = getattr(predictor, '_store_lock', None)
+    with store_lock if store_lock is not None else nullcontext():
+        actual_prices_snapshot = dict(predictor.stored_actual_prices)
+        stored_predictions_snapshot = dict(predictor.stored_predictions)
+
     # Overlay the freshest stored live points so the chart reaches the current session.
     sorted_prices = sorted(
-        predictor.stored_actual_prices.items(),
+        actual_prices_snapshot.items(),
         key=lambda item: _chart_sort_key(item[0]),
     )
     for timestamp, data in sorted_prices:
@@ -4910,12 +5289,15 @@ def get_historical_data(limit=50):
 
     # Get stored predictions sorted by timestamp
     sorted_predictions = sorted(
-        predictor.stored_predictions.items(),
+        stored_predictions_snapshot.items(),
         key=lambda item: _chart_sort_key(item[0]),
     )
     prediction_points = max(int(limit or 0), 180)
     recent_predictions = sorted_predictions[-prediction_points:]
-    horizon_offsets = {'1h': timedelta(hours=1), '1d': timedelta(days=1), '1w': timedelta(weeks=1)}
+
+    def _chart_target_time(issue_time, horizon):
+        """Naive-UTC maturity time, on the same business-day clock as the accuracy scoring."""
+        return horizon_target_time(issue_time.replace(tzinfo=timezone.utc), horizon).replace(tzinfo=None)
 
     historical_by_horizon = {
         '1h': {'values': [], 'timestamps': [], 'issue_timestamps': [], 'target_timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
@@ -4943,7 +5325,7 @@ def get_historical_data(limit=50):
 
             target_time = None
             if issue_time is not None:
-                target_time = issue_time + horizon_offsets[horizon]
+                target_time = _chart_target_time(issue_time, horizon)
 
             horizon_interval = prediction_intervals.get(horizon, {}) if isinstance(prediction_intervals, dict) else {}
             normalized_issue_timestamp = _datetime_to_chart_timestamp(issue_time) if issue_time is not None else (_normalize_chart_timestamp(timestamp) or timestamp)
@@ -4987,7 +5369,7 @@ def get_historical_data(limit=50):
                 pred_val = preds.get(horizon)
                 if pred_val is None:
                     continue
-                horizon_time = base_time + horizon_offsets[horizon]
+                horizon_time = _chart_target_time(base_time, horizon)
                 horizon_interval = intervals.get(horizon, {}) if isinstance(intervals, dict) else {}
                 normalized_horizon_timestamp = _datetime_to_chart_timestamp(horizon_time) or horizon_time.isoformat()
                 future_values.append(float(pred_val))
