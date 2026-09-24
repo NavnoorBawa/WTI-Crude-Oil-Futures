@@ -6,6 +6,8 @@ emailed alert and the dashboard honest now that the direction edge is retracted.
 itself is not tested — it requires SMTP; only the pure stance logic is.)
 """
 
+import email
+import ssl
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -111,6 +113,44 @@ class DeliveryOrderingTest(unittest.TestCase):
             sa.process_signal(current, previous)
 
         self.assertEqual(events, ["sent", "saved"])
+
+
+class LiveCountTest(unittest.TestCase):
+    def test_live_count_comes_from_the_committed_record(self):
+        data = payload(0.2, False)
+        data["live_record"] = {"n_calls": 106, "n_resolved_directional": 3, "n_independent_directional": 1}
+        sig = sa.extract_signal(data)
+        self.assertEqual(sig["live_n"], 1)
+        self.assertEqual(sig["live_calls"], 106)
+
+
+class SendEmailTest(unittest.TestCase):
+    def _send(self, cur):
+        smtp_cls = mock.MagicMock()
+        with (
+            mock.patch.object(sa, "GMAIL_APP_PASSWORD", "app-password"),
+            mock.patch.object(sa.smtplib, "SMTP_SSL", smtp_cls),
+        ):
+            self.assertTrue(sa.send_email("NEUTRAL", cur))
+        return smtp_cls
+
+    def test_smtp_connection_verifies_the_certificate(self):
+        # smtplib's default context skips verification; the credential must only ever travel
+        # over a certificate- and hostname-verified channel.
+        smtp_cls = self._send(sa.extract_signal(payload(0.2, False)))
+        context = smtp_cls.call_args.kwargs["context"]
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+        self.assertTrue(context.check_hostname)
+
+    def test_body_uses_payload_statistics_not_hardcoded_text(self):
+        data = payload(0.2, False)
+        data["performance_metrics"]["by_horizon"]["1w"].update({"wf_samples": 450, "wf_p_value": 0.27})
+        smtp_cls = self._send(sa.extract_signal(data))
+        raw = smtp_cls.return_value.__enter__.return_value.sendmail.call_args.args[2]
+        body = email.message_from_string(raw).get_payload(decode=True).decode("utf-8")
+        self.assertIn("450 OOS", body)
+        self.assertIn("p = 0.27", body)
+        self.assertNotIn("199", body)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,10 @@
 version: 2
 
+# Updates are grouped so each ecosystem opens one PR per week instead of one per package. Under
+# the ruleset's up-to-date requirement, ungrouped PRs went stale one after another and had to be
+# landed by hand as batches; a grouped PR is verified by CI as the set that will actually ship.
+# Major versions still arrive as their own PRs, because they need a deliberate review.
+
 updates:
   - package-ecosystem: github-actions
     directory: /
@@ -9,6 +14,10 @@ updates:
       time: "03:17"
       timezone: Asia/Kolkata
     open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns:
+          - "*"
 
   - package-ecosystem: npm
     directory: /
@@ -25,6 +34,12 @@ updates:
           - react-dom
           - "@types/react"
           - "@types/react-dom"
+      npm-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "*"
 
   - package-ecosystem: pip
     directory: /
@@ -34,3 +49,10 @@ updates:
       time: "03:37"
       timezone: Asia/Kolkata
     open-pull-requests-limit: 5
+    groups:
+      python:
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "*"

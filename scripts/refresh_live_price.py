@@ -7,7 +7,14 @@ consume that file directly while the baked Pages snapshot remains its fallback.
 
 Only transient upstream/GitHub failures are treated as best-effort: the previous
 good quote stays published and the workflow emits a warning. Authentication,
-permission, and validation failures remain hard errors.
+permission, and validation failures remain hard errors, and so does a quote that
+has not been refreshed for STALE_FAIL_HOURS: a provider that blocks the runners
+must turn the workflow red instead of leaving a days-old price looking current.
+
+Cadence: the workflow is scheduled every 15 minutes, but GitHub throttles
+scheduled workflows on busy runners; in practice runs land every few hours. The
+published `market_time` (the exchange timestamp of the quote, not the time the
+job ran) is what the dashboard uses to decide how fresh the price is.
 """
 
 from __future__ import annotations
@@ -29,6 +36,7 @@ COLLISION_STATUSES = frozenset({409, 422})
 BRANCH = "live-data"
 DESTINATION = "price.json"
 MAX_ATTEMPTS = 5
+STALE_FAIL_HOURS = 24
 GITHUB_API_ORIGIN = "https://api.github.com"
 GITHUB_OWNER = "NavnoorBawa"
 GITHUB_REPOSITORY_NAME = "WTI-Crude-Oil-Futures"
@@ -160,8 +168,8 @@ def request_json(
     )
 
 
-def fetch_quote() -> tuple[float, float | None] | None:
-    """Fetch a validated CL=F quote, trying both Yahoo chart hosts."""
+def fetch_quote() -> tuple[float, float | None, str | None] | None:
+    """Fetch a validated CL=F quote (price, previous close, exchange time), trying both Yahoo hosts."""
 
     for attempt in range(3):
         for host in ("query1", "query2"):
@@ -180,8 +188,14 @@ def fetch_quote() -> tuple[float, float | None] | None:
                 price = float(meta["regularMarketPrice"])
                 previous = meta.get("previousClose") or meta.get("chartPreviousClose")
                 previous = float(previous) if previous is not None else None
+                market_epoch = meta.get("regularMarketTime")
+                market_time = (
+                    datetime.fromtimestamp(int(market_epoch), timezone.utc)
+                    .isoformat().replace("+00:00", "Z")
+                    if isinstance(market_epoch, (int, float)) and market_epoch > 0 else None
+                )
                 if price > 0 and (previous is None or previous > 0):
-                    return price, previous
+                    return price, previous, market_time
                 raise ValueError("provider returned a non-positive quote")
             except (KeyError, TypeError, ValueError, json.JSONDecodeError,
                     TimeoutError, urllib.error.URLError, OSError) as exc:
@@ -195,7 +209,7 @@ def fetch_quote() -> tuple[float, float | None] | None:
     return None
 
 
-def build_payload(price: float, previous: float | None) -> dict:
+def build_payload(price: float, previous: float | None, market_time: str | None = None) -> dict:
     return {
         "price": round(price, 2),
         "prev_close": round(previous, 2) if previous else None,
@@ -203,54 +217,49 @@ def build_payload(price: float, previous: float | None) -> dict:
             round((price / previous - 1) * 100, 2) if previous else None
         ),
         "fetched_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "market_time": market_time,
         "source": "yahoo CL=F",
     }
 
 
-def ensure_branch(
-    *,
-    branch: str,
-    start_sha: str,
-    token: str,
-) -> None:
+def ensure_branch(*, branch: str, token: str) -> None:
+    """Require the state branch; never recreate it.
+
+    live-data also carries the refresh workflow's runtime state behind an initialization
+    marker. Recreating it from main would silently produce a branch without that state, and
+    every later dashboard deploy would then fail closed. A missing branch is an operator
+    problem to fix by re-seeding it, so it fails loudly here.
+    """
     ref_url = _github_repo_url("git", "ref", "heads", branch)
     try:
         request_json("GET", ref_url, token=token)
-        return
     except ApiError as exc:
-        if exc.status != 404:
-            raise
+        if exc.status == 404:
+            raise ApiError(404, f"the {branch} branch is missing; re-seed it with its runtime state") from exc
+        raise
 
-    refs_url = _github_repo_url("git", "refs")
+
+def published_quote_age_hours(*, branch: str, token: str) -> float | None:
+    """Hours since the currently published price.json was fetched, or None if unknown."""
+    lookup_url = _github_repo_url("contents", DESTINATION, query={"ref": branch})
     try:
-        request_json(
-            "POST",
-            refs_url,
-            token=token,
-            payload={"ref": f"refs/heads/{branch}", "sha": start_sha},
-        )
-        print(f"Created {branch} branch from {start_sha[:12]}")
-    except ApiError as exc:
-        # Another run may have created the branch after our GET.
-        if exc.status != 422:
-            raise
-        request_json("GET", ref_url, token=token)
+        meta = request_json("GET", lookup_url, token=token, attempts=2)
+        published = json.loads(base64.b64decode(meta.get("content", "")).decode("utf-8"))
+        fetched = datetime.fromisoformat(str(published["fetched_at"]).replace("Z", "+00:00"))
+    except (ApiError, TemporaryFailure, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+    return (datetime.now(timezone.utc) - fetched).total_seconds() / 3600.0
 
 
 def publish_price(
     quote: dict,
     *,
     branch: str,
-    start_sha: str,
     token: str,
 ) -> None:
     """Upsert price.json, re-reading its SHA after optimistic-lock races."""
 
-    ensure_branch(
-        branch=branch,
-        start_sha=start_sha,
-        token=token,
-    )
+    ensure_branch(branch=branch, token=token)
     contents_url = _github_repo_url("contents", DESTINATION)
     lookup_url = _github_repo_url("contents", DESTINATION, query={"ref": branch})
     content = base64.b64encode(
@@ -304,7 +313,7 @@ def publish_price(
 
 
 def main() -> int:
-    required = ("GH_TOKEN", "GITHUB_API_URL", "GITHUB_REPOSITORY", "GITHUB_SHA")
+    required = ("GH_TOKEN", "GITHUB_API_URL", "GITHUB_REPOSITORY")
     missing = [name for name in required if not os.environ.get(name)]
     if missing:
         print(f"Missing required environment: {', '.join(missing)}", file=sys.stderr)
@@ -319,6 +328,13 @@ def main() -> int:
 
     quote = fetch_quote()
     if quote is None:
+        age = published_quote_age_hours(branch=BRANCH, token=os.environ["GH_TOKEN"])
+        if age is not None and age > STALE_FAIL_HOURS:
+            print(
+                f"::error title=Live price stale::No quote provider has answered for {age:.0f} hours; "
+                "the published price is stale."
+            )
+            return 1
         print(
             "::warning title=Live price unchanged::No quote provider was available; "
             "the previous published price remains active."
@@ -331,7 +347,6 @@ def main() -> int:
         publish_price(
             payload,
             branch=BRANCH,
-            start_sha=os.environ["GITHUB_SHA"],
             token=os.environ["GH_TOKEN"],
         )
     except TemporaryFailure as exc:

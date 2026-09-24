@@ -1,14 +1,76 @@
 {
-  "n_oos": 896,
-  "span": "2004-06-02..2024-03-06",
-  "horizon_days": 21,
-  "carry_direction_accuracy_pct": 48.1,
-  "base_rate_pct": 55.4,
-  "p_value": 0.9999942621707643,
-  "carry_timed_sharpe": -0.03,
-  "buy_hold_sharpe": 0.25,
-  "mean_fwd_ret_backwardated_pct": -0.09,
-  "mean_fwd_ret_contango_pct": 3.53,
-  "verdict": "NEGATIVE: carry does not time WTI direction (accuracy below base rate, p=1.0).",
-  "generated_at": "2026-06-20T12:28:25.519215+00:00"
+  "method": "Second-nearby NYMEX WTI holding return over each contract cycle (roll-free), carry = (C1 - C2) / C2 on the first day after expiry, long when carry exceeds the median of all prior months, else flat. Non-overlapping monthly windows.",
+  "data": "EIA RCLC1/RCLC2 daily settlements (series discontinued after 2024-04-05)",
+  "full_sample": {
+    "n_months": 409,
+    "span": "1990-02-20..2024-02-21",
+    "direction_accuracy_pct": 52.6,
+    "base_rate_pct": 55.5,
+    "direction_p_value": 0.893,
+    "mean_ret_backwardated_pct": 1.84,
+    "mean_ret_contango_pct": 0.18,
+    "n_backwardated": 153,
+    "spread_p_value_one_sided": 0.0347,
+    "carry_slope_t_hc1": -0.96,
+    "carry_timed_sharpe": 0.48,
+    "buy_hold_sharpe": 0.29
+  },
+  "pre_2007": {
+    "n_months": 203,
+    "span": "1990-02-20..2006-12-20",
+    "direction_accuracy_pct": 60.1,
+    "base_rate_pct": 55.7,
+    "direction_p_value": 0.1146,
+    "mean_ret_backwardated_pct": 2.85,
+    "mean_ret_contango_pct": 0.12,
+    "n_backwardated": 80,
+    "spread_p_value_one_sided": 0.0104,
+    "carry_slope_t_hc1": 1.82,
+    "carry_timed_sharpe": 0.76,
+    "buy_hold_sharpe": 0.5
+  },
+  "post_2007": {
+    "n_months": 206,
+    "span": "2007-01-23..2024-02-21",
+    "direction_accuracy_pct": 45.1,
+    "base_rate_pct": 55.3,
+    "direction_p_value": 0.9987,
+    "mean_ret_backwardated_pct": 0.74,
+    "mean_ret_contango_pct": 0.23,
+    "n_backwardated": 73,
+    "spread_p_value_one_sided": 0.3566,
+    "carry_slope_t_hc1": -3.97,
+    "carry_timed_sharpe": 0.19,
+    "buy_hold_sharpe": 0.14
+  },
+  "original_span_2004_2024": {
+    "n_months": 237,
+    "span": "2004-06-23..2024-02-21",
+    "direction_accuracy_pct": 48.1,
+    "base_rate_pct": 53.2,
+    "direction_p_value": 0.948,
+    "mean_ret_backwardated_pct": 1.08,
+    "mean_ret_contango_pct": 0.05,
+    "n_backwardated": 75,
+    "spread_p_value_one_sided": 0.2165,
+    "carry_slope_t_hc1": -3.28,
+    "carry_timed_sharpe": 0.25,
+    "buy_hold_sharpe": 0.13
+  },
+  "roll_bias_of_original_method": {
+    "note": "Original design: unadjusted contract-1 (== CL=F) 21-day forward returns. On the same dates the roll gap subtracts roughly the carry itself.",
+    "unadjusted_result": {
+      "direction_accuracy_pct": 47.9,
+      "base_rate_pct": 53.8,
+      "mean_ret_backwardated_pct": 0.46,
+      "mean_ret_contango_pct": 1.25,
+      "carry_timed_sharpe": 0.11,
+      "buy_hold_sharpe": 0.29
+    },
+    "mean_contamination_backwardation_pct": -1.47,
+    "mean_contamination_contango_pct": 1.36,
+    "corr_contamination_carry": -0.55
+  },
+  "verdict": "Carry sorts returns the textbook way (backwardated months beat contango months) significantly over the full sample, yet the effect is absent after 2007; as a sign predictor it does not beat always-long. No reliable modern-era edge.",
+  "generated_at": "2026-09-24T00:57:26.634602+00:00"
 }

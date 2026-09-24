@@ -312,7 +312,8 @@ class ServerMetricSelectionTest(unittest.TestCase):
             min_live_accuracy_samples=18,
         )
 
-        self.assertEqual(headline_horizon, "1h")
+        # 1H is computed but retracted from display, so it can never be the headline.
+        self.assertEqual(headline_horizon, "1w")
         self.assertEqual(metrics_by_horizon["1d"]["display_accuracy"], 39.4)
         self.assertEqual(metrics_by_horizon["1d"]["display_accuracy_source"], "backtest")
 
@@ -422,7 +423,9 @@ class ServerRuntimeGuardTest(unittest.TestCase):
             min_live_accuracy_samples=18,
         )
 
-        self.assertEqual(headline_horizon, "1h")
+        # Even as the only "qualified" horizon, the retracted 1H is never promoted to headline;
+        # its metrics are still reported per horizon.
+        self.assertEqual(headline_horizon, "1w")
         self.assertEqual(metrics_by_horizon["1h"]["display_accuracy_source"], "live_sparse")
         self.assertEqual(metrics_by_horizon["1d"]["display_accuracy_source"], "backtest")
 
@@ -452,7 +455,8 @@ class ServerRuntimeGuardTest(unittest.TestCase):
             min_live_accuracy_samples=18,
         )
 
-        self.assertEqual(headline_horizon, "1h")
+        # Best available among the displayed horizons: 1W's 42.4% beats 1D's 39.4%.
+        self.assertEqual(headline_horizon, "1w")
         self.assertEqual(metrics_by_horizon["1h"]["display_accuracy"], 45.4)
 
 

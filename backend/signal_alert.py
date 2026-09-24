@@ -21,13 +21,16 @@ from __future__ import annotations  # PEP 604 (str | None) needs lazy eval on Py
 import json
 import os
 import smtplib
+import ssl
 import sys
 from datetime import datetime, timezone
 from email.mime.text import MIMEText
 
 try:
+    from .live_record import MIN_INDEPENDENT_TO_VALIDATE, one_week_stance
     from .safe_paths import data_json_path, public_json_path
 except ImportError:  # Direct invocation: python backend/signal_alert.py
+    from live_record import MIN_INDEPENDENT_TO_VALIDATE, one_week_stance
     from safe_paths import data_json_path, public_json_path
 
 
@@ -40,24 +43,17 @@ GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
 
 def extract_signal(data: dict) -> dict:
     """Pull the current 1W signal from a frozen data.json payload."""
-    h1w = data.get("performance_metrics", {}).get("by_horizon", {}).get("1w", {})
-    pct = float(
-        data.get("multi_horizon_predictions", {})
-            .get("percentage_changes", {})
-            .get("1w", 0) or 0
-    )
-    is_sig = h1w.get("wf_is_significant", False)
-    if is_sig and pct > 0.6:
-        stance = "LONG LEAN"
-    elif is_sig and pct < -0.6:
-        stance = "SHORT LEAN"
-    else:
-        stance = "NEUTRAL"
+    h1w = (data.get("performance_metrics") or {}).get("by_horizon", {}).get("1w", {})
+    # One stance definition for the dashboard record and the alert (strict `is True` significance,
+    # unrounded forecast), so the two can never disagree about what was published.
+    signal = one_week_stance(data)
+    stance = {"LONG": "LONG LEAN", "SHORT": "SHORT LEAN"}.get(signal["stance"], "NEUTRAL")
+    live = data.get("live_record") or {}
 
     contract = data.get("contract") or {}
     return {
         "stance": stance,
-        "fc_pct": round(pct, 3),
+        "fc_pct": round(signal["pct"], 3),
         "price": data.get("current_price"),
         "symbol": contract.get("symbol") if isinstance(contract, dict) else str(contract),
         "sharpe": h1w.get("wf_pnl_sharpe"),
@@ -65,7 +61,12 @@ def extract_signal(data: dict) -> dict:
         "profit_factor": h1w.get("wf_pnl_profit_factor"),
         "mean_pnl": h1w.get("wf_pnl_mean_per_trade"),
         "accuracy": h1w.get("display_accuracy"),
-        "live_n": h1w.get("live_total_predictions", 0),
+        "p_value": h1w.get("wf_p_value"),
+        "wf_samples": h1w.get("wf_samples"),
+        # The git-committed record (live_record.py), not the server's in-memory counter, which is
+        # always empty in the one-shot CI job.
+        "live_n": int(live.get("n_independent_directional", live.get("n_resolved_directional", 0)) or 0),
+        "live_calls": int(live.get("n_calls", 0) or 0),
         "ci": h1w.get("wf_ci_95"),
         "frozen_at": data.get("frozen_at"),
     }
@@ -110,9 +111,10 @@ def send_email(prev_stance: str | None, cur: dict) -> bool:
     ci_str = f"[{cur['ci'][0]}, {cur['ci'][1]}]" if cur.get("ci") else "n/a"
 
     live_note = (
-        f"Live track record: {cur['live_n']} evaluated 1W predictions — too early for live validation."
-        if cur["live_n"] < 18 else
-        f"Live track record: {cur['live_n']} evaluated 1W predictions."
+        f"Live track record: {cur['live_calls']} calls recorded, {cur['live_n']} independent scored "
+        f"directional calls — too few to validate (need >= {MIN_INDEPENDENT_TO_VALIDATE})."
+        if cur["live_n"] < MIN_INDEPENDENT_TO_VALIDATE else
+        f"Live track record: {cur['live_n']} independent scored directional calls."
     )
 
     # No position sizing is emitted: the edge is retracted, so Kelly/contract sizing would be
@@ -122,6 +124,8 @@ def send_email(prev_stance: str | None, cur: dict) -> bool:
     # absent — format defensively so an alert on a NEUTRAL transition can't crash.
     acc_str = f"{cur['accuracy']:.1f}%" if isinstance(cur.get("accuracy"), (int, float)) else "n/a"
     sharpe_str = f"{cur['sharpe']:.2f}" if isinstance(cur.get("sharpe"), (int, float)) else "n/a"
+    p_str = f"p = {cur['p_value']:.2f}" if isinstance(cur.get("p_value"), (int, float)) else "p n/a"
+    n_str = f"{cur['wf_samples']} OOS" if cur.get("wf_samples") else "OOS"
 
     body = f"""WTI 1-Week Model State Change (research notification)
 {'='*54}
@@ -138,9 +142,9 @@ Contract:    {cur['symbol']}
 Price now:   ${cur['price']:.2f}
 1W model output (reference only): {cur['fc_pct']:+.2f}%
 
-Corrected (purged) backtest, 5y, 199 OOS, $100/trade:
-  Direction accuracy: {acc_str}  (CI {ci_str})
-  Sharpe: {sharpe_str}   not statistically significant
+Corrected (purged) walk-forward backtest, {n_str}, $100/trade:
+  Direction accuracy: {acc_str}  (CI {ci_str}, {p_str})
+  Sharpe: {sharpe_str}
 
 {live_note}
 
@@ -156,7 +160,9 @@ Walk-forward research demo. Edge retracted. No execution infrastructure.
     msg["From"] = GMAIL_USER
     msg["To"] = ALERT_EMAIL
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+        # smtplib does NOT verify certificates by default (PEP 476 covered HTTP clients only), so
+        # without an explicit context the app password would go to anyone able to intercept TLS.
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ssl.create_default_context(), timeout=30) as smtp:
             smtp.login(GMAIL_USER, GMAIL_APP_PASSWORD)
             smtp.sendmail(GMAIL_USER, ALERT_EMAIL, msg.as_string())
         print(f"Email sent: {subject}")

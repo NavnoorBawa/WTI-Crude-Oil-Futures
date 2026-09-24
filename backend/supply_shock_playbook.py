@@ -26,6 +26,10 @@ import requests
 EIA_BASE = "https://api.eia.gov/v2/petroleum/pri/spt/data/"
 _CACHE = Path(__file__).parent.parent / "data" / "eia_wti_spot_daily.json"
 logger = logging.getLogger(__name__)
+# Event types that carry supply_mbpd == 0 but are not supply THREATS (they are bearish supply
+# increases or demand shocks), so they are excluded from the threat-only distribution.
+NON_THREAT_TYPES = frozenset({"supply_glut", "demand_catalyst"})
+DAY0_THRESHOLD_PCT = 3.0
 
 
 # ── Verified events ───────────────────────────────────────────────────────────
@@ -196,27 +200,44 @@ def fetch_wti_daily(api_key=None, use_cache=True):
             return cached_rows
         raise
     out = sorted(rows.items())
+    # A 200 with an empty or truncated body (schema change, error payload) must never replace a
+    # good history: every event below is historical, so a shorter series can only lose events.
+    if cached_rows and len(out) < len(cached_rows):
+        logger.warning("EIA returned %d rows (< %d cached); keeping the cache", len(out), len(cached_rows))
+        return cached_rows
+    if not out:
+        raise RuntimeError("EIA returned no WTI spot rows")
     try:
         _CACHE.parent.mkdir(parents=True, exist_ok=True)
-        _CACHE.write_text(json.dumps({"fetched_at": dt.date.today().isoformat(), "rows": out}))
+        tmp = _CACHE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps({"fetched_at": dt.date.today().isoformat(), "rows": out}))
+        os.replace(tmp, _CACHE)          # atomic: a concurrent reader never sees a torn file
     except OSError as exc:
         logger.warning("Could not update EIA spot cache %s: %s", _CACHE, exc)
     return out
 
 
 def realized_move(dates, series, event_date, before=5, window=20, settle=10):
-    """Compute the real price response around an event from the daily series."""
+    """Compute the real price response around an event from the daily series.
+
+    An event dated on a non-trading day (e.g. a weekend hurricane landfall) is measured from the
+    next trading day. Moves are relative to the average of the `before` sessions ahead of it.
+    """
     i = bisect.bisect_left(dates, event_date)
-    if i >= len(dates):
-        return None
+    if i >= len(dates) or i + settle >= len(dates):
+        return None                     # not enough forward data to score the event yet
     prior = [series[dates[k]] for k in range(max(0, i - before), i)]
     base = sum(prior) / len(prior) if prior else series[dates[i]]
     fwd = [(dates[k], series[dates[k]]) for k in range(i, min(len(dates), i + window))]
-    if not fwd:
-        return None
     peak_date, peak_px = max(fwd, key=lambda x: x[1])
     trough_date, trough_px = min(fwd, key=lambda x: x[1])
-    settle_px = series[dates[min(len(dates) - 1, i + settle)]]
+    settle_px = series[dates[i + settle]]
+    day0_px = fwd[0][1]
+    prev_close = series[dates[i - 1]] if i > 0 else None
+    # The "is it already priced in?" test must not use a peak that includes day 0 itself: any event
+    # with a big day-0 move would then have a big peak by construction. Measure the reaction against
+    # the previous close, and the FURTHER rise strictly after the day-0 close.
+    further_rise = max(px for _, px in fwd[1:]) / day0_px - 1 if len(fwd) > 1 else None
     # day-by-day cumulative move vs baseline (the run-up trajectory)
     traj = {k: round((px - base) / base * 100, 2) for k, (_, px) in enumerate(fwd) if k in (0, 1, 2, 3, 5, 10, 15)}
     return {
@@ -225,6 +246,8 @@ def realized_move(dates, series, event_date, before=5, window=20, settle=10):
         "peak_day": (dt.date.fromisoformat(peak_date) - dt.date.fromisoformat(fwd[0][0])).days,
         "trough_pct": round((trough_px - base) / base * 100, 1),
         "settle_pct": round((settle_px - base) / base * 100, 1),
+        "day0_pct": round((day0_px / prev_close - 1) * 100, 1) if prev_close else None,
+        "further_rise_after_day0_pct": round(further_rise * 100, 1) if further_rise is not None else None,
         "trajectory": traj,
     }
 
@@ -245,8 +268,9 @@ def _summary(values):
     vals = [v for v in values if v is not None]
     if not vals:
         return None
-    return {"n": len(vals), "median": round(statistics.median(vals), 1),
-            "min": round(min(vals), 1), "max": round(max(vals), 1)}
+    # "+ 0.0" folds a rounded -0.0 into 0.0 so no distribution renders as "-0.0%".
+    return {"n": len(vals), "median": round(statistics.median(vals), 1) + 0.0,
+            "min": round(min(vals), 1) + 0.0, "max": round(max(vals), 1) + 0.0}
 
 
 def get_playbook_for_api(api_key=None, current_drivers=None, top_n=5):
@@ -274,7 +298,11 @@ def get_playbook_for_api(api_key=None, current_drivers=None, top_n=5):
 
     distributions = {
         "supply_lost":  dist([e for e in events if e.get("supply_mbpd", 0) > 0.5]),
-        "threat_only":  dist([e for e in events if e.get("supply_mbpd", 0) == 0.0]),
+        # A supply THREAT with no barrels lost. Bearish supply gluts (price wars, OPEC refusing to
+        # cut) and demand catalysts also carry supply_mbpd == 0 but are not threats; counting them
+        # here dragged the "threats fade" settle median down with unrelated sell-offs.
+        "threat_only":  dist([e for e in events if e.get("supply_mbpd", 0) == 0.0
+                              and e.get("type") not in NON_THREAT_TYPES]),
         "strait_risk":  dist([e for e in events if e.get("strait_risk")]),
         "iran_driven":  dist([e for e in events if "iran" in e.get("drivers", [])]),
         "opec_cut":     dist([e for e in events if "opec" in e.get("drivers", []) and e.get("supply_mbpd", 0) > 0]),
@@ -283,16 +311,19 @@ def get_playbook_for_api(api_key=None, current_drivers=None, top_n=5):
         "sanctions":    dist([e for e in events if "sanctions" in e.get("drivers", [])]),
     }
 
-    # Priced-in stats: does strong day-0 reaction predict the eventual peak?
-    rows = [(e.get("trajectory", {}).get(0, 0.0), e["peak_pct"]) for e in events]
-    big   = [pk for d0, pk in rows if d0 >= 3.0]
-    small = [pk for d0, pk in rows if d0 < 3.0]
+    # Priced-in check: after a strong first-day reaction, is there MORE upside left, or less?
+    rows = [(e["day0_pct"], e["further_rise_after_day0_pct"]) for e in events
+            if e.get("day0_pct") is not None and e.get("further_rise_after_day0_pct") is not None]
+    big   = [fr for d0, fr in rows if d0 >= DAY0_THRESHOLD_PCT]
+    small = [fr for d0, fr in rows if d0 < DAY0_THRESHOLD_PCT]
     priced_in_stats = {
-        "strong_day0_n":           len(big),
-        "strong_day0_median_peak": round(statistics.median(big), 1) if big else None,
-        "weak_day0_n":             len(small),
-        "weak_day0_median_peak":   round(statistics.median(small), 1) if small else None,
-        "threshold_pct":           3.0,
+        "strong_day0_n":                       len(big),
+        "strong_day0_median_further_rise_pct": round(statistics.median(big), 1) if big else None,
+        "weak_day0_n":                         len(small),
+        "weak_day0_median_further_rise_pct":   round(statistics.median(small), 1) if small else None,
+        "threshold_pct":                       DAY0_THRESHOLD_PCT,
+        "definition": ("day-0 move vs the previous close; further rise = highest close over the next "
+                       "19 trading days vs the day-0 close (day 0 itself excluded)"),
     }
 
     # Rank analogues: driver overlap first, recency breaks ties.
@@ -320,8 +351,12 @@ def get_playbook_for_api(api_key=None, current_drivers=None, top_n=5):
             "trough_pct":  e.get("trough_pct"),
         })
 
+    years = sorted(int(e["date"][:4]) for e in events)
     return {
         "event_count":      len(events),
+        "defined_event_count": len(SHOCK_EVENTS),
+        "first_event_year": years[0],
+        "last_event_year":  years[-1],
         "distributions":    {k: v for k, v in distributions.items() if v and v["n"] > 0},
         "analogues":        top_analogues,
         "priced_in_stats":  priced_in_stats,
@@ -338,7 +373,7 @@ if __name__ == "__main__":
     print("\n── Distributions by structure ──")
     for label, pred in [
         ("Actual supply lost (>0.5 mbpd)", lambda e: e["supply_mbpd"] > 0.5),
-        ("Threat-only (no supply lost)", lambda e: e["supply_mbpd"] == 0.0),
+        ("Threat-only (no supply lost)", lambda e: e["supply_mbpd"] == 0.0 and e["type"] not in NON_THREAT_TYPES),
         ("Strait/Hormuz risk", lambda e: e["strait_risk"]),
         ("Iran-driven", lambda e: "iran" in e["drivers"]),
     ]:
@@ -347,9 +382,9 @@ if __name__ == "__main__":
         if ps:
             print(f"  {label:<34} peak {ps['median']:>5}% [{ps['min']}..{ps['max']}]   settle {ss['median']:>5}% [{ss['min']}..{ss['max']}]  (n={ps['n']})")
 
-    print("\n── 'Priced-in' premise check: does day-0 reaction predict the eventual peak? ──")
-    rows = [(e["trajectory"].get(0, 0.0), e["peak_pct"]) for e in pb if e["trajectory"].get(0) is not None]
-    big_day0 = [pk for d0, pk in rows if d0 >= 3]
-    small_day0 = [pk for d0, pk in rows if d0 < 3]
-    print(f"  events with strong day-0 move (>=+3%): median eventual peak {round(statistics.median(big_day0),1) if big_day0 else 'n/a'}% (n={len(big_day0)})")
-    print(f"  events with weak day-0 move  (<+3%):   median eventual peak {round(statistics.median(small_day0),1) if small_day0 else 'n/a'}% (n={len(small_day0)})")
+    print("\n── 'Priced-in' premise check: after a strong day 0, how much further did prices rise? ──")
+    stats = get_playbook_for_api()["priced_in_stats"]
+    print(f"  strong day-0 move (>=+{stats['threshold_pct']}% vs prev close): median further rise "
+          f"{stats['strong_day0_median_further_rise_pct']}% (n={stats['strong_day0_n']})")
+    print(f"  weaker day-0 move:                         median further rise "
+          f"{stats['weak_day0_median_further_rise_pct']}% (n={stats['weak_day0_n']})")

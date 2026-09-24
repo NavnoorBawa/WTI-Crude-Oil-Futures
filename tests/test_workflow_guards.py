@@ -143,5 +143,28 @@ class WorkflowGuardTest(unittest.TestCase):
         self.assertNotIn("price.json", persistence)
 
 
+    def test_privileged_refresh_job_runs_no_third_party_code(self):
+        # The job holding the write token and mail credential must never install or build: a
+        # compromised dependency there could rewrite a script a later privileged step executes.
+        source = (WORKFLOW_DIRECTORY / "refresh.yml").read_text(encoding="utf-8")
+        publish = source[source.index("\n  publish:"):]
+        build = source[source.index("\n  build:"):source.index("\n  publish:")]
+        self.assertIn("contents: write", publish)
+        self.assertNotIn("contents: write", build)
+        for forbidden in ("pip install", "npm ci", "npm install", "npm run", "npx "):
+            self.assertNotIn(forbidden, publish, forbidden)
+        self.assertNotIn("GMAIL_APP_PASSWORD", build)
+        top_level = source[:source.index("\njobs:")]
+        self.assertRegex(top_level, r"permissions:\s*\n\s*contents: read")
+
+    def test_npm_installs_never_run_lifecycle_scripts(self):
+        for workflow in _workflow_files():
+            for command in _shell_run_blocks(workflow.read_text(encoding="utf-8")):
+                for line in command.splitlines():
+                    # Command position only (start of line, or after if/then/&&/;), not echo text.
+                    if re.search(r"(^|\bif |\bthen |&& |; )\s*npm (ci|install)\b", line.strip()):
+                        self.assertIn("--ignore-scripts", line, f"{workflow.name}: {line.strip()}")
+
+
 if __name__ == "__main__":
     unittest.main()
