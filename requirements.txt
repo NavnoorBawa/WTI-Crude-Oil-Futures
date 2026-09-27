@@ -2,7 +2,7 @@
 # Dependabot proposes upgrades, which must pass Python + frontend checks first.
 yfinance==1.7.0
 curl_cffi==0.16.2
-pandas==3.0.5
+pandas==3.0.6
 numpy==2.5.2
 scikit-learn==1.9.0
 requests==2.34.2
