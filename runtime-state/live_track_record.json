@@ -1553,7 +1553,11 @@
       "stance": "NEUTRAL",
       "wf_is_significant": false,
       "eligible_for_validation": false,
-      "resolved": false
+      "resolved": true,
+      "resolution_date": "2026-10-11",
+      "resolution_at": "2026-10-11T14:56:07.025975+00:00",
+      "resolution_price": 91.85,
+      "realized_pct": 0.812
     },
     {
       "date": "2026-10-05",
@@ -1638,11 +1642,11 @@
     "n_resolved_directional": 0,
     "n_hits": 0,
     "hit_rate_pct": null,
-    "n_pending": 8,
+    "n_pending": 7,
     "n_skipped_roll": 27,
     "n_neutral": 79,
     "n_ineligible_directional": 45,
     "first_call_date": "2026-06-10",
-    "updated_at": "2026-10-11T05:45:13.528281+00:00"
+    "updated_at": "2026-10-11T14:56:07.841803+00:00"
   }
 }
