@@ -7,8 +7,9 @@ name: Refresh frozen dashboard
 #
 # Least privilege: the `build` job runs every third-party install and build tool with a
 # read-only token and no alert credentials. The `publish` job holds the write token and the
-# mail credential, and installs and builds nothing: it runs only this repository's own
-# standard-library scripts against the artifacts `build` produced.
+# mail credential, and installs and builds nothing: besides GitHub's own checkout, artifact
+# and Python setup actions, it runs only git and this repository's own standard-library
+# scripts against the artifacts `build` produced, and deploys with a plain git push.
 
 on:
   schedule:
@@ -61,12 +62,15 @@ jobs:
 
       # Keep generated state off protected main. The live-data branch is seeded
       # before this workflow ships; missing or partial state therefore fails closed.
+      # The tree it restored from goes to publish with the state, so publish can refuse to
+      # overwrite state that another run persisted after this one restored it.
       - name: Restore mutable runtime state from live-data
         env:
           STATE_BRANCH: live-data
           STATE_DIRECTORY: runtime-state
           STATE_MARKER: .initialized-v1
           STATE_RESTORE_DIR: ${{ runner.temp }}/wti-state-restore
+          STATE_BASE_FILE: ${{ runner.temp }}/runtime-state/restored-from
         run: |
           set -euo pipefail
           mkdir -p "$STATE_RESTORE_DIR"
@@ -117,6 +121,13 @@ jobs:
           # the same structural contracts used by the runtime writers.
           PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python -c \
             'from backend.live_record import load_record; from backend.signal_alert import load_state; load_record(); load_state()'
+
+          mkdir -p "$(dirname "$STATE_BASE_FILE")"
+          {
+            echo "tree=$(git rev-parse "origin/${STATE_BRANCH}:${STATE_DIRECTORY}")"
+            echo "commit=$(git rev-parse "origin/${STATE_BRANCH}")"
+          } > "$STATE_BASE_FILE"
+          cat "$STATE_BASE_FILE"
 
       - name: Install Python dependencies
         run: python -m pip install --disable-pip-version-check --retries 5 --timeout 60 -r requirements.txt
@@ -224,10 +235,11 @@ jobs:
           VITE_POLL_INTERVAL_MS: '900000'
         run: npm run build
 
+      # Joins the restored-from record the restore step wrote there.
       - name: Stage runtime state for the publish job
         run: |
           set -euo pipefail
-          mkdir -p "${RUNNER_TEMP}/runtime-state"
+          test -s "${RUNNER_TEMP}/runtime-state/restored-from"
           cp data/signal_state.json data/live_track_record.json "${RUNNER_TEMP}/runtime-state/"
 
       - name: Upload site
@@ -254,8 +266,10 @@ jobs:
     permissions:
       contents: write              # publish gh-pages and mutable state on live-data
     steps:
-      # Trusted code only: a fresh checkout of this commit. Nothing is installed or built in
-      # this job, so no third-party code ever runs next to the write token or mail credential.
+      # Nothing is installed or built in this job and no third-party action runs in it: only
+      # GitHub's own actions below, git, and this repository's standard-library scripts from a
+      # fresh checkout of this commit ever run next to the write token or mail credential
+      # (tests/test_workflow_guards.py enforces the allowlist).
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -278,10 +292,9 @@ jobs:
         with:
           python-version: '3.12'
 
-      # The artifacts are data, and data from the build job is re-checked here before anything
-      # acts on it: the payload against the dashboard invariants, the state against the same
-      # structural contracts the runtime writers enforce (all standard-library code).
-      - name: Place and verify build outputs
+      # The artifacts are data from the build job; the state is checked against the structural
+      # contracts its runtime writers enforce before anything acts on it.
+      - name: Place build outputs
         run: |
           set -euo pipefail
           mkdir -p public
@@ -291,18 +304,131 @@ jobs:
           done
           PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python -c \
             'from backend.live_record import load_record; from backend.signal_alert import load_state; load_record(); load_state()'
-          python -c 'import json, sys; json.load(open("public/data.json"))' || {
-            echo "Published payload is not valid JSON" >&2
-            exit 1
-          }
 
+      # Normal runs never trip this (the concurrency group serializes them), but a re-run of an old
+      # run's publish job ("Re-run failed jobs", artifacts live 3 days) would deploy an older site
+      # and overwrite the live record that later runs persisted. It also validates the exact bytes
+      # being deployed: dist/data.json, after live_record.py added its summary in the build job.
+      # A superseded build fails here on purpose, before deploying, alerting or persisting: a green
+      # run would look like the re-run had delivered its snapshot. Start a new run instead.
+      - name: Refuse a stale or superseded build
+        env:
+          STATE_BRANCH: live-data
+          STATE_DIRECTORY: runtime-state
+          STATE_BASE_FILE: ${{ runner.temp }}/runtime-state/restored-from
+          PAGES_BRANCH: gh-pages
+        run: |
+          set -euo pipefail
+          cmp dist/data.json public/data.json
+
+          base_tree="$(sed -n 's/^tree=//p' "$STATE_BASE_FILE")"
+          if ! [[ "$base_tree" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]; then
+            echo "The build did not record which runtime state it restored" >&2
+            exit 1
+          fi
+          for branch in "$STATE_BRANCH" "$PAGES_BRANCH"; do
+            for attempt in 1 2 3; do
+              if git fetch --no-tags --depth=1 origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"; then
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "Unable to fetch ${branch} after 3 attempts" >&2
+                exit 1
+              fi
+              sleep "$((attempt * 5))"
+            done
+          done
+
+          if [ "$(git rev-parse "origin/${STATE_BRANCH}:${STATE_DIRECTORY}")" != "$base_tree" ]; then
+            echo "::error title=Superseded build::Runtime state on ${STATE_BRANCH} changed after this build restored it (a later run, or an earlier attempt of this one, persisted since). Nothing was deployed, alerted or persisted; start a new run."
+            exit 1
+          fi
+
+          # The live site's own snapshot time; unreadable counts as unknown (nothing to protect).
+          published_at="$(git show "origin/${PAGES_BRANCH}:data.json" 2>/dev/null \
+            | python -c 'import json, sys; print(json.load(sys.stdin).get("frozen_at") or "")')" || published_at=""
+          checks=(--max-age-minutes 240)
+          if [ -n "$published_at" ]; then
+            checks+=(--not-older-than "$published_at")
+          fi
+          if ! python scripts/validate_frozen_payload.py public/data.json "${checks[@]}"; then
+            echo "::error title=Not published::This build's payload is invalid, over 4 hours old, or older than the live site's (${published_at:-unknown}). Nothing was deployed, alerted or persisted; start a new run."
+            exit 1
+          fi
+
+      # A plain git push with this job's token, instead of a third-party action holding it. Same
+      # result as the peaceiris/actions-gh-pages step it replaces (publish_dir ./dist, defaults
+      # otherwise): the branch's files become exactly dist/ plus .nojekyll, committed on top of the
+      # branch's history as "deploy: <commit>" and pushed without force; an unchanged site is not
+      # committed. The gh-pages branch must exist, as it has since the first deploy.
       - name: Deploy to GitHub Pages
         id: pages_deploy
-        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./dist
-          publish_branch: gh-pages
+        env:
+          PAGES_BRANCH: gh-pages
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          expected_origin="https://github.com/${GITHUB_REPOSITORY}"
+          origin_url="$(git remote get-url origin)"
+          if [ "${origin_url%.git}" != "$expected_origin" ]; then
+            echo "Refusing unexpected git origin" >&2
+            exit 1
+          fi
+
+          auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${auth_header}"
+
+          site_worktree=""
+          cleanup_worktree() {
+            if [ -n "$site_worktree" ] && [ -d "$site_worktree" ]; then
+              git worktree remove --force "$site_worktree" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup_worktree EXIT
+
+          git worktree prune
+          for attempt in 1 2 3; do
+            site_worktree="${RUNNER_TEMP}/wti-site-worktree-${attempt}"
+
+            if ! git fetch --no-tags --depth=1 origin \
+              "+refs/heads/${PAGES_BRANCH}:refs/remotes/origin/${PAGES_BRANCH}"; then
+              echo "git fetch failed on attempt ${attempt}" >&2
+            elif git worktree add --detach "$site_worktree" "origin/${PAGES_BRANCH}"; then
+              git -C "$site_worktree" rm -r -q --ignore-unmatch -- .
+              cp -RL dist/. "$site_worktree/"
+              touch "$site_worktree/.nojekyll"
+              git -C "$site_worktree" add --all
+
+              if git -C "$site_worktree" diff --staged --quiet; then
+                echo "The published site already matches this build"
+                git worktree remove "$site_worktree"
+                site_worktree=""
+                exit 0
+              fi
+
+              git -C "$site_worktree" config user.name "github-actions[bot]"
+              git -C "$site_worktree" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git -C "$site_worktree" commit -q -m "deploy: ${GITHUB_SHA}"
+              if git -C "$site_worktree" \
+                -c http.https://github.com/.extraheader="AUTHORIZATION: basic ${auth_header}" \
+                -c http.followRedirects=false \
+                push origin "HEAD:${PAGES_BRANCH}"; then
+                git worktree remove "$site_worktree"
+                site_worktree=""
+                exit 0
+              fi
+
+              echo "git push to ${PAGES_BRANCH} failed on attempt ${attempt}" >&2
+              git worktree remove --force "$site_worktree"
+              site_worktree=""
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              echo "Unable to deploy the site after 3 attempts" >&2
+              exit 1
+            fi
+            sleep "$((attempt * 5))"
+          done
 
       # Never announce a stance that was not successfully published.
       - name: Check 1W signal and send alert on stance change
@@ -317,6 +443,7 @@ jobs:
       # Persist only after a successful Pages publish. The explicit status check
       # lets the live record persist even if alert delivery itself fails, while
       # signal_alert.py leaves an unsent stance unchanged so the next run retries.
+      # The state goes on top of the tree this build restored, never over a newer one.
       - name: Persist signal state + live record to live-data branch
         if: ${{ !cancelled() && steps.pages_deploy.outcome == 'success' }}
         env:
@@ -324,6 +451,7 @@ jobs:
           STATE_BRANCH: live-data
           STATE_DIRECTORY: runtime-state
           STATE_MARKER: .initialized-v1
+          STATE_BASE_FILE: ${{ runner.temp }}/runtime-state/restored-from
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -331,6 +459,12 @@ jobs:
           origin_url="$(git remote get-url origin)"
           if [ "${origin_url%.git}" != "$expected_origin" ]; then
             echo "Refusing unexpected git origin" >&2
+            exit 1
+          fi
+
+          base_tree="$(sed -n 's/^tree=//p' "$STATE_BASE_FILE")"
+          if ! [[ "$base_tree" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]; then
+            echo "The build did not record which runtime state it restored" >&2
             exit 1
           fi
 
@@ -382,6 +516,11 @@ jobs:
                 git worktree remove "$state_worktree"
                 state_worktree=""
                 exit 0
+              fi
+
+              if [ "$(git rev-parse "origin/${STATE_BRANCH}:${STATE_DIRECTORY}")" != "$base_tree" ]; then
+                echo "::error title=Superseded build::Runtime state on ${STATE_BRANCH} changed after this build restored it; refusing to overwrite the newer state."
+                exit 1
               fi
 
               git -C "$state_worktree" config user.name "WTI Signal Bot"

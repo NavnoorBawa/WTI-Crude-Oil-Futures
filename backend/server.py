@@ -10,6 +10,7 @@ import time
 import threading
 import os
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 import logging
@@ -157,6 +158,26 @@ def startup_retry_seconds():
 HEADLINE_HORIZONS = ('1w', '1d')
 
 
+def _interval_in_cents(interval, published_forecast):
+    """The interval on the cent grid its forecast is published on, always containing that
+    published (rounded) forecast.
+
+    Unrounded bounds next to a rounded forecast broke the payload's own invariant: a fallback
+    interval spans [min(forecast, quote), max(forecast, quote)], so the forecast IS a bound, and
+    rounding it moved it just outside about half the time, which failed the deploy's validation.
+    """
+    if not isinstance(interval, dict):
+        return interval
+    published = dict(interval)
+    for key, widen in (('lower', min), ('upper', max)):
+        bound = interval.get(key)
+        if isinstance(bound, bool) or not isinstance(bound, (int, float)) or not math.isfinite(bound):
+            continue                                # left as is: the validator rejects it
+        rounded = round(float(bound), 2)
+        published[key] = widen(rounded, published_forecast) if published_forecast is not None else rounded
+    return published
+
+
 def _ordered_display_horizons(preferred_horizon):
     ordered = []
     for horizon in [preferred_horizon, *HEADLINE_HORIZONS]:
@@ -165,15 +186,44 @@ def _ordered_display_horizons(preferred_horizon):
     return ordered
 
 
+WALK_FORWARD_STATS_PATH = Path(__file__).resolve().parent.parent / 'data' / 'walk_forward_backtest_latest.json'
+# Every backtest run writes that file by default, so a comparison run (README: --features all or
+# price_only, no --lag-context) must never stand in for the live model's evidence or flip
+# wf_is_significant. Accepted: the configuration the live 1D/1W models reproduce (oil.py) — no
+# FRED/EIA macro, cross-asset context lagged one trading day — with either the expanding window of
+# the committed 5-year evidence (0) or the production rolling window (378 rows). Reports from before
+# --train-window existed (the leaked, unpurged run) carry no train_window and are rejected too.
+VALIDATED_WALK_FORWARD_CONFIG = {
+    'feature_mode': ('no_macro',),
+    'context_lag_days': (1,),
+    'train_window': (0, 378),
+}
+
+
+def _walk_forward_config_mismatch(config) -> str | None:
+    """Why a backtest report is not evidence for the live model, or None when it is."""
+    if not isinstance(config, dict):
+        return 'report has no config'
+    for key, accepted in VALIDATED_WALK_FORWARD_CONFIG.items():
+        if config.get(key) not in accepted:
+            return f'config.{key}={config.get(key)!r} (validated: {", ".join(map(repr, accepted))})'
+    return None
+
+
 def _load_walk_forward_stats() -> dict:
     """Load the walk-forward backtest JSON and return per-horizon ensemble metrics.
-    Returns {} if file is missing or malformed — callers treat missing stats as unavailable.
+    Returns {} if the file is missing, malformed, or from a configuration other than the live
+    model's — callers treat missing stats as unavailable, so the 1W stance stays retracted.
     """
     try:
-        path = Path(__file__).parent.parent / 'data' / 'walk_forward_backtest_latest.json'
+        path = WALK_FORWARD_STATS_PATH
         if not path.exists():
             return {}
         data = json.loads(path.read_text(encoding='utf-8'))
+        mismatch = _walk_forward_config_mismatch(data.get('config'))
+        if mismatch:
+            logger.warning('Ignoring %s: not the validated configuration (%s)', path.name, mismatch)
+            return {}
         results = data.get('results', {})
         out = {}
         for horizon, hr in results.items():
@@ -606,7 +656,7 @@ def root():
             '/live': 'Process liveness check',
         },
         'server_time': _utc_now_iso()
-    }, 200 if ready else 503)
+    }, 200 if ready else 503, retry_after=None if ready else startup_retry_seconds())
 
 @app.route('/data')
 def get_data():
@@ -757,7 +807,12 @@ def get_data():
         pred_1w = predictions['prediction_1w']
         horizon_confidence = predictions.get('horizon_confidence', {})
         horizon_drift_scores = predictions.get('horizon_drift_scores', {})
-        prediction_intervals = predictions.get('prediction_intervals', {})
+        # Forecasts are published in cents, and each interval on the same grid, around its forecast.
+        published_forecasts = {'1h': round(pred_1h, 2), '1d': round(pred_1d, 2), '1w': round(pred_1w, 2)}
+        prediction_intervals = {
+            horizon: _interval_in_cents(interval, published_forecasts.get(horizon))
+            for horizon, interval in (predictions.get('prediction_intervals') or {}).items()
+        }
         horizon_backtests = predictions.get('horizon_backtests', {})
         horizon_quality = predictions.get('horizon_quality', {})
         qualified_horizons = predictions.get('quality_qualified_horizons', [])
@@ -826,10 +881,8 @@ def get_data():
             # Multi-horizon predictions - REAL ML ONLY
             'multi_horizon_predictions': {
                 'predictions': {
-                    '1h': round(pred_1h, 2),
-                    '1d': round(pred_1d, 2),
-                    '1w': round(pred_1w, 2),
-                    '7d': round(pred_1w, 2)
+                    **published_forecasts,
+                    '7d': published_forecasts['1w'],
                 },
                 'percentage_changes': {
                     '1h': round((pred_1h - current_price) / current_price * 100, 1),
@@ -986,7 +1039,7 @@ def health():
             'error_count': system_state['error_count'],
             'data_source': 'oil.py REAL DATA',
             'timestamp': _utc_now_iso()
-        }, 200 if ready else 503)
+        }, 200 if ready else 503, retry_after=None if ready else startup_retry_seconds())
 
     except Exception as exc:
         logger.error("Health endpoint failed (%s)", type(exc).__name__)
@@ -1058,7 +1111,13 @@ def ensure_startup_started():
 
 @app.before_request
 def _ensure_startup_for_requests():
-    """Guarantee startup thread is running when the app is imported by a WSGI server."""
+    """Guarantee startup thread is running when the app is imported by a WSGI server.
+
+    Except for /live: initialization calls Yahoo, and a liveness probe must never start it (nor
+    restart it after each failed attempt's cooldown).
+    """
+    if request.path == '/live':
+        return None
     ensure_startup_started()
 
     if request.path != '/data':

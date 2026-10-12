@@ -15,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from backend.safe_paths import dashboard_payload_path
+from backend.safe_paths import dashboard_payload_path  # noqa: E402  (needs the path above)
 
 
 HORIZONS = ("1h", "1d", "1w")
@@ -49,11 +49,14 @@ def validate_payload(
     now: datetime | None = None,
     max_age_minutes: int | None = None,
     max_market_age_days: float | None = None,
+    not_older_than: str | None = None,
     warnings: list[str] | None = None,
 ) -> list[str]:
     """Return invariant violations; an empty list means the UI may consume it.
 
-    `warnings` (optional) collects non-fatal findings such as a missing optional card.
+    `not_older_than` (optional) is the frozen_at of the snapshot already published: deploying an
+    older payload would roll the site back. `warnings` (optional) collects non-fatal findings such
+    as a missing optional card.
     """
     errors: list[str] = []
     notes = warnings if warnings is not None else []
@@ -81,6 +84,12 @@ def validate_payload(
             errors.append("frozen_at is implausibly in the future")
         elif age_seconds > max_age_minutes * 60:
             errors.append(f"frozen_at is older than {max_age_minutes} minutes")
+    if not_older_than is not None and frozen_at is not None:
+        published_at = _parse_timestamp(not_older_than)
+        if published_at is None:
+            errors.append("the published snapshot's frozen_at is not an aware ISO-8601 timestamp")
+        elif frozen_at < published_at:
+            errors.append("frozen_at is older than the snapshot already published")
 
     contract = payload.get("contract")
     if not isinstance(contract, dict) or not str(contract.get("symbol", "")).strip():
@@ -144,14 +153,37 @@ def validate_payload(
             errors.append("actual history contains an invalid timestamp")
         elif any(not _finite_number(value, positive=True) for value in series[1]):
             errors.append("actual history contains a non-positive/non-finite price")
-        elif price and abs(series[1][-1] / price - 1.0) > 0.05:
-            errors.append("current_price disagrees with the latest chart price by more than 5%")
+        elif price:
+            errors.extend(_check_chart_against_quote(series[0], series[1], price, market_time, notes))
 
     errors.extend(_validate_vol_forecast(payload.get("vol_forecast"), notes))
     for optional in ("supply_shock_playbook", "live_record"):
         if not isinstance(payload.get(optional), dict):
             notes.append(f"{optional} is absent; the dashboard will omit it")
     return errors
+
+
+def _check_chart_against_quote(timestamps: list, values: list, price: float,
+                               market_time: datetime | None, notes: list[str]) -> list[str]:
+    """The newest exchange bar on the chart must agree with the quote (catches a chart series
+    from another contract, or a stale one).
+
+    The chart's newest point is not an exchange bar: the server stores the quote it forecasts
+    from as a live point stamped when it was stored (oil.py store_actual_price) and appends it
+    to the Yahoo bars (get_historical_data), so the last point is the quote itself. Bars are
+    stamped at or before the quote's exchange time (contract.market_time); live points come
+    after it, so the comparison uses the newest point at or before that time.
+    """
+    if market_time is None:
+        notes.append("contract.market_time is missing; the chart was not checked against the quote")
+        return []
+    bars = [(stamp, value) for stamp, value in zip(map(_parse_timestamp, timestamps), values)
+            if stamp <= market_time]
+    if not bars:
+        return ["the chart has no market bar at or before the quote time"]
+    if abs(max(bars)[1] / price - 1.0) > 0.05:
+        return ["current_price disagrees with the latest market bar by more than 5%"]
+    return []
 
 
 def _validate_vol_forecast(vol: Any, notes: list[str]) -> list[str]:
@@ -185,6 +217,8 @@ def main() -> None:
     parser.add_argument("--max-age-minutes", type=int)
     parser.add_argument("--max-market-age-days", type=float,
                         help="fail if the quote's market_time is older than this at freeze time")
+    parser.add_argument("--not-older-than", metavar="FROZEN_AT",
+                        help="fail if frozen_at is earlier than this (the published snapshot's)")
     args = parser.parse_args()
 
     try:
@@ -200,6 +234,7 @@ def main() -> None:
         payload,
         max_age_minutes=args.max_age_minutes,
         max_market_age_days=args.max_market_age_days,
+        not_older_than=args.not_older_than,
         warnings=notes,
     )
     for note in notes:

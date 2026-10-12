@@ -23,7 +23,10 @@ cleanup() {
   wait 2>/dev/null || true
   echo "Done."
 }
-trap cleanup INT TERM EXIT
+# Ctrl+C (or a TERM) stops right after cleanup; EXIT covers every other way out, set -e included.
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+trap cleanup EXIT
 
 # ── Load .env ────────────────────────────────────────────────────────────────
 if [ -f .env ]; then
@@ -79,8 +82,11 @@ elif command -v xdg-open >/dev/null 2>&1; then
 fi
 
 echo "Press Ctrl+C to stop both servers."
-# Return as soon as EITHER server exits, instead of waiting on a dead backend forever.
-wait -n "$BACKEND_PID" "$FRONTEND_PID" || true
+# Return as soon as EITHER server exits, instead of waiting on a dead backend forever. A poll, not
+# `wait -n`: macOS ships bash 3.2, whose wait takes no options and would return at once.
+while kill -0 "$BACKEND_PID" 2>/dev/null && kill -0 "$FRONTEND_PID" 2>/dev/null; do
+  sleep 1
+done
 for name in backend frontend; do
   pid_var="$(echo "$name" | tr '[:lower:]' '[:upper:]')_PID"
   if ! kill -0 "${!pid_var}" 2>/dev/null; then

@@ -60,7 +60,49 @@ class FrozenPayloadValidationTest(unittest.TestCase):
         payload = copy.deepcopy(self.valid)
         payload["current_price"] = self.valid["current_price"] * 10
         errors = validate_payload(payload)
-        self.assertIn("current_price disagrees with the latest chart price by more than 5%", errors)
+        self.assertIn("current_price disagrees with the latest market bar by more than 5%", errors)
+
+    def test_chart_check_skips_the_quote_appended_as_a_live_point(self):
+        # As in every deployed snapshot, the server appends the quote it forecast from (stamped when
+        # it was stored) after the Yahoo bars, so the old check compared 100.30 with itself and
+        # passed. The last real bar (here from a series 6% away) is what has to agree with the quote.
+        payload = copy.deepcopy(self.valid)
+        payload["current_price"] = 100.3
+        payload["contract"]["market_time"] = "2026-09-18T21:00:00Z"
+        payload["unified_data"]["actual"] = {
+            "timestamps": ["2026-09-18T19:00:00Z", "2026-09-18T20:00:00Z", "2026-09-19T04:37:21.744563Z"],
+            "values": [94.6, 94.3, 100.3],
+            "volumes": [10, 12, 0],
+        }
+        errors = validate_payload(payload)
+        self.assertIn("current_price disagrees with the latest market bar by more than 5%", errors)
+        payload["unified_data"]["actual"]["values"][1] = 100.1     # a chart that agrees passes
+        self.assertNotIn("current_price disagrees with the latest market bar by more than 5%",
+                         validate_payload(payload))
+
+    def test_chart_without_market_bars_is_rejected(self):
+        payload = copy.deepcopy(self.valid)
+        payload["contract"]["market_time"] = "2026-01-15T10:00:00Z"   # before every chart point
+        self.assertIn("the chart has no market bar at or before the quote time", validate_payload(payload))
+
+    def test_chart_check_needs_the_quote_time(self):
+        payload = copy.deepcopy(self.valid)
+        del payload["contract"]["market_time"]
+        payload["current_price"] = self.valid["current_price"] * 10
+        notes = []
+        self.assertNotIn("current_price disagrees with the latest market bar by more than 5%",
+                         validate_payload(payload, warnings=notes))
+        self.assertTrue(any("the chart was not checked" in note for note in notes))
+
+    def test_never_older_than_the_published_snapshot(self):
+        # The publish job passes the live site's frozen_at: a re-run of an old run must not roll it back.
+        frozen = self.valid["frozen_at"]
+        self.assertEqual(validate_payload(self.valid, not_older_than=frozen), [])   # same snapshot
+        self.assertEqual(validate_payload(self.valid, not_older_than="2026-01-15T11:00:00+00:00"), [])
+        self.assertIn("frozen_at is older than the snapshot already published",
+                      validate_payload(self.valid, not_older_than="2026-01-15T16:17:00Z"))
+        self.assertIn("the published snapshot's frozen_at is not an aware ISO-8601 timestamp",
+                      validate_payload(self.valid, not_older_than="2026-01-15 16:17"))
 
     def test_rejects_percentage_that_contradicts_its_prediction(self):
         payload = copy.deepcopy(self.valid)
