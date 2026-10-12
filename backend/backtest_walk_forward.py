@@ -10,6 +10,7 @@ import argparse
 import json
 import sys
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import numpy as np
@@ -23,6 +24,11 @@ from .safe_paths import data_json_path
 # $100 round-trip is conservative (spread ~$0.03-0.05/bbl + commission).
 TRANSACTION_COST_USD = 100.0
 CONTRACT_BARRELS = 1000
+
+# Yahoo period for the cross-asset context series. The predictor's own market_context_period
+# ('3y', sized for the live model's 2y window) counts back from today, so on a longer or older
+# backtest window every earlier row silently got constant default context.
+BACKTEST_CONTEXT_PERIOD = "max"
 
 
 def compute_pnl_metrics(pnls: list, periods_per_year: float) -> dict:
@@ -41,8 +47,9 @@ def compute_pnl_metrics(pnls: list, periods_per_year: float) -> dict:
     # Annualised Sharpe: mean / std * sqrt(periods per year)
     sharpe = float(mean_pnl / std_pnl * np.sqrt(periods_per_year)) if std_pnl > 0 else 0.0
 
-    # Max drawdown on cumulative P&L curve
-    cum = np.cumsum(arr)
+    # Max drawdown on the cumulative P&L curve, which starts at 0: losses before the first
+    # peak are a drawdown too.
+    cum = np.concatenate([[0.0], np.cumsum(arr)])
     peak = np.maximum.accumulate(cum)
     max_dd = float(np.max(peak - cum))
 
@@ -117,32 +124,82 @@ def compute_metrics(actuals, predictions, references):
     }
 
 
+@contextmanager
+def _overridden(obj, **attrs):
+    """Set attributes on obj for the duration of a with-block, then restore the originals."""
+    missing = object()
+    saved = {name: vars(obj).get(name, missing) for name in attrs}
+    for name, value in attrs.items():
+        setattr(obj, name, value)
+    try:
+        yield
+    finally:
+        for name, value in saved.items():
+            if value is missing:
+                delattr(obj, name)
+            else:
+                setattr(obj, name, value)
+
+
+def build_backtest_context_map(predictor, wti_data):
+    """Cross-asset context map over the whole backtest window, and the date it is complete from.
+
+    Every context series is fetched with BACKTEST_CONTEXT_PERIOD rather than the predictor's
+    market_context_period. The second value is the first date on which every context symbol has
+    printed; rows before it carry constant fill values. It is None when a symbol returned nothing.
+    """
+    fetch = predictor._fetch_market_series
+    first_prints = []
+
+    def fetch_full_history(symbol, period=None, interval="1d"):
+        series = fetch(symbol, period=BACKTEST_CONTEXT_PERIOD, interval=interval)
+        first_prints.append(series.first_valid_index() if series is not None else None)
+        return series
+
+    with _overridden(predictor, _fetch_market_series=fetch_full_history):
+        context_map = predictor.build_market_context_feature_map(wti_data)
+    if not first_prints or any(first is None for first in first_prints):
+        return context_map, None
+    return context_map, max(predictor._date_feature_key(first) for first in first_prints)
+
+
 def prepare_daily_dataset(predictor, wti_data, horizon, feature_mode="all", lag_context_days=0):
     """Rebuild the per-horizon daily feature matrix used by the production predictor.
 
     feature_mode controls which feature families are included — used to test for
     look-ahead leakage from revision-prone macro data:
-      - "all":        technical + market-context (Brent/DXY/VIX) + FRED/EIA macro (production)
-      - "no_macro":   technical + market-context, NO FRED/EIA  (leakage test — macro is the
-                      only family subject to post-hoc revisions, so dropping it isolates the risk)
+      - "all":        technical + market-context (Brent/DXY/VIX) + FRED/EIA macro (the
+                      macro comparison run; needs EIA_API_KEY for the EIA stock features)
+      - "no_macro":   technical + market-context, NO FRED/EIA. This is the validated
+                      production configuration (with lag_context_days=1): macro is the only
+                      family subject to post-hoc revisions, so dropping it isolates the risk
       - "price_only": technical features only (purest; market data is point-in-time but external)
 
     lag_context_days shifts ALL cross-asset context features back N trading days
     (timing-leakage test): the backtest enters at the WTI settlement (~14:30 ET) but
     equity/vol context closes print at 16:00 ET, so same-day context contains ~90 min
     of post-entry information. Lagging one full day is strictly conservative.
+
+    The returned frame's attrs["rows_without_context"] counts rows whose context date
+    predates full cross-asset coverage (0 when every row has real context).
     """
     include_market = feature_mode in ("all", "no_macro")
     include_macro = feature_mode == "all"
 
-    market_context_map = predictor.build_market_context_feature_map(wti_data) if include_market else {}
-    historical_external_map = predictor.build_historical_external_feature_map(wti_data) if include_macro else {}
+    market_context_map, context_from = build_backtest_context_map(predictor, wti_data) if include_market else ({}, None)
+    historical_external_map = {}
+    if include_macro:
+        # The predictor's historical-macro flag defaults to off (production excludes macro), and
+        # with it off this map is constant defaults: "all" would silently equal "no_macro".
+        with _overridden(predictor, use_historical_external_features_in_training=True):
+            historical_external_map = predictor.build_historical_external_feature_map(wti_data)
     historical_external_defaults = predictor._historical_external_feature_defaults() if include_macro else {}
     lookback_bars = max(30, int(predictor._get_daily_feature_lookback(horizon)))
     target_mode = getattr(predictor, "daily_target_mode", "price")
     horizon_steps = 1 if horizon == "1d" else 5
 
     rows = []
+    rows_without_context = 0
     for i in range(lookback_bars - 1, len(wti_data) - horizon_steps):
         window_data = wti_data.iloc[i - lookback_bars + 1 : i + 1]
         row_features = predictor.engineer_technical_features(window_data)
@@ -153,6 +210,8 @@ def prepare_daily_dataset(predictor, wti_data, horizon, feature_mode="all", lag_
                 if lag_context_days > 0 and i - lag_context_days >= 0
                 else row_key
             )
+            if context_from is None or context_key < context_from:
+                rows_without_context += 1
             row_features.update(market_context_map.get(context_key, {}))
         if include_macro:
             row_features.update(historical_external_map.get(row_key, historical_external_defaults))
@@ -182,6 +241,7 @@ def prepare_daily_dataset(predictor, wti_data, horizon, feature_mode="all", lag_
     for col in feature_cols:
         dataset[col] = pd.to_numeric(dataset[col], errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
+    dataset.attrs["rows_without_context"] = rows_without_context
     return dataset, feature_cols
 
 
@@ -258,8 +318,11 @@ def purge_count(horizon: str) -> int:
     return horizon_steps_for(horizon) - 1
 
 
-def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step, train_window=0):
-    """Run walk-forward for one horizon and return model/baseline metrics."""
+def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step, train_window=0, purge=True):
+    """Run walk-forward for one horizon and return model/baseline metrics.
+
+    purge=False reproduces the retracted look-ahead leak (the before/after comparison only).
+    """
     target_col = f"target_{horizon}"
     actual_price_col = f"actual_price_{horizon}"
     horizon_steps = horizon_steps_for(horizon)
@@ -296,8 +359,8 @@ def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step,
         # point — using them would leak future information. Drop them from MODEL training. The
         # baselines/drift below intentionally still use full_train_df (past prices only, no target
         # overlap), so the embargo affects only the learned model, not the observed-price baselines.
-        purge = purge_count(horizon)
-        train_df = dataset.iloc[start_idx:end_idx - purge].copy() if purge > 0 else full_train_df.copy()
+        purge_rows = purge_count(horizon) if purge else 0
+        train_df = dataset.iloc[start_idx:end_idx - purge_rows].copy() if purge_rows > 0 else full_train_df.copy()
         row = dataset.iloc[end_idx]
 
         train_input = train_df[feature_cols + [target_col]].copy()
@@ -447,8 +510,9 @@ def main():
     parser.add_argument("--min-train", type=int, default=200, help="minimum expanding-window train rows before first test")
     parser.add_argument("--step", type=int, default=5, help="walk-forward stride in rows (default: 5)")
     parser.add_argument("--estimators", type=int, default=40, help="tree estimators per model for backtest runtime")
-    parser.add_argument("--features", default="all", choices=["all", "no_macro", "price_only"],
-                        help="feature families to include (leakage test: 'no_macro' drops FRED/EIA)")
+    parser.add_argument("--features", default="no_macro", choices=["all", "no_macro", "price_only"],
+                        help="feature families to include (default 'no_macro', the validated set; "
+                             "'all' adds FRED/EIA macro, 'price_only' drops cross-asset context)")
     parser.add_argument("--lag-context", type=int, default=0, metavar="DAYS",
                         help="lag cross-asset context features by N trading days "
                              "(timing-leakage test: 1 = strictly entry-time-clean)")
@@ -460,8 +524,14 @@ def main():
                         help="first data date; with --end, pins the window so a run is reproducible "
                              "(--period is relative to today)")
     parser.add_argument("--end", metavar="YYYY-MM-DD", help="last data date (inclusive)")
+    parser.add_argument("--no-purge", action="store_true",
+                        help="skip the purge to reproduce the retracted look-ahead leak (before/after "
+                             "comparison only; the --output file name must contain 'LEAKED')")
     parser.add_argument("--output", default="data/walk_forward_backtest_latest.json", help="path to write JSON report")
     args = parser.parse_args()
+    # A leaked report must never land in an artifact the dashboard or README reads as the result.
+    if args.no_purge and "LEAKED" not in args.output.replace("\\", "/").rsplit("/", 1)[-1]:
+        parser.error("--no-purge reproduces the look-ahead leak; its --output file name must contain 'LEAKED'")
 
     predictor = PremiumWTIPredictor()
     predictor.model_n_estimators = max(20, int(args.estimators))
@@ -506,6 +576,9 @@ def main():
             raise RuntimeError(
                 f"Insufficient rows for walk-forward: horizon={horizon}, rows={len(dataset)}, min_train={args.min_train}"
             )
+        if dataset.attrs.get("rows_without_context"):
+            print(f"WARNING: {dataset.attrs['rows_without_context']} of {len(dataset)} {horizon} rows predate "
+                  "full cross-asset context coverage and carry constant fill values", file=sys.stderr)
         datasets[horizon] = dataset
         feature_cols_map[horizon] = feature_cols
 
@@ -519,6 +592,7 @@ def main():
             min_train=int(args.min_train),
             step=int(args.step),
             train_window=int(args.train_window),
+            purge=not args.no_purge,
         )
 
     report = {
@@ -534,6 +608,11 @@ def main():
             "feature_mode": args.features,
             "context_lag_days": max(0, int(args.lag_context)),
             "train_window": int(args.train_window),
+            "purge_rows_by_horizon": {horizon: purge_count(horizon) if not args.no_purge else 0 for horizon in horizons},
+            "context_period": BACKTEST_CONTEXT_PERIOD if args.features != "price_only" else None,
+            "rows_without_context_by_horizon": {
+                horizon: int(datasets[horizon].attrs.get("rows_without_context", 0)) for horizon in horizons
+            },
             "rows_by_horizon": {horizon: int(len(datasets[horizon])) for horizon in horizons},
             "feature_count_by_horizon": {horizon: int(len(feature_cols_map[horizon])) for horizon in horizons},
         },
