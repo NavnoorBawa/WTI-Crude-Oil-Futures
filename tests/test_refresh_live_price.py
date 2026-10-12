@@ -16,18 +16,66 @@ from scripts import refresh_live_price
 
 class PricePayloadTest(unittest.TestCase):
     def test_build_payload(self):
-        payload = refresh_live_price.build_payload(81.25, 80.0)
+        # A fixed mid-contract fetch time: without a market_time it also places the quote.
+        now = datetime(2026, 10, 7, 15, 0, tzinfo=timezone.utc)
+        payload = refresh_live_price.build_payload(81.25, 80.0, now=now)
 
         self.assertEqual(payload["price"], 81.25)
         self.assertEqual(payload["prev_close"], 80.0)
         self.assertEqual(payload["change_pct"], 1.56)
         self.assertEqual(payload["source"], "yahoo CL=F")
-        self.assertTrue(payload["fetched_at"].endswith("Z"))
+        self.assertEqual(payload["fetched_at"], "2026-10-07T15:00:00Z")
         self.assertIsNone(payload["market_time"])
 
     def test_payload_carries_the_exchange_time_of_the_quote(self):
         payload = refresh_live_price.build_payload(81.25, 80.0, "2026-09-25T20:59:58Z")
         self.assertEqual(payload["market_time"], "2026-09-25T20:59:58Z")
+
+    def test_payload_names_the_contract_of_the_quote_session(self):
+        # CLX26's last trade date is 2026-10-20: its session ends at 17:00 CT, and the 17:00 CT
+        # (18:00 ET) reopen is CLZ26's. The dashboard pairs a quote only with that contract.
+        cases = {
+            "2026-10-20T18:00:00Z": "CLX26",   # 13:00 CT on the last trade date
+            "2026-10-20T23:30:00Z": "CLZ26",   # 18:30 CT: the next session, the next contract
+            "2026-09-25T20:59:58Z": "CLX26",
+        }
+        for market_time, contract in cases.items():
+            with self.subTest(market_time=market_time):
+                payload = refresh_live_price.build_payload(90.0, 89.0, market_time)
+                self.assertEqual(payload["contract"], contract)
+
+    def test_no_market_time_uses_the_fetch_time_for_the_contract(self):
+        now = datetime(2026, 10, 21, 15, 0, tzinfo=timezone.utc)
+        payload = refresh_live_price.build_payload(90.0, 89.0, None, now=now)
+        self.assertEqual(payload["contract"], "CLZ26")
+        self.assertEqual(payload["fetched_at"], "2026-10-21T15:00:00Z")
+
+    def test_change_is_withheld_when_the_previous_close_can_be_the_expired_contract(self):
+        # CLV26 last traded 2026-09-22. Yahoo's chartPreviousClose for CL=F on 09-23 is CLV26's
+        # final 94.59 settle, while CLX26 itself closed 90.52: the -2.63% would be the roll spread.
+        cases = (
+            "2026-09-23T16:30:00Z",   # first CLX26 session, day
+            "2026-09-22T23:30:00Z",   # its Globex evening (session 09-23), filed under 09-22
+            "2026-09-23T23:30:00Z",   # 09-24 session filed under 09-23: previous close may be 09-22
+        )
+        for market_time in cases:
+            with self.subTest(market_time=market_time):
+                payload = refresh_live_price.build_payload(92.10, 94.59, market_time)
+                self.assertEqual(payload["contract"], "CLX26")
+                self.assertIsNone(payload["prev_close"])
+                self.assertIsNone(payload["change_pct"])
+                self.assertEqual(payload["price"], 92.10)
+
+    def test_same_contract_change_is_published(self):
+        # 2026-09-24 day session: the previous close (09-23) is CLX26's own.
+        payload = refresh_live_price.build_payload(91.57, 90.52, "2026-09-24T15:00:00Z")
+        self.assertEqual(payload["contract"], "CLX26")
+        self.assertEqual(payload["prev_close"], 90.52)
+        self.assertEqual(payload["change_pct"], 1.16)
+        # Last trade date itself: both closes are CLV26's.
+        payload = refresh_live_price.build_payload(94.59, 95.78, "2026-09-22T17:00:00Z")
+        self.assertEqual(payload["contract"], "CLV26")
+        self.assertEqual(payload["change_pct"], -1.24)
 
     def test_fetch_quote_reads_regular_market_time(self):
         meta = {"chart": {"result": [{"meta": {

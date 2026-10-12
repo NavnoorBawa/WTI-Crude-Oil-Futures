@@ -3,6 +3,7 @@ import ErrorBoundary from "./ErrorBoundary";
 import useNow from "./useNow";
 import {
   DASH,
+  ctWallTimeMs,
   fmtCT,
   fmtDate,
   fmtNum,
@@ -30,8 +31,26 @@ const CONFIGURED_API_BASE = import.meta.env.VITE_API_BASE_URL;
 const STATIC_DATA_URL = `${import.meta.env.BASE_URL}data.json`;
 const REPO_URL = "https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures";
 // The chart library is about half the bundle and the chart sits below the fold, so it loads in its
-// own chunk after the numbers above it have rendered.
-const Chart = lazy(() => import("./Chart"));
+// own chunk after the numbers above it have rendered. A failed chunk load (a flaky link, or a
+// request racing a deploy) must not be final: React.lazy keeps a rejected import forever, so a
+// fresh lazy component is swapped in, which the section's error boundary renders when it resets on
+// the next data refresh. Browsers also cache a failed module fetch, so the retry asks for the
+// chunk under a new URL; Chromium and Firefox name it in the error, elsewhere the import is repeated.
+let Chart = null;
+let chartLoadAttempt = 0;
+const failedModuleUrl = (error) =>
+  /\bhttps?:\/\/[^\s'"]+?\.js(?=$|[\s'"?#])/.exec(String(error?.message ?? ""))?.[0] ?? null;
+const loadChart = (failedUrl = null) => {
+  chartLoadAttempt += 1;
+  const attempt = chartLoadAttempt;
+  const load = failedUrl ? () => import(/* @vite-ignore */ `${failedUrl}?retry=${attempt}`) : () => import("./Chart");
+  Chart = lazy(() => load().catch((error) => {
+    loadChart(failedModuleUrl(error) ?? failedUrl);
+    throw error;
+  }));
+  return Chart;
+};
+loadChart();
 
 // A frozen snapshot changes every ~4h, so it is re-checked every 15 min; a live backend polls faster.
 const pollIntervalMs = clampMilliseconds(
@@ -48,6 +67,7 @@ const startupRetryMs = clampMilliseconds(
 );
 const REQUEST_TIMEOUT_MS = 30 * 1000;
 const MAX_INITIAL_FETCH_ATTEMPTS = 5;
+const MAX_BACKGROUND_RETRY_MS = 60 * 1000;          // retry cadence once the startup budget is spent
 const LIVE_PRICE_POLL_MS = 3 * 60 * 1000;
 const LIVE_BADGE_MAX_AGE_MS = 30 * 60 * 1000;      // exchange quote time, not fetch time
 const STALE_SNAPSHOT_MS = 12 * 60 * 60 * 1000;     // GitHub often runs the 4h schedule 4-9h apart
@@ -78,7 +98,8 @@ const getApiBaseCandidates = () => {
 };
 
 // price.json (live-data branch, or the same-origin copy baked into each deploy) -> a header quote.
-// market_time is the exchange's own quote time; older files only carry fetched_at.
+// market_time is the exchange's own quote time; older files only carry fetched_at. contract is the
+// CL contract the quote belongs to (older files have none).
 const normalizeQuote = (raw) => {
   const price = num(raw?.price);
   const marketTimeMs = toMs(raw?.market_time);
@@ -91,21 +112,55 @@ const normalizeQuote = (raw) => {
   const change = previousClose > 0 ? Number((price - previousClose).toFixed(2)) : null;
   const changePct = num(raw?.change_pct)
     ?? (previousClose > 0 ? ((price - previousClose) / previousClose) * 100 : null);
-  return { price, change, changePct, marketTimeMs, fetchedAtMs, timeMs };
+  const contract = typeof raw?.contract === "string" && raw.contract.trim() ? raw.contract.trim() : null;
+  return { price, change, changePct, contract, marketTimeMs, fetchedAtMs, timeMs };
 };
 
 // The snapshot price's own time: the exchange time of its quote when the payload carries it,
 // else when it was frozen (a Saturday freeze still holds Friday's close).
 const snapshotQuoteMs = (data) => toMs(data?.contract?.market_time) ?? toMs(data?.frozen_at);
 
-// A quote may replace the snapshot price only when it is NEWER than the snapshot's quote and
-// plausible (within 25% of it): a stale CDN copy or a bad tick must never override fresher data.
+// The header labels the price with the snapshot's contract, so a quote must be for that contract.
+// A file without a contract is accepted only until the snapshot contract's last session ends
+// (17:00 CT on its last trade date); after that CL=F quotes the next contract.
+const isSnapshotContract = (quote, data) => {
+  const symbol = data?.contract?.symbol;
+  if (quote.contract && typeof symbol === "string" && symbol.trim()) return quote.contract === symbol.trim();
+  const sessionEndMs = ctWallTimeMs(data?.contract?.last_trade_date, 17);
+  return sessionEndMs == null || quote.timeMs < sessionEndMs;
+};
+
+// A quote may replace the snapshot price only when it is NEWER than the snapshot's quote, for the
+// same contract, and plausible (within 25% of it): a stale CDN copy, the next contract's price or
+// a bad tick must never override the snapshot.
 const isQuoteUsable = (quote, data) => {
   if (!quote) return false;
   const snapshotMs = snapshotQuoteMs(data);
   if (snapshotMs != null && quote.timeMs <= snapshotMs) return false;
+  if (!isSnapshotContract(quote, data)) return false;
   const snapshotPrice = num(data?.current_price);
   return !(snapshotPrice > 0 && Math.abs(quote.price / snapshotPrice - 1) > MAX_QUOTE_DEVIATION);
+};
+
+// A quote's daily change may splice two contracts on the first session after a roll. It is shown
+// only when it cannot: never while the snapshot reports the change as unavailable, and never from
+// an older price.json (no contract, so its change was not checked for a roll) when the snapshot
+// says the session is the new contract's first.
+const ROLL_CHANGE_QUALITIES = new Set(["daily_close_new_contract", "unavailable_contract_roll"]);
+const resolveQuote = (liveQuote, data) => {
+  if (liveQuote && isQuoteUsable(liveQuote, data)) {
+    const quality = typeof data?.price_change_quality === "string" ? data.price_change_quality : "";
+    const withheld = quality.startsWith("unavailable")
+      || (!liveQuote.contract && ROLL_CHANGE_QUALITIES.has(quality));
+    return { kind: "quote", ...liveQuote, ...(withheld ? { change: null, changePct: null } : {}) };
+  }
+  return {
+    kind: STATIC_DATA_MODE ? "snapshot" : "backend",
+    price: num(data?.current_price),
+    change: num(data?.price_change),
+    changePct: num(data?.price_change_percent),
+    timeMs: snapshotQuoteMs(data) ?? toMs(data?.last_update),
+  };
 };
 
 const describeQuoteTime = (quote) => {
@@ -172,7 +227,8 @@ const describeLiveRecord = (lr) => {
   const scored = num(lr.n_resolved_directional);
   const independentRaw = num(lr.n_independent_directional);
   const independent = independentRaw ?? scored;
-  const hitRate = num(lr.hit_rate_pct);
+  const hitRate = num(lr.hit_rate_pct);                        // over every scored call (overlapping)
+  const hitRateIndependent = num(lr.hit_rate_independent_pct); // over the non-overlapping calls only
   const pending = num(lr.n_pending);
   const neutral = num(lr.n_neutral);
   const skipped = num(lr.n_skipped_roll);
@@ -190,11 +246,17 @@ const describeLiveRecord = (lr) => {
   if (ineligible) parts.push(`${ineligible} directional excluded from scoring (retracted model)`);
   if (parts.length === 0) return null;
 
+  // A rate is quoted with the set it was computed over: the independent count only goes with the
+  // independent hit rate; older summaries carry just the rate over all (overlapping) scored calls.
   let verdict = null;
   if (independent != null && independent < MIN_INDEPENDENT_CALLS) {
     verdict = `too few to validate (need ≥${MIN_INDEPENDENT_CALLS} independent)`;
-  } else if (independent != null && hitRate != null) {
-    verdict = `${fmtPct(hitRate)} hit rate on ${independent} independent calls`;
+  } else if (independentRaw != null && hitRateIndependent != null) {
+    verdict = `${fmtPct(hitRateIndependent)} hit rate on ${independentRaw} independent calls`;
+  } else if (scored != null && hitRate != null) {
+    verdict = independentRaw != null
+      ? `${fmtPct(hitRate)} hit rate over ${scored} overlapping calls (${independentRaw} independent)`
+      : `${fmtPct(hitRate)} hit rate over ${scored} scored calls`;
   }
   return { text: parts.join(" · "), verdict };
 };
@@ -232,6 +294,7 @@ function App() {
   const [liveQuote, setLiveQuote] = useState(null);
   const [showRetracted, setShowRetracted] = useState(false);
   const latestDataRef = useRef(null);
+  const retryNowRef = useRef(null);
 
   latestDataRef.current = data;
 
@@ -253,33 +316,38 @@ function App() {
     const retryDelayMs = (requestedDelayMs) =>
       clampMilliseconds(requestedDelayMs, startupRetryMs, 2000, 60 * 1000);
 
+    // Returns true while the startup budget lasts (the loading screen shows the retry count).
+    // After that the error screen shows, but retries continue in the background with capped
+    // backoff: a backend still warming up, or a data.json blip at page load, must not need a reload.
     const scheduleInitialRetry = (requestedDelayMs, message) => {
-      if (
-        isDisposed ||
-        latestDataRef.current ||
-        initialAttemptCount >= MAX_INITIAL_FETCH_ATTEMPTS
-      ) {
-        return false;
-      }
+      if (isDisposed || latestDataRef.current) return false;
 
-      const nextAttempt = initialAttemptCount + 1;
       retryPending = true;
       clearRetryTimeout();
-      setLoading(true);
-      setError(null);
-      setLoadingMessage(
-        `${message} Retrying (${nextAttempt}/${MAX_INITIAL_FETCH_ATTEMPTS})…`
-      );
+      const withinBudget = initialAttemptCount < MAX_INITIAL_FETCH_ATTEMPTS;
+      if (withinBudget) {
+        setLoading(true);
+        setError(null);
+        setLoadingMessage(
+          `${message} Retrying (${initialAttemptCount + 1}/${MAX_INITIAL_FETCH_ATTEMPTS})…`
+        );
+      }
+      const delayMs = withinBudget
+        ? retryDelayMs(requestedDelayMs)
+        : Math.min(
+            MAX_BACKGROUND_RETRY_MS,
+            retryDelayMs(requestedDelayMs) * 2 ** (initialAttemptCount - MAX_INITIAL_FETCH_ATTEMPTS + 1)
+          );
       retryTimeoutId = setTimeout(() => {
         retryTimeoutId = null;
         retryPending = false;
-        if (!isDisposed) fetchData(true);
-      }, retryDelayMs(requestedDelayMs));
-      return true;
+        if (!isDisposed) fetchData(true, { quiet: !withinBudget });
+      }, delayMs);
+      return withinBudget;
     };
 
-    // Fetch data function
-    async function fetchData(isInitial = false) {
+    // Fetch data function. quiet: a background retry keeps the error screen up meanwhile.
+    async function fetchData(isInitial = false, { quiet = false } = {}) {
       if (isDisposed || requestInFlight) return;
       if (!isInitial && retryPending && !latestDataRef.current) return;
 
@@ -287,7 +355,7 @@ function App() {
       if (isInitial && !latestDataRef.current) initialAttemptCount += 1;
 
       try {
-        if (isInitial && !latestDataRef.current) {
+        if (isInitial && !quiet && !latestDataRef.current) {
           setLoading(true);
           setError(null);
           setLoadingMessage(INITIAL_LOADING_MESSAGE);
@@ -406,7 +474,6 @@ function App() {
           if (scheduled) return;
         }
 
-        retryPending = false;
         setError(
           latestDataRef.current
             ? STATIC_DATA_MODE
@@ -427,8 +494,26 @@ function App() {
       if (latestDataRef.current) fetchData(false);
     }, pollIntervalMs);
 
+    // The error screen's Retry button and a reconnect skip the backoff wait (and, with no data yet,
+    // restart the startup budget so the loading screen counts the attempts again).
+    const retryNow = () => {
+      if (isDisposed || requestInFlight) return;
+      if (latestDataRef.current) {
+        fetchData(false);
+        return;
+      }
+      clearRetryTimeout();
+      retryPending = false;
+      initialAttemptCount = 0;
+      fetchData(true);
+    };
+    retryNowRef.current = retryNow;
+    window.addEventListener("online", retryNow);
+
     return () => {
       isDisposed = true;
+      retryNowRef.current = null;
+      window.removeEventListener("online", retryNow);
       clearRetryTimeout();
       clearInterval(interval);
       activeControllers.forEach((controller) => controller.abort());
@@ -502,20 +587,13 @@ function App() {
 
   // Header price + change must share one source: either the usable quote or the snapshot.
   const quote = useMemo(() => {
-    const resolved = liveQuote && isQuoteUsable(liveQuote, data)
-      ? { kind: "quote", ...liveQuote }
-      : {
-          kind: STATIC_DATA_MODE ? "snapshot" : "backend",
-          price: num(data?.current_price),
-          change: num(data?.price_change),
-          changePct: num(data?.price_change_percent),
-          timeMs: snapshotQuoteMs(data) ?? toMs(data?.last_update),
-        };
+    const resolved = resolveQuote(liveQuote, data);
     return { ...resolved, label: describeQuoteTime(resolved) };
   }, [liveQuote, data]);
   const modelTarget = useMemo(() => getModelTarget(data), [data]);
   const toggleRetracted = useCallback(() => setShowRetracted((shown) => !shown), []);
   const toggleGeo = useCallback(() => setGeoOpen((open) => !open), []);
+  const retryNow = useCallback(() => retryNowRef.current?.(), []);
 
   const frozenAtMs = toMs(data?.frozen_at);
   let body;
@@ -533,7 +611,10 @@ function App() {
       <div className="tv-status-screen" role="alert">
         <div className="tv-status-title is-error">Data connection unavailable</div>
         <div className="tv-status-text">{error}</div>
-        <div className="tv-status-text">Real data only — no placeholder values are shown.</div>
+        <div className="tv-status-text">
+          Real data only — no placeholder values are shown. Retrying automatically.
+        </div>
+        <button type="button" className="tv-button" onClick={retryNow}>Retry now</button>
       </div>
     );
   } else if (data?.error) {
@@ -1069,6 +1150,14 @@ function VolatilityCard({ vol }) {
     : '';
   const volOverlay = vol.economic?.vol_target_overlay || null;
   const vrp = vol.economic?.variance_risk_premium || null;
+  // Newer artifacts run the economic tests on roll-free (same-contract) returns over a shorter
+  // window than the forecast itself; say so wherever their numbers are quoted.
+  const econReturns = vol.economic?.returns || null;
+  const econYears = [econReturns?.sample_start, econReturns?.sample_end]
+    .map((value) => (typeof value === 'string' && /^\d{4}/.test(value) ? value.slice(0, 4) : null));
+  const econSpan = econYears[0] && econYears[1]
+    ? (econYears[0] === econYears[1] ? econYears[0] : `${econYears[0]}–${econYears[1]}`)
+    : null;
 
   const accuracy = num(volV.har_dir_acc_pct);
   const baseRate = num(volV.majority_class_pct);
@@ -1107,10 +1196,11 @@ function VolatilityCard({ vol }) {
   const overlayBuyHold = num(volOverlay?.sharpe_buy_hold);
   const overlayTrailing = num(volOverlay?.sharpe_trailing_vol_target);
   const trailingClause = overlayTrailing != null ? `; trailing-vol sizing ${fmtNum(overlayTrailing, 2)}` : '';
+  const overlaySubject = `A vol-targeting overlay${econSpan ? ` on roll-free returns (${econSpan})` : ''}`;
   const overlaySentence = overlayForecast != null && overlayBuyHold != null
     ? overlayForecast <= overlayBuyHold
-      ? ` A vol-targeting overlay did NOT beat buy-and-hold (Sharpe ${fmtNum(overlayForecast, 2)} vs ${fmtNum(overlayBuyHold, 2)}${trailingClause}), so no P&L is claimed.`
-      : ` A vol-targeting overlay scored Sharpe ${fmtNum(overlayForecast, 2)} vs ${fmtNum(overlayBuyHold, 2)} for buy-and-hold${trailingClause}; the difference is untested, so no P&L is claimed.`
+      ? ` ${overlaySubject} did NOT beat buy-and-hold (Sharpe ${fmtNum(overlayForecast, 2)} vs ${fmtNum(overlayBuyHold, 2)}${trailingClause}), so no P&L is claimed.`
+      : ` ${overlaySubject} scored Sharpe ${fmtNum(overlayForecast, 2)} vs ${fmtNum(overlayBuyHold, 2)} for buy-and-hold${trailingClause}; the difference is untested, so no P&L is claimed.`
     : ' No trading P&L is claimed.';
 
   const vrpMean = num(vrp?.mean_premium_vol_pts);
@@ -1119,9 +1209,14 @@ function VolatilityCard({ vol }) {
   const vrpTimingP = num(vrp?.timing_p_value);
   const vrpSwapSharpe = num(vrp?.short_vol_swap_sharpe);
   const vrpVarSharpe = num(vrp?.short_variance_sharpe);
+  const vrpVarSharpeExWorst = num(vrp?.short_variance_sharpe_ex_worst_year);
+  const vrpWorstYear = num(vrp?.worst_year);
+  const vrpExWorst = vrpVarSharpeExWorst != null && vrpWorstYear != null
+    ? ` (${fmtNum(vrpVarSharpeExWorst, 2)} excluding ${vrpWorstYear})`
+    : '';
   const vrpSharpes = [
     vrpSwapSharpe != null ? `short vol-swap Sharpe ${fmtNum(vrpSwapSharpe, 2)}` : null,
-    vrpVarSharpe != null ? `short variance ${fmtNum(vrpVarSharpe, 2)}` : null,
+    vrpVarSharpe != null ? `short variance ${fmtNum(vrpVarSharpe, 2)}${vrpExWorst}` : null,
   ].filter(Boolean).join(', ');
 
   return (
@@ -1173,7 +1268,7 @@ function VolatilityCard({ vol }) {
       </p>
       {vrpMean != null && (
         <p className="tv-tearsheet-foot">
-          Variance risk premium: OVX exceeded subsequent realized vol by {fmtNum(vrpMean, 1)} vol pts on average
+          Variance risk premium{econSpan ? ` (${econSpan})` : ''}: OVX exceeded subsequent realized vol by {fmtNum(vrpMean, 1)} vol pts on average
           {vrpShare != null ? ` (positive in ${fmtPct(vrpShare, 0)} of periods)` : ''}
           {vrpWorst != null ? `, but the worst period was ${fmtSigned(vrpWorst, 1)} vol pts` : ''}
           {vrpSharpes ? `; ${vrpSharpes}` : ''}
@@ -1235,10 +1330,14 @@ function SupplySection({ playbook, noveltySpike, open, onToggle }) {
   const threatPeak = num(threat.peak?.median);
   const threatSettle = num(threat.settle?.median);
   const threatN = num(threat.n);
-  const lostHolds = lostSettle != null && lostSettle > 0;
-  const threatFaded = threatSettle != null && threatPeak != null && threatPeak > 0 && threatSettle < threatPeak / 2;
+  // One retention test for both groups: the share of the median peak still there at the median
+  // settle. Physical losses also give back much of their peak, so the contrast is "kept more".
+  const keptShare = (settle, peak) => (settle != null && peak != null && peak > 0 ? settle / peak : null);
+  const lostKept = keptShare(lostSettle, lostPeak);
+  const threatKept = keptShare(threatSettle, threatPeak);
+  const lostKeptMore = lostKept != null && threatKept != null && lostSettle > 0
+    && lostKept > threatKept && lostSettle > threatSettle;
   const smallSettleSample = [lostN, threatN].some((value) => value != null && value < SMALL_SAMPLE_N);
-  const nText = (value) => (value != null ? `, n = ${value}` : '');
   const nParen = (value) => (value != null ? ` (n = ${value})` : '');
 
   const priced = playbook.priced_in_stats || {};
@@ -1284,13 +1383,14 @@ function SupplySection({ playbook, noveltySpike, open, onToggle }) {
       <div id="supply-panel" className="tv-supply-section" hidden={!open}>
         {lostSettle != null && threatSettle != null && (
           <p className="tv-supply-takeaway">
-            {lostHolds && threatFaded && lostSettle > threatSettle ? (
+            {lostKeptMore ? (
               <>
-                Physical supply losses have held their gains
-                {' '}(<strong className="up">{fmtSignedPct(lostSettle)}</strong> median settle{nText(lostN)});
-                {' '}threats with no barrels lost gave most of theirs back
-                {' '}({fmtSignedPct(threatPeak)} median peak, <strong className={signClass(threatSettle, 'up2', 'down')}>{fmtSignedPct(threatSettle)}</strong> settle{nText(threatN)})
-                {' '}— historically the market paid for real disruption, not headlines.
+                Physical supply losses kept more of their move:
+                {' '}<strong className={signClass(lostSettle, 'up2', 'down')}>{fmtSignedPct(lostSettle)}</strong> median settle
+                {' '}of a {fmtSignedPct(lostPeak)} median peak{nParen(lostN)}, vs
+                {' '}<strong className={signClass(threatSettle, 'up2', 'down')}>{fmtSignedPct(threatSettle)}</strong> of
+                {' '}{fmtSignedPct(threatPeak)} for threats with no barrels lost{nParen(threatN)}
+                {' '}— historically the market paid more for real disruption than for headlines.
               </>
             ) : (
               <>

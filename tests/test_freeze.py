@@ -73,6 +73,8 @@ class FreezeTest(unittest.TestCase):
         _, price = self._freeze(FIXTURE)
         self.assertEqual(price["price"], FIXTURE["current_price"])
         self.assertEqual(price["market_time"], FIXTURE["contract"]["market_time"])
+        # The UI overlays a quote only on a snapshot of the same contract.
+        self.assertEqual(price["contract"], FIXTURE["contract"]["symbol"])
         self.assertAlmostEqual(price["prev_close"], FIXTURE["current_price"] - FIXTURE["price_change"], places=2)
 
         unknown = copy.deepcopy(FIXTURE)

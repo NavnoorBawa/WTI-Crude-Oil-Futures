@@ -54,11 +54,23 @@ export const fmtSignedUsd = (value, digits = 0) => {
   return rounded === 0 ? body : `${rounded > 0 ? "+" : MINUS}${body}`;
 };
 
+// Rounding must never carry a p-value up to a threshold it is below (0.0496 is not "p = 0.05",
+// 0.9996 is not "p = 1.00"): digits are added until it prints below the threshold, else "p < t".
+const P_THRESHOLDS = [0.01, 0.05, 0.1, 1];
+const MAX_P_DIGITS = 4;
 export const fmtP = (value) => {
   const p = num(value);
   if (p == null) return null;
   if (p < 0.001) return "p < 0.001";
-  return `p = ${p < 0.01 ? p.toFixed(3) : p.toFixed(2)}`;
+  const crossed = (text) => P_THRESHOLDS.find((t) => p < t && Number(text) >= t);
+  let digits = p < 0.01 ? 3 : 2;
+  let text = p.toFixed(digits);
+  while (crossed(text) != null && digits < MAX_P_DIGITS) {
+    digits += 1;
+    text = p.toFixed(digits);
+  }
+  const threshold = crossed(text);
+  return threshold != null ? `p < ${threshold}` : `p = ${text}`;
 };
 
 export const signClass = (value, up = "up", down = "down") => {
@@ -85,6 +97,17 @@ const formatter = (options) => {
   return formatterCache.get(key);
 };
 const ctYear = (ms) => formatter({ timeZone: CT_ZONE, year: "numeric" }).format(ms);
+const ctHour = (ms) => Number(formatter({ timeZone: CT_ZONE, hour: "numeric", hourCycle: "h23" }).format(ms));
+
+// Epoch ms of a whole hour of US Central wall time on a calendar date (YYYY-MM-DD), e.g. the
+// 17:00 CT end of a contract's last session. Chicago is UTC-5 (CDT) or UTC-6 (CST).
+export const ctWallTimeMs = (dateText, hour) => {
+  const match = typeof dateText === "string" ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateText) : null;
+  if (!match) return null;
+  const wallAsUtc = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), hour);
+  const candidates = [5, 6].map((offsetHours) => wallAsUtc + offsetHours * 60 * 60 * 1000);
+  return candidates.find((ms) => ctHour(ms) === hour) ?? null;
+};
 
 // year: "auto" adds the year only when it differs from the current one (i.e. when it is ambiguous).
 export const fmtCT = (ms, { date = true, time = true, seconds = false, year = "auto" } = {}) => {

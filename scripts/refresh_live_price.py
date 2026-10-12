@@ -15,6 +15,13 @@ Cadence: the workflow is scheduled every 15 minutes, but GitHub throttles
 scheduled workflows on busy runners; in practice runs land every few hours. The
 published `market_time` (the exchange timestamp of the quote, not the time the
 job ran) is what the dashboard uses to decide how fresh the price is.
+
+Contract: CL=F is a continuous series, so the file also names the contract the
+quote belongs to (`contract`, from the CME calendar at the quote's session). The
+dashboard overlays the quote only on a snapshot of that same contract. Yahoo's
+previous close for CL=F is the series' previous close, which on the first
+session after a roll is the expired contract's, so no change is published when
+the previous close can belong to another contract.
 """
 
 from __future__ import annotations
@@ -28,8 +35,15 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Any
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from backend import contract_calendar  # noqa: E402 - needs the project root on sys.path
 
 API_RETRY_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
 COLLISION_STATUSES = frozenset({409, 422})
@@ -209,14 +223,49 @@ def fetch_quote() -> tuple[float, float | None, str | None] | None:
     return None
 
 
-def build_payload(price: float, previous: float | None, market_time: str | None = None) -> dict:
+def _parse_utc(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _earliest_previous_close_session(quote_moment: datetime) -> date:
+    """Earliest CME session Yahoo's previous close for a quote at `quote_moment` can be from.
+
+    In the day session that is the session before the quote's. From the 18:00 ET reopen to
+    midnight, Yahoo still files the quote under the calendar day just settled, so its previous
+    close can be the one before that settlement, two sessions back.
+    """
+    local_day = quote_moment.astimezone(contract_calendar.EXCHANGE_TZ).date()
+    return contract_calendar.shift_business_days(contract_calendar.trading_date(local_day), -1)
+
+
+def build_payload(
+    price: float,
+    previous: float | None,
+    market_time: str | None = None,
+    *,
+    now: datetime | None = None,
+) -> dict:
+    fetched_at = now or datetime.now(timezone.utc)
+    quote_moment = _parse_utc(market_time) or fetched_at
+    # Never publish a change across a roll: it would be the calendar spread, not a market move.
+    if previous and contract_calendar.spans_roll(
+        _earliest_previous_close_session(quote_moment), quote_moment
+    ):
+        previous = None
     return {
         "price": round(price, 2),
         "prev_close": round(previous, 2) if previous else None,
         "change_pct": (
             round((price / previous - 1) * 100, 2) if previous else None
         ),
-        "fetched_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "contract": contract_calendar.front_contract_code(quote_moment),
+        "fetched_at": fetched_at.isoformat().replace("+00:00", "Z"),
         "market_time": market_time,
         "source": "yahoo CL=F",
     }

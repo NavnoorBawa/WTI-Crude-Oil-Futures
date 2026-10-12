@@ -99,6 +99,9 @@ def freeze(out_dir: Path) -> dict:
             "price": round(float(price), 2),
             "prev_close": prev_close,
             "change_pct": round(float(pct), 2) if isinstance(pct, (int, float)) else None,
+            # The contract this price is for; the UI only overlays a quote on a snapshot of the
+            # same contract (refresh_live_price.py stamps its quotes the same way).
+            "contract": contract_block.get("symbol"),
             "fetched_at": frozen_at,
             # The exchange time of the quote itself; the UI keys freshness on this, not on when
             # the job happened to run (a Saturday freeze still carries Friday's close).

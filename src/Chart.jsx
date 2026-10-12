@@ -40,7 +40,9 @@ const RANGE_PRESETS = {
   ALL: { lookbackSec: null, cadence: "daily", label: "full history, daily closes" },
 };
 const DEFAULT_RANGE = "ALL";
-const DAILY_BAR_MIN_GAP_SEC = 20 * HOUR;   // a bar this far from both neighbours is a daily bar
+const DAILY_BAR_MIN_GAP_SEC = 20 * HOUR;   // daily bars sit a day apart; hourly bars an hour
+const DAILY_BAR_WALL_SEC = 23 * HOUR;      // Yahoo stamps daily CL=F bars 00:00 New York = 23:00 CT
+const HOUR_MS = HOUR * 1000;
 const PAST_OUTPUT_MIN_SPACING_SEC = DAY;
 const PAST_OUTPUT_GAP_BREAK_SEC = 14 * DAY;
 
@@ -128,30 +130,70 @@ const buildActualPoints = (actualPayload, fallbackValues) => {
     const price = num(value);
     if (ms == null || price == null || price <= 0) return;
     const time = Math.floor(ms / 1000);
-    deduped.set(time, { time, value: round2(price), volume: Math.max(0, Math.round(num(volumes[index]) || 0)) });
+    deduped.set(time, {
+      time,
+      value: round2(price),
+      volume: Math.max(0, Math.round(num(volumes[index]) || 0)),
+      // Yahoo's daily and hourly bars sit exactly on the hour. Anything else is a stored live
+      // quote, whose volume is the session's running total, not one bar's.
+      isBar: ms % HOUR_MS === 0,
+    });
   });
   return [...deduped.values()].sort((a, b) => a.time - b.time);
 };
 
-// Two views of the same prices, both in CT wall time. Intraday keeps the hourly bars (older daily
-// bars move to their session's 16:00 CT close); daily keeps the latest print of every session.
+// The payload is daily bars, then about a month of hourly bars, then stored live quotes
+// (backend get_historical_data). Daily bars are the leading run of bars spaced a day apart. The
+// last one can share its session with the first hourly bars (the hourly window opens mid-session),
+// so a bar at 23:00 CT, where Yahoo stamps daily bars, still counts when an hourly bar follows it.
+const findDailyBars = (points) => {
+  const bars = points.filter((point) => point.isBar);
+  const daily = new Set();
+  for (let index = 0; index < bars.length; index += 1) {
+    const { time } = bars[index];
+    const clearBefore = index === 0 || time - bars[index - 1].time >= DAILY_BAR_MIN_GAP_SEC;
+    const clearAfter = index === bars.length - 1 || bars[index + 1].time - time >= DAILY_BAR_MIN_GAP_SEC;
+    const dailyStamp = toWall(time) % DAY === DAILY_BAR_WALL_SEC;
+    if (!clearBefore || !(clearAfter || dailyStamp)) break; // the hourly bars have started
+    daily.add(time);
+  }
+  return daily;
+};
+
+// Two views of the same prices, both in CT wall time, built per CME session. Intraday plots the
+// hourly bars and live quotes; a daily bar stands in, at its 16:00 CT close, only for a session
+// without them. Daily keeps the latest print of every session. A session's volume is its daily
+// bar's or latest live quote's running total, or the sum of its hourly bars, whichever is larger:
+// running totals already include the hours, so they are never added to them.
 const buildPriceViews = (points) => {
-  const intraday = new Map();
-  const daily = new Map();
-  points.forEach((point, index) => {
+  const dailyBars = findDailyBars(points);
+  const sessions = new Map();
+  points.forEach((point) => {
     const wall = toWall(point.time);
     const close = sessionClose(sessionDay(wall));
-    const previous = points[index - 1];
-    const next = points[index + 1];
-    const isDailyBar = (!previous || point.time - previous.time >= DAILY_BAR_MIN_GAP_SEC)
-      && (!next || next.time - point.time >= DAILY_BAR_MIN_GAP_SEC);
-    const intradayTime = isDailyBar ? close : wall;
-    intraday.set(intradayTime, { ...point, time: intradayTime });
-    const bar = daily.get(close);
-    daily.set(close, { ...point, time: close, volume: (bar?.volume || 0) + point.volume });
+    if (!sessions.has(close)) sessions.set(close, []);
+    sessions.get(close).push({ ...point, wall, isDaily: dailyBars.has(point.time) });
   });
-  const sorted = (map) => [...map.values()].sort((a, b) => a.time - b.time);
-  return { intraday: sorted(intraday), daily: sorted(daily) };
+
+  const intraday = new Map();
+  const daily = [];
+  sessions.forEach((sessionPoints, close) => {
+    const hasIntraday = sessionPoints.some((point) => !point.isDaily);
+    let hourlyVolume = 0;
+    let runningVolume = 0;
+    sessionPoints.forEach(({ value, volume, wall, isDaily, isBar }) => {
+      if (isBar && !isDaily) hourlyVolume += volume;
+      else runningVolume = Math.max(runningVolume, volume);
+      if (!isDaily) intraday.set(wall, { time: wall, value, volume });
+      else if (!hasIntraday) intraday.set(close, { time: close, value, volume });
+    });
+    const latest = sessionPoints[sessionPoints.length - 1];
+    daily.push({ time: close, value: latest.value, volume: Math.max(hourlyVolume, runningVolume) });
+  });
+  return {
+    intraday: [...intraday.values()].sort((a, b) => a.time - b.time),
+    daily: daily.sort((a, b) => a.time - b.time),
+  };
 };
 
 // Past 1W outputs whose target date has already passed (the current output is the projection).
