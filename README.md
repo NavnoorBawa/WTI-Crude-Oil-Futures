@@ -310,7 +310,8 @@ retracted, it stands as **engineering, not a trade recommendation** — the sizi
 but it has no real edge to size. Kept because the plumbing is the reusable part:
 
 - **Stance** — LONG / SHORT lean only when model conviction exceeds ±0.6%, NEUTRAL otherwise.
-  With the corrected (non-significant) backtest the dashboard shows NEUTRAL and no tear sheet.
+  With the corrected (non-significant) backtest the desk reads **RETRACTED**: no stance, no
+  sizing, raw model output hidden.
 - **Kelly sizing** — full- and half-Kelly fractions derived from win rate and profit factor, plus
   a contracts-per-account translation at 2% risk. Correct given inputs; the inputs are no longer
   a real edge.
