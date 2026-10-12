@@ -487,7 +487,9 @@ The dashboard runs with **zero running infrastructure** using the "frozen Flask"
 4. **`.github/workflows/price.yml`** updates `live-data/price.json` without redeploying Pages. The
    client reads that CORS-enabled raw file and the price baked into the last snapshot. It shows
    whichever quote is newer by its exchange timestamp, never letting an older quote override a
-   newer snapshot. The four-hour workflow also restores and commits generated state under
+   newer snapshot, and only when the quote is for the snapshot's contract (`price.json` names it).
+   On the first session after a roll, when Yahoo's previous close belongs to the expired contract,
+   no daily change is published. The four-hour workflow also restores and commits generated state under
    `live-data/runtime-state/`, keeping mutable automation off `main`.
 
 **Freshness, stated honestly.** GitHub runs scheduled workflows on a best-effort basis and
