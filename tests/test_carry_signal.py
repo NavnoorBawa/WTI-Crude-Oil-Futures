@@ -49,15 +49,36 @@ class RollFreeReturnsTest(unittest.TestCase):
     def test_carry_sign(self):
         self.assertTrue((self.cycles["carry"] < 0).all())   # steady contango
 
+    def test_gappy_curve_still_never_holds_across_a_roll(self):
+        # EIA's real history misses business days and repeats prices on some holidays. Expiries
+        # must come from the exchange calendar: counting the curve's own rows put them days early,
+        # so the "same-contract" hold started before the roll and booked a gap.
+        curve = _staircase_curve()
+        drop = []
+        for year in range(2003, 2008):
+            for month in range(1, 13):
+                ltd = cc.last_trade_date(year, month)
+                after = [d for d in curve.index if ltd < d.date() < ltd + timedelta(days=6)]
+                drop += after[1:3]                             # holes between expiry and the 25th
+                if month % 4 == 0:
+                    drop.append(pd.Timestamp(ltd))             # and on the expiry day itself
+        curve = curve.drop(drop)
+        thanksgiving = pd.Timestamp("2005-11-24")              # a repeated "settlement" on a holiday
+        curve.loc[thanksgiving] = curve.loc[:thanksgiving].iloc[-1]
+        cycles = carry.monthly_cycles(curve.sort_index())
+        self.assertGreater(len(cycles), 140)
+        np.testing.assert_allclose(cycles["ret"], 0.0, atol=1e-12)
+
 
 class WalkForwardTest(unittest.TestCase):
     def test_threshold_uses_only_prior_months(self):
         idx = pd.date_range("2000-01-31", periods=8, freq="ME")
-        cycles = pd.DataFrame({"carry": [1, 2, 3, 4, 10, -10, 2.4, 2.6],
+        cycles = pd.DataFrame({"carry": [1, 2, 3, 4, 2.6, 10, -10, 2.4],
                                "ret": 0.0, "ret_unadjusted": 0.0}, index=idx)
         oos = carry.walk_forward(cycles, min_train=4)
-        # medians of prior carry: [1..4]=2.5, [1..10]=3, [..,-10]=2.5, [..,2.4]=2.4
-        self.assertEqual(oos["long"].tolist(), [True, False, False, True])
+        # Medians of PRIOR carry: 2.5, 2.6, 2.8, 2.6. The first month discriminates: a threshold that
+        # included the month itself (median 2.6) would not go long on 2.6.
+        self.assertEqual(oos["long"].tolist(), [True, True, False, False])
 
 
 class CommittedArtifactTest(unittest.TestCase):

@@ -48,6 +48,12 @@ class RealizedMoveTest(unittest.TestCase):
         self.assertEqual(rm["day0_pct"], 0.0)
         self.assertEqual(rm["further_rise_after_day0_pct"], 20.0)
 
+    def test_threshold_applies_to_the_unrounded_move(self):
+        series = {d: (100.0 if k < 10 else 102.995) for k, d in enumerate(self.dates)}
+        rm = realized_move(self.dates, series, "2020-01-11", before=5, window=20, settle=10)
+        self.assertEqual(rm["day0_pct"], 3.0)          # displayed rounded ...
+        self.assertFalse(rm["strong_day0"])            # ... but +2.995% is below the 3% threshold
+
     def test_big_day0_move_does_not_count_as_further_upside(self):
         # A +10% day 0 followed by a flat tape: the old peak-including-day-0 statistic reported a
         # 10% "eventual peak" for this event; the further rise after day 0 is correctly 0.
@@ -58,7 +64,18 @@ class RealizedMoveTest(unittest.TestCase):
         self.assertEqual(rm["further_rise_after_day0_pct"], 0.0)
 
 
+def _committed_rows(api_key=None, use_cache=True):
+    """The committed EIA cache, read directly: no network, and nothing written into the repo."""
+    cached = json.loads(sp._CACHE.read_text(encoding="utf-8"))
+    return [(r[0], float(r[1])) for r in cached["rows"]]
+
+
 class ClassificationTest(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(sp, "fetch_wti_daily", side_effect=_committed_rows)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_threat_only_excludes_gluts_and_demand_events(self):
         payload = sp.get_playbook_for_api()
         threat_n = payload["distributions"]["threat_only"]["n"]
@@ -68,6 +85,18 @@ class ClassificationTest(unittest.TestCase):
         glut_ids = {e["id"] for e in sp.SHOCK_EVENTS if e["type"] in sp.NON_THREAT_TYPES}
         self.assertIn("saudi_russia_price_war_2020", glut_ids)
         self.assertEqual(payload["event_count"], payload["defined_event_count"])
+
+    def test_priced_in_groups_split_on_the_unrounded_day0_move(self):
+        # Soleimani (2020-01-03): 61.17 -> 63.00 is +2.99%, which displays as 3.0 but is below the
+        # 3% threshold. Classifying the rounded value moved it into the 7-event strong group.
+        events = {e["id"]: e for e in sp.build_playbook()}
+        soleimani = next(e for e in events.values() if e["date"] == "2020-01-03")
+        self.assertEqual(soleimani["day0_pct"], 3.0)
+        self.assertFalse(soleimani["strong_day0"])
+        stats = sp.get_playbook_for_api()["priced_in_stats"]
+        strong = [e for e in events.values() if e["strong_day0"]]
+        self.assertEqual(stats["strong_day0_n"], len(strong))
+        self.assertTrue(all(e["day0_pct"] >= 3.0 for e in strong))
 
 
 class CacheSafetyTest(unittest.TestCase):

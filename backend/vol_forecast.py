@@ -26,7 +26,8 @@ Evaluation design (everything below is computed by validate(); no figure is hand
     when the realized-vol proxy is noisy (Patton 2011) — versus naive persistence.
   - Economic value, stated honestly: a volatility-targeting overlay (does the forecast size a long
     WTI position better than trailing vol or buy-and-hold?) and the oil variance risk premium (does
-    OVX exceed subsequent realized vol, and does the forecast time it?). Both are out-of-sample.
+    OVX exceed subsequent realized vol, and does the forecast time it?). Both are out-of-sample and
+    run on same-contract returns (see the data caveat), so they end where EIA's curve ends.
 
 Honest scope: this is a clean implementation of a KNOWN effect, not novel alpha. It is a validated
 volatility/regime INDICATOR, not a directional return signal, and the economic tests below do not
@@ -44,10 +45,12 @@ Leakage controls (identical discipline to backtest_walk_forward.py):
   - The 2020-04-20 negative settlement (an expiry artifact) is dropped before any computation.
 
 Data caveat: CL=F is Yahoo's UNADJUSTED front-month series (it equals EIA's contract-1 price), so
-the monthly roll day carries the contract-1/contract-2 price gap. Measured on 2016-2024 (where EIA's
-curve is available) the median gap is ~0.5% and replacing roll-day returns with roll-adjusted ones
-moves direction accuracy by under 1pp, so the effect is documented rather than patched — EIA stopped
-publishing the curve in April 2024, so it could not be corrected live.
+the monthly roll day carries the contract-1/contract-2 price gap (mean +0.3%, mostly contango). For
+the vol forecast the gap is small noise: rebuilding the 2008-2024 roll days as same-contract returns
+moves direction accuracy by about half a point, so the forecast keeps the live CL=F series (EIA stopped
+publishing the curve in April 2024 and Yahoo keeps no expired contracts, so no live correction exists).
+For a P&L the gap is a bias, not noise (every strategy earns its weight times every gap, ~+0.15 of
+Sharpe for a long book), so the economic tests use same-contract returns and stop at the curve's end.
 
 Usage:
     python -m backend.vol_forecast                 # print validation + write artifact
@@ -61,8 +64,12 @@ import json
 from datetime import datetime, timezone
 
 try:
+    from . import carry_signal_test as eia_curve
+    from .contract_calendar import last_completed_bar_date, last_trade_date
     from .safe_paths import data_json_path
 except ImportError:  # Direct invocation: python backend/vol_forecast.py
+    import carry_signal_test as eia_curve
+    from contract_calendar import last_completed_bar_date, last_trade_date
     from safe_paths import data_json_path
 
 import numpy as np
@@ -85,8 +92,24 @@ COST_PER_TURN = 0.0005     # 5 bps per unit of notional traded
 VRP_STEPS = 4
 
 
-def _load_data(period: str = HISTORY_PERIOD):
-    """Daily WTI log returns (CL=F, non-positive prints dropped) plus aligned OVX implied vol.
+def _completed(series: pd.Series, now: datetime | None = None) -> pd.Series:
+    """Finite, positive daily closes of finished sessions only, on a timezone-naive date index.
+
+    Yahoo's newest daily bar is the session still trading for most of the day (and, from the 18:00 ET
+    reopen to midnight, the next session's prices under today's date). Validation only ever sees
+    completed sessions, so the live forecast must too: a partial day understates realized vol.
+    """
+    s = pd.to_numeric(series, errors="coerce")
+    if getattr(s.index, "tz", None) is not None:
+        s.index = s.index.tz_localize(None)
+    s.index = pd.DatetimeIndex(s.index).normalize()
+    cutoff = pd.Timestamp(last_completed_bar_date(now or datetime.now(timezone.utc)))
+    s = s[(s.index <= cutoff) & np.isfinite(s.to_numpy(dtype=float)) & (s.to_numpy(dtype=float) > 0)]
+    return s[~s.index.duplicated(keep="last")]
+
+
+def _load_data(period: str = HISTORY_PERIOD, now: datetime | None = None):
+    """Daily WTI log returns (CL=F, completed sessions, non-positive prints dropped) plus aligned OVX.
 
     Returns (returns, dates, ovx|None) with a timezone-naive date index. OVX (CBOE Crude Oil
     Volatility Index) is fetched best-effort; the caller falls back to pure HAR when it is missing
@@ -97,17 +120,12 @@ def _load_data(period: str = HISTORY_PERIOD):
     df = yf.Ticker("CL=F").history(period=period, interval="1d")
     if df is None or df.empty or "Close" not in df:
         raise RuntimeError("CL=F history unavailable")
-    close = df["Close"]
-    close = close[close > 0]                # drop the 2020-04-20 negative settlement artifact
+    # Non-positive closes are dropped: the 2020-04-20 negative settlement artifact.
+    close = _completed(df["Close"], now)
     logret = np.log(close).diff().dropna()
-    if getattr(logret.index, "tz", None) is not None:
-        logret.index = logret.index.tz_localize(None)
     ovx = None
     try:
-        o = yf.Ticker("^OVX").history(period=period, interval="1d")["Close"]
-        if getattr(o.index, "tz", None) is not None:
-            o.index = o.index.tz_localize(None)
-        o = o[o > 0]
+        o = _completed(yf.Ticker("^OVX").history(period=period, interval="1d")["Close"], now)
         # OVX at day t is known at t (no leak). Leading days before OVX existed stay NaN.
         aligned = o.reindex(logret.index).ffill(limit=OVX_FFILL_LIMIT).to_numpy(dtype=float)
         ovx = aligned if np.isfinite(aligned).any() else None
@@ -292,18 +310,65 @@ def _overlay_returns(weights: np.ndarray, period_returns: np.ndarray) -> np.ndar
     return w * np.asarray(period_returns, dtype=float) - COST_PER_TURN * turnover
 
 
-def _economic_tests(d: pd.DataFrame, r: np.ndarray, dates: pd.DatetimeIndex) -> dict:
+def same_contract_returns(r: np.ndarray, dates: pd.DatetimeIndex,
+                          curve: pd.DataFrame | None = None) -> tuple[np.ndarray, int, int]:
+    """CL=F log returns with every roll day rebuilt as a same-contract return, where EIA allows.
+
+    CL=F is unadjusted: its first return after each last trade date is new contract today over OLD
+    contract at the expiry close, so it books the contract-1/contract-2 gap (mostly contango, so
+    mostly positive) as if it were a market move. A position rolled at that close earns the same
+    return minus the gap, log(contract 2 / contract 1) at the expiry close, which EIA's curve gives.
+    EIA stopped publishing in April 2024 and Yahoo keeps no expired contracts, so only roll days up
+    to the curve's end can be rebuilt.
+
+    Returns (returns, n_roll_days_rebuilt, end): every return at a position <= end is roll-free.
+    """
+    curve = eia_curve.clean_curve(eia_curve.load_curve() if curve is None else curve)
+    days, gap = curve.index, np.log(curve["c2"] / curve["c1"]).to_numpy()
+    out = np.asarray(r, dtype=float).copy()
+    end = int(np.searchsorted(dates, days[-1], side="right")) - 1
+    rebuilt = 0
+    y, m = dates[0].year, dates[0].month
+    while (y, m) <= (days[-1].year + 1, days[-1].month):
+        expiry = pd.Timestamp(last_trade_date(y, m))
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+        i = int(np.searchsorted(dates, expiry, side="right"))      # CL=F's first row after expiry
+        if not 0 < i <= end:
+            continue
+        # EIA misses a few expiry days before 2007; the calendar spread a day earlier stands in.
+        k = int(np.searchsorted(days, expiry, side="right")) - 1
+        if k < 0 or (expiry - days[k]).days > 7:
+            raise RuntimeError(f"EIA has no settlement near the {expiry.date()} expiry")
+        out[i] -= gap[k]
+        rebuilt += 1
+    return out, rebuilt, end
+
+
+def _economic_tests(d: pd.DataFrame, r: np.ndarray, dates: pd.DatetimeIndex,
+                    curve: pd.DataFrame | None = None) -> dict:
     """Out-of-sample economic value: a vol-targeting overlay and the variance risk premium.
 
     Both use only the walk-forward forecasts (made with data up to each decision date) and the
     realized path AFTER it, so they carry the same leak-free guarantee as the accuracy figures.
+    Unlike direction accuracy, a P&L is biased by roll gaps (every strategy earns its weight times
+    each gap), so both tests run on same-contract returns and stop where EIA's curve stops.
     """
     out: dict = {}
+    try:
+        r, rebuilt, last = same_contract_returns(r, dates, curve)
+    except Exception:  # noqa: BLE001 - no roll-free returns, no P&L figures (never biased ones)
+        return out
     pos = dates.get_indexer(pd.DatetimeIndex(d["date"]))
-    ok = (pos >= 0) & (pos + H < len(r))
+    ok = (pos >= 0) & (pos + H <= last)
     dd, pos = d.loc[ok].reset_index(drop=True), pos[ok]
     if len(dd) < 20:
         return out
+    out["returns"] = {
+        "series": "CL=F with roll days rebuilt as same-contract returns (EIA contract 1 and 2)",
+        "roll_days_rebuilt": int(rebuilt),
+        "sample_start": str(dd["date"].iloc[0].date()),
+        "sample_end": str(dates[last].date()),
+    }
     ppy = 252.0 / STEP
     week = np.array([np.expm1(r[p + 1 : p + 1 + H].sum()) for p in pos])   # next-week simple return
     buy_hold = _overlay_returns(np.ones(len(week)), week)
@@ -317,8 +382,9 @@ def _economic_tests(d: pd.DataFrame, r: np.ndarray, dates: pd.DatetimeIndex) -> 
         "target_vol_pct": _pct(TARGET_VOL),
         "leverage_cap": LEVERAGE_CAP,
         "cost_bps_per_turn": round(COST_PER_TURN * 1e4, 1),
-        "method": ("Weekly rebalanced long WTI (CL=F); position = min(cap, target vol / forecast vol). "
-                   "Trailing-vol sizing uses 22-day realized vol; costs on every unit of turnover."),
+        "method": ("Weekly rebalanced long front-month WTI, rolled at each expiry (same-contract returns); "
+                   "position = min(cap, target vol / forecast vol). Trailing-vol sizing uses 22-day "
+                   "realized vol; costs on every unit of turnover."),
     }
 
     has_ovx = bool(np.isfinite(dd["ovx"]).all())
@@ -327,7 +393,7 @@ def _economic_tests(d: pd.DataFrame, r: np.ndarray, dates: pd.DatetimeIndex) -> 
         # against the realized vol that followed. Variance-swap P&L per unit of vega notional is
         # (implied^2 - realized^2) / (2 * implied): what a short-variance position would have earned.
         idx = np.arange(0, len(dd), VRP_STEPS)
-        idx = idx[pos[idx] + VRP_STEPS * STEP < len(r)]
+        idx = idx[pos[idx] + VRP_STEPS * STEP <= last]
         if len(idx) >= 24:
             implied = dd["ovx"].to_numpy()[idx]
             realized = np.array([_rvol(r[pos[i] + 1 : pos[i] + 1 + VRP_STEPS * STEP]) for i in idx])
@@ -341,15 +407,25 @@ def _economic_tests(d: pd.DataFrame, r: np.ndarray, dates: pd.DatetimeIndex) -> 
             rich_pnl, cheap_pnl = short_var[scored & rich], short_var[scored & ~rich]
             timing_p = (float(ttest_ind(rich_pnl, cheap_pnl, equal_var=False, alternative="greater").pvalue)
                         if len(rich_pnl) > 2 and len(cheap_pnl) > 2 else None)
+            starts = pd.DatetimeIndex(dd["date"].to_numpy()[idx])
+            worst = np.argsort(premium_pts)[:3]
+            worst_year = int(starts[worst[0]].year)
+            outside = starts.year != worst_year
+            per_year = 252.0 / (VRP_STEPS * STEP)
             out["variance_risk_premium"] = {
                 "n_periods": int(len(idx)),
                 "mean_premium_vol_pts": round(float(np.mean(premium_pts)), 1),
                 "share_positive_pct": _pct(np.mean(premium_pts > 0)),
                 # Linear (vol-swap) vs convex (variance-swap) short-vol proxies: the gap between the
-                # two Sharpe ratios IS the left tail — convexity is what 2008/2014/2020 cost a seller.
-                "short_vol_swap_sharpe": _sharpe(premium_pts, 252.0 / (VRP_STEPS * STEP)),
-                "short_variance_sharpe": _sharpe(short_var, 252.0 / (VRP_STEPS * STEP)),
+                # two Sharpe ratios is the left tail. Whether that tail is one episode or a recurring
+                # one is shipped too (worst periods, and the variance Sharpe without the worst year).
+                "short_vol_swap_sharpe": _sharpe(premium_pts, per_year),
+                "short_variance_sharpe": _sharpe(short_var, per_year),
                 "worst_period_vol_pts": round(float(np.min(premium_pts)), 1),
+                "worst_periods": [{"start": str(starts[k].date()), "premium_vol_pts": round(float(premium_pts[k]), 1)}
+                                  for k in worst],
+                "worst_year": worst_year,
+                "short_variance_sharpe_ex_worst_year": _sharpe(short_var[outside], per_year),
                 "timed_rich_mean_pnl": round(float(np.mean(rich_pnl)), 4) if len(rich_pnl) else None,
                 "timed_cheap_mean_pnl": round(float(np.mean(cheap_pnl)), 4) if len(cheap_pnl) else None,
                 "timing_p_value": round(timing_p, 3) if timing_p is not None else None,

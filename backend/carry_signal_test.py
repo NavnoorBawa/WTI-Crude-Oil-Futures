@@ -10,18 +10,19 @@ Correction (2026-09): the first version measured forward returns on Yahoo's CL=F
 series as back-adjusted. It is not: CL=F equals EIA's unadjusted contract-1 price on 97.7% of
 2000-2024 days (median difference 2e-8, same -37.63 print on 2020-04-20). A 21-day forward return
 on it almost always crosses a monthly roll, and the roll gap is ~(C2 - C1)/C1 = -carry. The test
-therefore subtracted the very carry it was trying to detect: measured on the same dates, the
-contamination averages -1.6%/month in backwardation and +1.4% in contango (correlation -0.52 with
-carry). That artifact is what produced the old "data leans the opposite way (contango -> higher
-returns)" observation. The first version also stopped in 2004 only because the EIA API's
+therefore subtracted the very carry it was trying to detect: measured on the same dates (the
+artifact's roll_bias_of_original_method block), the contamination is about the size of the carry
+itself and strongly negatively correlated with it. That artifact is what produced the old "data
+leans the opposite way (contango -> higher returns)" observation. The first version also stopped in 2004 only because the EIA API's
 5000-row page limit silently truncated the history (it sorted descending and never paginated).
 
 Design (leak-free, no roll gap can enter a return):
   - DATA: EIA's NYMEX WTI futures prices, contract 1 and 2 (RCLC1/RCLC2), 1985-2024. EIA stopped
     publishing the series on 2024-04-05, so the history is frozen and is committed to
     data/eia_wti_futures_curve.json; `--refresh` re-downloads it from EIA's public, keyless files.
-  - CONTRACT CYCLE: last trade dates follow the CME rule (backend/contract_calendar.py) evaluated on
-    the data's own trading-day calendar, so historical holidays and closures are handled exactly.
+  - CONTRACT CYCLE: last trade dates follow the CME rule on the exchange calendar
+    (backend/contract_calendar.py). EIA's rows cannot serve as that calendar: they miss ~400
+    business days and repeat prices on some holidays, which misplaced 70 expiries.
   - SIGNAL: carry = (C1 - C2) / C2 on the first trading day after each expiry (>0 = backwardation).
   - RETURN: hold the second-nearby contract from the next trading day until one day before the next
     expiry. It is one contract throughout (a one-day margin on each side absorbs any roll-date
@@ -46,12 +47,12 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from scipy.stats import binom, ttest_ind
+from scipy.stats import binom, spearmanr, ttest_ind
 
 try:
-    from .contract_calendar import last_trade_date
+    from .contract_calendar import is_business_day, last_trade_date
 except ImportError:  # Direct invocation: python backend/carry_signal_test.py
-    from contract_calendar import last_trade_date
+    from contract_calendar import is_business_day, last_trade_date
 
 ROOT = Path(__file__).resolve().parent.parent
 CURVE_PATH = ROOT / "data" / "eia_wti_futures_curve.json"
@@ -109,6 +110,37 @@ def load_curve(path: Path = CURVE_PATH) -> pd.DataFrame:
     return df.astype(float)
 
 
+def clean_curve(curve: pd.DataFrame) -> pd.DataFrame:
+    """Real settlements only, date-sorted.
+
+    Drops non-positive prints (the 2020-04-20 -37.63 expiry) and rows EIA carries on exchange
+    holidays (2018-2019 repeat the previous settlement on e.g. Thanksgiving and Christmas).
+    """
+    curve = curve[(curve["c1"] > 0) & (curve["c2"] > 0)].sort_index()
+    return curve[[is_business_day(d) for d in curve.index.date]]
+
+
+def expiry_positions(curve: pd.DataFrame) -> list[int]:
+    """Row positions in a cleaned curve of each contract-1 last trade date (the day before a roll).
+
+    Last trade dates come from the exchange calendar, not from the curve's own rows: EIA's history
+    misses ~400 business days (mostly before 2007), and counting back over those holes put the
+    expiry up to ten days early in 70 months, so a "same-contract" hold could span a roll. When EIA
+    lacks the expiry day itself, the last row before it stands in (the new contract is front from
+    the next row either way).
+    """
+    days = curve.index
+    first, last = days[0].date(), days[-1].date()
+    expiries = []
+    y, m = first.year, first.month
+    while (y, m) <= (last.year + 1, last.month):
+        ltd = last_trade_date(y, m)
+        if first < ltd < last:
+            expiries.append(int(np.searchsorted(days, pd.Timestamp(ltd), side="right")) - 1)
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return sorted(set(expiries))
+
+
 def monthly_cycles(curve: pd.DataFrame) -> pd.DataFrame:
     """One row per contract cycle: carry signal and the same-contract holding return that follows.
 
@@ -116,26 +148,9 @@ def monthly_cycles(curve: pd.DataFrame) -> pd.DataFrame:
     ret_unadjusted (the original method: unadjusted contract-1 return over 21 trading days, kept
     only to measure the roll bias it introduced).
     """
-    curve = curve[(curve["c1"] > 0) & (curve["c2"] > 0)].sort_index()
+    curve = clean_curve(curve)
     days = curve.index
-    trading = set(days.date)
-
-    def is_trading(d: date) -> bool:
-        return d in trading
-
-    first, last = days[0].date(), days[-1].date()
-    expiries = []
-    y, m = first.year, first.month
-    while (y, m) <= (last.year + 1, last.month):
-        # Only contracts whose whole count-back window lies inside the data: the observed calendar
-        # knows nothing about days before the first or after the last settlement.
-        prior_25th = date(y - 1, 12, 25) if m == 1 else date(y, m - 1, 25)
-        if first + pd.Timedelta(days=14) <= prior_25th <= last:
-            ltd = last_trade_date(y, m, is_trading)
-            if ltd in trading:
-                expiries.append(days.get_loc(pd.Timestamp(ltd)))
-        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
-    expiries = sorted(set(expiries))
+    expiries = expiry_positions(curve)
 
     c1, c2 = curve["c1"].to_numpy(), curve["c2"].to_numpy()
     rows = []
@@ -170,13 +185,20 @@ def _sharpe_monthly(r: np.ndarray) -> float:
     return round(float(np.mean(r)) / sd * np.sqrt(12.0), 2) + 0.0 if sd > 0 else 0.0
 
 
-def _hc1_slope_t(x: np.ndarray, y: np.ndarray) -> float:
-    """t-statistic of the OLS slope of y on x with heteroskedasticity-robust (HC1) errors."""
+def _hc3_slope_t(x: np.ndarray, y: np.ndarray) -> float:
+    """t-statistic of the OLS slope of y on x with HC3 heteroskedasticity-robust errors.
+
+    HC3 scales each squared residual by 1 / (1 - leverage)^2. HC1 is badly anti-conservative at
+    high-leverage points, and carry has them: April 2020 (carry -33%, return +48%) alone gave the
+    post-2007 slope an HC1 t of -4.0 against -1.4 under HC3 (Long & Ervin 2000).
+    """
     X = np.column_stack([np.ones(len(x)), x])
     beta, *_ = np.linalg.lstsq(X, y, rcond=None)
     resid = y - X @ beta
     xtx_inv = np.linalg.inv(X.T @ X)
-    cov = xtx_inv @ (X.T * resid ** 2) @ X @ xtx_inv * len(y) / (len(y) - 2)
+    leverage = np.einsum("ij,jk,ik->i", X, xtx_inv, X)
+    meat = (X.T * (resid / (1.0 - leverage)) ** 2) @ X
+    cov = xtx_inv @ meat @ xtx_inv
     return float(beta[1] / np.sqrt(cov[1, 1]))
 
 
@@ -190,6 +212,7 @@ def evaluate(oos: pd.DataFrame, ret_col: str = "ret") -> dict:
     base = float(max(up.mean(), 1.0 - up.mean()))
     backwardated, contango = ret[long], ret[~long]
     spread_p = float(ttest_ind(backwardated, contango, equal_var=False, alternative="greater").pvalue)
+    rank = spearmanr(oos["carry"].to_numpy(), ret)
     return {
         "n_months": n,
         "span": f"{oos.index.min().date()}..{oos.index.max().date()}",
@@ -200,7 +223,10 @@ def evaluate(oos: pd.DataFrame, ret_col: str = "ret") -> dict:
         "mean_ret_contango_pct": round(float(np.mean(contango)) * 100.0, 2),
         "n_backwardated": int(long.sum()),
         "spread_p_value_one_sided": round(spread_p, 4),
-        "carry_slope_t_hc1": round(_hc1_slope_t(oos["carry"].to_numpy(), ret), 2),
+        "carry_slope_t_hc3": round(_hc3_slope_t(oos["carry"].to_numpy(), ret), 2),
+        # Rank correlation: the slope is dominated by a handful of extreme months, the ranks are not.
+        "carry_rank_corr": round(float(rank.statistic), 3) + 0.0,
+        "carry_rank_corr_p_value": round(float(rank.pvalue), 4),
         "carry_timed_sharpe": _sharpe_monthly(np.where(long, ret, 0.0)),
         "buy_hold_sharpe": _sharpe_monthly(ret),
     }
@@ -219,12 +245,15 @@ def run(curve: pd.DataFrame | None = None) -> dict:
 
     significant_full = full["spread_p_value_one_sided"] < 0.05
     post_eval = evaluate(post)
+    faded = post_eval["spread_p_value_one_sided"] >= 0.10
     verdict = (
         "Carry sorts returns the textbook way (backwardated months beat contango months) "
         + ("significantly over the full sample, " if significant_full else "but not significantly, ")
-        + ("yet the effect is absent after 2007" if post_eval["spread_p_value_one_sided"] >= 0.10
+        + ("yet the effect is not distinguishable from zero after 2007" if faded
            else "and it persists after 2007")
-        + "; as a sign predictor it does not beat always-long. No reliable modern-era edge."
+        + ("; over the full sample, as a sign predictor it does not beat always-long"
+           if full["direction_accuracy_pct"] <= full["base_rate_pct"] else "")
+        + (". No reliable modern-era edge." if faded else ".")
     )
     return {
         "method": ("Second-nearby NYMEX WTI holding return over each contract cycle (roll-free), "

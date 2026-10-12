@@ -6,10 +6,14 @@ These tests use synthetic data only (no yfinance), so they run deterministically
 """
 
 import unittest
+from datetime import date, datetime, timedelta, timezone
+from unittest import mock
 
 import numpy as np
 import pandas as pd
+from scipy.stats import binom
 
+from backend import contract_calendar as cc
 from backend import vol_forecast as vf
 
 
@@ -162,6 +166,76 @@ class ValidateOfflineTest(unittest.TestCase):
             report = vf.validate(data=(r, dates, bad))
             self.assertEqual(report["overall"]["model"], "HAR (RV5,RV22,RV66)")
             self.assertNotIn("har_no_ovx_dir_acc_pct", report["overall"])
+
+
+class WalkForwardPurgeTest(unittest.TestCase):
+    def test_every_fit_stops_h_minus_1_rows_before_the_test_point(self):
+        # Row t's target is the vol of days t+1..t+H, so a fit for test row `end` may only use rows
+        # whose target has matured by `end`: rows < end - (H - 1). Training on more is the leak.
+        r, dates, _ = _synthetic_market(n=700)
+        X, y, tdate = vf._build_matrix(r, dates, None)
+        seen = []
+        real_fit = vf._fit_log_har
+
+        def recording_fit(X_train, y_train):
+            seen.append(len(X_train))
+            return real_fit(X_train, y_train)
+
+        with mock.patch.object(vf, "_fit_log_har", side_effect=recording_fit):
+            vf._walk_forward(X, y, tdate, has_ovx=False)
+        expected = [end - (vf.H - 1) for end in range(vf.MIN_TRAIN, len(X), vf.STEP)]
+        self.assertEqual(seen, expected)
+
+    def test_p_value_is_the_exact_binomial_tail(self):
+        r, dates, _ = _synthetic_market(n=900)
+        X, y, tdate = vf._build_matrix(r, dates, None)
+        d = vf._walk_forward(X, y, tdate, has_ovx=False)
+        o = vf._summarize(d, has_ovx=False)["overall"]
+        k, n = int(d["hit"].sum()), len(d)
+        base = max(d["act_up"].mean(), 1 - d["act_up"].mean())
+        self.assertAlmostEqual(o["har_dir_p_value_vs_base_rate"], float(binom.sf(k - 1, n, base)), places=15)
+
+
+def _staircase(start=date(2009, 1, 2), end=date(2013, 12, 31)):
+    """EIA-style C1/C2 where contract k is priced 50 + 0.5 k for its whole life (steady contango)."""
+    rows, d = [], start
+    while d <= end:
+        if cc.is_business_day(d):
+            y, m = cc.front_contract(d)
+            k = (y - 2009) * 12 + m
+            rows.append((pd.Timestamp(d), 50 + 0.5 * k, 50 + 0.5 * (k + 1)))
+        d += timedelta(days=1)
+    return pd.DataFrame(rows, columns=["date", "c1", "c2"]).set_index("date")
+
+
+class SameContractReturnsTest(unittest.TestCase):
+    def test_roll_gaps_are_removed_through_the_end_of_the_curve(self):
+        # CL=F is contract 1, unadjusted: flat contracts in contango still show a positive return on
+        # every roll day. A position rolled at the expiry close earned exactly nothing.
+        curve = _staircase()
+        dates = pd.DatetimeIndex([d for d in curve.index if d >= pd.Timestamp("2010-01-04")]
+                                 + list(pd.bdate_range("2014-01-02", periods=40)))
+        c1 = np.concatenate([curve["c1"].reindex(dates[dates <= curve.index[-1]]).to_numpy(),
+                             np.full((dates > curve.index[-1]).sum(), 80.0)])
+        r = np.diff(np.log(c1), prepend=np.log(c1[0]))
+        self.assertGreater(int((r[dates <= curve.index[-1]] > 0).sum()), 40)   # ~one gap per month
+        adj, rebuilt, end = vf.same_contract_returns(r, dates, curve)
+        self.assertEqual(dates[end], curve.index[-1])
+        np.testing.assert_allclose(adj[: end + 1], 0.0, atol=1e-12)
+        np.testing.assert_array_equal(adj[end + 1:], r[end + 1:])   # beyond EIA: untouched
+        self.assertGreaterEqual(rebuilt, 47)
+
+
+class CompletedSessionsTest(unittest.TestCase):
+    def test_the_bar_of_a_session_still_trading_is_dropped(self):
+        idx = pd.DatetimeIndex(["2026-10-08", "2026-10-09", "2026-10-12", "2026-10-13"]).tz_localize("America/New_York")
+        close = pd.Series([90.0, 91.0, float("nan"), 92.5], index=idx)
+        tue_10am = datetime(2026, 10, 13, 14, 0, tzinfo=timezone.utc)
+        tue_1730 = datetime(2026, 10, 13, 21, 30, tzinfo=timezone.utc)
+        self.assertEqual([str(d.date()) for d in vf._completed(close, tue_10am).index],
+                         ["2026-10-08", "2026-10-09"])                 # Monday NaN, Tuesday live
+        self.assertEqual([str(d.date()) for d in vf._completed(close, tue_1730).index],
+                         ["2026-10-08", "2026-10-09", "2026-10-13"])   # Tuesday has settled
 
 
 class RobustStatisticsTest(unittest.TestCase):

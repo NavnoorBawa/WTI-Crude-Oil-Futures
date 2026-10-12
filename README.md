@@ -9,7 +9,7 @@ A machine-learning research project on WTI crude, with a clear arc. The original
 edge was look-ahead leakage**, and once corrected the signal is a coin flip. Rather than chase a
 direction edge that theory says should not exist on a liquid contract, the project pivots to what
 genuinely is forecastable: **volatility**. A leak-free HAR-IV model (realized vol plus OVX implied
-vol) calls next-week vol direction at **about 72%** versus a 52% base rate over **924 out-of-sample
+vol) calls next-week vol direction at **about 72%** versus a 52% base rate over **926 out-of-sample
 weeks, 2008–2026** (i.i.d. z ≈ 12, autocorrelation-robust z ≈ 16), above the base rate in **every
 one of 19 years**, and significantly better than both a mean-reversion rule and the same model
 without implied vol. So the project carries one honest negative result (direction is
@@ -67,10 +67,16 @@ preserved for the before/after). The fix is in
 Not a tradeable edge. What it shows is the research discipline a desk cares about: a full
 walk-forward and leakage-testing framework, and the judgment to audit it, find a fatal
 look-ahead leak in its own headline, quantify the damage honestly, and retract the result rather
-than ship it. The same discipline, applied again, caught two more errors of its own, both
-corrected in place with the old and new numbers side by side below:
-- the carry test measured returns on a series whose roll gaps subtract the carry itself;
-- the event study's "priced-in" check counted day 0 inside its own "eventual peak". The supporting analyses that were built on the leaked signal (the random-strategy
+than ship it. The same discipline, applied again, caught more errors of its own, each corrected
+in place with the old and new numbers side by side below:
+- the carry test measured returns on a series whose roll gaps subtract the carry itself, and its
+  first rebuild dated contract expiries from a data calendar with holes in it;
+- the vol-targeting overlay booked every monthly roll gap as a return, which inflated all three
+  Sharpe ratios it compares;
+- the event study's "priced-in" check counted day 0 inside its own "eventual peak", and later split
+  events on a rounded threshold.
+
+The supporting analyses that were built on the leaked signal (the random-strategy
 skill decomposition, conviction calibration, measured effective sample size, the ex-2026 anchor,
 and the macro/timing leakage A/Bs) all measured properties of leaked predictions and are retained
 below only as a record of the original, now-invalidated claim.
@@ -84,21 +90,21 @@ out-of-sample skill. Using the *same* purged walk-forward that exposed the direc
 **HAR-IV** model ([`backend/vol_forecast.py`](backend/vol_forecast.py); Corsi 2009 with an implied-vol
 term) forecasts next-week (5-day) realized volatility from realized vol over 5/22/66 days **plus
 OVX, the free CBOE oil implied-vol index**. The sample is fixed: every week since OVX began (May
-2007), so the headline only moves as new weeks accrue — 924 OOS weeks, May 2008 to September 2026:
+2007), so the headline only moves as new weeks accrue — 926 OOS weeks, May 2008 to September 2026:
 
 | Metric | HAR-IV model | Same model without OVX | Mean-reversion rule | Persistence |
 |---|---|---|---|---|
-| Vol-direction accuracy (rise/fall vs current) | **72.1%** | 68.8% | 66.3% | — (majority class 51.8%) |
-| Level forecast R² | **0.457** | 0.369 | — | 0.193 |
+| Vol-direction accuracy (rise/fall vs current) | **72.1%** | 68.9% | 66.4% | — (majority class 51.8%) |
+| Level forecast R² | **0.457** | 0.369 | — | 0.192 |
 | Level forecast MAE (annualized vol) | **0.105** | — | — | 0.140 |
-| QLIKE loss (lower is better) | **0.417** | 0.516 | — | 0.880 |
+| QLIKE loss (lower is better) | **0.416** | 0.515 | — | 0.879 |
 
 How strong is it, tested properly:
 
-- **Against the base rate:** exact binomial p ≈ 3e-36; z ≈ 12.3 assuming independent weeks and
-  z ≈ 15.7 with a Newey-West (HAC) standard error. Consecutive weekly labels share a week of
+- **Against the base rate:** exact binomial p ≈ 1e-36; z ≈ 12.4 assuming independent weeks and
+  z ≈ 15.8 with a Newey-West (HAC) standard error. Consecutive weekly labels share a week of
   returns, so the independence assumption is violated; the dashboard quotes the smaller z.
-- **Against the smart baseline:** "vol reverts to its 66-day average" already gets 66.3%. The model
+- **Against the smart baseline:** "vol reverts to its 66-day average" already gets 66.4%. The model
   beats it by about 6 points, and a *paired* Diebold-Mariano test on the weekly hit series gives
   z ≈ 3.9 (HAC). It wins in 15 of 19 years and loses in 2008, 2013, 2018 and 2025, which is
   reported rather than hidden.
@@ -110,16 +116,16 @@ How strong is it, tested properly:
   statistic for the rise/fall call, and it makes the level slightly conservative.
 
 Implied vol is the one free-data feature that earned its keep. The nested comparison runs on the
-same rows. Without OVX the model scores 68.8% on direction, R² 0.369 and QLIKE 0.516; with it,
-72.1%, 0.457 and 0.417. The direction gain is significant (paired HAC z ≈ 2.7). This is a leak-free
+same rows. Without OVX the model scores 68.9% on direction, R² 0.369 and QLIKE 0.515; with it,
+72.1%, 0.457 and 0.416. The direction gain is significant (paired HAC z ≈ 2.7). This is a leak-free
 gain, because OVX at day *t* is known at *t*. The model falls back to pure HAR if OVX is unavailable
 or too short to validate.
 
 Discipline, shown both ways: a candidate feature has to beat the deployed model out of sample, or
 it stays out. The standard HAR *leverage* term (downside realized semivolatility, so down weeks
 predict higher vol) is re-tested on every validation run as a nested variant on the same rows. It
-nudges direction to 72.7%, but the gain is not significant (paired HAC z ≈ 1.4), and it does not
-improve R² (0.456) or QLIKE (0.419). So it is **left out**. Adding complexity that does not earn its
+nudges direction to 72.8%, but the gain is not significant (paired HAC z ≈ 1.4), and it does not
+improve R² (0.456) or QLIKE (0.418). So it is **left out**. Adding complexity that does not earn its
 keep is how vol models overfit. Net: the model is HAR-IV (three realized-vol terms plus OVX),
 nothing more.
 
@@ -130,21 +136,25 @@ direction/regime call and the level ranking; level calibration is the part still
 
 **Does it convert to P&L? Tested, and honestly: no.** A volatility-targeting overlay scales a long
 WTI position by 35% target vol divided by the forecast, capped at 2x, rebalanced weekly, with
-5 bps/turn costs, 2008–2026. It did **not** beat buy-and-hold on a risk-adjusted basis:
+5 bps/turn costs, May 2008 to April 2024 (800 weeks). Its returns are **same-contract** returns: a
+position rolled at each expiry close, with every roll day rebuilt from EIA's contract-1 and
+contract-2 settlements. Yahoo's `CL=F` would book each month's roll gap as a market move. The
+curve is mostly in contango, so on the same weeks those gaps add 0.13 to 0.16 of Sharpe to every
+strategy (buy-and-hold 0.16 instead of 0.00), which is what the earlier version of this table
+reported. The window ends where EIA's curve ends. The overlay did **not** beat buy-and-hold on a risk-adjusted basis:
 
 | Strategy | Sharpe |
 |---|---|
-| Buy-and-hold | 0.18 |
-| Trailing 22-day vol target | 0.04 |
-| HAR-IV forecast vol target | 0.07 |
+| Buy-and-hold front month | 0.00 |
+| Trailing 22-day vol target | −0.11 |
+| HAR-IV forecast vol target | −0.07 |
 
-The forecast barely improves on trivial trailing-vol sizing. This matches the skeptical literature
-on vol-managed portfolios (the benefit is fragile out of sample) and the fact that WTI's own return
-premium is weak. So the forecast's honest standing is: a **validated, statistically significant
-volatility/regime indicator** (useful for risk monitoring and as an options-vol input), **not** a
-demonstrated source of trading profit. Reporting this negative result rather than tuning the
-overlay until it looks good is the whole point. The overlay returns come from Yahoo's unadjusted
-front-month series, whose monthly roll gaps are the same for all three strategies.
+The forecast does better than trivial trailing-vol sizing, but neither sizing beats simply holding,
+and holding itself earned nothing over this window. This matches the skeptical literature on
+vol-managed portfolios (the benefit is fragile out of sample). So the forecast's honest standing is
+a **validated, statistically significant volatility/regime indicator** (useful for risk monitoring
+and as an options-vol input), **not** a demonstrated source of trading profit. Reporting this
+negative result rather than tuning the overlay until it looks good is the whole point.
 
 ```bash
 python -m backend.vol_forecast      # reproduces every number in this section and writes the artifact
@@ -237,39 +247,47 @@ python -m backend.backtest_walk_forward --period 10y --step 5 --features no_macr
   worth recording. It measured forward returns on Yahoo's `CL=F` and described that series as
   back-adjusted. It is not: it equals EIA's unadjusted contract-1 price on 97.7% of days, including
   the −$37.63 print. A one-month forward return on it almost always crosses a roll, and the roll gap
-  is roughly *minus the carry*. So the test subtracted the effect it was looking for: about −1.5% a
-  month in backwardation and +1.4% in contango, correlation −0.55 with carry. That artifact produced
+  is roughly *minus the carry*. So the test subtracted the effect it was looking for: about −1.4% a
+  month in backwardation and +1.5% in contango, correlation −0.55 with carry. That artifact produced
   the old "data leans the opposite way" finding. Its 2004 start was also accidental: an
   unpaginated EIA API call hit a 5,000-row limit.
 
   The rebuild holds the second-nearby contract over each contract cycle, so every return is one
   contract's price change with no roll gap. It runs on EIA's full futures curve, 1985–2024 (EIA
-  stopped publishing the series in April 2024, so the committed copy is final). The rule is
-  unchanged and fixed in advance: long when carry is above the median of all prior months, else
-  flat, over non-overlapping months. Results:
+  stopped publishing the series in April 2024, so the committed copy is final). Expiries come from
+  the CME rule on the exchange calendar. An earlier version of the rebuild counted EIA's own rows
+  as the calendar, but that history misses about 400 business days and repeats prices on some
+  holidays: it misplaced 70 expiries, and in 5 months the "one-contract" hold crossed a roll. The
+  rule is unchanged and fixed in advance: long when carry is above the median of all prior months,
+  else flat, over non-overlapping months. Results:
 
   | Sample (OOS months) | Backwardated months | Contango months | One-sided p | Timed Sharpe vs buy-and-hold |
   |---|---|---|---|---|
-  | 1990–2024 (409) | +1.84%/mo | +0.18%/mo | 0.035 | 0.48 vs 0.29 |
-  | 1990–2006 (203) | +2.85%/mo | +0.12%/mo | 0.010 | 0.76 vs 0.50 |
-  | 2007–2024 (206) | +0.74%/mo | +0.23%/mo | 0.36 | 0.19 vs 0.14 |
+  | 1990–2024 (409) | +1.98%/mo | +0.04%/mo | 0.018 | 0.50 vs 0.28 |
+  | 1990–2006 (203) | +2.92%/mo | +0.00%/mo | 0.007 | 0.76 vs 0.48 |
+  | 2007–2024 (206) | +0.91%/mo | +0.07%/mo | 0.27 | 0.22 vs 0.12 |
 
   Correctly measured, carry sorts returns the textbook way. But the effect is concentrated before
-  2007 and is not distinguishable from zero since. As a sign predictor it never beats always-long
-  (52.6% direction accuracy vs a 55.5% base rate). So the conclusion survives, for the right
-  reason: no reliable modern-era directional edge.
+  2007 and is not distinguishable from zero since. The rank correlation between carry and the next
+  cycle's return is 0.20 before 2007 (p = 0.004) and −0.03 after (p = 0.67). As a sign predictor it
+  beat always-long only before 2007 (60.1% vs a 54.7% base rate, p = 0.07); over the full sample
+  (53.3% vs 54.8%) and since 2007 (46.6% vs 54.9%) it does not. A regression slope is not quoted:
+  one month, April 2020 (carry −33%, return +48%), dominates it. So the conclusion survives, for the
+  right reason: no reliable modern-era directional edge.
   [`backend/carry_signal_test.py`](backend/carry_signal_test.py) ·
   [`data/carry_signal_test.json`](data/carry_signal_test.json) ·
   [`data/eia_wti_futures_curve.json`](data/eia_wti_futures_curve.json).
 
 - **Variance risk premium: real, but not a clean edge here.** Oil's implied vol (OVX, free) has
-  exceeded the realized vol of the following month by **2.4 vol points on average**, in **71%** of
-  non-overlapping periods (2008–2026). The VRP is genuinely there. Harvesting it is another matter:
-  - A linear short-vol (vol-swap) proxy has a Sharpe of 0.49.
+  exceeded the realized vol of the following month by **2.5 vol points on average**, in **72.5%**
+  of 200 non-overlapping periods (May 2008 to April 2024, realized vol on same-contract returns).
+  The VRP is genuinely there. Harvesting it is another matter:
+  - A linear short-vol (vol-swap) proxy has a Sharpe of 0.52.
   - The convex variance-swap version, which is what an options seller actually holds, has a Sharpe
-    of about **0.0**. The gap is the left tail: the worst month was −173 vol points in 2020, and
-    2008 and 2014 were similar.
-  - Timing the sale with the model's own forecast did not help (rich-vs-cheap one-sided p = 0.32).
+    of about **0.0**. The gap is a single episode, not a recurring tail: the three worst periods
+    all start in February to April 2020 (the worst, −158 vol points, spans the negative-price
+    expiry), and without 2020 the variance-swap Sharpe is 0.80.
+  - Timing the sale with the model's own forecast did not help (rich-vs-cheap one-sided p = 0.33).
   - Doing this cleanly needs oil options data that is not freely available with long history.
 
   Reported as a real market fact, not a strategy; the numbers are computed in
@@ -325,15 +343,17 @@ during an event: **"how have structurally similar shocks actually resolved?"**
   computed from EIA's official daily WTI Cushing spot series (RWTC)**, not transcribed by hand.
   ([`backend/supply_shock_playbook.py`](backend/supply_shock_playbook.py))
 - **The finding the dashboard leads with:** events with real barrels lost (>0.5 mbpd, n=21) peak
-  at a median +12.1% and still hold +4.3% ten sessions later. Pure supply *threats* with no
-  physical loss (n=10) peak at +4.0% and settle near flat (+0.5%): the market pays for
-  disruption more than headlines. Bearish supply gluts (price wars, OPEC refusing to cut) and demand
+  at a median +12.1% and still hold +4.3% ten sessions later, about a third of the peak. Pure supply
+  *threats* with no physical loss (n=10) peak at +4.0% and settle near flat (+0.5%, an eighth of
+  the peak): both give back most of the spike, but the market pays more, and keeps more, for real
+  disruption than for headlines. Bearish supply gluts (price wars, OPEC refusing to cut) and demand
   events also carry zero barrels lost, but they are not threats, so they are excluded from that
   group. An earlier version counted them, which made "threats fade" look stronger than it is.
 - **"Is it already priced in?" check:** after a first-day move of at least +3% vs the previous
-  close (n=7), prices rose a median **+4.0% further** over the next month. After a weaker start
-  (n=28) they rose **+9.6% further**. So a strong open was not a signal of more upside; if anything
-  it was already priced, though n=7 is far too small to conclude. An earlier version measured the
+  close (n=6), prices rose a median **+6.7% further** over the next month. After a weaker start
+  (n=29) they rose **+9.0% further**. So a strong open was not a signal of more upside, though n=6
+  is far too small to conclude anything. The split uses the unrounded move: the 2020 Soleimani
+  strike opened +2.99%, which an earlier version rounded to 3.0 and counted as strong. An earlier version measured the
   "eventual peak" including day 0 itself. That builds a big peak into any big first day, and it
   reported the opposite result.
 - **News-flow regime guardrail:** a recency-weighted keyword score over NewsAPI headlines
@@ -510,12 +530,13 @@ cd dist && python -m http.server 8000     # open http://localhost:8000
   and is displayed separately. Given the corrected backtest, the prior expectation for it is no
   edge.
 - **Continuous-contract roll gaps.** Yahoo's `CL=F` is the unadjusted front month, so its monthly
-  roll day carries the contract-1/contract-2 price gap. This affects the direction backtest's
-  labels, realized volatility, and the vol-targeting overlay's returns. For the vol model it was
-  measured against EIA's curve over 2016–2024: the median gap is about 0.5%, and roll-adjusting
-  moves direction accuracy by under one point. A roll-free correction is not possible live,
-  because EIA stopped publishing the futures curve in April 2024 and Yahoo keeps no history for
-  expired contracts. The carry test, where the gap *is* the effect, uses roll-free returns.
+  roll day carries the contract-1/contract-2 price gap (2008–2024: +0.3% on average, mostly
+  contango). Where the gap is a bias, it is removed: the carry test and the vol-targeting overlay
+  and VRP use same-contract returns rebuilt from EIA's curve, and so they stop where the curve
+  stops. Where it is noise, it is documented instead. Rebuilding the roll days moves the vol
+  model's direction accuracy by about half a point. The direction backtest's labels also carry the
+  gap. A live correction is not possible: EIA stopped publishing the futures curve in April 2024,
+  and Yahoo keeps no history for expired contracts.
 - **Macro features were excluded, and that decision is now moot.** A pre-retraction A/B
   suggested a possible macro uplift, but it ran on the same leaked pipeline and is not meaningful
   evidence. FRED/EIA are latest-vintage (not ALFRED point-in-time), so any uplift could be

@@ -238,6 +238,7 @@ def realized_move(dates, series, event_date, before=5, window=20, settle=10):
     # with a big day-0 move would then have a big peak by construction. Measure the reaction against
     # the previous close, and the FURTHER rise strictly after the day-0 close.
     further_rise = max(px for _, px in fwd[1:]) / day0_px - 1 if len(fwd) > 1 else None
+    day0 = (day0_px / prev_close - 1) * 100 if prev_close else None
     # day-by-day cumulative move vs baseline (the run-up trajectory)
     traj = {k: round((px - base) / base * 100, 2) for k, (_, px) in enumerate(fwd) if k in (0, 1, 2, 3, 5, 10, 15)}
     return {
@@ -246,7 +247,9 @@ def realized_move(dates, series, event_date, before=5, window=20, settle=10):
         "peak_day": (dt.date.fromisoformat(peak_date) - dt.date.fromisoformat(fwd[0][0])).days,
         "trough_pct": round((trough_px - base) / base * 100, 1),
         "settle_pct": round((settle_px - base) / base * 100, 1),
-        "day0_pct": round((day0_px / prev_close - 1) * 100, 1) if prev_close else None,
+        "day0_pct": round(day0, 1) if day0 is not None else None,
+        # Classified on the unrounded move: +2.99% must not round into the >= 3% group.
+        "strong_day0": day0 >= DAY0_THRESHOLD_PCT if day0 is not None else None,
         "further_rise_after_day0_pct": round(further_rise * 100, 1) if further_rise is not None else None,
         "trajectory": traj,
     }
@@ -312,10 +315,10 @@ def get_playbook_for_api(api_key=None, current_drivers=None, top_n=5):
     }
 
     # Priced-in check: after a strong first-day reaction, is there MORE upside left, or less?
-    rows = [(e["day0_pct"], e["further_rise_after_day0_pct"]) for e in events
-            if e.get("day0_pct") is not None and e.get("further_rise_after_day0_pct") is not None]
-    big   = [fr for d0, fr in rows if d0 >= DAY0_THRESHOLD_PCT]
-    small = [fr for d0, fr in rows if d0 < DAY0_THRESHOLD_PCT]
+    rows = [(e["strong_day0"], e["further_rise_after_day0_pct"]) for e in events
+            if e.get("strong_day0") is not None and e.get("further_rise_after_day0_pct") is not None]
+    big   = [fr for strong, fr in rows if strong]
+    small = [fr for strong, fr in rows if not strong]
     priced_in_stats = {
         "strong_day0_n":                       len(big),
         "strong_day0_median_further_rise_pct": round(statistics.median(big), 1) if big else None,
