@@ -16,6 +16,8 @@ class LastTradeDateTest(unittest.TestCase):
     KNOWN = {
         (2020, 5): date(2020, 4, 21),    # the contract behind the -$37.63 print on 2020-04-20
         (2011, 5): date(2011, 4, 19),    # Good Friday (Apr 22) inside the count-back window
+        (2016, 12): date(2016, 11, 21),  # EIA's curve lacks a day here; counting its rows gave 11-18
+        (2018, 12): date(2018, 11, 19),  # EIA repeats a "settlement" on Thanksgiving; its rows gave 11-20
         (2021, 12): date(2021, 11, 19),  # 25th is Thanksgiving -> 4 business days back
         (2022, 1): date(2021, 12, 20),   # Christmas observed Fri 24th -> 25th non-business
         (2024, 7): date(2024, 6, 20),
@@ -89,6 +91,23 @@ class TradingDateAndFrontContractTest(unittest.TestCase):
         self.assertTrue(is_open(self._utc("2026-09-27T22:30:00")))    # Sun 18:30 ET, Monday session
         self.assertFalse(is_open(self._utc("2026-04-03T15:00:00")))   # Good Friday
         self.assertFalse(is_open(self._utc("2026-04-02T23:00:00")))   # Thu evening before Good Friday
+
+    def test_last_completed_bar_date(self):
+        done = cc.last_completed_bar_date
+        cases = {
+            "2026-10-13T14:00:00": date(2026, 10, 12),  # Tue 10:00 ET: today's session still trading
+            "2026-10-13T21:30:00": date(2026, 10, 13),  # Tue 17:30 ET: settled, before the reopen
+            "2026-10-13T23:30:00": date(2026, 10, 12),  # Tue 19:30 ET: the bar dated today is Wed's
+            "2026-10-14T04:00:00": date(2026, 10, 13),  # Wed 00:00 ET: Tuesday's bar is back
+            "2026-10-16T23:30:00": date(2026, 10, 16),  # Fri 19:30 ET: no reopen on Friday evening
+            "2026-10-18T23:30:00": date(2026, 10, 17),  # Sun 19:30 ET: Monday's live bar excluded
+            "2027-01-18T15:00:00": date(2027, 1, 17),   # MLK Day: the holiday's bar is Tuesday's partial
+            "2027-01-18T22:30:00": date(2027, 1, 17),   # MLK Day 17:30 ET: still no completed bar today
+            "2026-11-25T23:30:00": date(2026, 11, 24),  # Thanksgiving eve 18:30 ET: Globex reopened
+        }
+        for moment, expected in cases.items():
+            with self.subTest(moment=moment):
+                self.assertEqual(done(self._utc(moment)), expected)
 
     def test_spans_roll(self):
         self.assertTrue(cc.spans_roll(date(2026, 9, 16), date(2026, 9, 23)))

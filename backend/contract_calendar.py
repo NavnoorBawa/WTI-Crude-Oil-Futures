@@ -173,6 +173,28 @@ def market_is_open(moment: datetime) -> bool:
     return opens <= local < closes
 
 
+def last_completed_bar_date(moment: datetime) -> date:
+    """Latest calendar date whose Yahoo daily CL=F bar is a finished session at `moment`.
+
+    Daily bars carry their CME trading date, and a session ends at 17:00 ET. From the 18:00 ET
+    Globex reopen until midnight Yahoo keeps today's calendar date on the live bar, so in that
+    window today's bar holds the NEXT session's prices (and yfinance drops the settled one). There
+    is no reopen on a Friday evening. Holiday Globex sessions are partial bars for the
+    next business day, so a holiday's own date never counts as finished. Clock rules only: a bar
+    dated after the returned date is in progress (or a holiday partial) and must not be used as a
+    completed observation.
+    """
+    aware = moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+    local = aware.astimezone(EXCHANGE_TZ)
+    today = local.date()
+    yesterday = today - timedelta(days=1)
+    if local.time() < time(17, 0):
+        return yesterday
+    if local.time() < SESSION_OPEN_ET:
+        return today if is_business_day(today) else yesterday
+    return today if today.weekday() == 4 and is_business_day(today) else yesterday   # Friday
+
+
 def front_contract(moment: datetime | date, is_business: BusinessDayFn = is_business_day) -> tuple[int, int]:
     """(year, month) of the contract CL=F tracks on the trading date of `moment`."""
     day = trading_date(moment) if isinstance(moment, datetime) else moment
