@@ -238,6 +238,9 @@ python -m backend.backtest_walk_forward --start 2016-06-20 --end 2026-06-19 --mi
 python -m backend.backtest_walk_forward --start 2016-06-20 --end 2026-06-19 --min-train 200 --step 5 \
   --features no_macro --lag-context 1 --train-window 378 --horizons 1w --no-purge \
   --output data/wf_10y_rolling_unpurged_LEAKED.json
+python -m backend.backtest_walk_forward --start 2021-06-21 --end 2026-06-19 --min-train 200 --step 1 \
+  --features no_macro --lag-context 1 --train-window 378 --horizons 1d \
+  --output data/wf_5y_purged_1d_every_day.json
 ```
 The dashboard's report (`data/walk_forward_backtest_latest.json`) is the first command without
 `--output`; the backtest refuses to write that file from any other configuration.
@@ -250,8 +253,17 @@ The dashboard's report (`data/walk_forward_backtest_latest.json`) is the first c
   finding above: corrected, it is a coin flip (48–52% accuracy, negative Sharpe, p > 0.2) that
   loses money after costs and does not beat naive baselines. It is no longer presented as a
   tradeable signal.
-- **1-Day horizon: never worked.** Direction unstable across reruns and negative P&L after costs
-  even before the purge. Removed from trading use.
+- **1-Day horizon: never worked.** The 5-year report scores the 1d call on every fifth trading
+  day, and on those 199 days it is right only 37.2% of the time (two-sided p = 0.0004), worse
+  than a coin flip. That number is not a property of the model. Scored on all 994 out-of-sample
+  days (`--step 1`, which reproduces those 199 calls exactly), the same configuration is right
+  50.8% of the time (p = 0.63), below always-long at 51.3%, and it loses money after costs. The
+  five possible every-fifth-day subsets of those identical predictions score 37.2%, 54.8%,
+  52.3%, 60.3% and 49.5%. That spread is wider than chance, but no code, data, weekday, year or
+  roll-date cause was found (each prediction depends only on its own date), and flipping every
+  call scores 49.2%: there is no edge in either direction. The same caution applies to the 1w
+  figure, which is also scored on every fifth day. Removed from trading use.
+  [`data/wf_5y_purged_1d_every_day.json`](data/wf_5y_purged_1d_every_day.json)
 - **1-Hour horizon: removed.** Indistinguishable from noise; never reached enough samples to test.
 - **Term-structure carry: no reliable modern-era edge (and a corrected earlier error).** Carry
   (backwardation vs contango) is a top cross-sectional commodity factor, so it was the most

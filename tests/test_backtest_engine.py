@@ -278,6 +278,19 @@ class CommittedArtifactsTest(unittest.TestCase):
                 self.assertTrue(bwf.is_validated_configuration(config))
                 self.assertEqual(set(config["rows_without_context_by_horizon"].values()), {0})
 
+    def test_every_day_1d_report_contains_the_every_fifth_day_calls(self):
+        # The README quotes the 1d result from this all-days run, which must reproduce every call of
+        # the every-fifth-day report (same configuration and window; only the step differs).
+        every, fifth = self._report("wf_5y_purged_1d_every_day.json"), self._report("wf_5y_purged.json")
+        self.assertTrue(bwf.is_validated_configuration(every["config"]))
+        shared = ("data_start", "data_end", "min_train", "estimators", "feature_mode", "context_lag_days",
+                  "train_window", "context_period")
+        self.assertEqual({k: every["config"][k] for k in shared}, {k: fifth["config"][k] for k in shared})
+        calls = {t["t"]: t["dir"] for t in every["results"]["1d"]["trades"]}
+        sampled = fifth["results"]["1d"]["trades"]
+        self.assertEqual([calls[t["t"]] for t in sampled], [t["dir"] for t in sampled])
+        self.assertAlmostEqual(every["results"]["1d"]["metrics"]["ensemble"]["direction_accuracy"], 50.8, places=1)
+
     def test_purged_and_leaked_pairs_differ_only_in_the_purge(self):
         # The README's before/after tables compare these pairs: same configuration, window and test
         # dates, the purge being the only difference.
