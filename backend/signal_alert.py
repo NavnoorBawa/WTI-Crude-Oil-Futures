@@ -44,8 +44,9 @@ GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
 def extract_signal(data: dict) -> dict:
     """Pull the current 1W signal from a frozen data.json payload."""
     h1w = (data.get("performance_metrics") or {}).get("by_horizon", {}).get("1w", {})
-    # One stance definition for the dashboard record and the alert (strict `is True` significance,
-    # unrounded forecast), so the two can never disagree about what was published.
+    # The dashboard's own desk-stance rule (live_record.one_week_stance mirrors src/App.jsx: strict
+    # `is True` significance, a positive Kelly edge after costs, the model move beyond +-0.6%), so the
+    # alert, the live record and the site can never disagree about what was published.
     signal = one_week_stance(data)
     stance = {"LONG": "LONG LEAN", "SHORT": "SHORT LEAN"}.get(signal["stance"], "NEUTRAL")
     live = data.get("live_record") or {}

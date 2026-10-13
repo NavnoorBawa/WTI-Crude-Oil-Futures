@@ -184,6 +184,48 @@ class CompletedBarsTest(unittest.TestCase):
             kept = self.predictor._drop_in_progress_daily_bar(friday, now=now_et.astimezone(timezone.utc))
             self.assertEqual(str(kept.index[-1].date()), "2026-09-25")
 
+    def test_live_bars_around_holidays_are_dropped(self):
+        # The live Globex bar keeps its calendar date; when the next calendar day is a holiday its
+        # session is two days away, and on the holiday itself the bar is a partial of the next session.
+        cases = [
+            (["2026-11-24", "2026-11-25"], datetime(2026, 11, 25, 19, tzinfo=ET), "2026-11-24"),   # Thanksgiving eve
+            (["2027-01-14", "2027-01-15", "2027-01-17"], datetime(2027, 1, 17, 19, tzinfo=ET), "2027-01-15"),  # MLK eve
+            (["2027-01-14", "2027-01-15", "2027-01-18"], datetime(2027, 1, 18, 10, tzinfo=ET), "2027-01-15"),  # MLK Day
+            # A partial holiday bar and the live bar after it are both dropped.
+            (["2027-01-15", "2027-01-18", "2027-01-19"], datetime(2027, 1, 18, 21, tzinfo=ET), "2027-01-15"),
+        ]
+        for dates, now_et, expected in cases:
+            with self.subTest(now=now_et.isoformat()):
+                frame = pd.DataFrame({"Close": [90.0 + i for i in range(len(dates))]},
+                                     index=pd.DatetimeIndex(dates).tz_localize("America/New_York"))
+                kept = self.predictor._drop_in_progress_daily_bar(frame, now=now_et.astimezone(timezone.utc))
+                self.assertEqual(str(kept.index[-1].date()), expected)
+
+
+class ModelCacheTest(unittest.TestCase):
+    def test_a_package_is_reused_only_for_identical_training_data(self):
+        # Within a session the 1D/1W targets never change (completed bars only), so a package trained
+        # while ^VIX was unavailable (vix_level at its default 20) must not keep serving once it recovers.
+        predictor = PremiumWTIPredictor.__new__(PremiumWTIPredictor)
+        predictor.model_cache = {}
+        outage = pd.DataFrame({"vix_level": [20.0] * 30, "return_20": np.linspace(-0.1, 0.1, 30),
+                               "target_1w": np.linspace(-0.02, 0.02, 30)})
+        recovered = outage.assign(vix_level=np.linspace(15.0, 25.0, 30))
+        trained = []
+
+        def fake_train(features_df, target_column, target_mode="price"):
+            trained.append(features_df["vix_level"].iloc[-1])
+            return {}, {}, None, None, [], [], {}
+
+        with patch.object(predictor, "train_prediction_models", side_effect=fake_train):
+            _, cached = predictor._train_or_reuse_model_package(outage, "target_1w", "1w", "return")
+            self.assertFalse(cached)
+            _, cached = predictor._train_or_reuse_model_package(outage.copy(), "target_1w", "1w", "return")
+            self.assertTrue(cached)
+            _, cached = predictor._train_or_reuse_model_package(recovered, "target_1w", "1w", "return")
+            self.assertFalse(cached)
+        self.assertEqual(trained, [20.0, 25.0])
+
 
 class ConformalIntervalTest(unittest.TestCase):
     def test_finite_sample_rank(self):

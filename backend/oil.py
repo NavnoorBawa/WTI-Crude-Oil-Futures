@@ -8,8 +8,8 @@ features, and runs the 6-model ensemble.
 
 Status of the direction forecast: RETRACTED. After the purge/embargo fix removed a look-ahead leak,
 the 1-week direction ensemble is a coin flip out of sample (backend/backtest_walk_forward.py, README),
-so the dashboard shows it as NEUTRAL / reference only. The project's validated forecast is the
-realized-volatility model in backend/vol_forecast.py.
+so the dashboard's desk reads RETRACTED (no stance, no sizing, raw output hidden). The project's
+validated forecast is the realized-volatility model in backend/vol_forecast.py.
 
 No synthetic or random inputs are used. Fallbacks and weak horizons are labeled explicitly so the
 API can distinguish them from qualified forecasts.
@@ -27,7 +27,6 @@ import threading
 import warnings
 from contextlib import nullcontext
 from datetime import date, datetime, timedelta, timezone
-from datetime import time as clock_time
 from dataclasses import dataclass, field
 from io import StringIO
 from typing import Dict, Optional, List
@@ -314,7 +313,12 @@ _contract_cache = {
     'data': None,
 }
 _contract_cache_lock = threading.Lock()
-SESSION_CLOSE_ET = clock_time(17, 0)  # CL daily close; Globex reopens at 18:00 ET for the next session
+# Yahoo's finalized daily CL=F bars follow the expiring contract through its last trade date, but its
+# live quote and intraday bars move to the next contract earlier: at ~03:00 ET in the session two
+# business days before the last trade date in both rolls checked (CLU26 -> CLV26 on 2026-08-18,
+# CLV26 -> CLX26 on 2026-09-18). In the last ROLL_CHECK_SESSIONS + 1 sessions of a contract the quoted
+# contract is therefore read from the contracts' own quotes, not the calendar (one session of margin).
+ROLL_CHECK_SESSIONS = 3
 
 
 def _utc_now() -> datetime:
@@ -396,60 +400,116 @@ def _bar_volume(frame, index_value) -> int:
     return int(volume) if volume is not None and volume > 0 else 0
 
 
-def _contract_close_on(contract, session_date):
-    """Close of one specific contract for a session date, from its own '.NYM' history (or None)."""
+def _contract_history(contract):
+    """Recent daily history of one specific contract from its own '.NYM' symbol (None when unavailable)."""
     symbol = contract_calendar.yahoo_symbol(*contract)
     try:
-        history = _yf_history_with_retry(symbol, period="5d", interval="1d", timeout=10)
+        return _yf_history_with_retry(symbol, period="5d", interval="1d", timeout=10)
     except Exception as exc:
         logger.warning("History for %s unavailable (%s)", symbol, type(exc).__name__)
         return None
-    closes = _finite_closes(history)
-    for index_value, close in closes.items():
+
+
+def _latest_close(frame):
+    """(finite closes, latest bar date, quote time, quote session) of a Yahoo daily frame, or None.
+
+    The latest finite close is the quote. Yahoo's quote time (regularMarketTime, frame.attrs['quote_time'])
+    belongs to it only when it falls on that bar's calendar date (the evening Globex bar keeps the date
+    of its reopen): when the newest row has no finite close, an older settlement is the latest close and
+    must not inherit a fresh exchange timestamp, nor the session that timestamp is in.
+    """
+    closes = _finite_closes(frame)
+    if closes.empty:
+        return None
+    bar_date = _bar_session_date(closes.index[-1])
+    quote_time = _as_utc_datetime(getattr(frame, 'attrs', {}).get('quote_time'))
+    if quote_time is not None and quote_time.astimezone(contract_calendar.EXCHANGE_TZ).date() != bar_date:
+        quote_time = None
+    quote_session = contract_calendar.trading_date(quote_time if quote_time is not None else bar_date)
+    return closes, bar_date, quote_time, quote_session
+
+
+def _settled_close(closes, session_date):
+    """Settlement of `session_date` among a frame's finite closes, never taken from the latest row.
+
+    The latest row is the quote. From the 18:00 ET reopen until midnight it is dated with the session
+    that just settled but holds the next session's prices, and that settled bar is not in the frame
+    until midnight: a missing settlement is None, never an older close standing in for it.
+    """
+    for index_value, close in closes.iloc[:-1].items():
         if _bar_session_date(index_value) == session_date and close > 0:
             return float(close)
     return None
 
 
-def _contract_quote_payload(frame, contract, now, *, quote_symbol, data_source, spliced_series):
+def _quoted_contract(closes, bar_date, quote_session):
+    """(contract, basis, own histories fetched) for the contract a CL=F quote belongs to.
+
+    Outside the last ROLL_CHECK_SESSIONS + 1 sessions of the calendar front contract the quote is that
+    contract (basis 'calendar'). Inside them it is whichever of the front and next contracts' own closes
+    for the same bar is nearer (basis 'quote_match'); the contract is None when either is unavailable.
+    """
+    front = contract_calendar.front_contract(quote_session)
+    sessions_left = contract_calendar.business_days_between(quote_session, contract_calendar.last_trade_date(*front))
+    if sessions_left > ROLL_CHECK_SESSIONS:
+        return front, 'calendar', {}
+    price = float(closes.iloc[-1])
+    histories, gaps = {}, {}
+    for candidate in (front, contract_calendar.next_contract(*front)):
+        histories[candidate] = _contract_history(candidate)
+        same_bar = [close for index_value, close in _finite_closes(histories[candidate]).items()
+                    if _bar_session_date(index_value) == bar_date]
+        if same_bar:
+            gaps[candidate] = abs(price - float(same_bar[-1]))
+    if len(gaps) < 2:
+        return None, None, histories
+    nearest = min(gaps, key=lambda candidate: (gaps[candidate], candidate != front))  # a tie keeps the front
+    return nearest, 'quote_match', histories
+
+
+def _contract_quote_payload(frame, contract, now, *, quote_symbol, data_source, spliced_series,
+                            contract_basis, own_histories=None):
     """Dashboard contract payload for the latest finite close in a Yahoo daily frame.
 
-    spliced_series=True for CL=F, whose previous bar may belong to the contract that just expired:
-    on the first session after a roll the daily change is measured against the NEW contract's own
-    previous close, and reported as unavailable (None) rather than as a cross-contract splice when
-    that close cannot be fetched.
+    The daily change is measured against the settlement of the session before the one quoted, for the
+    contract quoted. spliced_series=True for CL=F, whose settled bars belong to the calendar front
+    contract: when the quote is already the next contract (the roll's first session, or Yahoo's early
+    switch shortly before it) the baseline is that contract's own settlement, and it is reported as
+    unavailable (None) rather than as a cross-contract splice when that cannot be fetched. The change
+    is also unavailable in the weekday-evening window, whose baseline settlement Yahoo's frame lacks.
     """
-    closes = _finite_closes(frame)
-    if closes.empty:
+    latest = _latest_close(frame)
+    if latest is None:
         return None
+    closes, bar_date, quote_time, quote_session = latest
     last_index = closes.index[-1]
     current_price = float(closes.iloc[-1])
-    last_session = _bar_session_date(last_index)
-    quote_time = _as_utc_datetime(getattr(frame, 'attrs', {}).get('quote_time'))
     market_time = quote_time or _as_utc_datetime(last_index)
-    quote_session = contract_calendar.trading_date(quote_time) if quote_time is not None else last_session
 
-    previous_close = None
+    reference_session = contract_calendar.shift_business_days(quote_session, -1)
     previous_close_symbol = None
-    change_quality = 'unavailable'
-    if len(closes) >= 2:
-        previous_session = _bar_session_date(closes.index[-2])
-        if not spliced_series or contract_calendar.front_contract(previous_session) == contract:
-            previous_close = float(closes.iloc[-2])
+    if spliced_series and contract_calendar.front_contract(reference_session) != contract:
+        own_histories = own_histories or {}
+        own = own_histories[contract] if contract in own_histories else _contract_history(contract)
+        previous_close = _settled_close(_finite_closes(own), reference_session)
+        if previous_close is not None:
+            previous_close_symbol = contract_calendar.yahoo_symbol(*contract)
+            change_quality = 'daily_close_new_contract'
+        else:
+            change_quality = 'unavailable_contract_roll'
+            logger.warning(
+                "CL=F quotes %s but its own %s settlement is unavailable; reporting no daily change "
+                "instead of a cross-contract splice",
+                contract_calendar.contract_code(*contract), reference_session,
+            )
+    else:
+        previous_close = _settled_close(closes, reference_session)
+        if previous_close is not None:
             previous_close_symbol = quote_symbol
             change_quality = 'daily_close'
         else:
-            previous_close = _contract_close_on(contract, previous_session)
-            if previous_close is not None:
-                previous_close_symbol = contract_calendar.yahoo_symbol(*contract)
-                change_quality = 'daily_close_new_contract'
-            else:
-                change_quality = 'unavailable_contract_roll'
-                logger.warning(
-                    "First session after the roll to %s and its previous close is unavailable; "
-                    "reporting no daily change instead of a cross-contract splice",
-                    contract_calendar.contract_code(*contract),
-                )
+            # Weekday evenings: the session that settled at 17:00 ET is not in Yahoo's frame yet.
+            change_quality = 'unavailable_previous_settlement'
     if previous_close is not None and previous_close > 0:
         daily_change = round(current_price - previous_close, 2)
         daily_change_pct = round((current_price - previous_close) / previous_close * 100, 2)
@@ -462,6 +522,10 @@ def _contract_quote_payload(frame, contract, now, *, quote_symbol, data_source, 
     return {
         'symbol': code,
         'yfinance_symbol': quote_symbol,
+        # How the label was established: 'calendar' (outside the roll window), 'quote_match' (matched
+        # to the contracts' own quotes in it) or 'contract_symbol' (quoted from the contract itself).
+        # Every basis names the contract whose price is shown.
+        'contract_basis': contract_basis,
         # Model/chart history always comes from the continuous CL=F series.
         'history_symbol': 'CL=F',
         'current_price': current_price,
@@ -476,10 +540,9 @@ def _contract_quote_payload(frame, contract, now, *, quote_symbol, data_source, 
         # Calendar days until the last trade date; 0 on (or, over a weekend, just after) expiry.
         'days_to_expiry': max(0, (last_trade - today_et).days),
         'market_time': _iso_utc(market_time) if market_time is not None else None,
-        # Yahoo labels the evening Globex session (18:00-24:00 ET) with the previous calendar date and
-        # drops that date's completed bar meanwhile, so the two differ then and the daily change spans
-        # two sessions (same contract, never a splice).
-        'market_session_date': last_session.isoformat(),
+        # Yahoo labels the evening Globex session (18:00-24:00 ET) with the previous calendar date, so
+        # the bar's date and the CME session quoted differ then.
+        'market_session_date': bar_date.isoformat(),
         'quote_session_date': quote_session.isoformat(),
         'description': f'WTI CRUDE OIL FUTURES {code}',
         'security_name': f'{code} WTI CRUDE',
@@ -492,10 +555,11 @@ def get_current_wti_contract(force_refresh: bool = False):
     """Current WTI front-month quote and the contract it actually belongs to.
 
     Yahoo's CL=F is an UNADJUSTED front-month splice (it equals EIA's "contract 1", including the
-    -37.63 print of 2020-04-20): it follows the expiring contract through its last trade date and
-    switches to the next contract on the following trading day. The label therefore comes from
-    contract_calendar.front_contract() at the time of the quote (Yahoo's quote time when reported,
-    else the last bar's session), not from a days-to-expiry heuristic.
+    -37.63 print of 2020-04-20). Its finalized daily bars follow the expiring contract through its last
+    trade date, but its live quote moves to the next contract a few sessions earlier (ROLL_CHECK_SESSIONS).
+    The label is therefore contract_calendar.front_contract() at the quote's session outside that window
+    and, inside it, the contract whose own '.NYM' quote matches; when that cannot be established, the
+    contracts are quoted directly instead, so the label always names the contract that was priced.
     """
     now_ts = time.time()
     with _contract_cache_lock:
@@ -511,24 +575,27 @@ def get_current_wti_contract(force_refresh: bool = False):
         return payload
 
     now = _utc_now()
+    own_histories = {}
 
     # Always try CL=F first as it's the most reliable continuous contract
     try:
         logger.info("🔍 Fetching WTI data from CL=F (continuous front-month contract)")
         validation_data = _yf_history_with_retry("CL=F", period="5d", interval="1d", timeout=10)
-        closes = _finite_closes(validation_data)
-        if not closes.empty:
-            quote_time = _as_utc_datetime(validation_data.attrs.get('quote_time'))
-            quote_session = (contract_calendar.trading_date(quote_time) if quote_time is not None
-                             else _bar_session_date(closes.index[-1]))
-            contract = contract_calendar.front_contract(quote_session)
-            payload = _contract_quote_payload(
-                validation_data, contract, now,
-                quote_symbol='CL=F', data_source='yfinance_continuous', spliced_series=True,
-            )
-            logger.info(f"✅ Found WTI data: {payload['symbol']} @ ${payload['current_price']:.2f}")
-            return _cache_and_return(payload)
-        logger.error("❌ CL=F returned no finite closes")
+        latest = _latest_close(validation_data)
+        if latest is None:
+            logger.error("❌ CL=F returned no finite closes")
+        else:
+            closes, bar_date, _, quote_session = latest
+            contract, basis, own_histories = _quoted_contract(closes, bar_date, quote_session)
+            if contract is not None:
+                payload = _contract_quote_payload(
+                    validation_data, contract, now,
+                    quote_symbol='CL=F', data_source='yfinance_continuous', spliced_series=True,
+                    contract_basis=basis, own_histories=own_histories,
+                )
+                logger.info(f"✅ Found WTI data: {payload['symbol']} @ ${payload['current_price']:.2f}")
+                return _cache_and_return(payload)
+            logger.warning("Could not tell which contract CL=F is quoting near the roll; quoting the contracts directly")
 
     except Exception as e:
         logger.error(f"❌ Failed to get CL=F data: {e}")
@@ -541,17 +608,21 @@ def get_current_wti_contract(force_refresh: bool = False):
     contract_failures = []
 
     # Space probes slightly so a burst of requests does not trip Yahoo's rate limiter, and retry
-    # each probe on transient 429s via the shared helper.
+    # each probe on transient 429s via the shared helper. A history already fetched for the roll
+    # check above is reused.
     for probe_index, contract in enumerate(contracts_to_try):
         symbol = contract_calendar.yahoo_symbol(*contract)
         try:
-            if probe_index > 0:
-                time.sleep(0.4)
-            logger.info(f"🔍 Trying specific WTI contract: {symbol}")
-            validation_data = _yf_history_with_retry(symbol, period="5d", interval="1d", timeout=8)
+            validation_data = own_histories.get(contract)
+            if validation_data is None or validation_data.empty:
+                if probe_index > 0:
+                    time.sleep(0.4)
+                logger.info(f"🔍 Trying specific WTI contract: {symbol}")
+                validation_data = _yf_history_with_retry(symbol, period="5d", interval="1d", timeout=8)
             payload = _contract_quote_payload(
                 validation_data, contract, now,
                 quote_symbol=symbol, data_source='yfinance_specific', spliced_series=False,
+                contract_basis='contract_symbol',
             )
             if payload is not None:
                 logger.info(f"✅ Found valid WTI contract: {symbol} @ ${payload['current_price']:.2f}")
@@ -899,7 +970,7 @@ class PremiumWTIPredictor:
 
     def _current_timestamp_iso(self):
         """Return a canonical UTC timestamp for persisted records."""
-        return datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+        return _iso_utc(_utc_now())
 
     def _sort_timestamp_key(self, timestamp_value):
         """Return a numeric key safe for sorting naive and aware timestamps together."""
@@ -935,7 +1006,7 @@ class PremiumWTIPredictor:
 
     def _prune_store(self, payload, max_age_seconds):
         """Drop entries older than max_age_seconds; returns (store, changed). Unparseable keys are kept."""
-        cutoff = time.time() - float(max_age_seconds)
+        cutoff = _utc_now().timestamp() - float(max_age_seconds)
         stale = [key for key in payload if (self._timestamp_epoch(key) or cutoff) < cutoff]
         if not stale:
             return payload, False
@@ -1581,24 +1652,19 @@ class PremiumWTIPredictor:
         return max(30, int(getattr(self, 'daily_feature_lookback_bars', 63)))
 
     def _build_training_signature(self, features_df, target_column, target_mode='price'):
-        """Create a compact fingerprint for cache-safe model reuse."""
-        tail_values = []
-        if target_column in features_df.columns:
-            tail_values = (
-                features_df[target_column]
-                .tail(25)
-                .fillna(0)
-                .round(6)
-                .astype(float)
-                .tolist()
-            )
+        """Fingerprint of a training frame for cache-safe model reuse: its full contents, not just its
+        targets. With completed bars only, the 1D/1W targets stay the same for a whole session, so a
+        package trained while a context series was unavailable (its features at their defaults) must
+        not keep serving after the data recovers, nor the other way round."""
+        content_hash = hashlib.sha256(
+            pd.util.hash_pandas_object(features_df, index=True).to_numpy().tobytes()
+        ).hexdigest()
         payload = {
             'target': target_column,
             'target_mode': str(target_mode),
             'shape': features_df.shape,
             'columns': features_df.columns.tolist(),
-            'last_index': str(features_df.index[-1]) if len(features_df.index) > 0 else 'none',
-            'tail_target': tail_values,
+            'content': content_hash,
         }
         payload_str = json.dumps(payload, sort_keys=True)
         return hashlib.sha256(payload_str.encode('utf-8')).hexdigest()
@@ -4046,27 +4112,22 @@ class PremiumWTIPredictor:
         }
 
     def _drop_in_progress_daily_bar(self, wti_data, now=None):
-        """Drop the last daily bar while its CME session is still trading.
+        """Drop every trailing daily bar that is not a finished session at `now`.
 
         Models train on completed bars only (every backtest row is one), so the live inference row
-        and the newest training label must be completed bars too. A session ends at 17:00 ET on its
-        trading date (contract_calendar.trading_date). Yahoo also keeps the calendar date on the
-        evening Globex bar: from the 18:00 ET reopen until midnight, the bar dated today holds the
-        NEXT session's live prices, so it is dropped as well.
+        and the newest training label must be completed bars too. Which dates are finished is
+        contract_calendar.last_completed_bar_date: a session ends at 17:00 ET; from the 18:00 ET
+        reopen until midnight the bar dated today holds the NEXT session's live prices (also on a
+        holiday eve, when that session is two calendar days away); and a holiday's own bar is a
+        partial of the next business day's session.
         """
         if wti_data is None or len(wti_data) == 0:
             return wti_data
-        now = now or _utc_now()
-        now_et = now.astimezone(contract_calendar.EXCHANGE_TZ)
-        session = contract_calendar.trading_date(now)
-        bar_date = _bar_session_date(wti_data.index[-1])
-        if bar_date >= session:
-            session_close = datetime.combine(bar_date, SESSION_CLOSE_ET, tzinfo=contract_calendar.EXCHANGE_TZ)
-            in_progress = now_et < session_close
-        else:
-            evening_session_open = session == now_et.date() + timedelta(days=1) and now_et.time() >= contract_calendar.SESSION_OPEN_ET
-            in_progress = evening_session_open and bar_date == now_et.date()
-        return wti_data.iloc[:-1] if in_progress else wti_data
+        cutoff = contract_calendar.last_completed_bar_date(now or _utc_now())
+        keep = len(wti_data)
+        while keep > 0 and _bar_session_date(wti_data.index[keep - 1]) > cutoff:
+            keep -= 1
+        return wti_data.iloc[:keep]
 
     def _prepare_daily_history(self, wti_data, now=None):
         """Daily history for the 1D/1W models: completed, finite, positive closes only.
@@ -4264,6 +4325,14 @@ class PremiumWTIPredictor:
             logger.info("Fetching WTI historical data...")
             wti_data = self.get_wti_historical_data(period=self.daily_training_period, interval="1d")
             wti_data = self._prepare_daily_history(wti_data)
+            # The completed bar the 1D/1W models forecast from. From the 18:00 ET reopen until midnight
+            # the session that settled at 17:00 is not in Yahoo's data yet, so on weekday evenings this
+            # is one session older than the decision bar the validated backtest uses: such a forecast
+            # does not become the session's stored forecast (_claims_forecast_slot), and it is published
+            # (market_data_sources.daily_history) so the live record does not record it either.
+            model_bar_date = _bar_session_date(wti_data.index[-1]).isoformat()
+            daily_source = self._market_source_info.get('daily_history') or {}
+            self._market_source_info['daily_history'] = {**daily_source, 'model_bar_date': model_bar_date}
             daily_horizons = ['1d', '1w']
             
             logger.info("Engineering daily features...")
@@ -4709,8 +4778,11 @@ class PremiumWTIPredictor:
                     'interval_upper': float(horizon_interval.get('upper', predictions[horizon])),
                     'interval_std': float(horizon_interval.get('std', 0.0)),
                     'model_count': horizon_model_counts.get(horizon, 0),
-                    'processing_time': processing_time
+                    'processing_time': processing_time,
+                    'fallback': bool(horizon_fallbacks.get(horizon)),
                 }
+                if horizon in DAILY_HORIZON_STEPS:
+                    horizon_rows[horizon]['model_bar_date'] = model_bar_date
             self._store_prediction_record(timestamp, prediction_record, horizon_rows)
             
             # Store current actual price with the latest observed contract volume.
@@ -4756,15 +4828,34 @@ class PremiumWTIPredictor:
             )
         return self._same_value(previous.get('prediction'), current.get('prediction'))
 
+    def _claims_forecast_slot(self, horizon, timestamp, row):
+        """Whether a forecast may become the one stored for its session (1d/1w) or hour (1h).
+
+        Not a fallback (the reference price with a zero-width interval after a horizon failed, a
+        certain direction and interval miss), and for 1d/1w not a forecast whose newest completed bar
+        is older than the session before its own: the weekday-evening window, before the session that
+        settled at 17:00 ET is in Yahoo's data. The slot then goes to the session's first forecast
+        from the validated configuration (the first run after midnight ET on weekdays).
+        """
+        if row.get('fallback'):
+            return False
+        bucket = self._forecast_bucket(horizon, timestamp)
+        model_bar = row.get('model_bar_date')
+        if horizon not in DAILY_HORIZON_STEPS or not model_bar or bucket is None:
+            return True
+        decision_session = contract_calendar.shift_business_days(date.fromisoformat(bucket), -1)
+        return date.fromisoformat(str(model_bar)) >= decision_session
+
     def _store_prediction_record(self, timestamp, prediction_record, horizon_rows):
         """Store one forecast run: at most one forecast per horizon per trading session.
 
         The server reruns the pipeline every ~3 minutes, including identical reruns while the market
         is closed; storing every run made live accuracy and the 'qualified' gate count the same
         overlapping call dozens of times. The horizon stores (what accuracy is scored on) keep the
-        FIRST forecast of each CME trading session for 1d/1w and of each hour for 1h, and skip exact
-        reruns. The main record store (the chart's issued-forecast series) keeps the latest run of
-        each hour. Returns the names of the stores that changed.
+        FIRST forecast of each CME trading session for 1d/1w and of each hour for 1h that may claim
+        that slot (_claims_forecast_slot), and skip exact reruns. The main record store (the chart's
+        issued-forecast series) keeps the latest run of each hour. Returns the names of the stores
+        that changed.
         """
         self._ensure_runtime_state()
         changed = []
@@ -4776,6 +4867,8 @@ class PremiumWTIPredictor:
                 self.stored_predictions[timestamp] = prediction_record
                 changed.append('predictions')
             for horizon, row in horizon_rows.items():
+                if not self._claims_forecast_slot(horizon, timestamp, row):
+                    continue
                 store = getattr(self, f'predictions_{horizon}')
                 latest_row = self._latest_time_item(store)
                 if latest_row is not None and (

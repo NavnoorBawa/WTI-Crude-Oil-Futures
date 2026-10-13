@@ -16,10 +16,13 @@ from unittest import mock
 from backend import signal_alert as sa
 
 
-def payload(pct, significant):
+def payload(pct, significant, win_rate=55.0, profit_factor=1.3):
     return {
-        "performance_metrics": {"by_horizon": {"1w": {"wf_is_significant": significant}}},
-        "multi_horizon_predictions": {"percentage_changes": {"1w": pct}},
+        "performance_metrics": {"by_horizon": {"1w": {
+            "wf_is_significant": significant, "wf_pnl_win_rate": win_rate, "wf_pnl_profit_factor": profit_factor,
+        }}},
+        "multi_horizon_predictions": {"predictions": {"1w": round(80.0 * (1 + pct / 100), 2)},
+                                      "percentage_changes": {"1w": pct}},
         "current_price": 80.0,
         "contract": {"symbol": "CLN26"},
         "frozen_at": "2026-06-20T00:00:00+00:00",
@@ -40,6 +43,12 @@ class ExtractSignalTest(unittest.TestCase):
     def test_significant_but_low_conviction_is_neutral(self):
         # Within the +/-0.6% band there is no lean even when significant.
         self.assertEqual(sa.extract_signal(payload(0.3, True))["stance"], "NEUTRAL")
+
+    def test_no_lean_is_emailed_that_the_dashboard_would_not_show(self):
+        # Significant direction accuracy but a profit factor below 1 after costs: the dashboard's
+        # Kelly sizing finds no edge and shows NEUTRAL, so the alert must not announce a lean.
+        self.assertEqual(sa.extract_signal(payload(1.2, True, win_rate=48.2, profit_factor=0.786))["stance"], "NEUTRAL")
+        self.assertEqual(sa.extract_signal(payload(-1.2, True, win_rate=48.2, profit_factor=0.786))["stance"], "NEUTRAL")
 
 
 class SaveStateTest(unittest.TestCase):

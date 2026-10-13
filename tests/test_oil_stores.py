@@ -7,8 +7,10 @@ import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+from backend import oil
 from backend.oil import PremiumWTIPredictor, get_historical_data, horizon_target_time
 
 ET = ZoneInfo("America/New_York")
@@ -75,9 +77,19 @@ class ForecastStoreTest(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.predictor = make_store_predictor(self._tmp.name)
 
+    def _pin_clock(self, now):
+        """Fix the module clock (store timestamps and retention pruning) for the rest of the test."""
+        clock = patch.object(oil, "_utc_now", return_value=now)
+        clock.start()
+        self.addCleanup(clock.stop)
+
     def test_one_forecast_per_horizon_per_session_and_exact_reruns_are_skipped(self):
         predictor = self.predictor
-        start = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0) - timedelta(days=3)
+        # Tuesday 2026-10-13 09:00 ET. A fixed start (it used to be "now - 3 days") keeps every run
+        # below in the session the assertions assume: the reruns up to 17:00 ET in Tuesday's session,
+        # Wednesday 10:00 ET in the next one. The pinned clock keeps the rows inside retention.
+        start = datetime(2026, 10, 13, 13, tzinfo=timezone.utc)
+        self._pin_clock(start + timedelta(days=3))
         # Twenty reruns three minutes apart: the reference price moves, the models do not.
         for step in range(20):
             timestamp = iso(start + timedelta(minutes=3 * step))
@@ -112,6 +124,56 @@ class ForecastStoreTest(unittest.TestCase):
         record, rows = run_record(next_session, 92.0, {"1h": 92.1, "1d": 92.5, "1w": 93.0})
         self.assertIn("1d", predictor._store_prediction_record(next_session, record, rows))
         self.assertTrue(predictor.predictions_1d_file.exists())
+
+    def test_evening_forecast_from_the_previous_bar_does_not_take_the_sessions_slot(self):
+        # From 18:00 ET to midnight the session that settled at 17:00 is not in Yahoo's data, so a
+        # 1d/1w forecast is built from the bar before it. It used to become the next session's stored
+        # forecast (the first of the session); the first run after midnight must be the one kept.
+        predictor = self.predictor
+        self._pin_clock(datetime(2026, 10, 16, tzinfo=timezone.utc))
+        runs = [
+            (datetime(2026, 10, 13, 18, 2, tzinfo=ET), "2026-10-12"),   # Tue evening: Tuesday not in the data
+            (datetime(2026, 10, 13, 18, 5, tzinfo=ET), "2026-10-12"),
+            (datetime(2026, 10, 14, 0, 5, tzinfo=ET), "2026-10-13"),    # after midnight: Tuesday's bar is back
+            (datetime(2026, 10, 14, 10, 0, tzinfo=ET), "2026-10-13"),
+        ]
+        for step, (moment, model_bar) in enumerate(runs):
+            timestamp = iso(moment)
+            record, rows = run_record(timestamp, 90.0 + step, {"1h": 90.1 + step, "1d": 90.5 + step, "1w": 91.0 + step})
+            for horizon in ("1d", "1w"):
+                rows[horizon]["model_bar_date"] = model_bar
+            predictor._store_prediction_record(timestamp, record, rows)
+
+        session_forecast = [iso(datetime(2026, 10, 14, 0, 5, tzinfo=ET))]
+        self.assertEqual(list(predictor.predictions_1d), session_forecast)
+        self.assertEqual(list(predictor.predictions_1w), session_forecast)
+        self.assertEqual(predictor.predictions_1w[session_forecast[0]]["model_bar_date"], "2026-10-13")
+        # The hourly model is unaffected: one forecast per clock hour.
+        self.assertEqual(len(predictor.predictions_1h), 3)
+
+    def test_friday_evening_forecast_is_mondays_and_uses_fridays_bar(self):
+        predictor = self.predictor
+        self._pin_clock(datetime(2026, 10, 20, tzinfo=timezone.utc))
+        timestamp = iso(datetime(2026, 10, 16, 19, tzinfo=ET))   # no Friday-evening reopen
+        record, rows = run_record(timestamp, 90.0, {"1d": 90.5, "1w": 91.0})
+        for horizon in ("1d", "1w"):
+            rows[horizon]["model_bar_date"] = "2026-10-16"
+        self.assertEqual(predictor._store_prediction_record(timestamp, record, rows), ["predictions", "1d", "1w"])
+        self.assertEqual(predictor._forecast_bucket("1w", timestamp), "2026-10-19")
+
+    def test_fallback_forecast_does_not_take_the_sessions_slot(self):
+        # A failed horizon falls back to the reference price with a zero-width interval: a certain
+        # direction and interval miss. It must not block the session's real forecast.
+        predictor = self.predictor
+        self._pin_clock(datetime(2026, 10, 14, tzinfo=timezone.utc))
+        first, second = iso(datetime(2026, 10, 12, 10, 0, tzinfo=ET)), iso(datetime(2026, 10, 12, 10, 3, tzinfo=ET))
+        record, rows = run_record(first, 71.09, {"1h": 71.2, "1d": 71.3, "1w": 71.09})
+        rows["1w"]["fallback"] = True
+        self.assertNotIn("1w", predictor._store_prediction_record(first, record, rows))
+        record, rows = run_record(second, 71.09, {"1h": 71.2, "1d": 71.3, "1w": 71.40})
+        self.assertIn("1w", predictor._store_prediction_record(second, record, rows))
+        self.assertEqual(list(predictor.predictions_1w), [second])
+        self.assertEqual(list(predictor.predictions_1d), [first])
 
     def test_stores_are_pruned_to_the_retention_window_on_save(self):
         predictor = self.predictor
