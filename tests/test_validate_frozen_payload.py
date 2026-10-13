@@ -80,6 +80,33 @@ class FrozenPayloadValidationTest(unittest.TestCase):
         self.assertNotIn("current_price disagrees with the latest market bar by more than 5%",
                          validate_payload(payload))
 
+    def test_chart_check_skips_live_points_by_kind(self):
+        # A live quote stamped before the quote's exchange time (e.g. a stored tick from earlier in
+        # the session) is still not a market bar; the payload's kinds say so.
+        payload = copy.deepcopy(self.valid)
+        payload["current_price"] = 100.3
+        payload["contract"]["market_time"] = "2026-09-18T21:00:00Z"
+        payload["unified_data"]["actual"] = {
+            "timestamps": ["2026-09-18T19:00:00Z", "2026-09-18T20:00:00Z", "2026-09-18T20:30:05Z"],
+            "values": [94.6, 94.3, 100.2],
+            "volumes": [10, 12, 0],
+            "kinds": ["1h", "1h", "live"],
+        }
+        self.assertIn("current_price disagrees with the latest market bar by more than 5%", validate_payload(payload))
+        payload["unified_data"]["actual"]["kinds"] = ["1h", "1h", "1h"]
+        self.assertNotIn("current_price disagrees with the latest market bar by more than 5%",
+                         validate_payload(payload))
+
+    def test_chart_kinds_must_be_aligned_and_known(self):
+        payload = copy.deepcopy(self.valid)
+        actual = payload["unified_data"]["actual"]
+        for kinds in (["1d"], ["minute"] * len(actual["values"]), "1d"):
+            actual["kinds"] = kinds
+            with self.subTest(kinds=kinds):
+                self.assertTrue(any("actual kinds" in e for e in validate_payload(payload)))
+        actual["kinds"] = ["1d"] * len(actual["values"])
+        self.assertFalse(any("actual kinds" in e for e in validate_payload(payload)))
+
     def test_chart_without_market_bars_is_rejected(self):
         payload = copy.deepcopy(self.valid)
         payload["contract"]["market_time"] = "2026-01-15T10:00:00Z"   # before every chart point

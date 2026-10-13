@@ -190,13 +190,14 @@ WALK_FORWARD_STATS_PATH = Path(__file__).resolve().parent.parent / 'data' / 'wal
 # Every backtest run writes that file by default, so a comparison run (README: --features all or
 # price_only, no --lag-context) must never stand in for the live model's evidence or flip
 # wf_is_significant. Accepted: the configuration the live 1D/1W models reproduce (oil.py) — no
-# FRED/EIA macro, cross-asset context lagged one trading day — with either the expanding window of
-# the committed 5-year evidence (0) or the production rolling window (378 rows). Reports from before
-# --train-window existed (the leaked, unpurged run) carry no train_window and are rejected too.
+# FRED/EIA macro, cross-asset context lagged one trading day, the production 378-row rolling window
+# — on a pinned --start/--end window (period None). Reports from before --train-window existed (the
+# leaked, unpurged run) carry no train_window and are rejected too. backtest_walk_forward's
+# is_validated_configuration applies the same rule when it writes the file.
 VALIDATED_WALK_FORWARD_CONFIG = {
     'feature_mode': ('no_macro',),
     'context_lag_days': (1,),
-    'train_window': (0, 378),
+    'train_window': (378,),
 }
 
 
@@ -212,6 +213,8 @@ def _walk_forward_config_mismatch(config) -> str | None:
     for key, accepted in VALIDATED_WALK_FORWARD_CONFIG.items():
         if config.get(key) not in accepted:
             return f'config.{key}={config.get(key)!r} (validated: {", ".join(map(repr, accepted))})'
+    if 'period' not in config or config['period'] is not None:
+        return f"config.period={config.get('period')!r} (validated: a pinned --start/--end window)"
     purge = config.get('purge_rows_by_horizon')
     if not isinstance(purge, dict) or not purge or any(
         VALIDATED_PURGE_ROWS.get(horizon) != rows for horizon, rows in purge.items()

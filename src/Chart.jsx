@@ -43,6 +43,7 @@ const DEFAULT_RANGE = "ALL";
 const DAILY_BAR_MIN_GAP_SEC = 20 * HOUR;   // daily bars sit a day apart; hourly bars an hour
 const DAILY_BAR_WALL_SEC = 23 * HOUR;      // Yahoo stamps daily CL=F bars 00:00 New York = 23:00 CT
 const HOUR_MS = HOUR * 1000;
+const POINT_KINDS = new Set(["1d", "1h", "live"]);  // unified_data.actual.kinds (backend get_historical_data)
 const PAST_OUTPUT_MIN_SPACING_SEC = DAY;
 const PAST_OUTPUT_GAP_BREAK_SEC = 14 * DAY;
 
@@ -123,6 +124,11 @@ const buildActualPoints = (actualPayload, fallbackValues) => {
     : (Array.isArray(fallbackValues) ? fallbackValues : []);
   const timestamps = Array.isArray(actualPayload?.timestamps) ? actualPayload.timestamps : [];
   const volumes = Array.isArray(actualPayload?.volumes) ? actualPayload.volumes : [];
+  // The backend tags every point ('1d' daily bar, '1h' hourly bar, 'live' stored quote); older
+  // payloads do not, and fall back to inferring the kind from the timestamp grid.
+  const kinds = Array.isArray(actualPayload?.kinds) && actualPayload.kinds.length === values.length
+    ? actualPayload.kinds
+    : null;
 
   const deduped = new Map();
   values.forEach((value, index) => {
@@ -130,23 +136,30 @@ const buildActualPoints = (actualPayload, fallbackValues) => {
     const price = num(value);
     if (ms == null || price == null || price <= 0) return;
     const time = Math.floor(ms / 1000);
+    const kind = kinds && POINT_KINDS.has(kinds[index]) ? kinds[index] : null;
     deduped.set(time, {
       time,
       value: round2(price),
       volume: Math.max(0, Math.round(num(volumes[index]) || 0)),
-      // Yahoo's daily and hourly bars sit exactly on the hour. Anything else is a stored live
-      // quote, whose volume is the session's running total, not one bar's.
-      isBar: ms % HOUR_MS === 0,
+      kind,
+      // Without a kind: Yahoo's daily and hourly bars sit exactly on the hour. Anything else is a
+      // stored live quote, whose volume is the session's running total, not one bar's.
+      isBar: kind ? kind !== "live" : ms % HOUR_MS === 0,
     });
   });
   return [...deduped.values()].sort((a, b) => a.time - b.time);
 };
 
 // The payload is daily bars, then about a month of hourly bars, then stored live quotes
-// (backend get_historical_data). Daily bars are the leading run of bars spaced a day apart. The
-// last one can share its session with the first hourly bars (the hourly window opens mid-session),
-// so a bar at 23:00 CT, where Yahoo stamps daily bars, still counts when an hourly bar follows it.
+// (backend get_historical_data), each tagged with its kind. Payloads from before the tags fall back
+// to inference: daily bars are the leading run of bars spaced a day apart, and the last one can
+// share its session with the first hourly bars (the hourly window opens mid-session), so a bar at
+// 23:00 CT, where Yahoo stamps daily bars, still counts when an hourly bar follows it. That guess
+// cannot tell a daily bar from an hourly window that opens at exactly 00:00 ET; the tags can.
 const findDailyBars = (points) => {
+  if (points.length && points.every((point) => point.kind)) {
+    return new Set(points.filter((point) => point.kind === "1d").map((point) => point.time));
+  }
   const bars = points.filter((point) => point.isBar);
   const daily = new Set();
   for (let index = 0; index < bars.length; index += 1) {

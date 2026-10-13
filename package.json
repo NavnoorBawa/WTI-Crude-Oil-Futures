@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint .",
-    "check": "npm run lint && npm run build && npm audit --audit-level=low"
+    "test": "node --test \"tests/frontend/*.test.mjs\"",
+    "check": "npm run lint && npm test && npm run build && npm audit --audit-level=low"
   },
   "engines": {
     "node": ">=22.13.0"

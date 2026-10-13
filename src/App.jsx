@@ -143,14 +143,16 @@ const isQuoteUsable = (quote, data) => {
 };
 
 // A quote's daily change may splice two contracts on the first session after a roll. It is shown
-// only when it cannot: never while the snapshot reports the change as unavailable, and never from
+// only when it cannot: never while the snapshot withholds its own change for a roll, and never from
 // an older price.json (no contract, so its change was not checked for a roll) when the snapshot
-// says the session is the new contract's first.
+// says the session is the new contract's first. A snapshot frozen on a weekday evening reports
+// 'unavailable_previous_settlement': that is about the snapshot's own Yahoo frame, not the quote,
+// whose previous close is the settlement that just happened, so the quote keeps its change.
 const ROLL_CHANGE_QUALITIES = new Set(["daily_close_new_contract", "unavailable_contract_roll"]);
 const resolveQuote = (liveQuote, data) => {
   if (liveQuote && isQuoteUsable(liveQuote, data)) {
     const quality = typeof data?.price_change_quality === "string" ? data.price_change_quality : "";
-    const withheld = quality.startsWith("unavailable")
+    const withheld = quality === "unavailable_contract_roll"
       || (!liveQuote.contract && ROLL_CHANGE_QUALITIES.has(quality));
     return { kind: "quote", ...liveQuote, ...(withheld ? { change: null, changePct: null } : {}) };
   }

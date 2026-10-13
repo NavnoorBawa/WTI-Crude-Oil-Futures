@@ -5311,7 +5311,9 @@ def get_historical_data(limit=50):
 
     actual_point_map = {}
 
-    def _store_actual_point(timestamp_value, price_value, volume_value=0):
+    # Each point says what it is ('1d' daily bar, '1h' hourly bar, 'live' stored quote whose volume
+    # is the session's running total), so the chart never has to infer it from the spacing.
+    def _store_actual_point(timestamp_value, price_value, volume_value=0, kind='live'):
         price_numeric = pd.to_numeric(price_value, errors='coerce')
         if pd.isna(price_numeric) or float(price_numeric) <= 0:
             return
@@ -5325,6 +5327,7 @@ def get_historical_data(limit=50):
             'timestamp': normalized_timestamp,
             'price': float(price_numeric),
             'volume': int(volume_numeric) if not pd.isna(volume_numeric) and float(volume_numeric) > 0 else 0,
+            'kind': kind,
         }
 
     broad_history = None
@@ -5352,11 +5355,11 @@ def get_historical_data(limit=50):
             point_time = _normalized_chart_datetime(idx)
             if intraday_start is not None and point_time is not None and point_time >= intraday_start:
                 continue
-            _store_actual_point(idx, row.get('Close'), row.get('Volume'))
+            _store_actual_point(idx, row.get('Close'), row.get('Volume'), kind='1d')
 
     if intraday_history is not None and not intraday_history.empty:
         for idx, row in intraday_history.iterrows():
-            _store_actual_point(idx, row.get('Close'), row.get('Volume'))
+            _store_actual_point(idx, row.get('Close'), row.get('Volume'), kind='1h')
 
     # Iterate over snapshots: the price thread keeps writing to the live stores meanwhile.
     store_lock = getattr(predictor, '_store_lock', None)
@@ -5371,7 +5374,7 @@ def get_historical_data(limit=50):
     )
     for timestamp, data in sorted_prices:
         if isinstance(data, dict):
-            _store_actual_point(timestamp, data.get('price'), data.get('volume'))
+            _store_actual_point(timestamp, data.get('price'), data.get('volume'), kind='live')
 
     sorted_actual_points = sorted(
         actual_point_map.values(),
@@ -5387,6 +5390,7 @@ def get_historical_data(limit=50):
     actual_values = [round(point['price'], 4) for point in sorted_actual_points]
     actual_timestamps = [point['timestamp'] for point in sorted_actual_points]
     actual_volumes = [point['volume'] for point in sorted_actual_points]
+    actual_kinds = [point['kind'] for point in sorted_actual_points]
     last_actual_time = _normalized_chart_datetime(actual_timestamps[-1]) if actual_timestamps else None
 
     # Get stored predictions sorted by timestamp
@@ -5490,6 +5494,7 @@ def get_historical_data(limit=50):
             'values': actual_values,
             'timestamps': actual_timestamps,
             'volumes': actual_volumes,
+            'kinds': actual_kinds,
         },
         'predicted': {
             'historical': {

@@ -30,8 +30,8 @@ export default [
     },
   },
   {
-    // Build tooling (vite.config.js, this file) runs in Node.
-    files: ["*.config.js"],
+    // Build tooling (vite.config.js, this file) and the dashboard's node:test suite run in Node.
+    files: ["*.config.js", "tests/frontend/**/*.mjs"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",

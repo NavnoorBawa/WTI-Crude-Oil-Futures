@@ -157,19 +157,18 @@ class WalkForwardConfigTest(unittest.TestCase):
             with mock.patch.object(server, "WALK_FORWARD_STATS_PATH", path):
                 return server._load_walk_forward_stats()
 
-    VALIDATED = {"feature_mode": "no_macro", "context_lag_days": 1, "train_window": 0,
+    VALIDATED = {"period": None, "feature_mode": "no_macro", "context_lag_days": 1, "train_window": 378,
                  "purge_rows_by_horizon": {"1d": 0, "1w": 4}}
 
-    def test_validated_configurations_are_loaded(self):
-        for train_window in (0, 378):           # committed 5-year expanding run; production rolling
-            with self.subTest(train_window=train_window):
-                stats = self._load({**self.VALIDATED, "train_window": train_window})
-                self.assertTrue(stats["1w"]["is_significant_5pct"])
+    def test_the_validated_configuration_is_loaded(self):
+        stats = self._load(self.VALIDATED)
+        self.assertTrue(stats["1w"]["is_significant_5pct"])
 
     def test_comparison_runs_cannot_flip_significance(self):
         # README's comparison commands write the same default file; none of them is the live model.
         for change in ({"feature_mode": "all"}, {"feature_mode": "price_only"},
-                       {"context_lag_days": 0}, {"train_window": 126},
+                       {"context_lag_days": 0}, {"train_window": 126}, {"train_window": 0},
+                       {"period": "5y"},                                    # not a pinned window
                        {"purge_rows_by_horizon": {"1d": 0, "1w": 0}},      # --no-purge: the leak
                        {"purge_rows_by_horizon": None}):                   # predates the purge record
             config = {**self.VALIDATED, **change}

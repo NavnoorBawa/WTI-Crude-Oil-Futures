@@ -505,6 +505,31 @@ class HistoricalPayloadTest(unittest.TestCase):
         self.assertNotIn(untrusted_timestamp, output)
         self.assertNotIn(exception_secret, output)
 
+    def test_every_chart_point_says_whether_it_is_a_daily_bar_an_hourly_bar_or_a_live_quote(self):
+        # The hourly window opens mid-session, so Monday's daily bar (00:00 ET) shares its session
+        # with Monday's first hourly bars; spacing alone cannot tell them apart, the kind can.
+        ny = ZoneInfo("America/New_York")
+        daily = pd.DataFrame({"Close": [62.0, 63.4], "Volume": [310000, 300000]},
+                             index=pd.DatetimeIndex(["2026-09-11", "2026-09-14"]).tz_localize(ny))
+        hourly = pd.DataFrame({"Close": [63.1, 63.2], "Volume": [20000, 20000]},
+                              index=pd.DatetimeIndex(["2026-09-14 06:00", "2026-09-14 07:00"]).tz_localize(ny))
+
+        class PredictorStub:
+            storage_timezone = timezone.utc
+            stored_actual_prices = {"2026-09-14T11:42:17+00:00": {"price": 63.25, "volume": 41000}}
+            stored_predictions = {}
+
+            def get_wti_historical_data(self, period="6mo", interval="1d"):
+                return daily if interval == "1d" else hourly
+
+            def _safe_parse_iso(self, value):
+                return datetime.fromisoformat(value)
+
+        with patch("backend.oil.get_premium_predictor", return_value=PredictorStub()):
+            actual = get_historical_data(limit=50)["actual"]
+        self.assertEqual(actual["kinds"], ["1d", "1d", "1h", "1h", "live"])
+        self.assertEqual(len(actual["kinds"]), len(actual["values"]))
+
     def test_historical_data_uses_matured_target_timestamps(self):
         class PredictorStub:
             def __init__(self):

@@ -103,6 +103,9 @@ jobs:
       - name: Lint frontend
         run: npm run lint
 
+      - name: Test dashboard logic
+        run: npm test
+
       - name: Audit JS dependencies
         # A real advisory still fails this step. A registry/network error (the 2026-09-03 deploy
         # died on an npm advisory-endpoint timeout) is retried, then only warned: an unreachable

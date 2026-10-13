@@ -357,10 +357,12 @@ jobs:
           fi
 
       # A plain git push with this job's token, instead of a third-party action holding it. Same
-      # result as the peaceiris/actions-gh-pages step it replaces (publish_dir ./dist, defaults
+      # site as the peaceiris/actions-gh-pages step it replaces (publish_dir ./dist, defaults
       # otherwise): the branch's files become exactly dist/ plus .nojekyll, committed on top of the
       # branch's history as "deploy: <commit>" and pushed without force; an unchanged site is not
-      # committed. The gh-pages branch must exist, as it has since the first deploy.
+      # committed. One deliberate difference: the commit is authored by github-actions[bot], not by
+      # the run's actor (a scheduled deploy is not the work of whoever last edited the schedule).
+      # The gh-pages branch must exist, as it has since the first deploy.
       - name: Deploy to GitHub Pages
         id: pages_deploy
         env:

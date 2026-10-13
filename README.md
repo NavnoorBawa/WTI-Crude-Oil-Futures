@@ -427,8 +427,10 @@ python backend/supply_shock_playbook.py   # print the full event-study table fro
   win rate, drawdown, profit factor). `--features` (default `no_macro`; `all` adds FRED/EIA macro,
   whose EIA series need `EIA_API_KEY`; `price_only` is technical only) drives the leakage
   comparison, and each comparison run writes its own `--output`; `--no-purge` reproduces the
-  retracted leak into a `*LEAKED*` file; `--train-window` switches expanding to rolling (378 bars = the production 18-month
-  window); `--horizons` and `--period` select the test set. Non-positive prices (the 2020 negative
+  retracted leak into a `*LEAKED*` file; `--train-window` sets the rolling window (default 378 bars, the production 18-month
+  window; 0 = expanding); `--start`/`--end` pin the data window (or `--period` takes a
+  today-relative one) and `--horizons` selects the horizons. Only a pinned, purged, validated
+  configuration may write the dashboard's report. Non-positive prices (the 2020 negative
   settle) are dropped before feature engineering. **Purges the last `horizon_steps − 1` training
   rows per step** so no label matures after the prediction point — the fix that exposed the
   headline as leakage.

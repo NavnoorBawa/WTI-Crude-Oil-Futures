@@ -19,6 +19,7 @@ from backend.safe_paths import dashboard_payload_path  # noqa: E402  (needs the 
 
 
 HORIZONS = ("1h", "1d", "1w")
+POINT_KINDS = {"1d", "1h", "live"}   # unified_data.actual.kinds (backend/oil.py get_historical_data)
 
 
 def _finite_number(value: Any, *, positive: bool = False) -> bool:
@@ -153,8 +154,13 @@ def validate_payload(
             errors.append("actual history contains an invalid timestamp")
         elif any(not _finite_number(value, positive=True) for value in series[1]):
             errors.append("actual history contains a non-positive/non-finite price")
+        elif "kinds" in actual and (not isinstance(actual["kinds"], list)
+                                    or len(actual["kinds"]) != len(series[0])
+                                    or any(kind not in POINT_KINDS for kind in actual["kinds"])):
+            errors.append(f"actual kinds must be aligned with the history and one of {sorted(POINT_KINDS)}")
         elif price:
-            errors.extend(_check_chart_against_quote(series[0], series[1], price, market_time, notes))
+            errors.extend(_check_chart_against_quote(series[0], series[1], price, market_time, notes,
+                                                     kinds=actual.get("kinds")))
 
     errors.extend(_validate_vol_forecast(payload.get("vol_forecast"), notes))
     for optional in ("supply_shock_playbook", "live_record"):
@@ -164,21 +170,23 @@ def validate_payload(
 
 
 def _check_chart_against_quote(timestamps: list, values: list, price: float,
-                               market_time: datetime | None, notes: list[str]) -> list[str]:
+                               market_time: datetime | None, notes: list[str],
+                               kinds: list | None = None) -> list[str]:
     """The newest exchange bar on the chart must agree with the quote (catches a chart series
     from another contract, or a stale one).
 
     The chart's newest point is not an exchange bar: the server stores the quote it forecasts
     from as a live point stamped when it was stored (oil.py store_actual_price) and appends it
-    to the Yahoo bars (get_historical_data), so the last point is the quote itself. Bars are
-    stamped at or before the quote's exchange time (contract.market_time); live points come
-    after it, so the comparison uses the newest point at or before that time.
+    to the Yahoo bars (get_historical_data), so the last point is the quote itself. Payloads tag
+    each point ('1d', '1h', 'live'), so live points are skipped by kind; older payloads rely on bars
+    being stamped at or before the quote's exchange time (contract.market_time), live points after.
     """
     if market_time is None:
         notes.append("contract.market_time is missing; the chart was not checked against the quote")
         return []
-    bars = [(stamp, value) for stamp, value in zip(map(_parse_timestamp, timestamps), values)
-            if stamp <= market_time]
+    kinds = kinds if isinstance(kinds, list) else [None] * len(timestamps)
+    bars = [(stamp, value) for stamp, value, kind in zip(map(_parse_timestamp, timestamps), values, kinds)
+            if stamp <= market_time and kind != "live"]
     if not bars:
         return ["the chart has no market bar at or before the quote time"]
     if abs(max(bars)[1] / price - 1.0) > 0.05:

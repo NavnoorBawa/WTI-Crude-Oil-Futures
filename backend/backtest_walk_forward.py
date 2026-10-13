@@ -323,17 +323,21 @@ def purge_count(horizon: str) -> int:
 
 # The report the dashboard serves (backend/server.py loads it only for the configuration below).
 DASHBOARD_ARTIFACT = "walk_forward_backtest_latest.json"
+# The live 1D/1W models train on the latest 378 daily bars (~18 months; oil.py daily_training_rows).
+PRODUCTION_TRAIN_WINDOW = 378
 
 
 def is_validated_configuration(config: dict) -> bool:
-    """True for the configuration the purged backtest validated and production runs: no FRED/EIA
-    macro, context lagged one trading day, an expanding or 378-bar rolling window, and the purge
-    applied on every horizon. Mirrors backend/server.py's check on DASHBOARD_ARTIFACT."""
+    """True for the configuration production runs and the purged backtest validated: no FRED/EIA
+    macro, context lagged one trading day, the production 378-bar rolling window, the purge applied
+    on every horizon, and a pinned --start/--end window (period None), so the report can be re-run
+    exactly. Mirrors backend/server.py's check on DASHBOARD_ARTIFACT."""
     purge_rows = config.get("purge_rows_by_horizon") or {}
     return (
         config.get("feature_mode") == "no_macro"
         and config.get("context_lag_days") == 1
-        and config.get("train_window") in (0, 378)
+        and config.get("train_window") == PRODUCTION_TRAIN_WINDOW
+        and "period" in config and config["period"] is None
         and bool(purge_rows)
         and all(rows == purge_count(horizon) for horizon, rows in purge_rows.items())
     )
@@ -537,8 +541,9 @@ def main():
     parser.add_argument("--lag-context", type=int, default=1, metavar="DAYS",
                         help="lag cross-asset context features by N trading days (default 1, strictly "
                              "entry-time-clean and the validated setting; 0 = the timing-leakage comparison)")
-    parser.add_argument("--train-window", type=int, default=0, metavar="BARS",
-                        help="rolling training window in bars (0 = expanding, production uses ~378 for 18mo)")
+    parser.add_argument("--train-window", type=int, default=PRODUCTION_TRAIN_WINDOW, metavar="BARS",
+                        help=f"rolling training window in bars (default {PRODUCTION_TRAIN_WINDOW}, the "
+                             "production ~18 months; 0 = expanding)")
     parser.add_argument("--horizons", default="1d,1w",
                         help="comma-separated horizons to evaluate (default: 1d,1w; use 1w to skip the dead 1d)")
     parser.add_argument("--start", metavar="YYYY-MM-DD",
@@ -554,7 +559,11 @@ def main():
     args = parser.parse_args()
 
     horizons = [h.strip() for h in args.horizons.split(",") if h.strip()]
+    if bool(args.start) != bool(args.end):
+        parser.error("--start and --end pin a window together; give both (or neither, for --period)")
     run_config = {
+        # None = a pinned --start/--end window, re-runnable exactly; else the today-relative period.
+        "period": None if args.start else args.period,
         "feature_mode": args.features,
         "context_lag_days": max(0, int(args.lag_context)),
         "train_window": int(args.train_window),
@@ -570,8 +579,9 @@ def main():
     if args.no_purge and "LEAKED" not in output_path.name:
         parser.error("--no-purge reproduces the look-ahead leak; its --output file name must contain 'LEAKED'")
     if output_path.name == DASHBOARD_ARTIFACT and not is_validated_configuration(run_config):
-        parser.error(f"{DASHBOARD_ARTIFACT} takes only the validated configuration (--features no_macro "
-                     "--lag-context 1, --train-window 0 or 378, purged); pass --output for a comparison run")
+        parser.error(f"{DASHBOARD_ARTIFACT} takes only the validated configuration (--start/--end, "
+                     f"--features no_macro --lag-context 1 --train-window {PRODUCTION_TRAIN_WINDOW}, purged); "
+                     "pass --output for any other run")
 
     predictor = PremiumWTIPredictor()
     predictor.model_n_estimators = max(20, int(args.estimators))
@@ -637,7 +647,6 @@ def main():
     report = {
         "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "config": {
-            "period": args.period if not pinned else None,
             # The exact data window, so any report can be re-run with --start/--end.
             "data_start": str(wti_data.index[0].date()),
             "data_end": str(wti_data.index[-1].date()),

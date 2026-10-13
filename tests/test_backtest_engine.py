@@ -145,7 +145,8 @@ class MacroFeatureModeTest(unittest.TestCase):
 
 class MaxDrawdownTest(unittest.TestCase):
     def test_losses_from_the_first_trade_count_from_zero_equity(self):
-        # The opening trades of the committed unpurged 1d run: equity 0 -> -19,430 is the drawdown.
+        # Three opening losses: equity 0 -> -19,430 is the drawdown, though the curve never had a
+        # positive peak to fall from.
         self.assertEqual(compute_pnl_metrics([-2050.0, -9030.0, -8350.0], 50.4)["max_drawdown_usd"], 19430.0)
         self.assertEqual(compute_pnl_metrics([-2050.0, -9030.0, -8350.0, 25000.0], 50.4)["max_drawdown_usd"], 19430.0)
 
@@ -219,23 +220,28 @@ class CommandLineTest(unittest.TestCase):
             self._run(*argv)
         self.assertEqual(StubPredictor.history_requests, [], msg="refused only after fetching data")
 
-    def test_default_run_is_the_validated_configuration_and_records_its_purge(self):
-        name, config = self._run()
+    PINNED = ("--start", "2016-06-20", "--end", "2016-10-31")
+
+    def test_default_pinned_run_is_the_validated_configuration_and_records_its_purge(self):
+        name, config = self._run(*self.PINNED)
         self.assertEqual(name, bwf.DASHBOARD_ARTIFACT)
         self.assertEqual(config["purge_rows_by_horizon"], {"1d": 0, "1w": 4})
-        self.assertEqual((config["feature_mode"], config["context_lag_days"], config["train_window"]),
-                         ("no_macro", 1, 0))
+        self.assertEqual((config["feature_mode"], config["context_lag_days"], config["train_window"], config["period"]),
+                         ("no_macro", 1, bwf.PRODUCTION_TRAIN_WINDOW, None))
         self.assertTrue(bwf.is_validated_configuration(config))
 
-        _, rolling = self._run("--train-window", "378", "--horizons", "1w")
-        self.assertEqual(rolling["purge_rows_by_horizon"], {"1w": 4})
-        self.assertTrue(bwf.is_validated_configuration(rolling))
+    def test_the_dashboard_report_needs_a_pinned_window_and_the_production_window(self):
+        # README: the dashboard's report is the pinned 5-year command; a today-relative --period run
+        # or an expanding window is a different experiment and needs its own --output.
+        self._refused()
+        self._refused(*self.PINNED, "--train-window", "0")
+        self._refused("--start", "2016-06-20")                      # half a window pins nothing
 
     def test_comparison_runs_need_their_own_output(self):
         for argv in (("--features", "all"), ("--features", "price_only"), ("--lag-context", "0"),
                      ("--train-window", "250"), ("--no-purge",)):
             with self.subTest(argv=argv):
-                self._refused(*argv)
+                self._refused(*self.PINNED, *argv)
         name, config = self._run("--features", "all", "--output", "data/wf_compare_all.json")
         self.assertEqual((name, config["feature_mode"]), ("wf_compare_all.json", "all"))
         self.assertFalse(bwf.is_validated_configuration(config))
@@ -255,10 +261,11 @@ class CommandLineTest(unittest.TestCase):
         self.assertEqual(StubPredictor.history_requests, [])
 
     def test_validated_configuration_check(self):
-        good = {"feature_mode": "no_macro", "context_lag_days": 1, "train_window": 378,
+        good = {"period": None, "feature_mode": "no_macro", "context_lag_days": 1, "train_window": 378,
                 "purge_rows_by_horizon": {"1d": 0, "1w": 4}}
         self.assertTrue(bwf.is_validated_configuration(good))
         for change in ({"feature_mode": "all"}, {"context_lag_days": 0}, {"train_window": 252},
+                       {"train_window": 0}, {"period": "5y"},
                        {"purge_rows_by_horizon": {"1d": 0, "1w": 0}}, {"purge_rows_by_horizon": {}}):
             with self.subTest(change=change):
                 self.assertFalse(bwf.is_validated_configuration({**good, **change}))
