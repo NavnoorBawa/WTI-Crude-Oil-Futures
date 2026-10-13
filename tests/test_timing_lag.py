@@ -17,14 +17,12 @@ CONTEXT_OFFSETS = {
     "XLE": 10.0,
     "XOP": 8.0,
     "SPY": 15.0,
-    "CLQ26": 1.0,
 }
 
 CONTEXT_FEATURES = [
     "vix_level",
     "brent_return_1d",
     "brent_wti_spread_change_5d",
-    "term_spread_pct",
     "dxy_level_zscore_20d",
     "macro_stress_score",
 ]
@@ -71,7 +69,6 @@ class TimingLagContextTest(unittest.TestCase):
             )
 
         predictor._fetch_market_series = fake_market_series
-        predictor._get_next_wti_contract_symbol = lambda: "CLQ26"
         return predictor, wti_data
 
     def _build_datasets(self):

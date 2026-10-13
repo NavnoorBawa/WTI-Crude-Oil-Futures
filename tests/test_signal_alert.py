@@ -6,6 +6,8 @@ emailed alert and the dashboard honest now that the direction edge is retracted.
 itself is not tested — it requires SMTP; only the pure stance logic is.)
 """
 
+import email
+import ssl
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -14,10 +16,13 @@ from unittest import mock
 from backend import signal_alert as sa
 
 
-def payload(pct, significant):
+def payload(pct, significant, win_rate=55.0, profit_factor=1.3):
     return {
-        "performance_metrics": {"by_horizon": {"1w": {"wf_is_significant": significant}}},
-        "multi_horizon_predictions": {"percentage_changes": {"1w": pct}},
+        "performance_metrics": {"by_horizon": {"1w": {
+            "wf_is_significant": significant, "wf_pnl_win_rate": win_rate, "wf_pnl_profit_factor": profit_factor,
+        }}},
+        "multi_horizon_predictions": {"predictions": {"1w": round(80.0 * (1 + pct / 100), 2)},
+                                      "percentage_changes": {"1w": pct}},
         "current_price": 80.0,
         "contract": {"symbol": "CLN26"},
         "frozen_at": "2026-06-20T00:00:00+00:00",
@@ -38,6 +43,12 @@ class ExtractSignalTest(unittest.TestCase):
     def test_significant_but_low_conviction_is_neutral(self):
         # Within the +/-0.6% band there is no lean even when significant.
         self.assertEqual(sa.extract_signal(payload(0.3, True))["stance"], "NEUTRAL")
+
+    def test_no_lean_is_emailed_that_the_dashboard_would_not_show(self):
+        # Significant direction accuracy but a profit factor below 1 after costs: the dashboard's
+        # Kelly sizing finds no edge and shows NEUTRAL, so the alert must not announce a lean.
+        self.assertEqual(sa.extract_signal(payload(1.2, True, win_rate=48.2, profit_factor=0.786))["stance"], "NEUTRAL")
+        self.assertEqual(sa.extract_signal(payload(-1.2, True, win_rate=48.2, profit_factor=0.786))["stance"], "NEUTRAL")
 
 
 class SaveStateTest(unittest.TestCase):
@@ -111,6 +122,44 @@ class DeliveryOrderingTest(unittest.TestCase):
             sa.process_signal(current, previous)
 
         self.assertEqual(events, ["sent", "saved"])
+
+
+class LiveCountTest(unittest.TestCase):
+    def test_live_count_comes_from_the_committed_record(self):
+        data = payload(0.2, False)
+        data["live_record"] = {"n_calls": 106, "n_resolved_directional": 3, "n_independent_directional": 1}
+        sig = sa.extract_signal(data)
+        self.assertEqual(sig["live_n"], 1)
+        self.assertEqual(sig["live_calls"], 106)
+
+
+class SendEmailTest(unittest.TestCase):
+    def _send(self, cur):
+        smtp_cls = mock.MagicMock()
+        with (
+            mock.patch.object(sa, "GMAIL_APP_PASSWORD", "app-password"),
+            mock.patch.object(sa.smtplib, "SMTP_SSL", smtp_cls),
+        ):
+            self.assertTrue(sa.send_email("NEUTRAL", cur))
+        return smtp_cls
+
+    def test_smtp_connection_verifies_the_certificate(self):
+        # smtplib's default context skips verification; the credential must only ever travel
+        # over a certificate- and hostname-verified channel.
+        smtp_cls = self._send(sa.extract_signal(payload(0.2, False)))
+        context = smtp_cls.call_args.kwargs["context"]
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+        self.assertTrue(context.check_hostname)
+
+    def test_body_uses_payload_statistics_not_hardcoded_text(self):
+        data = payload(0.2, False)
+        data["performance_metrics"]["by_horizon"]["1w"].update({"wf_samples": 450, "wf_p_value": 0.27})
+        smtp_cls = self._send(sa.extract_signal(data))
+        raw = smtp_cls.return_value.__enter__.return_value.sendmail.call_args.args[2]
+        body = email.message_from_string(raw).get_payload(decode=True).decode("utf-8")
+        self.assertIn("450 OOS", body)
+        self.assertIn("p = 0.27", body)
+        self.assertNotIn("199", body)
 
 
 if __name__ == "__main__":

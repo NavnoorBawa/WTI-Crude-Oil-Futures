@@ -63,15 +63,38 @@ const contentSecurityPolicyPlugin = (isDevelopment, env) => {
   }
 }
 
+// A production bundle must never silently point at the local dev API (http://127.0.0.1:9000).
+// Without VITE_API_BASE_URL, a build defaults to static-snapshot mode (the GitHub Pages setup);
+// an explicit VITE_STATIC_DATA=false with no API base is a misconfiguration and fails the build.
+const resolveStaticDataMode = (isBuild, env) => {
+  const requested = env.VITE_STATIC_DATA
+  if (requested === 'true') return 'true'
+  if (!isBuild || env.VITE_API_BASE_URL) return requested ?? 'false'
+  if (requested !== undefined && requested !== '') {
+    throw new Error(
+      `VITE_STATIC_DATA=${requested} with no VITE_API_BASE_URL would ship a bundle that polls ` +
+      'http://127.0.0.1:9000. Set VITE_STATIC_DATA=true (GitHub Pages) or VITE_API_BASE_URL.'
+    )
+  }
+  console.warn('[vite] VITE_STATIC_DATA is not set: building in static-snapshot mode (reads data.json).')
+  return 'true'
+}
+
 // https://vitejs.dev/config/
 // base: GitHub Pages project sites serve from /<repo>/, so the CI build sets
 // VITE_BASE_PATH=/WTI-Crude-Oil-Futures/. Local dev and custom-domain builds use '/'.
 export default defineConfig(({ command, mode }) => {
-  const env = loadEnv(mode, process.cwd(), '')
+  // Only VITE_-prefixed variables are ever read here, so no other secret in the environment
+  // can leak into the build config.
+  const env = loadEnv(mode, process.cwd(), 'VITE_')
   const isDevelopment = command === 'serve'
+  const staticDataMode = resolveStaticDataMode(command === 'build', env)
 
   return {
     base: env.VITE_BASE_PATH || '/',
+    define: {
+      'import.meta.env.VITE_STATIC_DATA': JSON.stringify(staticDataMode),
+    },
     plugins: [react(), contentSecurityPolicyPlugin(isDevelopment, env)],
     server: {
       port: 3000,

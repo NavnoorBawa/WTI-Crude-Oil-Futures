@@ -17,7 +17,7 @@ config should switch to the lagged (bulletproof) feature set.
 import argparse
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Ensure backend is importable from project root.
@@ -108,7 +108,7 @@ def main():
     out_path = data_json_path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps({
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "config": {"period": PERIOD, "min_train": args.min_train, "step": args.step,
                    "estimators": args.estimators, "feature_mode": "no_macro"},
         "results": results,

@@ -73,7 +73,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           cache: npm
@@ -88,7 +88,7 @@ jobs:
       - name: Install dependencies
         run: |
           for attempt in 1 2 3; do
-            if npm ci --no-audit --no-fund; then
+            if npm ci --ignore-scripts --no-audit --no-fund; then
               exit 0
             fi
             if [ "$attempt" -eq 3 ]; then
@@ -102,6 +102,9 @@ jobs:
 
       - name: Lint frontend
         run: npm run lint
+
+      - name: Test dashboard logic
+        run: npm test
 
       - name: Audit JS dependencies
         # A real advisory still fails this step. A registry/network error (the 2026-09-03 deploy

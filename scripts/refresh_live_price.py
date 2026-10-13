@@ -7,7 +7,25 @@ consume that file directly while the baked Pages snapshot remains its fallback.
 
 Only transient upstream/GitHub failures are treated as best-effort: the previous
 good quote stays published and the workflow emits a warning. Authentication,
-permission, and validation failures remain hard errors.
+permission, and validation failures remain hard errors, and so does a quote that
+has not been refreshed for STALE_FAIL_HOURS: a provider that blocks the runners
+must turn the workflow red instead of leaving a days-old price looking current.
+
+Cadence: the workflow is scheduled every 15 minutes, but GitHub throttles
+scheduled workflows on busy runners; in practice runs land every few hours. The
+published `market_time` (the exchange timestamp of the quote, not the time the
+job ran) is what the dashboard uses to decide how fresh the price is.
+
+Contract: CL=F is a continuous series, so the file also names the contract the
+quote belongs to (`contract`, from the CME calendar at the quote's session). The
+dashboard overlays the quote only on a snapshot of that same contract. Yahoo's
+previous close for CL=F is the series' previous close, which on the first
+session after a roll is the expired contract's, so no change is published when
+the previous close can belong to another contract. In the last sessions before
+a last trade date Yahoo's live CL=F already quotes the NEXT contract while the
+calendar still names the expiring one (contract_calendar.in_live_roll_window):
+there the quote is matched to the contracts' own quotes and the matched
+contract's own quote is published, so the label and the change are one contract.
 """
 
 from __future__ import annotations
@@ -21,14 +39,22 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Any
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from backend import contract_calendar  # noqa: E402 - needs the project root on sys.path
 
 API_RETRY_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
 COLLISION_STATUSES = frozenset({409, 422})
 BRANCH = "live-data"
 DESTINATION = "price.json"
 MAX_ATTEMPTS = 5
+STALE_FAIL_HOURS = 24
 GITHUB_API_ORIGIN = "https://api.github.com"
 GITHUB_OWNER = "NavnoorBawa"
 GITHUB_REPOSITORY_NAME = "WTI-Crude-Oil-Futures"
@@ -160,14 +186,15 @@ def request_json(
     )
 
 
-def fetch_quote() -> tuple[float, float | None] | None:
-    """Fetch a validated CL=F quote, trying both Yahoo chart hosts."""
+def fetch_quote(symbol: str = "CL=F") -> tuple[float, float | None, str | None] | None:
+    """Fetch a validated quote (price, previous close, exchange time), trying both Yahoo hosts."""
 
+    encoded = urllib.parse.quote(symbol, safe="")
     for attempt in range(3):
         for host in ("query1", "query2"):
             url = (
                 f"https://{host}.finance.yahoo.com/v8/finance/chart/"
-                "CL%3DF?interval=1d&range=1d"
+                f"{encoded}?interval=1d&range=1d"
             )
             request = urllib.request.Request(
                 url,
@@ -180,13 +207,19 @@ def fetch_quote() -> tuple[float, float | None] | None:
                 price = float(meta["regularMarketPrice"])
                 previous = meta.get("previousClose") or meta.get("chartPreviousClose")
                 previous = float(previous) if previous is not None else None
+                market_epoch = meta.get("regularMarketTime")
+                market_time = (
+                    datetime.fromtimestamp(int(market_epoch), timezone.utc)
+                    .isoformat().replace("+00:00", "Z")
+                    if isinstance(market_epoch, (int, float)) and market_epoch > 0 else None
+                )
                 if price > 0 and (previous is None or previous > 0):
-                    return price, previous
+                    return price, previous, market_time
                 raise ValueError("provider returned a non-positive quote")
             except (KeyError, TypeError, ValueError, json.JSONDecodeError,
                     TimeoutError, urllib.error.URLError, OSError) as exc:
                 print(
-                    f"{host} quote attempt failed error_type={type(exc).__name__}",
+                    f"{host} {symbol} quote attempt failed error_type={type(exc).__name__}",
                     file=sys.stderr,
                 )
 
@@ -195,62 +228,111 @@ def fetch_quote() -> tuple[float, float | None] | None:
     return None
 
 
-def build_payload(price: float, previous: float | None) -> dict:
+def _parse_utc(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def match_contract_quote(cl_price: float, session: date, fetch=None) -> tuple[str, tuple] | None:
+    """(contract code, that contract's own quote) for a CL=F price inside the live roll window.
+
+    The front and next contracts are quoted by their own symbols and the nearer price wins (a tie
+    keeps the front). None when either cannot be quoted: the contract is then unknown.
+    """
+    fetch = fetch or fetch_quote
+    front = contract_calendar.front_contract(session)
+    candidates = (front, contract_calendar.next_contract(*front))
+    quotes = {candidate: fetch(contract_calendar.yahoo_symbol(*candidate)) for candidate in candidates}
+    if any(quote is None for quote in quotes.values()):
+        return None
+    best = min(candidates, key=lambda candidate: (abs(quotes[candidate][0] - cl_price), candidate != front))
+    return contract_calendar.contract_code(*best), quotes[best]
+
+
+def _earliest_previous_close_session(quote_moment: datetime) -> date:
+    """Earliest CME session Yahoo's previous close for a quote at `quote_moment` can be from.
+
+    In the day session that is the session before the quote's. From the 18:00 ET reopen to
+    midnight, Yahoo still files the quote under the calendar day just settled, so its previous
+    close can be the one before that settlement, two sessions back.
+    """
+    local_day = quote_moment.astimezone(contract_calendar.EXCHANGE_TZ).date()
+    return contract_calendar.shift_business_days(contract_calendar.trading_date(local_day), -1)
+
+
+def build_payload(
+    price: float,
+    previous: float | None,
+    market_time: str | None = None,
+    *,
+    now: datetime | None = None,
+    contract: str | None = None,
+) -> dict:
+    """price.json for a CL=F quote, or for one contract's own quote when `contract` names it."""
+    fetched_at = now or datetime.now(timezone.utc)
+    quote_moment = _parse_utc(market_time) or fetched_at
+    # Never publish a change across a roll: it would be the calendar spread, not a market move.
+    # A contract's own quote has its own previous close, so only CL=F's needs the check.
+    if contract is None and previous and contract_calendar.spans_roll(
+        _earliest_previous_close_session(quote_moment), quote_moment
+    ):
+        previous = None
     return {
         "price": round(price, 2),
         "prev_close": round(previous, 2) if previous else None,
         "change_pct": (
             round((price / previous - 1) * 100, 2) if previous else None
         ),
-        "fetched_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "source": "yahoo CL=F",
+        "contract": contract or contract_calendar.front_contract_code(quote_moment),
+        "fetched_at": fetched_at.isoformat().replace("+00:00", "Z"),
+        "market_time": market_time,
+        "source": f"yahoo {contract}" if contract else "yahoo CL=F",
     }
 
 
-def ensure_branch(
-    *,
-    branch: str,
-    start_sha: str,
-    token: str,
-) -> None:
+def ensure_branch(*, branch: str, token: str) -> None:
+    """Require the state branch; never recreate it.
+
+    live-data also carries the refresh workflow's runtime state behind an initialization
+    marker. Recreating it from main would silently produce a branch without that state, and
+    every later dashboard deploy would then fail closed. A missing branch is an operator
+    problem to fix by re-seeding it, so it fails loudly here.
+    """
     ref_url = _github_repo_url("git", "ref", "heads", branch)
     try:
         request_json("GET", ref_url, token=token)
-        return
     except ApiError as exc:
-        if exc.status != 404:
-            raise
+        if exc.status == 404:
+            raise ApiError(404, f"the {branch} branch is missing; re-seed it with its runtime state") from exc
+        raise
 
-    refs_url = _github_repo_url("git", "refs")
+
+def published_quote_age_hours(*, branch: str, token: str) -> float | None:
+    """Hours since the currently published price.json was fetched, or None if unknown."""
+    lookup_url = _github_repo_url("contents", DESTINATION, query={"ref": branch})
     try:
-        request_json(
-            "POST",
-            refs_url,
-            token=token,
-            payload={"ref": f"refs/heads/{branch}", "sha": start_sha},
-        )
-        print(f"Created {branch} branch from {start_sha[:12]}")
-    except ApiError as exc:
-        # Another run may have created the branch after our GET.
-        if exc.status != 422:
-            raise
-        request_json("GET", ref_url, token=token)
+        meta = request_json("GET", lookup_url, token=token, attempts=2)
+        published = json.loads(base64.b64decode(meta.get("content", "")).decode("utf-8"))
+        fetched = datetime.fromisoformat(str(published["fetched_at"]).replace("Z", "+00:00"))
+    except (ApiError, TemporaryFailure, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+    return (datetime.now(timezone.utc) - fetched).total_seconds() / 3600.0
 
 
 def publish_price(
     quote: dict,
     *,
     branch: str,
-    start_sha: str,
     token: str,
 ) -> None:
     """Upsert price.json, re-reading its SHA after optimistic-lock races."""
 
-    ensure_branch(
-        branch=branch,
-        start_sha=start_sha,
-        token=token,
-    )
+    ensure_branch(branch=branch, token=token)
     contents_url = _github_repo_url("contents", DESTINATION)
     lookup_url = _github_repo_url("contents", DESTINATION, query={"ref": branch})
     content = base64.b64encode(
@@ -303,8 +385,21 @@ def publish_price(
     raise TemporaryFailure("price.json kept changing during all publish attempts")
 
 
+def _keep_published_price(reason: str) -> int:
+    """Leave the published price in place; fail once it has gone stale."""
+    age = published_quote_age_hours(branch=BRANCH, token=os.environ["GH_TOKEN"])
+    if age is not None and age > STALE_FAIL_HOURS:
+        print(
+            f"::error title=Live price stale::{reason}, and no price has been published for "
+            f"{age:.0f} hours; the published price is stale."
+        )
+        return 1
+    print(f"::warning title=Live price unchanged::{reason}; the previous published price remains active.")
+    return 0
+
+
 def main() -> int:
-    required = ("GH_TOKEN", "GITHUB_API_URL", "GITHUB_REPOSITORY", "GITHUB_SHA")
+    required = ("GH_TOKEN", "GITHUB_API_URL", "GITHUB_REPOSITORY")
     missing = [name for name in required if not os.environ.get(name)]
     if missing:
         print(f"Missing required environment: {', '.join(missing)}", file=sys.stderr)
@@ -319,19 +414,23 @@ def main() -> int:
 
     quote = fetch_quote()
     if quote is None:
-        print(
-            "::warning title=Live price unchanged::No quote provider was available; "
-            "the previous published price remains active."
-        )
-        return 0
+        return _keep_published_price("No quote provider was available")
 
-    payload = build_payload(*quote)
+    price, _, market_time = quote
+    session = contract_calendar.trading_date(_parse_utc(market_time) or datetime.now(timezone.utc))
+    if contract_calendar.in_live_roll_window(session):
+        matched = match_contract_quote(price, session)
+        if matched is None:
+            return _keep_published_price("Near the roll the quoted contract could not be established")
+        contract, contract_quote = matched
+        payload = build_payload(*contract_quote, contract=contract)
+    else:
+        payload = build_payload(*quote)
     print(payload)
     try:
         publish_price(
             payload,
             branch=BRANCH,
-            start_sha=os.environ["GITHUB_SHA"],
             token=os.environ["GH_TOKEN"],
         )
     except TemporaryFailure as exc:

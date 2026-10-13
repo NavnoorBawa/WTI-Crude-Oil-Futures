@@ -222,7 +222,6 @@ class OilLogicGuardsTest(unittest.TestCase):
             return pd.Series([50 + offset + (i * 0.1) for i in range(90)], index=index)
 
         predictor._fetch_market_series = fake_market_series
-        predictor._get_next_wti_contract_symbol = lambda: "CLM26"
 
         feature_map = predictor.build_market_context_feature_map(wti_data)
         latest_row = feature_map[max(feature_map.keys())]
@@ -230,7 +229,6 @@ class OilLogicGuardsTest(unittest.TestCase):
         for feature_name in [
             "risk_off_pressure_5d",
             "macro_stress_score",
-            "term_spread_pct",
             "energy_equity_relative_20d",
             "wti_dxy_corr_20d",
             "brent_return_1d",
@@ -240,6 +238,9 @@ class OilLogicGuardsTest(unittest.TestCase):
         ]:
             self.assertIn(feature_name, latest_row)
             self.assertTrue(math.isfinite(latest_row[feature_name]))
+        # The front/next term-structure family was always constant zero (its bare contract symbol
+        # never resolved on Yahoo) and was removed rather than left as dead model inputs.
+        self.assertFalse(any(name.startswith("term_spread") for name in latest_row))
 
     def test_historical_external_feature_map_uses_release_lag_without_leakage(self):
         predictor = PremiumWTIPredictor.__new__(PremiumWTIPredictor)
@@ -312,7 +313,8 @@ class ServerMetricSelectionTest(unittest.TestCase):
             min_live_accuracy_samples=18,
         )
 
-        self.assertEqual(headline_horizon, "1h")
+        # 1H is computed but retracted from display, so it can never be the headline.
+        self.assertEqual(headline_horizon, "1w")
         self.assertEqual(metrics_by_horizon["1d"]["display_accuracy"], 39.4)
         self.assertEqual(metrics_by_horizon["1d"]["display_accuracy_source"], "backtest")
 
@@ -422,7 +424,9 @@ class ServerRuntimeGuardTest(unittest.TestCase):
             min_live_accuracy_samples=18,
         )
 
-        self.assertEqual(headline_horizon, "1h")
+        # Even as the only "qualified" horizon, the retracted 1H is never promoted to headline;
+        # its metrics are still reported per horizon.
+        self.assertEqual(headline_horizon, "1w")
         self.assertEqual(metrics_by_horizon["1h"]["display_accuracy_source"], "live_sparse")
         self.assertEqual(metrics_by_horizon["1d"]["display_accuracy_source"], "backtest")
 
@@ -452,7 +456,8 @@ class ServerRuntimeGuardTest(unittest.TestCase):
             min_live_accuracy_samples=18,
         )
 
-        self.assertEqual(headline_horizon, "1h")
+        # Best available among the displayed horizons: 1W's 42.4% beats 1D's 39.4%.
+        self.assertEqual(headline_horizon, "1w")
         self.assertEqual(metrics_by_horizon["1h"]["display_accuracy"], 45.4)
 
 
@@ -499,6 +504,31 @@ class HistoricalPayloadTest(unittest.TestCase):
         self.assertIn("chart_timestamp_fallback_used error_type=ValueError", output)
         self.assertNotIn(untrusted_timestamp, output)
         self.assertNotIn(exception_secret, output)
+
+    def test_every_chart_point_says_whether_it_is_a_daily_bar_an_hourly_bar_or_a_live_quote(self):
+        # The hourly window opens mid-session, so Monday's daily bar (00:00 ET) shares its session
+        # with Monday's first hourly bars; spacing alone cannot tell them apart, the kind can.
+        ny = ZoneInfo("America/New_York")
+        daily = pd.DataFrame({"Close": [62.0, 63.4], "Volume": [310000, 300000]},
+                             index=pd.DatetimeIndex(["2026-09-11", "2026-09-14"]).tz_localize(ny))
+        hourly = pd.DataFrame({"Close": [63.1, 63.2], "Volume": [20000, 20000]},
+                              index=pd.DatetimeIndex(["2026-09-14 06:00", "2026-09-14 07:00"]).tz_localize(ny))
+
+        class PredictorStub:
+            storage_timezone = timezone.utc
+            stored_actual_prices = {"2026-09-14T11:42:17+00:00": {"price": 63.25, "volume": 41000}}
+            stored_predictions = {}
+
+            def get_wti_historical_data(self, period="6mo", interval="1d"):
+                return daily if interval == "1d" else hourly
+
+            def _safe_parse_iso(self, value):
+                return datetime.fromisoformat(value)
+
+        with patch("backend.oil.get_premium_predictor", return_value=PredictorStub()):
+            actual = get_historical_data(limit=50)["actual"]
+        self.assertEqual(actual["kinds"], ["1d", "1d", "1h", "1h", "live"])
+        self.assertEqual(len(actual["kinds"]), len(actual["values"]))
 
     def test_historical_data_uses_matured_target_timestamps(self):
         class PredictorStub:

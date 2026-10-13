@@ -23,7 +23,7 @@ EIA weekly stocks + FRED monthly series for every training fold.
 
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Ensure backend is importable from project root.
@@ -126,7 +126,7 @@ def main():
     # Save results
     out_path = Path("data/macro_leakage_test.json")
     out_path.write_text(json.dumps({
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "config": {"period": PERIOD, "min_train": MIN_TRAIN, "step": STEP, "estimators": ESTIMATORS},
         "results": results,
     }, indent=2), encoding="utf-8")
