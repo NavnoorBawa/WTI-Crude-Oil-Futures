@@ -406,7 +406,9 @@ python backend/supply_shock_playbook.py   # print the full event-study table fro
 - **[`freeze.py`](freeze.py)** + **[`.github/workflows/refresh.yml`](.github/workflows/refresh.yml)**
   — frozen snapshot deployed to GitHub Pages (no running server). The workflow is split for
   least privilege: an unprivileged job freezes, validates and builds; a separate job with the
-  write token deploys, alerts and persists state, and installs or builds nothing.
+  write token re-validates the exact payload it deploys, refuses a build that a later run has
+  superseded or that is older than the live site, then deploys (a plain `git push`, no
+  third-party action), alerts and persists state. It installs and builds nothing.
 - **[`.github/workflows/price.yml`](.github/workflows/price.yml)** — lightweight price refresh on
   an isolated `live-data` branch, with the frozen Pages price as fallback. The same branch stores
   generated signal/live-record state so automation never pushes to protected `main`.
@@ -424,7 +426,9 @@ python backend/supply_shock_playbook.py   # print the full event-study table fro
   - the **contract calendar** against published expiries
   - the live-record session, roll and lateness rules
   - the **retraction guarantee**: a non-significant model never surfaces a lean
-  - **workflow guards** for pinned actions and least privilege
+  - **workflow guards** for pinned actions, least privilege (only GitHub's own checkout, artifact
+    and Python actions, and no package tooling, in any job holding a write token), and the
+    publish job's supersession checks
 
   Locally: `PYTHONPATH=. python -m unittest discover -s tests`.
 
@@ -467,7 +471,7 @@ python -m backend.backtest_walk_forward --period 5y --features price_only  # tec
 ### API endpoints
 - `GET /` — service status; answers 503 with `Retry-After` until it can serve data
 - `GET /data` — full dashboard payload (predictions + walk-forward stats + event study)
-- `GET /health` — readiness check (503 until ready)
+- `GET /health` — readiness check (503 with `Retry-After` until ready)
 - `GET /live` — process liveness only; never calls an upstream provider
 
 ---
@@ -482,8 +486,9 @@ The dashboard runs with **zero running infrastructure** using the "frozen Flask"
    frozen JSON instead of polling a live backend.
 3. **`.github/workflows/refresh.yml`** is scheduled every four hours: freeze, then validate the
    payload (including the quote's own exchange time, so a stale data feed fails the deploy), then
-   build and deploy to the `gh-pages` branch. If a run fails (rate limit, API outage), the
-   previous good snapshot stays live.
+   build and deploy to the `gh-pages` branch. The deploy job validates the file it publishes
+   again and never deploys a snapshot older than the live one. If a run fails (rate limit, API
+   outage), the previous good snapshot stays live.
 4. **`.github/workflows/price.yml`** updates `live-data/price.json` without redeploying Pages. The
    client reads that CORS-enabled raw file and the price baked into the last snapshot. It shows
    whichever quote is newer by its exchange timestamp, never letting an older quote override a
