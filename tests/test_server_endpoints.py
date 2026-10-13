@@ -157,7 +157,8 @@ class WalkForwardConfigTest(unittest.TestCase):
             with mock.patch.object(server, "WALK_FORWARD_STATS_PATH", path):
                 return server._load_walk_forward_stats()
 
-    VALIDATED = {"feature_mode": "no_macro", "context_lag_days": 1, "train_window": 0}
+    VALIDATED = {"feature_mode": "no_macro", "context_lag_days": 1, "train_window": 0,
+                 "purge_rows_by_horizon": {"1d": 0, "1w": 4}}
 
     def test_validated_configurations_are_loaded(self):
         for train_window in (0, 378):           # committed 5-year expanding run; production rolling
@@ -168,7 +169,9 @@ class WalkForwardConfigTest(unittest.TestCase):
     def test_comparison_runs_cannot_flip_significance(self):
         # README's comparison commands write the same default file; none of them is the live model.
         for change in ({"feature_mode": "all"}, {"feature_mode": "price_only"},
-                       {"context_lag_days": 0}, {"train_window": 126}):
+                       {"context_lag_days": 0}, {"train_window": 126},
+                       {"purge_rows_by_horizon": {"1d": 0, "1w": 0}},      # --no-purge: the leak
+                       {"purge_rows_by_horizon": None}):                   # predates the purge record
             config = {**self.VALIDATED, **change}
             with self.subTest(change=change):
                 with self.assertLogs(server.logger, "WARNING") as logs:
@@ -178,6 +181,10 @@ class WalkForwardConfigTest(unittest.TestCase):
         with mock.patch.object(server, "_load_walk_forward_stats", return_value={}):
             metrics, _ = server._build_horizon_metrics({}, {}, {}, {}, 18)
         self.assertIsNone(metrics["1w"]["wf_is_significant"])
+
+    def test_the_committed_dashboard_artifact_is_accepted(self):
+        report = json.loads(server.WALK_FORWARD_STATS_PATH.read_text(encoding="utf-8"))
+        self.assertIsNone(server._walk_forward_config_mismatch(report["config"]))
 
     def test_reports_without_a_train_window_or_config_are_rejected(self):
         # e.g. the leaked, unpurged run, which predates --train-window.

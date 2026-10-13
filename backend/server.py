@@ -200,6 +200,11 @@ VALIDATED_WALK_FORWARD_CONFIG = {
 }
 
 
+# Training rows dropped before each prediction, horizon_steps - 1 (backtest_walk_forward.purge_count):
+# a report run with --no-purge reproduces the retracted leak and must never count as evidence.
+VALIDATED_PURGE_ROWS = {'1d': 0, '1w': 4}
+
+
 def _walk_forward_config_mismatch(config) -> str | None:
     """Why a backtest report is not evidence for the live model, or None when it is."""
     if not isinstance(config, dict):
@@ -207,6 +212,11 @@ def _walk_forward_config_mismatch(config) -> str | None:
     for key, accepted in VALIDATED_WALK_FORWARD_CONFIG.items():
         if config.get(key) not in accepted:
             return f'config.{key}={config.get(key)!r} (validated: {", ".join(map(repr, accepted))})'
+    purge = config.get('purge_rows_by_horizon')
+    if not isinstance(purge, dict) or not purge or any(
+        VALIDATED_PURGE_ROWS.get(horizon) != rows for horizon, rows in purge.items()
+    ):
+        return f'config.purge_rows_by_horizon={purge!r} (validated: {VALIDATED_PURGE_ROWS!r})'
     return None
 
 
