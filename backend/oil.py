@@ -404,13 +404,19 @@ def _contract_history(contract):
         return None
 
 
-def _latest_close(frame):
+def _latest_close(frame, now=None):
     """(finite closes, latest bar date, quote time, quote session) of a Yahoo daily frame, or None.
 
     The latest finite close is the quote. Yahoo's quote time (regularMarketTime, frame.attrs['quote_time'])
     belongs to it only when it falls on that bar's calendar date (the evening Globex bar keeps the date
     of its reopen): when the newest row has no finite close, an older settlement is the latest close and
     must not inherit a fresh exchange timestamp, nor the session that timestamp is in.
+
+    `now` settles the two cases the date check cannot. Just after midnight ET Yahoo has already put the
+    previous day's row back to its settlement, while its quote time (delayed) still reads the evening
+    before: a bar that is a completed session at `now` is a settlement, not the next session's quote.
+    And without a quote time, a bar still in progress at `now` (the 18:00-24:00 ET bar is dated today
+    but trades the next session) belongs to the session trading at `now`.
     """
     closes = _finite_closes(frame)
     if closes.empty:
@@ -419,7 +425,15 @@ def _latest_close(frame):
     quote_time = _as_utc_datetime(getattr(frame, 'attrs', {}).get('quote_time'))
     if quote_time is not None and quote_time.astimezone(contract_calendar.EXCHANGE_TZ).date() != bar_date:
         quote_time = None
-    quote_session = contract_calendar.trading_date(quote_time if quote_time is not None else bar_date)
+    settled = now is not None and bar_date <= contract_calendar.last_completed_bar_date(now)
+    if quote_time is not None and settled and contract_calendar.trading_date(quote_time) > bar_date:
+        quote_time = None
+    if quote_time is not None:
+        quote_session = contract_calendar.trading_date(quote_time)
+    elif now is not None and not settled:
+        quote_session = contract_calendar.trading_date(now)
+    else:
+        quote_session = contract_calendar.trading_date(bar_date)
     return closes, bar_date, quote_time, quote_session
 
 
@@ -472,7 +486,7 @@ def _contract_quote_payload(frame, contract, now, *, quote_symbol, data_source, 
     unavailable (None) rather than as a cross-contract splice when that cannot be fetched. The change
     is also unavailable in the weekday-evening window, whose baseline settlement Yahoo's frame lacks.
     """
-    latest = _latest_close(frame)
+    latest = _latest_close(frame, now)
     if latest is None:
         return None
     closes, bar_date, quote_time, quote_session = latest
@@ -576,7 +590,7 @@ def get_current_wti_contract(force_refresh: bool = False):
     try:
         logger.info("🔍 Fetching WTI data from CL=F (continuous front-month contract)")
         validation_data = _yf_history_with_retry("CL=F", period="5d", interval="1d", timeout=10)
-        latest = _latest_close(validation_data)
+        latest = _latest_close(validation_data, now)
         if latest is None:
             logger.error("❌ CL=F returned no finite closes")
         else:

@@ -186,6 +186,13 @@ class WalkForwardPurgeTest(unittest.TestCase):
         expected = [end - (vf.H - 1) for end in range(vf.MIN_TRAIN, len(X), vf.STEP)]
         self.assertEqual(seen, expected)
 
+    def test_offsets_test_the_other_days_of_the_week(self):
+        r, dates, _ = _synthetic_market(n=700)
+        X, y, tdate = vf._build_matrix(r, dates, None)
+        grids = [set(vf._walk_forward(X, y, tdate, has_ovx=False, offset=k)["date"]) for k in range(vf.STEP)]
+        self.assertTrue(all(not (a & b) for i, a in enumerate(grids) for b in grids[i + 1:]))   # disjoint
+        self.assertEqual(len(set().union(*grids)), len(X) - vf.MIN_TRAIN)                     # complete
+
     def test_p_value_is_the_exact_binomial_tail(self):
         r, dates, _ = _synthetic_market(n=900)
         X, y, tdate = vf._build_matrix(r, dates, None)
@@ -236,6 +243,28 @@ class CompletedSessionsTest(unittest.TestCase):
                          ["2026-10-08", "2026-10-09"])                 # Monday NaN, Tuesday live
         self.assertEqual([str(d.date()) for d in vf._completed(close, tue_1730).index],
                          ["2026-10-08", "2026-10-09", "2026-10-13"])   # Tuesday has settled
+
+
+class HolidayBarTest(unittest.TestCase):
+    def test_a_holiday_bar_anywhere_in_the_history_is_dropped(self):
+        # Yahoo kept a 2025-07-04 bar (a partial of the next session) between two settlements.
+        idx = pd.DatetimeIndex(["2025-07-02", "2025-07-03", "2025-07-04", "2025-07-07"])
+        close = pd.Series([67.4, 67.0, 66.5, 67.93], index=idx)
+        later = datetime(2025, 7, 8, 19, 0, tzinfo=timezone.utc)        # long after, mid-session
+        kept = vf._completed(close, later)
+        self.assertEqual([str(d.date()) for d in kept.index], ["2025-07-02", "2025-07-03", "2025-07-07"])
+
+
+class EconomicDiagnosticsTest(unittest.TestCase):
+    def test_both_proxies_are_reported_without_the_worst_year_and_roll_gaps_are_measured(self):
+        report = vf.validate(data=_synthetic_market())
+        vrp = report["economic"]["variance_risk_premium"]
+        self.assertIn("short_vol_swap_sharpe_ex_worst_year", vrp)
+        self.assertIn("short_variance_sharpe_ex_worst_year", vrp)
+        returns = report["economic"]["returns"]
+        for key in ("roll_gap_mean_pct", "roll_gap_median_pct", "har_dir_acc_pct_on_same_contract_returns"):
+            self.assertIn(key, returns)
+        self.assertEqual(returns["n_on_same_contract_returns"], report["overall"]["n"])
 
 
 class RobustStatisticsTest(unittest.TestCase):

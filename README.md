@@ -9,7 +9,7 @@ A machine-learning research project on WTI crude, with a clear arc. The original
 edge was look-ahead leakage**, and once corrected the signal is a coin flip. Rather than chase a
 direction edge that theory says should not exist on a liquid contract, the project pivots to what
 genuinely is forecastable: **volatility**. A leak-free HAR-IV model (realized vol plus OVX implied
-vol) calls next-week vol direction at **about 72%** versus a 52% base rate over **926 out-of-sample
+vol) calls next-week vol direction at **about 73%** versus a 52% base rate over **926 out-of-sample
 weeks, 2008–2026** (i.i.d. z ≈ 12, autocorrelation-robust z ≈ 16), above the base rate in **every
 one of 19 years**, and significantly better than both a mean-reversion rule and the same model
 without implied vol. So the project carries one honest negative result (direction is
@@ -27,8 +27,9 @@ artifacts under [`data/`](data) pin the numbers quoted here.
 
 ## Headline finding: the edge was a look-ahead leak
 
-The 1-week signal originally backtested at Sharpe 2.44 (5-year) and 2.07 (10-year rolling), with
-direction accuracy near 66% and p < 0.001. Those numbers were a **look-ahead leakage artifact**.
+The 1-week signal originally backtested at Sharpe 2.44 (5-year; that run survives in git history
+as `3be4364:data/wf_5y_unpurged_LEAKED.json`) and about 2.07 (10-year rolling, a run that was never
+committed), with direction accuracy near 66% and p < 0.001. Those numbers were a **look-ahead leakage artifact**.
 Re-run today on pinned windows with the leak switched back on (`--no-purge`), the same pipeline
 still gives Sharpe 2.47 at 67.2% (5-year) and 2.09 at 64.9% (10-year).
 
@@ -54,8 +55,9 @@ pair below is the same command, configuration, window and test dates (the produc
 | Significance vs coin-flip | p<0.0001 → **p = 0.69** | p<0.0001 → **p = 0.37** |
 | Beats naive baselines? | MAE 9.0% better → **no** (5.1% worse) | MAE 8.1% better → **no** (4.2% worse) |
 
-Purging lowers the Sharpe in every calendar year of both windows. The 10-year set contains the
-5-year set's 2022–2026 weeks, so the two are not independent evidence. The conclusion is
+Purging lowers the Sharpe in every calendar year of both windows. The 10-year window covers the
+same 2022–2026 period as the 5-year one (its weekly test points fall one session earlier, so their
+5-day forward returns overlap in 4 of 5 sessions), so the two are not independent evidence. The conclusion is
 unambiguous: **as built, this feature set has no out-of-sample directional edge in WTI.** The
 corrected signal is a coin flip that loses money after costs.
 
@@ -63,7 +65,8 @@ Artifacts: [`data/wf_5y_purged.json`](data/wf_5y_purged.json) and
 [`data/wf_10y_rolling_purged.json`](data/wf_10y_rolling_purged.json) (corrected);
 [`data/wf_5y_unpurged_LEAKED.json`](data/wf_5y_unpurged_LEAKED.json) and
 [`data/wf_10y_rolling_unpurged_LEAKED.json`](data/wf_10y_rolling_unpurged_LEAKED.json) (the same
-commands with `--no-purge`). The original 2026-06 leaked file survives in git history. The fix is in
+commands with `--no-purge`). The original 2026-06 5-year leaked run (Sharpe 2.44, 65.8%) survives in
+git history at `3be4364`; the original 10-year run was never committed. The fix is in
 [`backend/backtest_walk_forward.py`](backend/backtest_walk_forward.py) (`purge = horizon_steps - 1`).
 
 ### What this project actually demonstrates
@@ -98,38 +101,40 @@ OVX, the free CBOE oil implied-vol index**. The sample is fixed: every week sinc
 
 | Metric | HAR-IV model | Same model without OVX | Mean-reversion rule | Persistence |
 |---|---|---|---|---|
-| Vol-direction accuracy (rise/fall vs current) | **72.1%** | 68.9% | 66.4% | — (majority class 51.8%) |
-| Level forecast R² | **0.457** | 0.369 | — | 0.192 |
-| Level forecast MAE (annualized vol) | **0.105** | — | — | 0.140 |
-| QLIKE loss (lower is better) | **0.416** | 0.515 | — | 0.879 |
+| Vol-direction accuracy (rise/fall vs current) | **72.7%** | 69.7% | 66.6% | — (majority class 52.1%) |
+| Level forecast R² | **0.452** | 0.365 | — | 0.173 |
+| Level forecast MAE (annualized vol) | **0.106** | — | — | 0.142 |
+| QLIKE loss (lower is better) | **0.422** | 0.524 | — | 0.904 |
 
 How strong is it, tested properly:
 
-- **Against the base rate:** exact binomial p ≈ 1e-36; z ≈ 12.4 assuming independent weeks and
+- **Against the base rate:** exact binomial p ≈ 1e-37; z ≈ 12.6 assuming independent weeks and
   z ≈ 15.8 with a Newey-West (HAC) standard error. Consecutive weekly labels share a week of
   returns, so the independence assumption is violated; the dashboard quotes the smaller z.
-- **Against the smart baseline:** "vol reverts to its 66-day average" already gets 66.4%. The model
+- **Against the smart baseline:** "vol reverts to its 66-day average" already gets 66.6%. The model
   beats it by about 6 points, and a *paired* Diebold-Mariano test on the weekly hit series gives
-  z ≈ 3.9 (HAC). It wins in 15 of 19 years and loses in 2008, 2013, 2018 and 2025, which is
-  reported rather than hidden.
+  z ≈ 4.1 (HAC). It wins in 16 of 19 years; 2008, 2013 and 2018 go to the rule. With about 50
+  weeks a year, single-year wins and losses depend on which day of the week the test grid samples.
 - **Every year:** above that year's base rate in **19 of 19 years** (64.0% to 80.4%), and 2020 is
-  not the driver (72.0% ex-2020 vs 72.1% overall).
-- **Level:** R² 0.46 against 0.19 for persistence, and QLIKE (Patton 2011) less than half of
+  not the driver (72.6% ex-2020 vs 72.7% overall).
+- **Not a sampling accident:** the weekly test grid uses one day in five. The same model scored on
+  each of the other four offsets gets 71.8% to 73.9%.
+- **Level:** R² 0.45 against 0.17 for persistence, and QLIKE (Patton 2011) less than half of
   persistence's. QLIKE is the loss that ranks vol forecasts consistently when realized vol is a
   noisy proxy. The level forecast is exp(log-forecast), the conditional median. That is the right
   statistic for the rise/fall call, and it makes the level slightly conservative.
 
 Implied vol is the one free-data feature that earned its keep. The nested comparison runs on the
-same rows. Without OVX the model scores 68.9% on direction, R² 0.369 and QLIKE 0.515; with it,
-72.1%, 0.457 and 0.416. The direction gain is significant (paired HAC z ≈ 2.7). This is a leak-free
+same rows. Without OVX the model scores 69.7% on direction, R² 0.365 and QLIKE 0.524; with it,
+72.7%, 0.452 and 0.422. The direction gain is significant (paired HAC z ≈ 2.5). This is a leak-free
 gain, because OVX at day *t* is known at *t*. The model falls back to pure HAR if OVX is unavailable
 or too short to validate.
 
 Discipline, shown both ways: a candidate feature has to beat the deployed model out of sample, or
 it stays out. The standard HAR *leverage* term (downside realized semivolatility, so down weeks
 predict higher vol) is re-tested on every validation run as a nested variant on the same rows. It
-nudges direction to 72.8%, but the gain is not significant (paired HAC z ≈ 1.4), and it does not
-improve R² (0.456) or QLIKE (0.418). So it is **left out**. Adding complexity that does not earn its
+nudges direction to 73.1%, but the gain is not significant (paired HAC z ≈ 0.9), and it does not
+improve R² (0.452) or QLIKE (0.425). So it is **left out**. Adding complexity that does not earn its
 keep is how vol models overfit. Net: the model is HAR-IV (three realized-vol terms plus OVX),
 nothing more.
 
@@ -308,9 +313,11 @@ The dashboard's report (`data/walk_forward_backtest_latest.json`) is the first c
   The VRP is genuinely there. Harvesting it is another matter:
   - A linear short-vol (vol-swap) proxy has a Sharpe of 0.52.
   - The convex variance-swap version, which is what an options seller actually holds, has a Sharpe
-    of about **0.0**. The gap is a single episode, not a recurring tail: the three worst periods
-    all start in February to April 2020 (the worst, −158 vol points, spans the negative-price
-    expiry), and without 2020 the variance-swap Sharpe is 0.80.
+    of about **0.0**. The difference is the convexity cost, paid in every period and largest in
+    the left tail. 2020 is why the variance-swap Sharpe is near zero: the three worst periods all
+    start in February to April 2020 (the worst, −158 vol points, spans the negative-price expiry),
+    and without 2020 it is 0.80. But the cost is not one episode: without 2020 the linear proxy's
+    Sharpe is 1.30, so the convex version still gives up about half a Sharpe point.
   - Timing the sale with the model's own forecast did not help (rich-vs-cheap one-sided p = 0.33).
   - Doing this cleanly needs oil options data that is not freely available with long history.
 
@@ -576,11 +583,11 @@ cd dist && python -m http.server 8000     # open http://localhost:8000
   and is displayed separately. Given the corrected backtest, the prior expectation for it is no
   edge.
 - **Continuous-contract roll gaps.** Yahoo's `CL=F` is the unadjusted front month, so its monthly
-  roll day carries the contract-1/contract-2 price gap (2008–2024: +0.3% on average, mostly
-  contango). Where the gap is a bias, it is removed: the carry test and the vol-targeting overlay
+  roll day carries the contract-1/contract-2 price gap (2008–2024: +0.6% on average, median +0.4%,
+  mostly contango). Where the gap is a bias, it is removed: the carry test and the vol-targeting overlay
   and VRP use same-contract returns rebuilt from EIA's curve, and so they stop where the curve
-  stops. Where it is noise, it is documented instead. Rebuilding the roll days moves the vol
-  model's direction accuracy by about half a point. The direction backtest's labels also carry the
+  stops. Where it is noise, it is documented instead. Rebuilding the roll days raises the vol
+  model's direction accuracy by under a point (72.7% to 73.5%), so the headline is conservative. The direction backtest's labels also carry the
   gap. A live correction is not possible: EIA stopped publishing the futures curve in April 2024,
   and Yahoo keeps no history for expired contracts.
 - **Macro features were excluded, and that decision is now moot.** A pre-retraction A/B

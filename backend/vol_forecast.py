@@ -45,10 +45,11 @@ Leakage controls (identical discipline to backtest_walk_forward.py):
   - The 2020-04-20 negative settlement (an expiry artifact) is dropped before any computation.
 
 Data caveat: CL=F is Yahoo's UNADJUSTED front-month series (it equals EIA's contract-1 price), so
-the monthly roll day carries the contract-1/contract-2 price gap (mean +0.3%, mostly contango). For
-the vol forecast the gap is small noise: rebuilding the 2008-2024 roll days as same-contract returns
-moves direction accuracy by about half a point, so the forecast keeps the live CL=F series (EIA stopped
-publishing the curve in April 2024 and Yahoo keeps no expired contracts, so no live correction exists).
+the monthly roll day carries the contract-1/contract-2 price gap (2008-2024 mean +0.6%, mostly
+contango). For the vol forecast the gap is small noise: rebuilding the 2008-2024 roll days as
+same-contract returns moves direction accuracy by under a point, upward (validate() reports both in
+economic.returns), so the forecast keeps the live CL=F series (EIA stopped publishing the curve in
+April 2024 and Yahoo keeps no expired contracts, so no live correction exists).
 For a P&L the gap is a bias, not noise (every strategy earns its weight times every gap, ~+0.15 of
 Sharpe for a long book), so the economic tests use same-contract returns and stop at the curve's end.
 
@@ -65,11 +66,11 @@ from datetime import datetime, timezone
 
 try:
     from . import carry_signal_test as eia_curve
-    from .contract_calendar import last_completed_bar_date, last_trade_date
+    from .contract_calendar import is_business_day, last_completed_bar_date, last_trade_date
     from .safe_paths import data_json_path
 except ImportError:  # Direct invocation: python backend/vol_forecast.py
     import carry_signal_test as eia_curve
-    from contract_calendar import last_completed_bar_date, last_trade_date
+    from contract_calendar import is_business_day, last_completed_bar_date, last_trade_date
     from safe_paths import data_json_path
 
 import numpy as np
@@ -97,14 +98,18 @@ def _completed(series: pd.Series, now: datetime | None = None) -> pd.Series:
 
     Yahoo's newest daily bar is the session still trading for most of the day (and, from the 18:00 ET
     reopen to midnight, the next session's prices under today's date). Validation only ever sees
-    completed sessions, so the live forecast must too: a partial day understates realized vol.
+    completed sessions, so the live forecast must too: a partial day understates realized vol. A bar
+    dated on an exchange holiday is never a settlement either (Yahoo kept two, 2006-09-04 and
+    2025-07-04, partials of the next session), so it is dropped wherever it sits in the history.
     """
     s = pd.to_numeric(series, errors="coerce")
     if getattr(s.index, "tz", None) is not None:
         s.index = s.index.tz_localize(None)
     s.index = pd.DatetimeIndex(s.index).normalize()
     cutoff = pd.Timestamp(last_completed_bar_date(now or datetime.now(timezone.utc)))
-    s = s[(s.index <= cutoff) & np.isfinite(s.to_numpy(dtype=float)) & (s.to_numpy(dtype=float) > 0)]
+    values = s.to_numpy(dtype=float)
+    settled = np.array([is_business_day(day.date()) for day in s.index], dtype=bool)
+    s = s[(s.index <= cutoff) & settled & np.isfinite(values) & (values > 0)]
     return s[~s.index.duplicated(keep="last")]
 
 
@@ -243,7 +248,7 @@ def _pick_ovx(ovx: np.ndarray | None) -> np.ndarray | None:
 
 
 def _walk_forward(X: np.ndarray, y: np.ndarray, tdate: pd.DatetimeIndex, has_ovx: bool,
-                  leverage: np.ndarray | None = None) -> pd.DataFrame:
+                  leverage: np.ndarray | None = None, offset: int = 0) -> pd.DataFrame:
     """Purged expanding-window walk-forward, one test point per STEP rows.
 
     Returns one record per OOS week with the HAR(-IV) forecast, the nested pure-HAR forecast fitted
@@ -253,7 +258,7 @@ def _walk_forward(X: np.ndarray, y: np.ndarray, tdate: pd.DatetimeIndex, has_ovx
     """
     X_lev = np.column_stack([X, leverage]) if leverage is not None else None
     recs = []
-    for end in range(MIN_TRAIN, len(X), STEP):
+    for end in range(MIN_TRAIN + offset, len(X), STEP):
         train_end = end - (H - 1)               # PURGE: drop rows whose target overlaps the test point
         xt = X[end]
         beta = _fit_log_har(X[:train_end], y[:train_end])
@@ -355,7 +360,8 @@ def _economic_tests(d: pd.DataFrame, r: np.ndarray, dates: pd.DatetimeIndex,
     """
     out: dict = {}
     try:
-        r, rebuilt, last = same_contract_returns(r, dates, curve)
+        spliced = np.asarray(r, dtype=float)
+        r, rebuilt, last = same_contract_returns(spliced, dates, curve)
     except Exception:  # noqa: BLE001 - no roll-free returns, no P&L figures (never biased ones)
         return out
     pos = dates.get_indexer(pd.DatetimeIndex(d["date"]))
@@ -363,11 +369,16 @@ def _economic_tests(d: pd.DataFrame, r: np.ndarray, dates: pd.DatetimeIndex,
     dd, pos = d.loc[ok].reset_index(drop=True), pos[ok]
     if len(dd) < 20:
         return out
+    # The gaps this window's rebuilt roll days removed (log points; mostly contango, so positive).
+    gaps = (spliced - r)[pos[0]:last + 1]
+    gaps = gaps[gaps != 0.0]
     out["returns"] = {
         "series": "CL=F with roll days rebuilt as same-contract returns (EIA contract 1 and 2)",
         "roll_days_rebuilt": int(rebuilt),
         "sample_start": str(dd["date"].iloc[0].date()),
         "sample_end": str(dates[last].date()),
+        "roll_gap_mean_pct": round(float(np.mean(gaps)) * 100, 2) if gaps.size else None,
+        "roll_gap_median_pct": round(float(np.median(gaps)) * 100, 2) if gaps.size else None,
     }
     ppy = 252.0 / STEP
     week = np.array([np.expm1(r[p + 1 : p + 1 + H].sum()) for p in pos])   # next-week simple return
@@ -417,14 +428,17 @@ def _economic_tests(d: pd.DataFrame, r: np.ndarray, dates: pd.DatetimeIndex,
                 "mean_premium_vol_pts": round(float(np.mean(premium_pts)), 1),
                 "share_positive_pct": _pct(np.mean(premium_pts > 0)),
                 # Linear (vol-swap) vs convex (variance-swap) short-vol proxies: the gap between the
-                # two Sharpe ratios is the left tail. Whether that tail is one episode or a recurring
-                # one is shipped too (worst periods, and the variance Sharpe without the worst year).
+                # two Sharpe ratios is the convexity cost, (IV - RV)^2 / (2 IV) per period, paid every
+                # period and largest in the left tail. The worst periods and both Sharpes without the
+                # worst year show how much of it one episode explains.
                 "short_vol_swap_sharpe": _sharpe(premium_pts, per_year),
                 "short_variance_sharpe": _sharpe(short_var, per_year),
                 "worst_period_vol_pts": round(float(np.min(premium_pts)), 1),
                 "worst_periods": [{"start": str(starts[k].date()), "premium_vol_pts": round(float(premium_pts[k]), 1)}
                                   for k in worst],
                 "worst_year": worst_year,
+                # Both proxies without the worst year, so the gap is compared like for like.
+                "short_vol_swap_sharpe_ex_worst_year": _sharpe(premium_pts[outside], per_year),
                 "short_variance_sharpe_ex_worst_year": _sharpe(short_var[outside], per_year),
                 "timed_rich_mean_pnl": round(float(np.mean(rich_pnl)), 4) if len(rich_pnl) else None,
                 "timed_cheap_mean_pnl": round(float(np.mean(cheap_pnl)), 4) if len(cheap_pnl) else None,
@@ -536,6 +550,22 @@ def validate(period: str = HISTORY_PERIOD, data: tuple | None = None) -> dict:
     d = _walk_forward(X, y, tdate, has_ovx=ovx is not None, leverage=leverage)
     report = _summarize(d, has_ovx=ovx is not None, has_leverage=True)
     report["economic"] = _economic_tests(d, r, dates)
+    # The weekly test grid samples one day in five; the other four offsets test the same model on the
+    # other days. A headline that held on one offset only would be a sampling accident.
+    offsets = [_walk_forward(X, y, tdate, has_ovx=ovx is not None, offset=k) for k in range(STEP)]
+    report["overall"]["dir_acc_pct_by_grid_offset"] = [_pct(o["hit"].mean()) for o in offsets]
+    report["overall"]["majority_class_pct_by_grid_offset"] = [
+        _pct(max(o["act_up"].mean(), 1.0 - o["act_up"].mean())) for o in offsets
+    ]
+    returns = report["economic"].get("returns")
+    if returns is not None:
+        # How much the roll gaps left in the forecast series matter for the headline: the same
+        # walk-forward on same-contract returns (rebuilt through the curve's end, CL=F after it).
+        r_same = same_contract_returns(r, dates)[0]
+        X_s, y_s, tdate_s = _build_matrix(r_same, dates, ovx)
+        d_same = _walk_forward(X_s, y_s, tdate_s, has_ovx=ovx is not None)
+        returns["har_dir_acc_pct_on_same_contract_returns"] = _pct(d_same["hit"].mean())
+        returns["n_on_same_contract_returns"] = int(len(d_same))
     return report
 
 

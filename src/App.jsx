@@ -80,7 +80,7 @@ const INITIAL_LOADING_MESSAGE = STATIC_DATA_MODE
   : "Connecting to the data service";
 const DELAY_NOTE = "Futures quotes come from Yahoo Finance and are exchange-delayed by about 10 minutes.";
 
-// RETRACTED 2026-06-20: the 1W "edge" (Sharpe 2.44/2.07, 65.8% acc) was a look-ahead leak —
+// RETRACTED 2026-06-20: the 1W "edge" (5-year Sharpe 2.44, 65.8% acc) was a look-ahead leak —
 // the walk-forward trained on rows whose 5-day targets matured after the prediction point. After a
 // purge/embargo the signal is a coin flip (48-52% acc, p>0.2, negative Sharpe). No tradeable edge.
 // Dashboard shows the retraction notice; the stance reads RETRACTED and the model's raw output is
@@ -200,8 +200,10 @@ const computeSizing = (winRatePct, profitFactor, meanPnl) => {
   const pf = num(profitFactor);
   if (winRate == null || pf == null || winRate <= 0 || winRate >= 100 || pf <= 0) return null;
   const p = winRate / 100;
-  const payoff = (pf * (1 - p)) / p; // average win / average loss
-  const fullKelly = p - (1 - p) / payoff;
+  // Full Kelly p - (1-p)/payoff with payoff = pf(1-p)/p (average win / average loss), in closed form
+  // so a break-even pf of exactly 1 is no edge (the long form leaves a ~1e-17 residue).
+  // backend/live_record.py _has_kelly_edge applies the same test.
+  const fullKelly = (p * (pf - 1)) / pf;
   if (!Number.isFinite(fullKelly) || fullKelly <= 0) return { noEdge: true, winRate, pf };
   // mean = (1-p)·avgLoss·(pf-1), so avgLoss = mean / ((1-p)(pf-1)); pf > 1 whenever Kelly > 0.
   const mean = num(meanPnl);
@@ -1008,7 +1010,7 @@ function DeskSection({ data, contract, quote, modelTarget, showRetracted, metric
   );
 }
 
-// Signal-retraction notice — always shown. The original backtest (Sharpe 2.44 / 2.07) was a
+// Signal-retraction notice — always shown. The original backtest (5-year Sharpe 2.44) was a
 // look-ahead leak; purged, the signal is a coin flip. This card replaces the headline metrics with
 // the honest finding (current purged figures from the payload) plus the live record.
 function RetractionCard({ metrics, liveRecordSummary }) {
@@ -1031,7 +1033,7 @@ function RetractionCard({ metrics, liveRecordSummary }) {
         <span className="tv-tearsheet-live">research post-mortem</span>
       </div>
       <p className="tv-tearsheet-body">
-        The original 1-week backtest (Sharpe 2.44 over 5y, 2.07 over 10y) was a look-ahead leakage
+        The original 1-week backtest (Sharpe 2.44 over 5 years) was a look-ahead leakage
         artifact: the walk-forward trained on rows whose 5-day targets matured after the prediction
         point. After a standard purge/embargo, {purged}{losesMoney ? ", and the strategy loses money after costs" : ""}.
         As built, the signal has no out-of-sample edge, so no stance or sizing is shown as actionable.
@@ -1209,15 +1211,19 @@ function VolatilityCard({ vol }) {
   const vrpTimingP = num(vrp?.timing_p_value);
   const vrpSwapSharpe = num(vrp?.short_vol_swap_sharpe);
   const vrpVarSharpe = num(vrp?.short_variance_sharpe);
+  const vrpSwapSharpeExWorst = num(vrp?.short_vol_swap_sharpe_ex_worst_year);
   const vrpVarSharpeExWorst = num(vrp?.short_variance_sharpe_ex_worst_year);
   const vrpWorstYear = num(vrp?.worst_year);
-  const vrpExWorst = vrpVarSharpeExWorst != null && vrpWorstYear != null
-    ? ` (${fmtNum(vrpVarSharpeExWorst, 2)} excluding ${vrpWorstYear})`
-    : '';
   const vrpSharpes = [
     vrpSwapSharpe != null ? `short vol-swap Sharpe ${fmtNum(vrpSwapSharpe, 2)}` : null,
-    vrpVarSharpe != null ? `short variance ${fmtNum(vrpVarSharpe, 2)}${vrpExWorst}` : null,
-  ].filter(Boolean).join(', ');
+    vrpVarSharpe != null ? `short variance ${fmtNum(vrpVarSharpe, 2)}` : null,
+  ].filter(Boolean).join(', ')
+    // Both proxies without the worst year, side by side: one without the other would compare a
+    // full-sample linear Sharpe with an ex-crash convex one.
+    + (vrpSwapSharpe != null && vrpVarSharpe != null && vrpSwapSharpeExWorst != null
+      && vrpVarSharpeExWorst != null && vrpWorstYear != null
+      ? ` (${fmtNum(vrpSwapSharpeExWorst, 2)} and ${fmtNum(vrpVarSharpeExWorst, 2)} excluding ${vrpWorstYear})`
+      : '');
 
   return (
     <section className="tv-tearsheet" aria-labelledby="vol-heading">

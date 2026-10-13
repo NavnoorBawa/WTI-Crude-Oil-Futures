@@ -101,6 +101,15 @@ class ExtractCallTest(unittest.TestCase):
         self.assertEqual(lr.extract_call(payload(1.2, pnl={"wf_pnl_win_rate": 52, "wf_pnl_profit_factor": "1.2"}))["stance"],
                          "LONG")   # numeric strings count, as with the dashboard's num()
 
+    def test_a_break_even_profit_factor_is_no_edge(self):
+        # Kelly is exactly 0 at pf = 1; the long-form formula left a ~1e-17 residue and leaned.
+        for win_rate in (48.0, 51.0, 55.0, 60.0):
+            with self.subTest(win_rate=win_rate):
+                self.assertFalse(lr._has_kelly_edge(win_rate, 1.0))
+                self.assertTrue(lr._has_kelly_edge(win_rate, 1.001))
+        flat = {"wf_pnl_win_rate": 48.0, "wf_pnl_profit_factor": 1.0}
+        self.assertEqual(lr.extract_call(payload(1.2, pnl=flat))["stance"], "NEUTRAL")
+
     def test_fields_extracted(self):
         c = lr.extract_call(payload(1.0, price=75.5, symbol="CLQ26"))
         self.assertEqual(c["date"], "2026-06-15")

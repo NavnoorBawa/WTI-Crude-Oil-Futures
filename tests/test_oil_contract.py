@@ -193,6 +193,41 @@ class ContractLabelTest(unittest.TestCase):
         self.assertAlmostEqual(payload["price_change_percent"], -0.32)
         self.assertEqual(payload["price_change_quality"], "daily_close")
 
+    def test_evening_bar_without_a_quote_time_is_still_the_next_session(self):
+        # Yahoo's metadata (and so the quote time) can be missing; the clock then says the bar dated
+        # today is the next session's, and Tuesday's settlement is not out: no two-session change.
+        evening = ["2026-10-08", "2026-10-09", "2026-10-12", "2026-10-13"]
+        payload, _ = self._quote(datetime(2026, 10, 13, 23, 35, tzinfo=timezone.utc), {
+            "CL=F": _frame([91.49, 91.85, 91.20, 92.10], sessions=evening),
+        })
+        self.assertEqual(payload["quote_session_date"], "2026-10-14")
+        self.assertIsNone(payload["price_change_percent"])
+        self.assertEqual(payload["price_change_quality"], "unavailable_previous_settlement")
+
+    def test_settlement_just_after_midnight_is_not_the_next_sessions_quote(self):
+        # Wed 00:05 ET: Tuesday's row is back to its 92.40 settlement and Wednesday's row has no close
+        # yet, while Yahoo's (delayed) quote time still reads Tue 23:55 ET.
+        payload, _ = self._quote(datetime(2026, 10, 14, 4, 5, tzinfo=timezone.utc), {
+            "CL=F": _frame([91.85, 91.20, 92.40], sessions=["2026-10-09", "2026-10-12", "2026-10-13"],
+                           quote_time=datetime(2026, 10, 14, 3, 55, tzinfo=timezone.utc)),
+        })
+        self.assertEqual(payload["quote_session_date"], "2026-10-13")
+        self.assertEqual(payload["market_time"], "2026-10-13T04:00:00Z")      # the bar, not a live time
+        self.assertAlmostEqual(payload["previous_close"], 91.20)
+        self.assertEqual(payload["price_change_quality"], "daily_close")
+
+    def test_expired_contracts_settlement_after_midnight_keeps_its_own_label(self):
+        # The night after CLV26's last trade date (09-22): the newest settled row is CLV26's final
+        # 94.59. It used to take the next session from the delayed quote time and be labelled CLX26.
+        payload, _ = self._quote(datetime(2026, 9, 23, 4, 5, tzinfo=timezone.utc), {
+            "CL=F": _frame(CL_F_CLOSES[:5], quote_time=datetime(2026, 9, 23, 3, 55, tzinfo=timezone.utc)),
+            "CLV26.NYM": _frame(CLV26_CLOSES),
+            "CLX26.NYM": _frame(CLX26_CLOSES[:5]),
+        })
+        self.assertEqual(payload["symbol"], "CLV26")
+        self.assertAlmostEqual(payload["current_price"], 94.59)
+        self.assertEqual(payload["quote_session_date"], "2026-09-22")
+
     def test_quote_time_after_the_evening_reopen_labels_the_next_session(self):
         # Yahoo keeps the calendar date on the evening Globex bar: at 19:30 ET on the last trade
         # date the bar dated 09-22 already holds CLX26 prices for the 09-23 session (in CLX26.NYM's

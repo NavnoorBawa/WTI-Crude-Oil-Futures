@@ -91,13 +91,16 @@ def _num(value):
 
 
 def _has_kelly_edge(win_rate_pct, profit_factor) -> bool:
-    """The dashboard's computeSizing() edge test: a positive full-Kelly fraction (i.e. profit factor > 1)."""
+    """The dashboard's computeSizing() edge test: a positive full-Kelly fraction, i.e. profit factor > 1.
+
+    Full Kelly p - (1 - p) / payoff, with payoff = pf (1 - p) / p, is exactly p (pf - 1) / pf. The
+    closed form is used so a break-even pf of 1.0 is no edge (the long form leaves a ~1e-17 residue).
+    """
     win_rate, pf = _num(win_rate_pct), _num(profit_factor)
     if win_rate is None or pf is None or win_rate <= 0 or win_rate >= 100 or pf <= 0:
         return False
     p = win_rate / 100
-    payoff = (pf * (1 - p)) / p   # average win / average loss
-    full_kelly = p - (1 - p) / payoff
+    full_kelly = p * (pf - 1) / pf
     return math.isfinite(full_kelly) and full_kelly > 0
 
 
