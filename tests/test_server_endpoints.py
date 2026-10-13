@@ -58,12 +58,13 @@ class DataPayloadIntervalTest(unittest.TestCase):
 
     QUOTE = 90.72000122070312        # a float32-like CL=F quote from Yahoo
 
-    def _render(self, predictions):
+    def _render(self, predictions, **contract_overrides):
         contract = {
             "symbol": "CLX26", "description": "WTI CRUDE OIL FUTURES CLX26",
             "current_price": self.QUOTE, "price_change": -1.1, "price_change_percent": -1.2,
             "price_change_quality": "daily_close", "volume": 1000,
-            "market_time": "2026-10-12T05:55:00Z",
+            "market_time": "2026-10-12T05:55:00Z", "contract_basis": "calendar",
+            **contract_overrides,
         }
         history = {"actual": {"timestamps": ["2026-10-12T05:00:00Z", "2026-10-12T05:56:02.819484Z"],
                               "values": [90.7, self.QUOTE], "volumes": [10, 0]}}
@@ -115,6 +116,31 @@ class DataPayloadIntervalTest(unittest.TestCase):
         self.assertEqual((multi["prediction_intervals"]["1w"]["lower"],
                           multi["prediction_intervals"]["1w"]["upper"]), (90.72, 90.72))
         self.assertEqual(validate_payload(data), [])
+
+    @staticmethod
+    def _real_predictions(quote):
+        return {
+            "prediction_1h": quote, "prediction_1d": quote, "prediction_1w": quote,
+            "prediction_intervals": {}, "is_real_prediction": True, "is_full_real_prediction": True,
+            "fallbacks": {}, "geopolitical_risk": {}, "contract_metadata": {},
+        }
+
+    def test_a_change_withheld_by_oil_is_not_rebuilt_from_the_quote_history(self):
+        # Weekday evenings (and around a roll) oil.py withholds the daily change on purpose; the
+        # in-memory history fallback must not turn it back into a two-session or spliced change.
+        for quality in ("unavailable_previous_settlement", "unavailable_contract_roll"):
+            with self.subTest(quality=quality):
+                data = self._render(self._real_predictions(self.QUOTE), price_change=None,
+                                    price_change_percent=None, price_change_quality=quality)
+                self.assertIsNone(data["price_change"])
+                self.assertEqual(data["price_change_quality"], quality)
+
+    def test_contract_basis_reaches_the_payload(self):
+        # live_record roll-checks a quote-matched label by the label alone; it reads this field.
+        data = self._render(self._real_predictions(self.QUOTE), contract_basis="quote_match",
+                            quote_session_date="2026-10-12")
+        self.assertEqual(data["contract"]["contract_basis"], "quote_match")
+        self.assertEqual(data["contract"]["quote_session_date"], "2026-10-12")
 
 
 class WalkForwardConfigTest(unittest.TestCase):

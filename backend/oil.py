@@ -313,12 +313,6 @@ _contract_cache = {
     'data': None,
 }
 _contract_cache_lock = threading.Lock()
-# Yahoo's finalized daily CL=F bars follow the expiring contract through its last trade date, but its
-# live quote and intraday bars move to the next contract earlier: at ~03:00 ET in the session two
-# business days before the last trade date in both rolls checked (CLU26 -> CLV26 on 2026-08-18,
-# CLV26 -> CLX26 on 2026-09-18). In the last ROLL_CHECK_SESSIONS + 1 sessions of a contract the quoted
-# contract is therefore read from the contracts' own quotes, not the calendar (one session of margin).
-ROLL_CHECK_SESSIONS = 3
 
 
 def _utc_now() -> datetime:
@@ -445,13 +439,13 @@ def _settled_close(closes, session_date):
 def _quoted_contract(closes, bar_date, quote_session):
     """(contract, basis, own histories fetched) for the contract a CL=F quote belongs to.
 
-    Outside the last ROLL_CHECK_SESSIONS + 1 sessions of the calendar front contract the quote is that
-    contract (basis 'calendar'). Inside them it is whichever of the front and next contracts' own closes
-    for the same bar is nearer (basis 'quote_match'); the contract is None when either is unavailable.
+    Outside the calendar front contract's live roll window (contract_calendar.in_live_roll_window,
+    where Yahoo's live CL=F may already quote the next contract) the quote is that contract (basis
+    'calendar'). Inside it, it is whichever of the front and next contracts' own closes for the same
+    bar is nearer (basis 'quote_match'); the contract is None when either is unavailable.
     """
     front = contract_calendar.front_contract(quote_session)
-    sessions_left = contract_calendar.business_days_between(quote_session, contract_calendar.last_trade_date(*front))
-    if sessions_left > ROLL_CHECK_SESSIONS:
+    if not contract_calendar.in_live_roll_window(quote_session):
         return front, 'calendar', {}
     price = float(closes.iloc[-1])
     histories, gaps = {}, {}
@@ -556,7 +550,8 @@ def get_current_wti_contract(force_refresh: bool = False):
 
     Yahoo's CL=F is an UNADJUSTED front-month splice (it equals EIA's "contract 1", including the
     -37.63 print of 2020-04-20). Its finalized daily bars follow the expiring contract through its last
-    trade date, but its live quote moves to the next contract a few sessions earlier (ROLL_CHECK_SESSIONS).
+    trade date, but its live quote moves to the next contract a few sessions earlier
+    (contract_calendar.in_live_roll_window).
     The label is therefore contract_calendar.front_contract() at the quote's session outside that window
     and, inside it, the contract whose own '.NYM' quote matches; when that cannot be established, the
     contracts are quoted directly instead, so the label always names the contract that was priced.

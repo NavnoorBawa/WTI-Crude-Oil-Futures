@@ -16,8 +16,10 @@ Rules implemented (CME Rulebook, Light Sweet Crude Oil futures, chapter 200):
   - The CME trading day for a moment in time starts at 18:00 ET the previous evening (Globex
     reopen), so a quote at 19:00 ET on Monday belongs to Tuesday's session.
   - Yahoo's continuous CL=F (like EIA's "contract 1") tracks the expiring contract through its
-    last trade date and rolls to the next contract on the following trading day. The front contract
-    for a trading date is therefore the first contract whose last trade date is on or after it.
+    last trade date in its finalized DAILY bars, and rolls to the next contract on the following
+    trading day. The front contract for a trading date is therefore the first contract whose last
+    trade date is on or after it. Yahoo's LIVE quote and intraday bars are different: they move to
+    the next contract a few sessions earlier (see in_live_roll_window).
 
 Unscheduled closures (e.g. 2001-09-11, 2012-10-29) are not modelled; callers that have an observed
 exchange calendar (a price history) can pass their own `is_business` predicate instead.
@@ -187,12 +189,31 @@ def last_completed_bar_date(moment: datetime) -> date:
     aware = moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
     local = aware.astimezone(EXCHANGE_TZ)
     today = local.date()
-    yesterday = today - timedelta(days=1)
     if local.time() < time(17, 0):
-        return yesterday
-    if local.time() < SESSION_OPEN_ET:
-        return today if is_business_day(today) else yesterday
-    return today if today.weekday() == 4 and is_business_day(today) else yesterday   # Friday
+        done = today - timedelta(days=1)
+    elif local.time() < SESSION_OPEN_ET:
+        done = today
+    else:
+        done = today if today.weekday() == 4 else today - timedelta(days=1)    # Friday: no reopen
+    while not is_business_day(done):                # a weekend or holiday bar is never a settlement
+        done -= timedelta(days=1)
+    return done
+
+
+# Yahoo's live CL=F quote moved to the next contract at ~03:00 ET two business days before the
+# last trade date in both rolls checked (CLU26 -> CLV26 on 2026-08-18, CLV26 -> CLX26 on 2026-09-18),
+# while its daily bars stayed on the expiring contract. One session of margin on top.
+LIVE_QUOTE_ROLL_SESSIONS = 3
+
+
+def in_live_roll_window(session: date) -> bool:
+    """Whether Yahoo's live CL=F quote may already be the NEXT contract during `session`.
+
+    In these last LIVE_QUOTE_ROLL_SESSIONS + 1 sessions of the calendar front contract the contract a
+    live quote belongs to must be established from the contracts' own quotes, not from the calendar.
+    """
+    front = front_contract(session)
+    return business_days_between(session, last_trade_date(*front)) <= LIVE_QUOTE_ROLL_SESSIONS
 
 
 def front_contract(moment: datetime | date, is_business: BusinessDayFn = is_business_day) -> tuple[int, int]:

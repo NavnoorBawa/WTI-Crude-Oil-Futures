@@ -715,12 +715,13 @@ def get_data():
         price_change_quality = contract_info.get('price_change_quality') or (
             'daily_close' if price_change is not None else 'unavailable'
         )
-        # On the first session after a roll, oil.py reports no change rather than compare two
-        # contracts; the in-memory quote history below would reintroduce exactly that splice.
-        roll_day = price_change_quality == 'unavailable_contract_roll'
+        # oil.py reports a change as unavailable on purpose when it would splice two contracts (around
+        # a roll) or when the previous settlement is not out yet (weekday evenings); the in-memory
+        # quote history below would reintroduce exactly that wrong comparison.
+        withheld = price_change_quality.startswith('unavailable_')
 
         try:
-            if price_change is None and not roll_day and len(actual_values) >= 2 and len(actual_timestamps) >= 2:
+            if price_change is None and not withheld and len(actual_values) >= 2 and len(actual_timestamps) >= 2:
                 # Find a price point from roughly 24 hours ago (86400 seconds)
                 current_timestamp = datetime.now().timestamp()
                 target_timestamp = current_timestamp - 86400  # 24 hours ago
@@ -890,12 +891,6 @@ def get_data():
                     '1w': round((pred_1w - current_price) / current_price * 100, 1),
                     '7d': round((pred_1w - current_price) / current_price * 100, 1)
                 },
-                # Unrounded values for the +-0.6% stance gate (live_record.one_week_stance): the
-                # one-decimal display rounding above would otherwise move the gate to ~+-0.65%.
-                'percentage_changes_exact': {
-                    horizon: round((value - current_price) / current_price * 100, 4)
-                    for horizon, value in (('1h', pred_1h), ('1d', pred_1d), ('1w', pred_1w))
-                },
                 'prediction_intervals': prediction_intervals,
                 'horizon_confidence': horizon_confidence,
                 'horizon_drift_scores': horizon_drift_scores,
@@ -951,6 +946,11 @@ def get_data():
                 'history_symbol': predictions.get('contract_metadata', {}).get('history_symbol') if predictions else contract_info.get('history_symbol'),
                 'market_time': contract_info.get('market_time'),
                 'last_trade_date': contract_info.get('contract_last_trade_date') or contract_info.get('expiry_date'),
+                # How the label was established ('calendar', or matched to the contracts' own quotes
+                # near a roll); live_record roll-checks a quote-matched label by the label alone.
+                'contract_basis': contract_info.get('contract_basis'),
+                'market_session_date': contract_info.get('market_session_date'),
+                'quote_session_date': contract_info.get('quote_session_date'),
             },
             
             # System status

@@ -306,6 +306,63 @@ class MainEnvironmentTest(unittest.TestCase):
                 publish.assert_not_called()
 
 
+class LiveRollWindowTest(unittest.TestCase):
+    """In the last sessions of a contract Yahoo's live CL=F already quotes the NEXT contract."""
+
+    ENV = {"GH_TOKEN": "t", "GITHUB_API_URL": "https://api.github.com",
+           "GITHUB_REPOSITORY": "NavnoorBawa/WTI-Crude-Oil-Futures"}
+    # 2026-09-21 (Mon) is in CLV26's window (last trade 09-22); CL=F printed CLX26's 96.08.
+    CL_QUOTE = (96.08, 100.30, "2026-09-21T15:00:00Z")
+    OWN = {"CLV26.NYM": (100.25, 104.10, "2026-09-21T15:00:00Z"),
+           "CLX26.NYM": (96.08, 95.40, "2026-09-21T15:00:00Z")}
+
+    def _fetch(self, symbol="CL=F"):
+        return self.CL_QUOTE if symbol == "CL=F" else self.OWN.get(symbol)
+
+    def test_the_quote_is_matched_to_the_contract_it_belongs_to(self):
+        contract, quote = refresh_live_price.match_contract_quote(96.08, datetime(2026, 9, 21).date(), self._fetch)
+        self.assertEqual(contract, "CLX26")
+        self.assertEqual(quote, self.OWN["CLX26.NYM"])
+        self.assertIsNone(refresh_live_price.match_contract_quote(
+            96.08, datetime(2026, 9, 21).date(), lambda symbol: None if symbol == "CLV26.NYM" else self._fetch(symbol)))
+
+    def test_the_matched_contracts_own_quote_is_published(self):
+        # The calendar says CLV26 and CL=F's previous close is CLV26's 100.30: publishing CL=F as
+        # CLV26 at -4.2% would be wrong twice. CLX26's own quote: 96.08 vs its own 95.40.
+        with (
+            mock.patch.dict(os.environ, self.ENV, clear=True),
+            mock.patch.object(refresh_live_price, "fetch_quote", side_effect=self._fetch),
+            mock.patch.object(refresh_live_price, "publish_price") as publish,
+        ):
+            self.assertEqual(refresh_live_price.main(), 0)
+        payload = publish.call_args.args[0]
+        self.assertEqual((payload["contract"], payload["price"], payload["prev_close"]), ("CLX26", 96.08, 95.4))
+        self.assertEqual(payload["change_pct"], 0.71)
+        self.assertEqual(payload["source"], "yahoo CLX26")
+
+    def test_an_unverifiable_contract_keeps_the_published_price(self):
+        with (
+            mock.patch.dict(os.environ, self.ENV, clear=True),
+            mock.patch.object(refresh_live_price, "fetch_quote",
+                              side_effect=lambda symbol="CL=F": self.CL_QUOTE if symbol == "CL=F" else None),
+            mock.patch.object(refresh_live_price, "published_quote_age_hours", return_value=2.0),
+            mock.patch.object(refresh_live_price, "publish_price") as publish,
+        ):
+            self.assertEqual(refresh_live_price.main(), 0)
+        publish.assert_not_called()
+
+    def test_outside_the_window_cl_f_is_published_as_the_calendar_contract(self):
+        quote = (90.0, 89.0, "2026-10-07T15:00:00Z")
+        with (
+            mock.patch.dict(os.environ, self.ENV, clear=True),
+            mock.patch.object(refresh_live_price, "fetch_quote", return_value=quote) as fetch,
+            mock.patch.object(refresh_live_price, "publish_price") as publish,
+        ):
+            self.assertEqual(refresh_live_price.main(), 0)
+        fetch.assert_called_once_with()
+        self.assertEqual(publish.call_args.args[0]["contract"], "CLX26")
+
+
 class BranchAndStalenessTest(unittest.TestCase):
     def test_missing_state_branch_fails_instead_of_being_recreated(self):
         missing = refresh_live_price.ApiError(404, "Not Found")

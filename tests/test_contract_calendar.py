@@ -100,14 +100,26 @@ class TradingDateAndFrontContractTest(unittest.TestCase):
             "2026-10-13T23:30:00": date(2026, 10, 12),  # Tue 19:30 ET: the bar dated today is Wed's
             "2026-10-14T04:00:00": date(2026, 10, 13),  # Wed 00:00 ET: Tuesday's bar is back
             "2026-10-16T23:30:00": date(2026, 10, 16),  # Fri 19:30 ET: no reopen on Friday evening
-            "2026-10-18T23:30:00": date(2026, 10, 17),  # Sun 19:30 ET: Monday's live bar excluded
-            "2027-01-18T15:00:00": date(2027, 1, 17),   # MLK Day: the holiday's bar is Tuesday's partial
-            "2027-01-18T22:30:00": date(2027, 1, 17),   # MLK Day 17:30 ET: still no completed bar today
+            "2026-10-18T23:30:00": date(2026, 10, 16),  # Sun 19:30 ET: Monday's live bar excluded
+            "2027-01-18T15:00:00": date(2027, 1, 15),   # MLK Day: the holiday's bar is Tuesday's partial
+            "2027-01-18T22:30:00": date(2027, 1, 15),   # MLK Day 17:30 ET: still no completed bar today
+            "2027-01-19T15:00:00": date(2027, 1, 15),   # the day after: a holiday bar is never settled
+            "2026-10-18T15:00:00": date(2026, 10, 16),  # Sunday morning: Friday's bar
             "2026-11-25T23:30:00": date(2026, 11, 24),  # Thanksgiving eve 18:30 ET: Globex reopened
         }
         for moment, expected in cases.items():
             with self.subTest(moment=moment):
                 self.assertEqual(done(self._utc(moment)), expected)
+
+    def test_live_roll_window_is_the_last_four_sessions_of_a_contract(self):
+        # CLX26 expires 2026-10-20 (Tue). Yahoo's live CL=F switched two sessions early in both rolls
+        # checked; the window adds one session of margin.
+        inside = [date(2026, 10, 15), date(2026, 10, 16), date(2026, 10, 19), date(2026, 10, 20)]
+        self.assertFalse(cc.in_live_roll_window(date(2026, 10, 14)))
+        for session in inside:
+            with self.subTest(session=session):
+                self.assertTrue(cc.in_live_roll_window(session))
+        self.assertFalse(cc.in_live_roll_window(date(2026, 10, 21)))    # CLZ26 is front, far from expiry
 
     def test_spans_roll(self):
         self.assertTrue(cc.spans_roll(date(2026, 9, 16), date(2026, 9, 23)))

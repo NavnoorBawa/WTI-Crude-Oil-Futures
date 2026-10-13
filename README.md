@@ -309,25 +309,32 @@ This layer was built to translate a *validated* signal into position sizing. Wit
 retracted, it stands as **engineering, not a trade recommendation** — the sizing math is correct,
 but it has no real edge to size. Kept because the plumbing is the reusable part:
 
-- **Stance** — LONG / SHORT lean only when model conviction exceeds ±0.6%, NEUTRAL otherwise.
-  With the corrected (non-significant) backtest the desk reads **RETRACTED**: no stance, no
-  sizing, raw model output hidden.
+- **Stance** — LONG / SHORT lean only when the walk-forward model is significant, its 1W P&L
+  shows a positive Kelly edge after costs, and the model's 1W move exceeds ±0.6%; NEUTRAL
+  otherwise. The dashboard, the live record and the email alert apply this same rule. With the
+  corrected (non-significant) backtest the desk reads **RETRACTED**: no stance, no sizing, raw
+  model output hidden.
 - **Kelly sizing** — full- and half-Kelly fractions derived from win rate and profit factor, plus
   a contracts-per-account translation at 2% risk. Correct given inputs; the inputs are no longer
   a real edge.
-- **Live track record** — CI records one 1W call per CME trading session, only while the market
-  is open, and scores it in the session five trading days later
+- **Live track record** — CI records one 1W call per CME trading session and scores it in the
+  session five trading days later. A call is dated by the quote's own exchange time and recorded
+  only when that quote is from the session open at freeze time and the forecast was built from the
+  previous session's settled bar (weekday-evening runs before midnight ET leave it to the next run)
   ([`backend/live_record.py`](backend/live_record.py),
   [current record on `live-data`](https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures/blob/live-data/runtime-state/live_track_record.json),
   [bootstrap snapshot on `main`](data/live_track_record.json)). Every entry and resolution
-  is timestamped by a bot commit, making the forward chronology auditable. Calls spanning a
-  contract roll are skipped, not scored. That check uses the exchange calendar
-  ([`backend/contract_calendar.py`](backend/contract_calendar.py)), because `CL=F` follows the
-  expiring contract through its last trade date. A call whose scheduled run arrives more than one
+  is timestamped by a bot commit, making the forward chronology auditable. Calls priced on
+  different contracts at entry and resolution are skipped, not scored. Yahoo's daily `CL=F` bars
+  follow the expiring contract through its last trade date, but its live quote moves to the next
+  contract about two sessions earlier, so in a contract's last four sessions the quote is matched
+  to the contracts' own quotes rather than labelled by the calendar
+  ([`backend/contract_calendar.py`](backend/contract_calendar.py)). A call whose scheduled run arrives more than one
   session late is skipped rather than scored at an arbitrary later price. NEUTRAL means "no trade"
   and is never counted. Daily calls with a five-session horizon overlap, so the record also
   counts **non-overlapping** scored calls, and "too few to validate" holds until there are 18 of
-  those. A GitHub Actions job also emails on stance changes
+  those; the hit rate quoted with that count is computed over the same non-overlapping calls. A
+  GitHub Actions job also emails on stance changes
   ([`backend/signal_alert.py`](backend/signal_alert.py)).
 
 ---
@@ -378,9 +385,12 @@ python backend/supply_shock_playbook.py   # print the full event-study table fro
   ensemble (the retracted direction model), news-regime score, contract quote.
 - **[`backend/contract_calendar.py`](backend/contract_calendar.py)** — the CME calendar for CL:
   holidays, last trade dates (3 business days before the 25th, or 4 when the 25th is not a
-  business day), market hours, and the contract `CL=F` tracks on any date. It is the one source
-  of truth for the dashboard's contract label, the live record's roll check and the carry test's
-  contract cycles, and it is tested against ICE's published expiry table.
+  business day), market hours, the front contract on any date, which daily bars are finished
+  sessions, and the live roll window (Yahoo's live `CL=F` quote moves to the next contract about
+  two sessions before the last trade date, so there the quote is matched to the contracts' own
+  quotes). It drives the dashboard's contract label, the live record's roll check, the live price
+  file's contract stamp and the carry and vol tests' roll-free returns, and it is tested against
+  ICE's published expiry table.
 - **[`backend/backtest_walk_forward.py`](backend/backtest_walk_forward.py)** — the validation
   engine: walk-forward with baselines, binomial p-values, Wilson CIs, and dollar P&L (Sharpe,
   win rate, drawdown, profit factor). `--features {all,no_macro,price_only}` enables the leakage

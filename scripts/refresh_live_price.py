@@ -21,7 +21,11 @@ quote belongs to (`contract`, from the CME calendar at the quote's session). The
 dashboard overlays the quote only on a snapshot of that same contract. Yahoo's
 previous close for CL=F is the series' previous close, which on the first
 session after a roll is the expired contract's, so no change is published when
-the previous close can belong to another contract.
+the previous close can belong to another contract. In the last sessions before
+a last trade date Yahoo's live CL=F already quotes the NEXT contract while the
+calendar still names the expiring one (contract_calendar.in_live_roll_window):
+there the quote is matched to the contracts' own quotes and the matched
+contract's own quote is published, so the label and the change are one contract.
 """
 
 from __future__ import annotations
@@ -182,14 +186,15 @@ def request_json(
     )
 
 
-def fetch_quote() -> tuple[float, float | None, str | None] | None:
-    """Fetch a validated CL=F quote (price, previous close, exchange time), trying both Yahoo hosts."""
+def fetch_quote(symbol: str = "CL=F") -> tuple[float, float | None, str | None] | None:
+    """Fetch a validated quote (price, previous close, exchange time), trying both Yahoo hosts."""
 
+    encoded = urllib.parse.quote(symbol, safe="")
     for attempt in range(3):
         for host in ("query1", "query2"):
             url = (
                 f"https://{host}.finance.yahoo.com/v8/finance/chart/"
-                "CL%3DF?interval=1d&range=1d"
+                f"{encoded}?interval=1d&range=1d"
             )
             request = urllib.request.Request(
                 url,
@@ -214,7 +219,7 @@ def fetch_quote() -> tuple[float, float | None, str | None] | None:
             except (KeyError, TypeError, ValueError, json.JSONDecodeError,
                     TimeoutError, urllib.error.URLError, OSError) as exc:
                 print(
-                    f"{host} quote attempt failed error_type={type(exc).__name__}",
+                    f"{host} {symbol} quote attempt failed error_type={type(exc).__name__}",
                     file=sys.stderr,
                 )
 
@@ -231,6 +236,22 @@ def _parse_utc(value: str | None) -> datetime | None:
     except ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def match_contract_quote(cl_price: float, session: date, fetch=None) -> tuple[str, tuple] | None:
+    """(contract code, that contract's own quote) for a CL=F price inside the live roll window.
+
+    The front and next contracts are quoted by their own symbols and the nearer price wins (a tie
+    keeps the front). None when either cannot be quoted: the contract is then unknown.
+    """
+    fetch = fetch or fetch_quote
+    front = contract_calendar.front_contract(session)
+    candidates = (front, contract_calendar.next_contract(*front))
+    quotes = {candidate: fetch(contract_calendar.yahoo_symbol(*candidate)) for candidate in candidates}
+    if any(quote is None for quote in quotes.values()):
+        return None
+    best = min(candidates, key=lambda candidate: (abs(quotes[candidate][0] - cl_price), candidate != front))
+    return contract_calendar.contract_code(*best), quotes[best]
 
 
 def _earliest_previous_close_session(quote_moment: datetime) -> date:
@@ -250,11 +271,14 @@ def build_payload(
     market_time: str | None = None,
     *,
     now: datetime | None = None,
+    contract: str | None = None,
 ) -> dict:
+    """price.json for a CL=F quote, or for one contract's own quote when `contract` names it."""
     fetched_at = now or datetime.now(timezone.utc)
     quote_moment = _parse_utc(market_time) or fetched_at
     # Never publish a change across a roll: it would be the calendar spread, not a market move.
-    if previous and contract_calendar.spans_roll(
+    # A contract's own quote has its own previous close, so only CL=F's needs the check.
+    if contract is None and previous and contract_calendar.spans_roll(
         _earliest_previous_close_session(quote_moment), quote_moment
     ):
         previous = None
@@ -264,10 +288,10 @@ def build_payload(
         "change_pct": (
             round((price / previous - 1) * 100, 2) if previous else None
         ),
-        "contract": contract_calendar.front_contract_code(quote_moment),
+        "contract": contract or contract_calendar.front_contract_code(quote_moment),
         "fetched_at": fetched_at.isoformat().replace("+00:00", "Z"),
         "market_time": market_time,
-        "source": "yahoo CL=F",
+        "source": f"yahoo {contract}" if contract else "yahoo CL=F",
     }
 
 
@@ -361,6 +385,19 @@ def publish_price(
     raise TemporaryFailure("price.json kept changing during all publish attempts")
 
 
+def _keep_published_price(reason: str) -> int:
+    """Leave the published price in place; fail once it has gone stale."""
+    age = published_quote_age_hours(branch=BRANCH, token=os.environ["GH_TOKEN"])
+    if age is not None and age > STALE_FAIL_HOURS:
+        print(
+            f"::error title=Live price stale::{reason}, and no price has been published for "
+            f"{age:.0f} hours; the published price is stale."
+        )
+        return 1
+    print(f"::warning title=Live price unchanged::{reason}; the previous published price remains active.")
+    return 0
+
+
 def main() -> int:
     required = ("GH_TOKEN", "GITHUB_API_URL", "GITHUB_REPOSITORY")
     missing = [name for name in required if not os.environ.get(name)]
@@ -377,20 +414,18 @@ def main() -> int:
 
     quote = fetch_quote()
     if quote is None:
-        age = published_quote_age_hours(branch=BRANCH, token=os.environ["GH_TOKEN"])
-        if age is not None and age > STALE_FAIL_HOURS:
-            print(
-                f"::error title=Live price stale::No quote provider has answered for {age:.0f} hours; "
-                "the published price is stale."
-            )
-            return 1
-        print(
-            "::warning title=Live price unchanged::No quote provider was available; "
-            "the previous published price remains active."
-        )
-        return 0
+        return _keep_published_price("No quote provider was available")
 
-    payload = build_payload(*quote)
+    price, _, market_time = quote
+    session = contract_calendar.trading_date(_parse_utc(market_time) or datetime.now(timezone.utc))
+    if contract_calendar.in_live_roll_window(session):
+        matched = match_contract_quote(price, session)
+        if matched is None:
+            return _keep_published_price("Near the roll the quoted contract could not be established")
+        contract, contract_quote = matched
+        payload = build_payload(*contract_quote, contract=contract)
+    else:
+        payload = build_payload(*quote)
     print(payload)
     try:
         publish_price(
