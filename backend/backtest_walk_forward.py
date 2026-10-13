@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
-from scipy.stats import binom
+from scipy.stats import binom, binomtest
 
 from .oil import PremiumWTIPredictor
 from .safe_paths import data_json_path
@@ -99,6 +99,8 @@ def compute_metrics(actuals, predictions, references):
     # One-sided binomial p-value: H0 = direction accuracy = 50% (coin flip). The survival
     # function stays accurate in the far tail, where 1 - cdf rounds to exactly 0.
     p_value = float(binom.sf(n_correct - 1, n, 0.5)) if n > 0 else 1.0
+    # Two-sided too: a model significantly WORSE than a coin flip is not "not significant".
+    p_two_sided = float(binomtest(n_correct, n, 0.5).pvalue) if n > 0 else 1.0
 
     # Wilson 95% confidence interval on direction accuracy
     z = 1.96
@@ -119,6 +121,7 @@ def compute_metrics(actuals, predictions, references):
         "mape": float(np.mean(abs_errors / safe_den) * 100.0),
         "direction_accuracy": dir_acc,
         "direction_p_value": round(p_value, 4),
+        "direction_p_value_two_sided": round(p_two_sided, 4),
         "direction_ci_95": [ci_low, ci_high],
         "is_significant_5pct": p_value < 0.05,
     }

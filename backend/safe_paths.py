@@ -77,6 +77,12 @@ def data_json_path(value: str | os.PathLike[str]) -> Path:
     }:
         return _trusted_file(DATA_ROOT, "wf_5y_unpurged_LEAKED.json")
     if normalized in {
+        "wf_5y_purged_1d_every_day.json",
+        "data/wf_5y_purged_1d_every_day.json",
+        "./data/wf_5y_purged_1d_every_day.json",
+    }:
+        return _trusted_file(DATA_ROOT, "wf_5y_purged_1d_every_day.json")
+    if normalized in {
         "wf_10y_rolling_unpurged_LEAKED.json",
         "data/wf_10y_rolling_unpurged_LEAKED.json",
         "./data/wf_10y_rolling_unpurged_LEAKED.json",

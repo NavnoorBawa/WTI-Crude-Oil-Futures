@@ -155,6 +155,20 @@ class MaxDrawdownTest(unittest.TestCase):
         self.assertTrue(np.isfinite(compute_pnl_metrics([-5.0], 50.4)["max_drawdown_usd"]))
 
 
+class DirectionSignificanceTest(unittest.TestCase):
+    def test_worse_than_a_coin_flip_is_significant_two_sided(self):
+        # The 5-year purged 1d report: 74 of 199 right. One-sided ("better than 50%?") that is
+        # p = 0.9999, which read as merely "not significant"; two-sided it is p = 0.0004.
+        refs = [100.0] * 199
+        actual = [101.0] * 199
+        predicted = [101.0] * 74 + [99.0] * 125
+        metrics = bwf.compute_metrics(actual, predicted, refs)
+        self.assertAlmostEqual(metrics["direction_accuracy"], 37.19, places=2)
+        self.assertGreater(metrics["direction_p_value"], 0.99)
+        self.assertLess(metrics["direction_p_value_two_sided"], 0.001)
+        self.assertFalse(metrics["is_significant_5pct"])            # significance means skill
+
+
 class StubPredictor:
     """Just enough of PremiumWTIPredictor for main(): history in, no models out."""
 
@@ -285,6 +299,7 @@ class CommittedArtifactsTest(unittest.TestCase):
 class OutputAllowlistTest(unittest.TestCase):
     def test_every_readme_backtest_output_has_its_own_data_file(self):
         names = ("walk_forward_backtest_latest.json", "wf_5y_purged.json", "wf_5y_unpurged_LEAKED.json",
+                 "wf_5y_purged_1d_every_day.json",
                  "wf_10y_rolling_purged.json", "wf_10y_rolling_unpurged_LEAKED.json",
                  "wf_compare_all.json", "wf_compare_price_only.json")
         resolved = {safe_paths.data_json_path(f"data/{name}") for name in names}
