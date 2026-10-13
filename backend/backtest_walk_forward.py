@@ -318,6 +318,24 @@ def purge_count(horizon: str) -> int:
     return horizon_steps_for(horizon) - 1
 
 
+# The report the dashboard serves (backend/server.py loads it only for the configuration below).
+DASHBOARD_ARTIFACT = "walk_forward_backtest_latest.json"
+
+
+def is_validated_configuration(config: dict) -> bool:
+    """True for the configuration the purged backtest validated and production runs: no FRED/EIA
+    macro, context lagged one trading day, an expanding or 378-bar rolling window, and the purge
+    applied on every horizon. Mirrors backend/server.py's check on DASHBOARD_ARTIFACT."""
+    purge_rows = config.get("purge_rows_by_horizon") or {}
+    return (
+        config.get("feature_mode") == "no_macro"
+        and config.get("context_lag_days") == 1
+        and config.get("train_window") in (0, 378)
+        and bool(purge_rows)
+        and all(rows == purge_count(horizon) for horizon, rows in purge_rows.items())
+    )
+
+
 def evaluate_horizon(predictor, dataset, feature_cols, horizon, min_train, step, train_window=0, purge=True):
     """Run walk-forward for one horizon and return model/baseline metrics.
 
@@ -513,9 +531,9 @@ def main():
     parser.add_argument("--features", default="no_macro", choices=["all", "no_macro", "price_only"],
                         help="feature families to include (default 'no_macro', the validated set; "
                              "'all' adds FRED/EIA macro, 'price_only' drops cross-asset context)")
-    parser.add_argument("--lag-context", type=int, default=0, metavar="DAYS",
-                        help="lag cross-asset context features by N trading days "
-                             "(timing-leakage test: 1 = strictly entry-time-clean)")
+    parser.add_argument("--lag-context", type=int, default=1, metavar="DAYS",
+                        help="lag cross-asset context features by N trading days (default 1, strictly "
+                             "entry-time-clean and the validated setting; 0 = the timing-leakage comparison)")
     parser.add_argument("--train-window", type=int, default=0, metavar="BARS",
                         help="rolling training window in bars (0 = expanding, production uses ~378 for 18mo)")
     parser.add_argument("--horizons", default="1d,1w",
@@ -527,11 +545,30 @@ def main():
     parser.add_argument("--no-purge", action="store_true",
                         help="skip the purge to reproduce the retracted look-ahead leak (before/after "
                              "comparison only; the --output file name must contain 'LEAKED')")
-    parser.add_argument("--output", default="data/walk_forward_backtest_latest.json", help="path to write JSON report")
+    parser.add_argument("--output", default=f"data/{DASHBOARD_ARTIFACT}",
+                        help="allowlisted data/ file to write the JSON report to (default: the dashboard's "
+                             "artifact, which takes only the validated configuration)")
     args = parser.parse_args()
-    # A leaked report must never land in an artifact the dashboard or README reads as the result.
-    if args.no_purge and "LEAKED" not in args.output.replace("\\", "/").rsplit("/", 1)[-1]:
+
+    horizons = [h.strip() for h in args.horizons.split(",") if h.strip()]
+    run_config = {
+        "feature_mode": args.features,
+        "context_lag_days": max(0, int(args.lag_context)),
+        "train_window": int(args.train_window),
+        "purge_rows_by_horizon": {horizon: 0 if args.no_purge else purge_count(horizon) for horizon in horizons},
+    }
+    # Check where the report goes before the (long) run, not after it.
+    try:
+        output_path = data_json_path(args.output)
+    except ValueError as exc:
+        parser.error(f"--output {args.output}: {exc}")
+    # A leaked report must never land in an artifact the dashboard or README reads as the result,
+    # and comparison runs (--features all/price_only, --lag-context 0, ...) need their own file.
+    if args.no_purge and "LEAKED" not in output_path.name:
         parser.error("--no-purge reproduces the look-ahead leak; its --output file name must contain 'LEAKED'")
+    if output_path.name == DASHBOARD_ARTIFACT and not is_validated_configuration(run_config):
+        parser.error(f"{DASHBOARD_ARTIFACT} takes only the validated configuration (--features no_macro "
+                     "--lag-context 1, --train-window 0 or 378, purged); pass --output for a comparison run")
 
     predictor = PremiumWTIPredictor()
     predictor.model_n_estimators = max(20, int(args.estimators))
@@ -561,14 +598,13 @@ def main():
         wti_data = wti_data[wti_data["Close"] > 0].copy()
         print(f"Dropped {nonpos} non-positive-price row(s) as roll/expiry artifacts: {dropped}")
 
-    horizons = [h.strip() for h in args.horizons.split(",") if h.strip()]
     datasets = {}
     feature_cols_map = {}
     for horizon in horizons:
         dataset, feature_cols = prepare_daily_dataset(
             predictor, wti_data, horizon,
             feature_mode=args.features,
-            lag_context_days=max(0, int(args.lag_context)),
+            lag_context_days=run_config["context_lag_days"],
         )
         if dataset.empty:
             raise RuntimeError(f"No backtest rows available for horizon={horizon}")
@@ -605,10 +641,7 @@ def main():
             "min_train": int(args.min_train),
             "step": int(args.step),
             "estimators": int(args.estimators),
-            "feature_mode": args.features,
-            "context_lag_days": max(0, int(args.lag_context)),
-            "train_window": int(args.train_window),
-            "purge_rows_by_horizon": {horizon: purge_count(horizon) if not args.no_purge else 0 for horizon in horizons},
+            **run_config,
             "context_period": BACKTEST_CONTEXT_PERIOD if args.features != "price_only" else None,
             "rows_without_context_by_horizon": {
                 horizon: int(datasets[horizon].attrs.get("rows_without_context", 0)) for horizon in horizons
@@ -619,7 +652,6 @@ def main():
         "results": results,
     }
 
-    output_path = data_json_path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 

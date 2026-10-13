@@ -62,6 +62,32 @@ def data_json_path(value: str | os.PathLike[str]) -> Path:
         "./data/wf_10y_rolling_purged.json",
     }:
         return _trusted_file(DATA_ROOT, "wf_10y_rolling_purged.json")
+    # The README's other walk-forward runs each get their own file, so none of them can
+    # overwrite walk_forward_backtest_latest.json, the artifact the dashboard serves.
+    if normalized in {
+        "wf_5y_purged.json",
+        "data/wf_5y_purged.json",
+        "./data/wf_5y_purged.json",
+    }:
+        return _trusted_file(DATA_ROOT, "wf_5y_purged.json")
+    if normalized in {
+        "wf_5y_unpurged_LEAKED.json",
+        "data/wf_5y_unpurged_LEAKED.json",
+        "./data/wf_5y_unpurged_LEAKED.json",
+    }:
+        return _trusted_file(DATA_ROOT, "wf_5y_unpurged_LEAKED.json")
+    if normalized in {
+        "wf_compare_all.json",
+        "data/wf_compare_all.json",
+        "./data/wf_compare_all.json",
+    }:
+        return _trusted_file(DATA_ROOT, "wf_compare_all.json")
+    if normalized in {
+        "wf_compare_price_only.json",
+        "data/wf_compare_price_only.json",
+        "./data/wf_compare_price_only.json",
+    }:
+        return _trusted_file(DATA_ROOT, "wf_compare_price_only.json")
     if normalized in {
         "timing_leakage_test.json",
         "data/timing_leakage_test.json",

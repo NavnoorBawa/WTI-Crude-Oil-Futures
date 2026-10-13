@@ -1,12 +1,23 @@
-"""Backtest engine inputs and P&L statistics: cross-asset context must cover the whole window,
-'--features all' must really load macro, and drawdown counts from the starting equity. Network-free."""
+"""Backtest engine inputs, outputs and P&L statistics: cross-asset context must cover the whole
+window, '--features all' must really load macro, drawdown counts from the starting equity, and the
+report records its purge and never lands in the dashboard's artifact unless it is the validated
+configuration. Network-free."""
 
+import contextlib
+import io
+import json
 import math
+import os
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 
+from backend import backtest_walk_forward as bwf
+from backend import safe_paths
 from backend.backtest_walk_forward import compute_pnl_metrics, prepare_daily_dataset
 from backend.oil import PremiumWTIPredictor
 
@@ -142,6 +153,138 @@ class MaxDrawdownTest(unittest.TestCase):
         self.assertEqual(compute_pnl_metrics([1000.0, -3000.0, 500.0], 50.4)["max_drawdown_usd"], 3000.0)
         self.assertEqual(compute_pnl_metrics([100.0, 200.0], 50.4)["max_drawdown_usd"], 0.0)
         self.assertTrue(np.isfinite(compute_pnl_metrics([-5.0], 50.4)["max_drawdown_usd"]))
+
+
+class StubPredictor:
+    """Just enough of PremiumWTIPredictor for main(): history in, no models out."""
+
+    model_n_estimators = 40
+    model_cpu_workers = 1
+    daily_target_mode = "return"
+    history_requests = []
+
+    def get_wti_historical_data(self, period=None, interval="1d"):
+        StubPredictor.history_requests.append(period)
+        return wti_bars(80)
+
+    def train_prediction_models(self, train_input, target_col, target_mode="price"):
+        return {}, {}, None, None, [], [], {}
+
+
+def stub_dataset(predictor, wti_data, horizon, feature_mode="all", lag_context_days=0):
+    rows = 60
+    dataset = pd.DataFrame({
+        "timestamp": [str(ts) for ts in pd.bdate_range("2026-01-05", periods=rows)],
+        "feature": [float(i) for i in range(rows)],
+        "reference_close": [70.0 + 0.1 * i for i in range(rows)],
+        f"target_{horizon}": [0.01] * rows,
+        f"actual_price_{horizon}": [70.5 + 0.1 * i for i in range(rows)],
+    })
+    dataset.attrs["rows_without_context"] = 0
+    return dataset, ["feature"]
+
+
+class CommandLineTest(unittest.TestCase):
+    """main() end to end on stubs: what the report's config says and where it may be written."""
+
+    def _run(self, *argv):
+        StubPredictor.history_requests = []
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(bwf, "PremiumWTIPredictor", StubPredictor), \
+                patch.object(bwf, "prepare_daily_dataset", stub_dataset), \
+                patch.object(bwf, "data_json_path", lambda value: Path(tmp) / Path(value).name), \
+                patch("sys.argv", ["backtest_walk_forward", "--min-train", "20", *argv]), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            bwf.main()
+            written = list(Path(tmp).glob("*.json"))
+            self.assertEqual(len(written), 1)
+            return written[0].name, json.loads(written[0].read_text(encoding="utf-8"))["config"]
+
+    def _refused(self, *argv):
+        with self.assertRaises(SystemExit):
+            self._run(*argv)
+        self.assertEqual(StubPredictor.history_requests, [], msg="refused only after fetching data")
+
+    def test_default_run_is_the_validated_configuration_and_records_its_purge(self):
+        name, config = self._run()
+        self.assertEqual(name, bwf.DASHBOARD_ARTIFACT)
+        self.assertEqual(config["purge_rows_by_horizon"], {"1d": 0, "1w": 4})
+        self.assertEqual((config["feature_mode"], config["context_lag_days"], config["train_window"]),
+                         ("no_macro", 1, 0))
+        self.assertTrue(bwf.is_validated_configuration(config))
+
+        _, rolling = self._run("--train-window", "378", "--horizons", "1w")
+        self.assertEqual(rolling["purge_rows_by_horizon"], {"1w": 4})
+        self.assertTrue(bwf.is_validated_configuration(rolling))
+
+    def test_comparison_runs_need_their_own_output(self):
+        for argv in (("--features", "all"), ("--features", "price_only"), ("--lag-context", "0"),
+                     ("--train-window", "250"), ("--no-purge",)):
+            with self.subTest(argv=argv):
+                self._refused(*argv)
+        name, config = self._run("--features", "all", "--output", "data/wf_compare_all.json")
+        self.assertEqual((name, config["feature_mode"]), ("wf_compare_all.json", "all"))
+        self.assertFalse(bwf.is_validated_configuration(config))
+
+    def test_unpurged_run_records_no_purge_and_must_be_named_leaked(self):
+        self._refused("--no-purge", "--output", "data/wf_5y_purged.json")
+        name, config = self._run("--no-purge", "--output", "data/wf_5y_unpurged_LEAKED.json")
+        self.assertEqual(config["purge_rows_by_horizon"], {"1d": 0, "1w": 0})
+        self.assertFalse(bwf.is_validated_configuration(config))
+
+    def test_unallowlisted_output_is_refused_before_the_run(self):
+        StubPredictor.history_requests = []
+        with patch("sys.argv", ["backtest_walk_forward", "--output", "data/elsewhere.json"]), \
+                patch.object(bwf, "PremiumWTIPredictor", StubPredictor), \
+                contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            bwf.main()
+        self.assertEqual(StubPredictor.history_requests, [])
+
+    def test_validated_configuration_check(self):
+        good = {"feature_mode": "no_macro", "context_lag_days": 1, "train_window": 378,
+                "purge_rows_by_horizon": {"1d": 0, "1w": 4}}
+        self.assertTrue(bwf.is_validated_configuration(good))
+        for change in ({"feature_mode": "all"}, {"context_lag_days": 0}, {"train_window": 252},
+                       {"purge_rows_by_horizon": {"1d": 0, "1w": 0}}, {"purge_rows_by_horizon": {}}):
+            with self.subTest(change=change):
+                self.assertFalse(bwf.is_validated_configuration({**good, **change}))
+
+
+class CommittedArtifactsTest(unittest.TestCase):
+    """The committed walk-forward reports are what the README and dashboard say they are."""
+
+    @staticmethod
+    def _report(name):
+        return json.loads((safe_paths.DATA_ROOT / name).read_text(encoding="utf-8"))
+
+    def test_dashboard_and_purged_reports_are_the_validated_configuration(self):
+        for name in (bwf.DASHBOARD_ARTIFACT, "wf_5y_purged.json", "wf_10y_rolling_purged.json"):
+            with self.subTest(name=name):
+                config = self._report(name)["config"]
+                self.assertTrue(bwf.is_validated_configuration(config))
+                self.assertEqual(set(config["rows_without_context_by_horizon"].values()), {0})
+
+    def test_purged_and_leaked_pair_differ_only_in_the_purge(self):
+        purged, leaked = self._report("wf_5y_purged.json"), self._report("wf_5y_unpurged_LEAKED.json")
+        self.assertEqual(set(leaked["config"]["purge_rows_by_horizon"].values()), {0})
+
+        def without_purge(config):
+            return {k: v for k, v in config.items() if k != "purge_rows_by_horizon"}
+
+        self.assertEqual(without_purge(purged["config"]), without_purge(leaked["config"]))
+        self.assertEqual(purged["results"].keys(), leaked["results"].keys())
+        for horizon in purged["results"]:
+            with self.subTest(horizon=horizon):
+                self.assertEqual([t["t"] for t in purged["results"][horizon]["trades"]],
+                                 [t["t"] for t in leaked["results"][horizon]["trades"]])
+
+
+class OutputAllowlistTest(unittest.TestCase):
+    def test_every_readme_backtest_output_has_its_own_data_file(self):
+        names = ("walk_forward_backtest_latest.json", "wf_5y_purged.json", "wf_5y_unpurged_LEAKED.json",
+                 "wf_10y_rolling_purged.json", "wf_compare_all.json", "wf_compare_price_only.json")
+        resolved = {safe_paths.data_json_path(f"data/{name}") for name in names}
+        self.assertEqual(resolved, {Path(os.path.realpath(safe_paths.DATA_ROOT / n)) for n in names})
 
 
 if __name__ == "__main__":
