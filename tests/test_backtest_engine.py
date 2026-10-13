@@ -264,25 +264,29 @@ class CommittedArtifactsTest(unittest.TestCase):
                 self.assertTrue(bwf.is_validated_configuration(config))
                 self.assertEqual(set(config["rows_without_context_by_horizon"].values()), {0})
 
-    def test_purged_and_leaked_pair_differ_only_in_the_purge(self):
-        purged, leaked = self._report("wf_5y_purged.json"), self._report("wf_5y_unpurged_LEAKED.json")
-        self.assertEqual(set(leaked["config"]["purge_rows_by_horizon"].values()), {0})
-
+    def test_purged_and_leaked_pairs_differ_only_in_the_purge(self):
+        # The README's before/after tables compare these pairs: same configuration, window and test
+        # dates, the purge being the only difference.
         def without_purge(config):
             return {k: v for k, v in config.items() if k != "purge_rows_by_horizon"}
 
-        self.assertEqual(without_purge(purged["config"]), without_purge(leaked["config"]))
-        self.assertEqual(purged["results"].keys(), leaked["results"].keys())
-        for horizon in purged["results"]:
-            with self.subTest(horizon=horizon):
-                self.assertEqual([t["t"] for t in purged["results"][horizon]["trades"]],
-                                 [t["t"] for t in leaked["results"][horizon]["trades"]])
+        for purged_name, leaked_name in (("wf_5y_purged.json", "wf_5y_unpurged_LEAKED.json"),
+                                         ("wf_10y_rolling_purged.json", "wf_10y_rolling_unpurged_LEAKED.json")):
+            purged, leaked = self._report(purged_name), self._report(leaked_name)
+            with self.subTest(pair=purged_name):
+                self.assertEqual(set(leaked["config"]["purge_rows_by_horizon"].values()), {0})
+                self.assertEqual(without_purge(purged["config"]), without_purge(leaked["config"]))
+                self.assertEqual(purged["results"].keys(), leaked["results"].keys())
+                for horizon in purged["results"]:
+                    self.assertEqual([t["t"] for t in purged["results"][horizon]["trades"]],
+                                     [t["t"] for t in leaked["results"][horizon]["trades"]])
 
 
 class OutputAllowlistTest(unittest.TestCase):
     def test_every_readme_backtest_output_has_its_own_data_file(self):
         names = ("walk_forward_backtest_latest.json", "wf_5y_purged.json", "wf_5y_unpurged_LEAKED.json",
-                 "wf_10y_rolling_purged.json", "wf_compare_all.json", "wf_compare_price_only.json")
+                 "wf_10y_rolling_purged.json", "wf_10y_rolling_unpurged_LEAKED.json",
+                 "wf_compare_all.json", "wf_compare_price_only.json")
         resolved = {safe_paths.data_json_path(f"data/{name}") for name in names}
         self.assertEqual(resolved, {Path(os.path.realpath(safe_paths.DATA_ROOT / n)) for n in names})
 

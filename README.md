@@ -29,6 +29,8 @@ artifacts under [`data/`](data) pin the numbers quoted here.
 
 The 1-week signal originally backtested at Sharpe 2.44 (5-year) and 2.07 (10-year rolling), with
 direction accuracy near 66% and p < 0.001. Those numbers were a **look-ahead leakage artifact**.
+Re-run today on pinned windows with the leak switched back on (`--no-purge`), the same pipeline
+still gives Sharpe 2.47 at 67.2% (5-year) and 2.09 at 64.9% (10-year).
 
 The walk-forward trained on `dataset.iloc[start:end_idx]` and predicted at `end_idx`, but each
 row's label is the Close **5 bars ahead**. So the last 4 training rows at every step carried
@@ -40,26 +42,28 @@ answer. It was a leak detector, not a forecaster.
 
 The fix is a standard purge/embargo (López de Prado): drop the last `horizon_steps − 1` rows from
 each training window so no training label matures after the prediction point. This also makes the
-backtest faithful to production, which cannot train on unmatured targets in the first place. With
-the purge applied:
+backtest faithful to production, which cannot train on unmatured targets in the first place. Each
+pair below is the same command, configuration, window and test dates (the production rolling
+18-month window, context lagged one day), differing only in the purge:
 
-| Metric | 5-Year (n=199) | 10-Year rolling (n=450) |
+| Metric | 5-Year (n=198) | 10-Year rolling (n=450) |
 |---|---|---|
 | | unpurged → **purged** | unpurged → **purged** |
-| Annualized Sharpe (after costs) | 2.44 → **−0.66** | 2.07 → **−0.11** |
-| Direction accuracy | 65.8% → **48.2%** | 66.0% → **51.6%** |
-| Significance vs coin-flip | p<0.001 → **p = 0.71** | p<0.001 → **p = 0.27** |
-| Beats naive baselines? | (leaked) → **no** (MAE 0.62% worse) | (leaked) → **no** |
+| Annualized Sharpe (after costs) | 2.47 → **−0.98** | 2.09 → **−0.05** |
+| Direction accuracy | 67.2% → **48.5%** | 64.9% → **50.9%** |
+| Significance vs coin-flip | p<0.0001 → **p = 0.69** | p<0.0001 → **p = 0.37** |
+| Beats naive baselines? | MAE 9.0% better → **no** (5.1% worse) | MAE 8.1% better → **no** (4.2% worse) |
 
-The collapse is uniform across every calendar year, on two independent out-of-sample sets, and is
-many times larger than the known run-to-run noise. The conclusion is unambiguous: **as built, this
-feature set has no out-of-sample directional edge in WTI.** The corrected signal is a coin flip
-that loses money after costs.
+Purging lowers the Sharpe in every calendar year of both windows. The 10-year set contains the
+5-year set's 2022–2026 weeks, so the two are not independent evidence. The conclusion is
+unambiguous: **as built, this feature set has no out-of-sample directional edge in WTI.** The
+corrected signal is a coin flip that loses money after costs.
 
 Artifacts: [`data/wf_5y_purged.json`](data/wf_5y_purged.json) and
 [`data/wf_10y_rolling_purged.json`](data/wf_10y_rolling_purged.json) (corrected);
-[`data/wf_5y_unpurged_LEAKED.json`](data/wf_5y_unpurged_LEAKED.json) (the original leaked run,
-preserved for the before/after). The fix is in
+[`data/wf_5y_unpurged_LEAKED.json`](data/wf_5y_unpurged_LEAKED.json) and
+[`data/wf_10y_rolling_unpurged_LEAKED.json`](data/wf_10y_rolling_unpurged_LEAKED.json) (the same
+commands with `--no-purge`). The original 2026-06 leaked file survives in git history. The fix is in
 [`backend/backtest_walk_forward.py`](backend/backtest_walk_forward.py) (`purge = horizon_steps - 1`).
 
 ### What this project actually demonstrates
@@ -165,7 +169,10 @@ year-by-year, and the economic tests).
 <details>
 <summary>Original (now-invalidated) credibility section — kept for transparency</summary>
 
-The leaked result was stress-tested against the obvious failure modes before the leak was found:
+The leaked result was stress-tested against the obvious failure modes before the leak was found.
+Its artifacts (`data/macro_leakage_test.json`, `data/timing_leakage_test.json`) predate both the
+purge and the full-history context fix; `run_macro_leakage_test.py` and
+`run_timing_leakage_test.py` pick both up when re-run.
 
 1. **Not a trending-market artifact.** On the identical window, buy-and-hold scored
    Sharpe ≈ **0.00** and naive momentum scored Sharpe ≈ **−1.03**. The market handed out no
@@ -214,21 +221,26 @@ The leaked result was stress-tested against the obvious failure modes before the
 
 </details>
 
-Reproduce. The backtest now **purges by default** (`purge = horizon_steps − 1`), so these
-commands produce the corrected coin-flip result, not the original 2.44. `--period` is relative to
-today. The committed purged/unpurged pair was run on 2026-06-19 on the same window, which is what
-makes it a like-for-like before/after. To re-run that exact window, pin it with `--start`/`--end`.
-New reports record their `data_start`/`data_end`, so they can always be re-run. Tree ensembles
-retrained per step carry some run-to-run noise, but it is far smaller than the leak.
+Reproduce. The backtest **purges by default** (`purge = horizon_steps − 1`). Every report records
+its data window, purge and context coverage, so it can be re-run exactly with `--start`/`--end`.
+Cross-asset context is fetched over each symbol's full history, so a pinned window gets the same
+inputs on every re-run (reports before 2026-10 fetched only the last three years, so their
+earlier rows had constant context). Tree ensembles retrained per step carry some run-to-run noise
+(the identically configured 1d rows of the 5-year pair differ in 1 of 199 directions), far smaller
+than the leak. The committed reports come from:
 ```bash
-# 5-year, corrected (1d + 1w), on the committed artifacts' window
 python -m backend.backtest_walk_forward --start 2021-06-21 --end 2026-06-19 --min-train 200 --step 5 \
-  --features no_macro --lag-context 1
-
-# 10-year, production rolling 18-month window
-python -m backend.backtest_walk_forward --period 10y --step 5 --features no_macro --lag-context 1 \
-  --train-window 378 --horizons 1w --output data/wf_10y_rolling_purged.json
+  --features no_macro --lag-context 1 --train-window 378 --output data/wf_5y_purged.json
+python -m backend.backtest_walk_forward --start 2021-06-21 --end 2026-06-19 --min-train 200 --step 5 \
+  --features no_macro --lag-context 1 --train-window 378 --no-purge --output data/wf_5y_unpurged_LEAKED.json
+python -m backend.backtest_walk_forward --start 2016-06-20 --end 2026-06-19 --min-train 200 --step 5 \
+  --features no_macro --lag-context 1 --train-window 378 --horizons 1w --output data/wf_10y_rolling_purged.json
+python -m backend.backtest_walk_forward --start 2016-06-20 --end 2026-06-19 --min-train 200 --step 5 \
+  --features no_macro --lag-context 1 --train-window 378 --horizons 1w --no-purge \
+  --output data/wf_10y_rolling_unpurged_LEAKED.json
 ```
+The dashboard's report (`data/walk_forward_backtest_latest.json`) is the first command without
+`--output`; the backtest refuses to write that file from any other configuration.
 
 ---
 
@@ -393,8 +405,10 @@ python backend/supply_shock_playbook.py   # print the full event-study table fro
   ICE's published expiry table.
 - **[`backend/backtest_walk_forward.py`](backend/backtest_walk_forward.py)** — the validation
   engine: walk-forward with baselines, binomial p-values, Wilson CIs, and dollar P&L (Sharpe,
-  win rate, drawdown, profit factor). `--features {all,no_macro,price_only}` enables the leakage
-  comparison; `--train-window` switches expanding to rolling (378 bars = the production 18-month
+  win rate, drawdown, profit factor). `--features` (default `no_macro`; `all` adds FRED/EIA macro,
+  whose EIA series need `EIA_API_KEY`; `price_only` is technical only) drives the leakage
+  comparison, and each comparison run writes its own `--output`; `--no-purge` reproduces the
+  retracted leak into a `*LEAKED*` file; `--train-window` switches expanding to rolling (378 bars = the production 18-month
   window); `--horizons` and `--period` select the test set. Non-positive prices (the 2020 negative
   settle) are dropped before feature engineering. **Purges the last `horizon_steps − 1` training
   rows per step** so no label matures after the prediction point — the fix that exposed the
@@ -430,7 +444,8 @@ python backend/supply_shock_playbook.py   # print the full event-study table fro
 - **[`tests/`](tests)** — a network-free unit suite run in CI on every branch push
   ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)). It includes:
   - a look-ahead **leak check** on the vol-forecast feature builder
-  - a **purge-invariant guard** on the backtest fix
+  - an engine-level **purge guard**: `evaluate_horizon` driven with a recording model, so no
+    training label may mature after the prediction point
   - a synthetic curve proving no **roll gap** can enter a carry return
   - the committed carry artifact **reproducing** from the committed data
   - the **contract calendar** against published expiries
@@ -472,10 +487,11 @@ python -m backend.vol_forecast
 python -m backend.carry_signal_test
 python backend/supply_shock_playbook.py
 
-# 4. Reproduce the purged direction backtest (leakage-proof config) and compare feature sets
-python -m backend.backtest_walk_forward --period 5y --min-train 200 --step 5 --features no_macro --lag-context 1
-python -m backend.backtest_walk_forward --period 5y --features all         # with macro
-python -m backend.backtest_walk_forward --period 5y --features price_only  # technical only
+# 4. Reproduce the purged direction backtest (the dashboard's report) and compare feature sets
+W="--start 2021-06-21 --end 2026-06-19 --min-train 200 --step 5 --train-window 378"
+python -m backend.backtest_walk_forward $W --features no_macro --lag-context 1
+python -m backend.backtest_walk_forward $W --features all --lag-context 1 --output data/wf_compare_all.json  # + FRED/EIA macro
+python -m backend.backtest_walk_forward $W --features price_only --output data/wf_compare_price_only.json   # technical only
 ```
 
 ### API endpoints
