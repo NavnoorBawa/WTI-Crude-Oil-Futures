@@ -3481,7 +3481,7 @@ class PremiumWTIPredictor:
         # Rows without a finite label (missing close / reference) are dropped, never fabricated.
         labels = pd.to_numeric(features_df[target_column], errors='coerce').replace([np.inf, -np.inf], np.nan)
         if labels.isna().any():
-            logger.info(f"Dropping {int(labels.isna().sum())} rows without a finite {target_column} label")
+            logger.info("Dropping %d rows without a finite training label", int(labels.isna().sum()))
             features_df = features_df.loc[labels.notna().to_numpy()]
 
         # Drop ALL target columns to prevent data leakage and feature mismatch

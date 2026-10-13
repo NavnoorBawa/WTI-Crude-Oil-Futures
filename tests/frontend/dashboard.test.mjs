@@ -14,7 +14,17 @@ let dashboard;
 before(async () => { dashboard = await loadDashboard(); });
 after(() => dashboard.close());
 
-const text = (html) => html.replace(/<[^>]+>/g, "").replace(/\s+/g, " ");
+// The visible text of server-rendered markup: every character outside a tag, whitespace collapsed.
+const text = (html) => {
+  let visible = "";
+  let inTag = false;
+  for (const character of html) {
+    if (character === "<") inTag = true;
+    else if (character === ">") inTag = false;
+    else if (!inTag) visible += character;
+  }
+  return visible.replace(/\s+/g, " ");
+};
 const fixture = JSON.parse(readFileSync(new URL("../fixtures/chart_actual_2026-09-24.json", import.meta.url), "utf8"));
 
 // ------------------------------------------------------------------------------------ formatting
