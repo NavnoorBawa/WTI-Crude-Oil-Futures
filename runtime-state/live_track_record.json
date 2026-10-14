@@ -1670,22 +1670,37 @@
       "wf_is_significant": false,
       "eligible_for_validation": false,
       "resolved": false
+    },
+    {
+      "date": "2026-10-14",
+      "trading_date": "2026-10-14",
+      "entry_at": "2026-10-14T04:40:04+00:00",
+      "frozen_at": "2026-10-14T04:51:37.053202+00:00",
+      "contract": "CLX26",
+      "contract_basis": "calendar",
+      "model_bar_date": "2026-10-13",
+      "entry_price": 94.63,
+      "forecast_pct": 0.413,
+      "stance": "NEUTRAL",
+      "wf_is_significant": false,
+      "eligible_for_validation": false,
+      "resolved": false
     }
   ],
   "summary": {
-    "n_calls": 126,
+    "n_calls": 127,
     "n_resolved_directional": 0,
     "n_independent_directional": 0,
     "min_independent_to_validate": 18,
     "n_hits": 0,
     "hit_rate_pct": null,
     "hit_rate_independent_pct": null,
-    "n_pending": 6,
+    "n_pending": 7,
     "n_skipped_roll": 27,
     "n_skipped_late": 0,
-    "n_neutral": 81,
+    "n_neutral": 82,
     "n_ineligible_directional": 45,
     "first_call_date": "2026-06-10",
-    "updated_at": "2026-10-13T23:45:24.876887+00:00"
+    "updated_at": "2026-10-14T04:51:37.420561+00:00"
   }
 }
