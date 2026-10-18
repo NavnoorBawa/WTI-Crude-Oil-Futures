@@ -1645,7 +1645,11 @@
       "stance": "NEUTRAL",
       "wf_is_significant": false,
       "eligible_for_validation": false,
-      "resolved": false
+      "resolved": true,
+      "resolution_date": "2026-10-19",
+      "resolution_trading_date": "2026-10-19",
+      "resolution_at": "2026-10-18T22:16:28+00:00",
+      "skipped_contract_roll": true
     },
     {
       "date": "2026-10-11",
@@ -1656,7 +1660,11 @@
       "stance": "NEUTRAL",
       "wf_is_significant": false,
       "eligible_for_validation": false,
-      "resolved": false
+      "resolved": true,
+      "resolution_date": "2026-10-19",
+      "resolution_trading_date": "2026-10-19",
+      "resolution_at": "2026-10-18T22:16:28+00:00",
+      "skipped_contract_roll": true
     },
     {
       "date": "2026-10-12",
@@ -1667,7 +1675,11 @@
       "stance": "NEUTRAL",
       "wf_is_significant": false,
       "eligible_for_validation": false,
-      "resolved": false
+      "resolved": true,
+      "resolution_date": "2026-10-19",
+      "resolution_trading_date": "2026-10-19",
+      "resolution_at": "2026-10-18T22:16:28+00:00",
+      "skipped_contract_roll": true
     },
     {
       "date": "2026-10-13",
@@ -1724,22 +1736,37 @@
       "wf_is_significant": false,
       "eligible_for_validation": false,
       "resolved": false
+    },
+    {
+      "date": "2026-10-19",
+      "trading_date": "2026-10-19",
+      "entry_at": "2026-10-18T22:16:28+00:00",
+      "frozen_at": "2026-10-18T22:27:08.975714+00:00",
+      "contract": "CLZ26",
+      "contract_basis": "quote_match",
+      "model_bar_date": "2026-10-16",
+      "entry_price": 98.26,
+      "forecast_pct": 2.333,
+      "stance": "NEUTRAL",
+      "wf_is_significant": false,
+      "eligible_for_validation": false,
+      "resolved": false
     }
   ],
   "summary": {
-    "n_calls": 129,
+    "n_calls": 130,
     "n_resolved_directional": 0,
     "n_independent_directional": 0,
     "min_independent_to_validate": 18,
     "n_hits": 0,
     "hit_rate_pct": null,
     "hit_rate_independent_pct": null,
-    "n_pending": 7,
-    "n_skipped_roll": 28,
+    "n_pending": 5,
+    "n_skipped_roll": 31,
     "n_skipped_late": 0,
-    "n_neutral": 84,
+    "n_neutral": 85,
     "n_ineligible_directional": 45,
     "first_call_date": "2026-06-10",
-    "updated_at": "2026-10-16T04:31:12.068274+00:00"
+    "updated_at": "2026-10-18T22:27:09.309949+00:00"
   }
 }
