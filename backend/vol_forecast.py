@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WTI realized-volatility forecaster (HAR-IV) — the project's real, validated signal.
+WTI realized-volatility forecaster (HAR-IV) — the project's model of record.
 
 Why this exists: the original 1-week DIRECTION model was a look-ahead leakage artifact and,
 once purged, is a coin flip (direction on a liquid contract is near-unforecastable, as theory
@@ -15,21 +15,26 @@ Evaluation design (everything below is computed by validate(); no figure is hand
   - Sample: every day since OVX's inception (May 2007), a FIXED anchor. The headline therefore only
     drifts as new out-of-sample weeks accrue — it does not shift because a rolling window silently
     drops old years (the previous 10-year window moved the base rate by ~3pp in three weeks).
-  - Vol-DIRECTION (will next week's realized vol exceed this week's?) against three references:
-    the majority class (exact binomial test), a mean-reversion rule (vol reverts toward its 66-day
-    average — a PAIRED Diebold-Mariano test on the 0/1 hit series, Newey-West variance), and the
-    same HAR model without OVX, fitted on the SAME rows (the nested baseline that isolates what
-    implied vol adds).
-  - The hit series is autocorrelated (consecutive labels share a week of returns), so an i.i.d.
-    z-score is reported alongside a Newey-West (HAC) one; the dashboard quotes the smaller.
-  - Vol-LEVEL: R^2 and MAE, plus QLIKE — the loss that ranks volatility forecasts consistently
-    when the realized-vol proxy is noisy (Patton 2011) — versus naive persistence.
-  - Economic value, stated honestly: a volatility-targeting overlay (does the forecast size a long
+  - Vol-LEVEL losses lead: QLIKE, the loss that ranks volatility forecasts consistently when the
+    realized-vol proxy is noisy (Patton 2011), against naive persistence and against a regression on
+    OVX alone (the options market's own forecast), each with a Diebold-Mariano statistic; R^2 and
+    MAE beside them.
+  - Vol-DIRECTION (will next week's realized vol exceed this week's?) is reported beside its noise
+    floor, the same pipeline on i.i.d. returns where nothing is forecastable: calling "up" when this
+    week's vol is low is right about three times in four on any continuous i.i.d. series, so
+    accuracy alone is not evidence of skill. Accuracy is also compared with the majority class
+    (exact binomial test), a mean-reversion rule (vol reverts toward its 66-day average; paired HAC
+    z on the 0/1 hit differences) and the same HAR model without OVX fitted on the SAME rows (the
+    nested baseline that isolates what implied vol adds). On the noise floor's simulated returns the
+    pipeline also beats the majority class and the mean-reversion rule, so those two comparisons are
+    not evidence of skill either. The hit series is autocorrelated (consecutive labels share a week
+    of returns), so an i.i.d. z-score is reported alongside a Newey-West (HAC) one.
+  - Economic value: a volatility-targeting overlay (does the forecast size a long
     WTI position better than trailing vol or buy-and-hold?) and the oil variance risk premium (does
     OVX exceed subsequent realized vol, and does the forecast time it?). Both are out-of-sample and
     run on same-contract returns (see the data caveat), so they end where EIA's curve ends.
 
-Honest scope: this is a clean implementation of a KNOWN effect, not novel alpha. It is a validated
+Scope: this is an implementation of a KNOWN effect, not novel alpha. It is a validated
 volatility/regime INDICATOR, not a directional return signal, and the economic tests below do not
 show it converting into trading profit.
 
@@ -39,19 +44,22 @@ left out of the deployed model because it does not significantly improve out-of-
 added complexity that does not earn its keep is how vol models overfit.
 
 Leakage controls (identical discipline to backtest_walk_forward.py):
-  - Features at day t use only returns and OVX up to and including t.
+  - Features at day t use returns up to and including t and OVX up to t - 1. OVX settles at 16:15
+    ET, after the 14:30 ET CL settlement that opens the target window, so it enters lagged one
+    session (lag_ovx, OVX_LAG_SESSIONS; model version 2). Version 1 used the same day's OVX.
   - Target = realized vol of days t+1..t+H, so the walk-forward PURGES the last H-1 training rows
     whose target matures after the prediction point.
   - The 2020-04-20 negative settlement (an expiry artifact) is dropped before any computation.
 
 Data caveat: CL=F is Yahoo's UNADJUSTED front-month series (it equals EIA's contract-1 price), so
-the monthly roll day carries the contract-1/contract-2 price gap (2008-2024 mean +0.6%, mostly
-contango). For the vol forecast the gap is small noise: rebuilding the 2008-2024 roll days as
-same-contract returns moves direction accuracy by under a point, upward (validate() reports both in
-economic.returns), so the forecast keeps the live CL=F series (EIA stopped publishing the curve in
-April 2024 and Yahoo keeps no expired contracts, so no live correction exists).
-For a P&L the gap is a bias, not noise (every strategy earns its weight times every gap, ~+0.15 of
-Sharpe for a long book), so the economic tests use same-contract returns and stop at the curve's end.
+the monthly roll day carries the contract-1/contract-2 price gap (mostly contango, so mostly
+positive; economic.returns.roll_gap_mean_pct). For the vol forecast the gap is small noise:
+rebuilding the roll days through the curve's end as same-contract returns changes direction
+accuracy and QLIKE only slightly (validate() reports both in economic.returns), so the forecast
+keeps the live CL=F series (EIA stopped publishing the curve in April 2024 and Yahoo keeps no
+expired contracts, so no live correction exists).
+For a P&L the gap is a bias, not noise (every strategy earns its weight times every gap, which
+flatters a long book), so the economic tests use same-contract returns and stop at the curve's end.
 
 Usage:
     python -m backend.vol_forecast                 # print validation + write artifact
@@ -79,7 +87,7 @@ except ImportError:  # Direct invocation: python backend/vol_forecast.py
 
 import numpy as np
 import pandas as pd
-from scipy.stats import binom, norm, ttest_ind
+from scipy.stats import binom, kurtosis, norm, skew, ttest_ind
 
 H = 5                      # forecast horizon in trading days (1 week)
 MIN_TRAIN = 250            # minimum expanding-window rows before the first OOS forecast
@@ -192,7 +200,8 @@ def _load_data_full(period: str = HISTORY_PERIOD, now: datetime | None = None):
             raw = None
     ovx = None
     if raw is not None:
-        # OVX at day t is known at t (no leak). Leading days before OVX existed stay NaN.
+        # Aligned as published: element t is the session-t close, which settles after CL's session-t
+        # settlement, so the model uses it only through lag_ovx. Days before OVX existed stay NaN.
         aligned = raw.reindex(logret.index).ffill(limit=OVX_FFILL_LIMIT).to_numpy(dtype=float)
         if np.isfinite(aligned).any():
             ovx = aligned
@@ -388,6 +397,22 @@ def _sharpe(returns: np.ndarray, periods_per_year: float) -> float:
     sd = float(np.std(arr, ddof=1))
     # "+ 0.0" normalizes a rounded -0.0 so the dashboard never renders a signed zero.
     return round(float(np.mean(arr)) / sd * np.sqrt(periods_per_year), 2) + 0.0 if sd > 0 else 0.0
+
+
+def _sharpe_positive_test(pnl: np.ndarray) -> dict:
+    """One-sided test that the per-period Sharpe ratio of an i.i.d. P&L series is positive, with the
+    non-normal standard error of Mertens (2002) and Opdyke (2007):
+        SE(SR) = sqrt((1 - g3 SR + (g4 - 1) / 4 SR^2) / n),
+    g3 the skewness and g4 the raw kurtosis (moment estimators). With g3 = 0 and g4 = 3 it is Lo's
+    (2002) normal-returns SE; negative skew and fat tails, which short-volatility P&L has, widen it."""
+    x = np.asarray(pnl, dtype=float)
+    sd = float(np.std(x, ddof=1))
+    sr = float(np.mean(x)) / sd if sd > 0 else 0.0
+    g3, g4 = float(skew(x)), float(kurtosis(x, fisher=False))
+    var = (1.0 - g3 * sr + (g4 - 1.0) / 4.0 * sr ** 2) / x.size
+    p = float(norm.sf(sr / np.sqrt(var))) if var > 0 else None
+    return {"sharpe_per_period": round(sr, 4) + 0.0, "skewness": round(g3, 2) + 0.0,
+            "excess_kurtosis": round(g4 - 3.0, 2), "p_value_one_sided": round(p, 4) if p is not None else None}
 
 
 def _overlay_returns(weights: np.ndarray, period_returns: np.ndarray) -> np.ndarray:
@@ -594,6 +619,16 @@ def _economic_tests(d: pd.DataFrame, r: np.ndarray, dates: pd.DatetimeIndex,
                 # Both proxies without the worst year, so the gap is compared like for like.
                 "short_vol_swap_sharpe_ex_worst_year": _sharpe(premium_pts[outside], per_year),
                 "short_variance_sharpe_ex_worst_year": _sharpe(short_var[outside], per_year),
+                # Is either Sharpe ratio positive? The P&L is far from normal (large negative skew,
+                # fat tails), so the standard error allows for both.
+                "sharpe_positive_test": {
+                    "short_vol_swap": _sharpe_positive_test(premium_pts),
+                    "short_variance": _sharpe_positive_test(short_var),
+                    "method": ("one-sided test of Sharpe > 0 on the non-overlapping periods, standard error "
+                               "of Mertens (2002) / Opdyke (2007) for i.i.d. non-normal returns: "
+                               "sqrt((1 - skewness * SR + (raw kurtosis - 1) / 4 * SR^2) / n), SR per period; "
+                               "raw kurtosis = excess_kurtosis + 3"),
+                },
                 # The premium in VARIANCE units (what a variance swap pays), with a Newey-West 95% CI.
                 "mean_premium_variance_pts": round(float(np.mean(var_premium)), 1),
                 "mean_premium_variance_ci95": [round(float(v), 1) for v in var_ci],
@@ -714,16 +749,20 @@ def _summarize(d: pd.DataFrame, has_ovx: bool, has_leverage: bool = False) -> di
 
 def noise_floor(r: np.ndarray, dates: pd.DatetimeIndex, sims: int = NOISE_FLOOR_SIMS) -> dict:
     """Direction accuracy when nothing is forecastable: i.i.d. Student-t(5) returns with the sample's
-    volatility through the identical feature builder and walk-forward (pure HAR, no OVX)."""
+    volatility through the identical feature builder and walk-forward (pure HAR, no OVX). The
+    mean-reversion rule is scored on the same rows: HAR beats it here too, with nothing to forecast."""
     sd = float(np.std(r))
-    accs = []
+    accs, accs_mr = [], []
     for seed in range(sims):
         rng = np.random.default_rng(NOISE_FLOOR_SEED + seed)
         z = rng.standard_t(5, len(r)) / np.sqrt(5 / 3) * sd
         X, y, tdate = _build_matrix(z, dates, None)
-        accs.append(float(_walk_forward(X, y, tdate, has_ovx=False)["hit"].mean()))
+        d = _walk_forward(X, y, tdate, has_ovx=False)
+        accs.append(float(d["hit"].mean()))
+        accs_mr.append(float(d["hit_mr"].mean()))
     return {"sims": sims, "dir_acc_pct_mean": _pct(np.mean(accs)),
-            "dir_acc_pct_range": [_pct(min(accs)), _pct(max(accs))]}
+            "dir_acc_pct_range": [_pct(min(accs)), _pct(max(accs))],
+            "mean_reversion_dir_acc_pct_mean": _pct(np.mean(accs_mr))}
 
 
 def validate(period: str = HISTORY_PERIOD, data: tuple | None = None, return_frame: bool = False):
@@ -967,9 +1006,11 @@ def main() -> None:
               f"{ov['sharpe_trailing_vol_target']} | forecast {ov['sharpe_forecast_vol_target']}")
     vrp = econ.get("variance_risk_premium")
     if vrp:
+        sp = vrp["sharpe_positive_test"]
         print(f"  variance risk premium  : {vrp['mean_premium_vol_pts']} vol pts, positive "
               f"{vrp['share_positive_pct']}% of periods, short-vol Sharpe {vrp['short_vol_swap_sharpe']} "
-              f"(variance-swap {vrp['short_variance_sharpe']}), "
+              f"(p {sp['short_vol_swap']['p_value_one_sided']}, non-normal SE; variance-swap "
+              f"{vrp['short_variance_sharpe']}, p {sp['short_variance']['p_value_one_sided']}), "
               f"worst {vrp['worst_period_vol_pts']} pts; timing p={vrp['timing_p_value']}")
     live = report["live"]
     print(f"  live: next-week vol {live['forecast_next_week_vol_annualized_pct']}% "

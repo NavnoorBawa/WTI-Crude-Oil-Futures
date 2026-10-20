@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Leak anatomy: why the retracted direction model's 2.4 Sharpe was mechanical.
+"""Leak anatomy: why the retracted direction model's Sharpe ratio was mechanical.
 
 The retracted walk-forward trained on rows up to the decision day t, and each row's label is the
 5-session forward return. The most recent training row (t-1) has the label r_t + ... + r_{t+4}; the
@@ -22,8 +22,12 @@ This module shows it three ways, all deterministic and offline:
       price-level features, run with and without the purge over many seeds.
   (c) The same on block-shuffled real CL=F returns (data/market/cl_f_daily.csv via
       backend.market_data): real fat tails and volatility clustering inside 20-session blocks, any
-      genuine predictability across blocks destroyed. Plus (d) the real, unshuffled CL=F returns
-      over the retracted 5-year window, for reference.
+      genuine predictability across blocks destroyed. The shuffled runs permute the same returns, so
+      they are not independent of each other, and real 5-session returns rise more often than they
+      fall, so each run is also tested against its own base rate rather than 50% alone. Plus (d)
+      the real, unshuffled CL=F returns over the retracted 5-year window, for reference.
+
+Sharpe ratios here are gross (no transaction costs); the retracted model's is after costs.
 
 Usage: python -m backend.leak_anatomy   (writes data/leak_anatomy.json; about two minutes)
 """
@@ -144,7 +148,7 @@ def walk_forward(returns: np.ndarray, model: str, purge: bool, seed: int = 0) ->
     fwd[:-HORIZON] = log_price[HORIZON:] - log_price[:-HORIZON]
     first = int(np.argmax(~np.isnan(x).any(axis=1)))
     factory = MODELS[model][1]
-    hits, pnl, nn_recent, nn_recent_hits = [], [], [], []
+    hits, ups, pnl, nn_recent, nn_recent_hits = [], [], [], [], []
     for t in range(first + MIN_TRAIN, n - HORIZON, STEP):
         lo = max(first, t - TRAIN_WINDOW)
         hi = t - PURGE if purge else t
@@ -157,6 +161,7 @@ def walk_forward(returns: np.ndarray, model: str, purge: bool, seed: int = 0) ->
         direction = 1.0 if clf.predict(x_test)[0] == 1 else -1.0
         hit = direction * fwd[t] > 0
         hits.append(hit)
+        ups.append(fwd[t] > 0)
         pnl.append(direction * fwd[t])
         if model == "nearest_neighbour":
             nearest = int(clf.kneighbors(x_test, 1, return_distance=False)[0, 0])
@@ -169,6 +174,7 @@ def walk_forward(returns: np.ndarray, model: str, purge: bool, seed: int = 0) ->
         "n_decisions": len(hits),
         "accuracy_pct": round(100.0 * float(np.mean(hits)), 2),
         "hits": int(np.sum(hits)),
+        "n_up": int(np.sum(ups)),
         "sharpe_gross": round(float(pnl.mean() / pnl.std(ddof=1) * np.sqrt(PERIODS_PER_YEAR)), 3),
     }
     if nn_recent:
@@ -192,8 +198,9 @@ def block_shuffle(returns: np.ndarray, seed: int, block: int = SHUFFLE_BLOCK, n:
     return blocks[order].ravel()[:n]
 
 
-def real_returns(start: str = REAL_WINDOW[0], end: str = REAL_WINDOW[1], snapshot=None):
-    """Close-to-close CL=F log returns from the pinned snapshot (SHA-256 verified)."""
+def real_returns(snapshot=None):
+    """Close-to-close CL=F log returns and their dates over the pinned snapshot's whole history
+    (SHA-256 verified); callers select any window from the dates."""
     snapshot = market_data.load_snapshot() if snapshot is None else snapshot
     rets, dates, _, _ = market_data.research_inputs(snapshot)
     return rets, dates
@@ -203,17 +210,24 @@ def retracted_reference() -> dict:
     """The retracted run's own numbers, read from its committed artifact (never retyped)."""
     report = json.loads(data_json_path(RETRACTED_ARTIFACT).read_text(encoding="utf-8"))
     res = report["results"]["1w"]
+    pnl = res["pnl_metrics"]
     return {
         "artifact": f"data/{RETRACTED_ARTIFACT}",
         "n": int(res["samples"]),
         "accuracy_pct": round(float(res["metrics"]["ensemble"]["direction_accuracy"]), 2),
-        "sharpe": float(res["pnl_metrics"]["sharpe_ratio_annualized"]),
+        "sharpe": float(pnl["sharpe_ratio_annualized"]),
+        # The simulations' Sharpe ratios are gross; this one is not, so they are not like for like.
+        "sharpe_basis": "after transaction costs",
+        "transaction_cost_per_trade_usd": float(pnl["transaction_cost_per_trade"]),
     }
 
 
 def summarize(runs: list[dict], seeds: list[int]) -> dict:
-    """Mean and range over runs, a t-test of the per-run accuracies against 50% (one-sided, runs
-    are independent), and a pooled binomial test over all decisions (labels never overlap)."""
+    """Mean and range over runs, a t-test of the per-run accuracies against 50% (one-sided), a pooled
+    binomial test over all decisions (labels never overlap within a run), and a binomial test of each
+    run against its own base rate max(p, 1 - p), p the share of rising labels: the accuracy of always
+    calling the more frequent sign. The t-test and the pooled test assume independent runs, which
+    holds for synthetic seeds but not for block shuffles of the same returns."""
     acc = np.array([r["accuracy_pct"] for r in runs])
     sharpe = np.array([r["sharpe_gross"] for r in runs])
     hits = int(sum(r["hits"] for r in runs))
@@ -229,6 +243,10 @@ def summarize(runs: list[dict], seeds: list[int]) -> dict:
         "pooled_accuracy_pct": round(100.0 * hits / total, 2),
         "pooled_binomial_p_value_vs_50": float(stats.binom.sf(hits - 1, total, 0.5)),
     }
+    base = [max(r["n_up"], r["n_decisions"] - r["n_up"]) / r["n_decisions"] for r in runs]
+    p_base = [float(stats.binom.sf(r["hits"] - 1, r["n_decisions"], b)) for r, b in zip(runs, base)]
+    out["base_rate_pct_mean"] = round(100.0 * float(np.mean(base)), 2)
+    out["runs_beating_base_rate_5pct"] = int(sum(p < 0.05 for p in p_base))
     if len(runs) > 1 and acc.std(ddof=1) > 0:
         t = stats.ttest_1samp(acc, 50.0, alternative="greater")
         out["t_stat_vs_50"] = round(float(t.statistic), 2)
@@ -238,8 +256,9 @@ def summarize(runs: list[dict], seeds: list[int]) -> dict:
         out["nearest_is_newest_row_pct_mean"] = round(float(np.mean([r["nearest_is_newest_row_pct"] for r in nn])), 1)
         rows = [r["accuracy_when_nearest_is_newest_pct"] for r in nn if r["accuracy_when_nearest_is_newest_pct"] is not None]
         out["accuracy_when_nearest_is_newest_pct_mean"] = round(float(np.mean(rows)), 2) if rows else None
-    out["runs"] = [{"seed": s, **{k: r[k] for k in ("accuracy_pct", "sharpe_gross", "n_decisions")}}
-                   for s, r in zip(seeds, runs)]
+    out["runs"] = [{"seed": s, **{k: r[k] for k in ("accuracy_pct", "sharpe_gross", "n_decisions")},
+                    "base_rate_pct": round(100.0 * b, 2), "binomial_p_value_vs_base_rate": pb}
+                   for s, r, b, pb in zip(seeds, runs, base, p_base)]
     return out
 
 
@@ -258,6 +277,8 @@ def run(snapshot=None) -> dict:
     all_rets, all_dates = real_returns(snapshot=snapshot)
     in_window = (all_dates >= REAL_WINDOW[0]) & (all_dates <= REAL_WINDOW[1])
     window_rets = all_rets[in_window]
+    # Share of rising 5-session returns over the whole history the shuffled runs draw from.
+    up_share = 100.0 * float(np.mean(np.convolve(all_rets, np.ones(HORIZON), "valid") > 0))
 
     synthetic = experiment(synthetic_returns, {"nearest_neighbour": SYNTHETIC_SEEDS,
                                                "decision_tree": SYNTHETIC_SEEDS,
@@ -270,28 +291,35 @@ def run(snapshot=None) -> dict:
     leaked_rho = table[0]["label_correlation"]
     nn_syn = synthetic["nearest_neighbour"]
     rf_syn = synthetic["random_forest"]
+    nn_shuf = shuffled["nearest_neighbour"]
     retracted = retracted_reference()
     conclusion = (
         f"Under a pure random walk the newest leaked training label agrees in sign with the test label "
         f"{table[0]['p_sign_agree_pct']:.1f}% of the time (1/2 + arcsin({leaked_rho})/pi), with no "
         f"information about the future. On synthetic i.i.d. returns a 1-nearest-neighbour model trained "
         f"without the purge scores {nn_syn['unpurged_leaked']['accuracy_pct_mean']:.1f}% "
-        f"(Sharpe {nn_syn['unpurged_leaked']['sharpe_mean']:.2f}); its nearest neighbour is the newest row "
+        f"(gross Sharpe {nn_syn['unpurged_leaked']['sharpe_mean']:.2f}); its nearest neighbour is the newest row "
         f"in {nn_syn['unpurged_leaked']['nearest_is_newest_row_pct_mean']:.0f}% of decisions, and on those it "
         f"scores {nn_syn['unpurged_leaked']['accuracy_when_nearest_is_newest_pct_mean']:.1f}% (a little above "
         f"the unconditional {table[0]['p_sign_agree_pct']:.1f}%: the newest row is nearest when its one unshared "
         f"return is small, which makes the two labels even more alike). A 20-tree random forest scores "
-        f"{rf_syn['unpurged_leaked']['accuracy_pct_mean']:.1f}% with Sharpe "
+        f"{rf_syn['unpurged_leaked']['accuracy_pct_mean']:.1f}% with a gross Sharpe of "
         f"{rf_syn['unpurged_leaked']['sharpe_mean']:.2f} on noise, against the retracted model's "
-        f"{retracted['accuracy_pct']:.1f}% and {retracted['sharpe']:.2f}. With the purge the same models score "
-        f"{nn_syn['purged']['accuracy_pct_mean']:.1f}% and {rf_syn['purged']['accuracy_pct_mean']:.1f}%. "
-        f"Block-shuffled real CL=F returns give the same picture "
-        f"({shuffled['nearest_neighbour']['unpurged_leaked']['accuracy_pct_mean']:.1f}% leaked vs "
-        f"{shuffled['nearest_neighbour']['purged']['accuracy_pct_mean']:.1f}% purged). The retracted "
-        "Sharpe was the label overlap, not a forecast."
+        f"{retracted['accuracy_pct']:.1f}% and {retracted['sharpe']:.2f} {retracted['sharpe_basis']}. With "
+        f"the purge the same models score {nn_syn['purged']['accuracy_pct_mean']:.1f}% and "
+        f"{rf_syn['purged']['accuracy_pct_mean']:.1f}%. Block-shuffled real CL=F returns give the same picture "
+        f"({nn_shuf['unpurged_leaked']['accuracy_pct_mean']:.1f}% leaked vs "
+        f"{nn_shuf['purged']['accuracy_pct_mean']:.1f}% purged). Real {HORIZON}-session returns rise {up_share:.1f}% "
+        f"of the time, so the no-skill accuracy there is each run's base rate, not 50%: "
+        f"{nn_shuf['unpurged_leaked']['runs_beating_base_rate_5pct']} of {nn_shuf['unpurged_leaked']['n_runs']} "
+        f"leaked runs and {nn_shuf['purged']['runs_beating_base_rate_5pct']} of {nn_shuf['purged']['n_runs']} "
+        "purged runs beat their own base rate at 5%. The shuffled runs reuse the same returns, so they are not "
+        "independent samples and their pooled tests overstate the evidence. The retracted Sharpe was the label "
+        "overlap, not a forecast."
     )
     return {
-        "question": "Was the retracted direction model's 2.4 Sharpe (67% accuracy) mechanical?",
+        "question": (f"Was the retracted direction model's Sharpe of {retracted['sharpe']:.2f} "
+                     f"{retracted['sharpe_basis']} ({retracted['accuracy_pct']:.0f}% accuracy) mechanical?"),
         "design": {
             "label": f"sign of the {HORIZON}-session forward log return",
             "purge_rows": PURGE,
@@ -299,10 +327,19 @@ def run(snapshot=None) -> dict:
             "features": "log price and its " + "/".join(map(str, MA_WINDOWS)) + "-session moving averages, "
                         "standardized on the training window",
             "models": {k: v[0] for k, v in MODELS.items()},
-            "sharpe": f"gross, direction x {HORIZON}-session log return, annualized by sqrt(252/{STEP})",
+            "sharpe": (f"gross (no transaction costs): direction x {HORIZON}-session log return, annualized by "
+                       f"sqrt(252/{STEP}). The retracted model's Sharpe (retracted_reference) is after costs, "
+                       "so the two are not like for like; costs would only lower these."),
             "synthetic_returns": f"i.i.d. normal, daily sd {DAILY_VOL}",
             "shuffled_returns": (f"CL=F close-to-close log returns (data/market/cl_f_daily.csv), "
                                  f"{SHUFFLE_BLOCK}-session blocks permuted, first {N_DAYS} returns"),
+            "independence": (f"Synthetic runs draw independent returns. The {len(SHUFFLE_SEEDS)} block-shuffled runs "
+                             "are permutations of the same CL=F returns, so they are not independent: their "
+                             "t-test across runs and pooled binomial test overstate the evidence. Real "
+                             f"{HORIZON}-session CL=F returns rise {up_share:.1f}% of the time, so 50% is not the "
+                             "no-skill accuracy on them; every run is also tested against its own base rate "
+                             "max(p, 1 - p) (runs[].binomial_p_value_vs_base_rate, runs_beating_base_rate_5pct)."),
+            "cl_5_session_up_share_pct": round(up_share, 1),
             "real_window": list(REAL_WINDOW),
         },
         "analytic": {

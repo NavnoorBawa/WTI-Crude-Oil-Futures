@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Oil supply-shock playbook — rigorous, EIA-sourced historical reference.
+Oil supply-shock playbook: an EIA-sourced historical reference.
 
 Design principle: NO hand-entered price numbers. We store only the verified event
 date + supply-at-risk (with a source note), then COMPUTE every realized price move
@@ -13,13 +13,15 @@ price prediction. It also empirically tests whether a "priced-in vs. history at 
 same stage" read carries any signal before we build anything on top of it.
 
 Placebo (2026-10). The event "peak" is the highest close of a 20-session path against the mean of
-the 5 sessions before it, so it is positive on most dates by construction: on a random non-event
-date it is about +5.5%. A group's median move therefore means nothing on its own. Every group is
-compared with the same statistic on every non-event date in the events' span (the placebo), with a
-resampling p-value (how often n random non-event dates have a median at least as extreme), the
-same test with each event matched to non-event dates of its own calendar year (volatility regime),
-a Mann-Whitney test, and bootstrap confidence intervals. `python -m backend.supply_shock_playbook`
-prints the table and writes data/supply_shock_study.json from the committed EIA series (offline).
+the 5 sessions before it, so it is positive on most dates by construction, events or not (the
+artifact's placebo block gives its median on non-event dates). A group's median move therefore
+means nothing on its own. Every group is compared with the same statistic on every non-event date
+in the events' span (the placebo), with a resampling p-value (how often n random non-event dates
+have a median at least as extreme), the same test with each event matched to non-event dates of its
+own calendar year (volatility regime), a Mann-Whitney test, and bootstrap confidence intervals.
+Events close enough in time to share sessions are listed (overlapping_events): they are not
+independent draws. `python -m backend.supply_shock_playbook` prints the table and writes
+data/supply_shock_study.json from the committed EIA series (offline).
 """
 
 import bisect
@@ -492,6 +494,15 @@ def _between_groups(a, b, index):
 _COMPARISON_MEMO = {}
 
 
+def shared_session_pairs(dates, events):
+    """Event pairs fewer than BASE_SESSIONS + PATH_SESSIONS sessions apart: the later event's base or
+    path lies inside the earlier event's path, so the two measurements share prices."""
+    by_pos = sorted((bisect.bisect_left(dates, e["date"]), e["id"]) for e in events)
+    return [{"events": [a_id, b_id], "sessions_apart": b - a}
+            for k, (a, a_id) in enumerate(by_pos) for b, b_id in by_pos[k + 1:]
+            if b - a < BASE_SESSIONS + PATH_SESSIONS]
+
+
 def placebo_comparison(series_list, events):
     """Every group against the placebo, plus the two-group and priced-in tests. Deterministic
     (seeded), and memoized on the data it depends on, so the API and the artifact agree."""
@@ -548,7 +559,12 @@ def placebo_comparison(series_list, events):
         "placebo_weak_day0_n": len(p_small),
         "placebo_weak_day0_median_further_rise_pct": _r(np.median(p_small)) if p_small else None,
     }
-    result = {"placebo": placebo_block, "groups": groups, "between_groups": between, "priced_in": priced_in}
+    overlapping = {"definition": (f"event pairs fewer than {BASE_SESSIONS + PATH_SESSIONS} sessions apart, so the "
+                                  f"later event's {BASE_SESSIONS}-session base or {PATH_SESSIONS}-session path lies "
+                                  "inside the earlier event's path"),
+                   "pairs": shared_session_pairs(dates, events)}
+    result = {"placebo": placebo_block, "groups": groups, "between_groups": between, "priced_in": priced_in,
+              "overlapping_events": overlapping}
     if len(_COMPARISON_MEMO) > 8:
         _COMPARISON_MEMO.clear()
     _COMPARISON_MEMO[key] = result
@@ -585,11 +601,24 @@ def study_conclusion(comparison):
                      f"{bg['settle']:.4f} (settle).")
     others = [g for g in comparison["groups"] if g["key"] not in ("supply_lost", "threat_only", "all_events")
               and g["p_value_vs_placebo"]["peak"] < ALPHA and g["excess_peak_vs_placebo_pct"] > 0]
-    if others:
-        parts.append("Other groups with a peak above placebo at 5% (unadjusted): "
-                     + ", ".join(f"{g['name']} (n={g['n']})" for g in others) + ".")
-    parts.append("Caveats: event dates and groupings were chosen with hindsight, the groups overlap, and "
-                 "these p-values are not adjusted for the number of groups tested (see "
+    # The same rule as the verdict above: the year-matched placebo controls for the volatility regime.
+    robust = [g for g in others if g["p_value_vs_year_matched_placebo"]["peak"] < ALPHA]
+    fragile = [g for g in others if g not in robust]
+    if robust:
+        parts.append("Other groups with a peak above placebo at 5% on both tests (unadjusted for the number "
+                     "of groups): " + ", ".join(f"{g['name']} (n={g['n']})" for g in robust) + ".")
+    if fragile:
+        parts.append("Above the unmatched placebo at 5% but not the year-matched one: "
+                     + ", ".join(f"{g['name']} (n={g['n']}, peak p = {g['p_value_vs_placebo']['peak']:.4f} vs "
+                                 f"{g['p_value_vs_year_matched_placebo']['peak']:.4f} year-matched)"
+                                 for g in fragile) + ".")
+    pairs = comparison["overlapping_events"]["pairs"]
+    shared = ("; some events are close enough that their windows share sessions ("
+              + "; ".join(f"{pr['events'][0]} and {pr['events'][1]}, {pr['sessions_apart']} sessions apart"
+                          for pr in pairs)
+              + "), so members of a group are not all independent") if pairs else ""
+    parts.append("Caveats: event dates and groupings were chosen with hindsight; the groups overlap" + shared
+                 + "; and these p-values are not adjusted for the number of groups tested (see "
                  "data/research_ledger.json).")
     return " ".join(parts)
 
@@ -700,7 +729,8 @@ def run_study(series_list=None):
                    "from placebo dates of its own calendar year; mann_whitney_p: two-sided rank test vs all "
                    "placebo dates (placebo paths overlap, so it is approximate); ci_*: 95% percentile "
                    f"bootstrap of the group median ({CI_REPS} resamples). Values at the event table's 0.1% "
-                   "resolution; ties count against the hypothesis."),
+                   "resolution; ties count against the hypothesis. The tests treat a group's events as "
+                   "independent draws; events listed in overlapping_events share sessions, so they are not."),
         "data": {"source": "EIA RWTC daily WTI Cushing spot, data/eia_wti_spot_daily.json",
                  "events_scored": len(events), "events_defined": len(SHOCK_EVENTS)},
         "resampling": {"seed": STUDY_SEED, "null_reps": NULL_REPS, "ci_reps": CI_REPS},
@@ -708,6 +738,7 @@ def run_study(series_list=None):
         "groups": comparison["groups"],
         "between_groups": comparison["between_groups"],
         "priced_in": comparison["priced_in"],
+        "overlapping_events": comparison["overlapping_events"],
         "superseded_claims": {
             "threat_only_peak": ("'Threat-only events peak +4.0% and settle near flat' described the "
                                  "statistic, not the events: an ordinary date peaks higher."),

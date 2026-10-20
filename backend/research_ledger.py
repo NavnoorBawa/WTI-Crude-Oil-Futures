@@ -4,8 +4,9 @@
 One row per tested hypothesis, each stated as the claim (the alternative) the project made or
 examined. Every statistic and p-value is READ from a committed artifact by its JSON field path, or
 computed by a standard formula from fields read the same way (an exact binomial test from a stored
-accuracy and sample size, a normal p-value from a stored z); nothing is typed in by hand. The row
-records which fields it used, so each number can be checked against its artifact.
+accuracy and sample size, a normal p-value from a stored z, the larger of two stored p-values when a
+claim needs both tests); nothing is typed in by hand. The row records which fields it used, so each
+number can be checked against its artifact.
 
 Status, from the test as the project ran it (one- or two-sided as recorded in `sided`):
   supported      p < 0.05 and the estimate points the way the hypothesis says
@@ -37,10 +38,8 @@ import numpy as np
 from scipy import stats
 
 try:
-    from . import vol_forecast as vf
     from .safe_paths import DATA_ROOT, data_json_path
 except ImportError:  # Direct invocation: python backend/research_ledger.py
-    import vol_forecast as vf
     from safe_paths import DATA_ROOT, data_json_path
 
 ARTIFACT = "research_ledger.json"
@@ -150,18 +149,14 @@ class DieboldMariano:
 
 
 @dataclass(frozen=True)
-class SharpePositive:
-    """One-sided test that a Sharpe ratio is positive, i.i.d. standard error (Lo 2002):
-    SE(SR per period) = sqrt((1 + SR^2 / 2) / n)."""
-    sharpe: str
-    n: str
-    periods_per_year: float
+class LargestOf:
+    """The largest of several stored p-values, for a claim that needs every one of its tests to
+    reject (e.g. an event group against both the unmatched and the year-matched placebo)."""
+    paths: tuple[str, ...]
 
     def __call__(self, doc):
-        sr_ann, n = float(resolve(doc, self.sharpe)), int(resolve(doc, self.n))
-        sr = sr_ann / np.sqrt(self.periods_per_year)
-        t = sr / np.sqrt((1 + sr ** 2 / 2) / n)
-        return float(stats.norm.sf(t)), {self.sharpe: sr_ann, self.n: n}
+        used = {path: resolve(doc, path) for path in self.paths}
+        return max(float(v) for v in used.values()), used
 
 
 @dataclass(frozen=True)
@@ -190,7 +185,8 @@ class Row:
     expects: Callable[[float], bool] | None = None   # the direction the hypothesis claims
     beats: str | None = None            # or: the statistic must exceed this field to point the right way
     pre_specified: bool = False
-    retracted: str | None = None        # reason, when the evidence was invalid when produced
+    retracted: str | None = None        # reason, when the evidence was invalid when produced;
+                                        # "{label}" inserts that context value
     note: str = ""
     context: dict = field(default_factory=dict)     # label -> field path, shown beside the statistic
 
@@ -205,7 +201,6 @@ LEAKED_PIPELINE = ("look-ahead leak: the walk-forward trained on rows whose 5-se
 ABOVE_50 = lambda s: s > 50.0                                     # noqa: E731
 POSITIVE = lambda s: s > 0.0                                      # noqa: E731
 NEGATIVE = lambda s: s < 0.0                                      # noqa: E731
-_VRP_PER_YEAR = 252.0 / (vf.VRP_STEPS * vf.STEP)                  # non-overlapping ~20-session periods
 _LM = "leaderboard.models[key={}]"
 
 
@@ -236,7 +231,7 @@ def _direction_rows() -> list[Row]:
             source="macro_leakage_test.json", statistic=("with_macro accuracy %", "results.with_macro_1w.direction_accuracy"),
             p=TwoProportion("results.with_macro_1w.direction_accuracy", "results.with_macro_1w.samples",
                             "results.no_macro_1w.direction_accuracy", "results.no_macro_1w.samples"),
-            sided="one", expects=ABOVE_50, retracted=LEAKED_PIPELINE,
+            sided="one", beats="results.no_macro_1w.direction_accuracy", retracted=LEAKED_PIPELINE,
             context={"no_macro_accuracy_pct": "results.no_macro_1w.direction_accuracy"}),
         Row(id="dir_same_day_context", family="direction model",
             hypothesis="Same-day (16:00 ET) context closes inflate the edge vs context lagged one day.",
@@ -244,7 +239,7 @@ def _direction_rows() -> list[Row]:
             source="timing_leakage_test.json", statistic=("same-day accuracy %", "results.same_day.direction_accuracy"),
             p=TwoProportion("results.same_day.direction_accuracy", "results.same_day.samples",
                             "results.lagged_1d.direction_accuracy", "results.lagged_1d.samples"),
-            sided="one", expects=ABOVE_50, retracted=LEAKED_PIPELINE,
+            sided="one", beats="results.lagged_1d.direction_accuracy", retracted=LEAKED_PIPELINE,
             context={"lagged_accuracy_pct": "results.lagged_1d.direction_accuracy"}),
         Row(id="dir_hit_rate_at_ess", family="direction model",
             hypothesis="The 1W hit rate stays significant at its serial-correlation effective sample size.",
@@ -256,10 +251,15 @@ def _direction_rows() -> list[Row]:
 
 
 def _leak_rows() -> list[Row]:
+    analytic = "Predicted analytically before the simulation: 1/2 + arcsin(0.8)/pi = 79.5% for the newest leaked label."
+    shuffled = (" The shuffled runs permute the same CL=F returns, so their pooled decisions are not independent "
+                "and this p overstates the evidence; real 5-session returns rise more often than they fall, so "
+                "each run is also tested against its own base rate (runs_beating_base_rate).")
     rows = []
-    for rid, block, desc in (
-        ("leak_forest_noise", "synthetic_random_walk.random_forest", "a 20-tree random forest on i.i.d. random walks"),
-        ("leak_nn_shuffled_cl", "block_shuffled_cl.nearest_neighbour", "a 1-nearest-neighbour model on block-shuffled CL=F returns"),
+    for rid, block, desc, extra in (
+        ("leak_forest_noise", "synthetic_random_walk.random_forest", "a 20-tree random forest on i.i.d. random walks", ""),
+        ("leak_nn_shuffled_cl", "block_shuffled_cl.nearest_neighbour",
+         "a 1-nearest-neighbour model on block-shuffled CL=F returns", shuffled),
     ):
         for purged in (False, True):
             key = "purged" if purged else "unpurged_leaked"
@@ -267,12 +267,13 @@ def _leak_rows() -> list[Row]:
                 id=f"{rid}_{'purged' if purged else 'unpurged'}", family="leak anatomy",
                 hypothesis=(f"Walk-forward {'with' if purged else 'without'} the purge, {desc} (no signal "
                             "exists) scores above 50% direction accuracy."),
-                test="one-sided exact binomial test on all decisions pooled over seeds (labels never overlap)",
+                test="one-sided exact binomial test on all decisions pooled over seeds (labels never overlap within a run)",
                 source=LEAK, statistic=("mean accuracy %", f"{block}.{key}.accuracy_pct_mean"),
                 p=Field(f"{block}.{key}.pooled_binomial_p_value_vs_50"), sided="one", expects=ABOVE_50,
-                pre_specified=True,
-                note="Predicted analytically before the simulation: 1/2 + arcsin(0.8)/pi = 79.5% for the newest leaked label.",
-                context={"sharpe_mean": f"{block}.{key}.sharpe_mean", "runs": f"{block}.{key}.n_runs"},
+                pre_specified=True, note=analytic + extra,
+                context={"gross_sharpe_mean": f"{block}.{key}.sharpe_mean", "runs": f"{block}.{key}.n_runs",
+                         "base_rate_pct_mean": f"{block}.{key}.base_rate_pct_mean",
+                         "runs_beating_base_rate": f"{block}.{key}.runs_beating_base_rate_5pct"},
             ))
     return rows
 
@@ -343,6 +344,17 @@ def _carry_rows() -> list[Row]:
 
 def _vrp_rows() -> list[Row]:
     vrp = "economic.variance_risk_premium"
+
+    def sharpe_row(name, hypothesis):
+        test = f"{vrp}.sharpe_positive_test.{name}"
+        return Row(id=f"vrp_{name}_sharpe", family="variance risk premium", hypothesis=hypothesis,
+                   test=("one-sided test of Sharpe > 0 with the Mertens (2002) / Opdyke (2007) standard error, "
+                         "which allows for the P&L's skewness and kurtosis (p stored in the artifact)"),
+                   source=VOL, statistic=("Sharpe (annualized)", f"{vrp}.{name}_sharpe"),
+                   p=Field(f"{test}.p_value_one_sided"), sided="one", expects=POSITIVE,
+                   context={"skewness": f"{test}.skewness", "excess_kurtosis": f"{test}.excess_kurtosis",
+                            "n_periods": f"{vrp}.n_periods"})
+
     return [
         Row(id="vrp_exists", family="variance risk premium",
             hypothesis="OVX exceeds the realized vol of the following month more often than not.",
@@ -350,31 +362,14 @@ def _vrp_rows() -> list[Row]:
             statistic=("share of periods with a positive premium %", f"{vrp}.share_positive_pct"),
             p=SignTest(f"{vrp}.share_positive_pct", f"{vrp}.n_periods"), sided="one", expects=ABOVE_50,
             context={"mean_premium_vol_pts": f"{vrp}.mean_premium_vol_pts"}),
-        Row(id="vrp_short_vol_swap_sharpe", family="variance risk premium",
-            hypothesis="A linear short-vol (vol-swap) proxy earns a positive Sharpe ratio.",
-            test="one-sided test of Sharpe > 0, i.i.d. (Lo 2002) standard error", source=VOL,
-            statistic=("Sharpe (annualized)", f"{vrp}.short_vol_swap_sharpe"),
-            p=SharpePositive(f"{vrp}.short_vol_swap_sharpe", f"{vrp}.n_periods", _VRP_PER_YEAR), sided="one",
-            expects=POSITIVE),
-        Row(id="vrp_short_variance_sharpe", family="variance risk premium",
-            hypothesis="A short variance-swap proxy (what an options seller holds) earns a positive Sharpe ratio.",
-            test="one-sided test of Sharpe > 0, i.i.d. (Lo 2002) standard error", source=VOL,
-            statistic=("Sharpe (annualized)", f"{vrp}.short_variance_sharpe"),
-            p=SharpePositive(f"{vrp}.short_variance_sharpe", f"{vrp}.n_periods", _VRP_PER_YEAR), sided="one",
-            expects=POSITIVE),
+        sharpe_row("short_vol_swap", "A linear short-vol (vol-swap) proxy earns a positive Sharpe ratio."),
+        sharpe_row("short_variance",
+                   "A short variance-swap proxy (what an options seller holds) earns a positive Sharpe ratio."),
         Row(id="vrp_timing", family="variance risk premium",
             hypothesis="Selling variance only when OVX is rich vs the model's forecast earns more.",
             test="one-sided Welch t-test, rich vs cheap periods", source=VOL,
             statistic=("rich-period mean P&L", f"{vrp}.timed_rich_mean_pnl"), p=Field(f"{vrp}.timing_p_value"),
             sided="one", beats=f"{vrp}.timed_cheap_mean_pnl", context={"cheap_mean_pnl": f"{vrp}.timed_cheap_mean_pnl"}),
-        Row(id="vol_target_overlay", family="variance risk premium",
-            hypothesis="Sizing a long WTI position by the forecast (vol targeting) beats buy-and-hold on Sharpe.",
-            test="Sharpe comparison only: the artifact holds no paired series, so no p-value", source=VOL,
-            statistic=("forecast vol-target Sharpe", "economic.vol_target_overlay.sharpe_forecast_vol_target"),
-            p=None, sided="one", beats="economic.vol_target_overlay.sharpe_buy_hold",
-            note="Rejected on the point estimate: the overlay's Sharpe is below buy-and-hold's.",
-            context={"buy_hold_sharpe": "economic.vol_target_overlay.sharpe_buy_hold",
-                     "trailing_vol_target_sharpe": "economic.vol_target_overlay.sharpe_trailing_vol_target"}),
     ]
 
 
@@ -388,7 +383,7 @@ def _vol_rows() -> list[Row]:
                    expects=expects, note=note, retracted=retracted,
                    context={"qlike_model": f"{_LM.format(model)}.qlike", "qlike_har_iv": f"{_LM.format('har_iv')}.qlike"})
 
-    ov = "overall"
+    ov, ovl = "overall", "economic.vol_target_overlay"
     return [
         Row(id="vol_dir_vs_base_rate", family="volatility forecast",
             hypothesis="HAR-IV calls the direction of next week's realized vol better than the majority class.",
@@ -409,13 +404,17 @@ def _vol_rows() -> list[Row]:
             test="one-sided paired HAC z-test on weekly hits", source=VOL,
             statistic=("paired HAC z", f"{ov}.har_vs_mean_reversion_z_hac"), p=Field(f"{ov}.har_vs_mean_reversion_p_value"),
             sided="one", expects=POSITIVE,
-            note=("Both forecasts face the same noisy target; with constant volatility HAR still beats the rule "
-                  "(vol_lab.json noise_floor), so this shows a better direction call, not forecasting skill."),
-            context={"har_pct": f"{ov}.har_dir_acc_pct", "mean_reversion_pct": f"{ov}.mean_reversion_dir_acc_pct"}),
+            retracted=("invalid null: with nothing to forecast (i.i.d. returns, constant volatility) the same "
+                       "pipeline's HAR already beats this rule, {noise_floor_har_pct}% vs "
+                       "{noise_floor_mean_reversion_pct}% (overall.direction_noise_floor; vol_lab.json noise_floor "
+                       "shows the same gap), so a positive z is expected without any forecasting skill"),
+            context={"har_pct": f"{ov}.har_dir_acc_pct", "mean_reversion_pct": f"{ov}.mean_reversion_dir_acc_pct",
+                     "noise_floor_har_pct": f"{ov}.direction_noise_floor.dir_acc_pct_mean",
+                     "noise_floor_mean_reversion_pct": f"{ov}.direction_noise_floor.mean_reversion_dir_acc_pct_mean"}),
         lab_dm("vol_qlike_vs_persistence", "persistence", "qlike",
                "HAR-IV beats persistence (last week's realized vol) on QLIKE.", NEGATIVE),
         lab_dm("vol_ovx_gain_qlike", "har_rv", "qlike",
-               "Adding OVX to HAR-RV (the model of record) lowers QLIKE.", NEGATIVE),
+               "Adding OVX to HAR-RV lowers QLIKE: HAR-IV (the model of record) beats HAR-RV.", NEGATIVE),
         Row(id="vol_ovx_gain_direction", family="volatility forecast",
             hypothesis="Adding OVX raises vol-direction accuracy (HAR-IV vs HAR without OVX).",
             test="one-sided paired HAC z-test on weekly hits", source=VOL,
@@ -448,11 +447,13 @@ def _vol_rows() -> list[Row]:
             p=Field("leaderboard.spa_qlike_vs_har_iv.p_consistent"), sided="one",
             context={"p_lower": "leaderboard.spa_qlike_vs_har_iv.p_lower"}),
         Row(id="vol_mcs_excludes_record", family="volatility forecast",
-            hypothesis="The model of record is outside the 90% Model Confidence Set on QLIKE (beaten by the best).",
-            test="Hansen-Lunde-Nason MCS p-value of HAR-IV (range statistic)", source=LAB,
+            hypothesis=("The model of record is significantly worse than the best model on QLIKE (excluded from "
+                        "the Model Confidence Set)."),
+            test=("Hansen-Lunde-Nason MCS p-value of HAR-IV (range statistic), judged at the ledger's 5% level; "
+                  "the lab's own set (mcs_members) is the 1 - mcs_size confidence set"), source=LAB,
             statistic=("MCS p-value of HAR-IV", f"{_LM.format('har_iv')}.mcs_qlike_p"),
             p=Field(f"{_LM.format('har_iv')}.mcs_qlike_p"), sided="one",
-            context={"mcs_members": "leaderboard.mcs_qlike_included"}),
+            context={"mcs_members": "leaderboard.mcs_qlike_included", "mcs_size": "config.mcs.size"}),
         Row(id="vol_oos_model_selection", family="volatility forecast",
             hypothesis="Choosing each week's model by its trailing loss beats the model of record on QLIKE.",
             test="Diebold-Mariano on daily QLIKE, two-sided", source=LAB,
@@ -470,6 +471,19 @@ def _vol_rows() -> list[Row]:
             statistic=("t (HAC)", "har_iv_coefficients.terms[term=log OVX].t_hac"),
             p=NormalZ("har_iv_coefficients.terms[term=log OVX].t_hac", sided="two"), sided="two", expects=POSITIVE,
             note="In-sample; the out-of-sample version is vol_ovx_gain_qlike."),
+        Row(id="vol_target_overlay", family="volatility forecast",
+            hypothesis="Sizing a long WTI position by the forecast (vol targeting) beats buy-and-hold on Sharpe.",
+            test=("stationary block bootstrap test of equal Sharpe ratios, forecast vol target minus buy-and-hold "
+                  "(weekly, after costs), two-sided"), source=VOL,
+            statistic=("Sharpe difference (annualized)",
+                       f"{ovl}.sharpe_difference_tests.forecast_minus_buy_hold.difference"),
+            p=Field(f"{ovl}.sharpe_difference_tests.forecast_minus_buy_hold.p_value"), sided="two", expects=POSITIVE,
+            note=("Vol targeting is a risk control: its effect on realized vol, kurtosis and drawdown is in "
+                  "economic.vol_target_overlay.risk."),
+            context={"forecast_vol_target_sharpe": f"{ovl}.sharpe_forecast_vol_target",
+                     "buy_hold_sharpe": f"{ovl}.sharpe_buy_hold",
+                     "trailing_vol_target_sharpe": f"{ovl}.sharpe_trailing_vol_target",
+                     "difference_ci95": f"{ovl}.sharpe_difference_tests.forecast_minus_buy_hold.ci95"}),
     ]
 
 
@@ -505,12 +519,13 @@ def _shock_rows() -> list[Row]:
             rows.append(Row(
                 id=f"shock_{key}_{metric}", family="supply shock",
                 hypothesis=f"Events in group '{key}' move WTI differently from a random non-event date ({word}).",
-                test=(f"two-sided resampling test of the group's median {metric} vs n random placebo dates "
-                      "(supply_shock_study.json method)"),
+                test=(f"two-sided resampling tests of the group's median {metric} vs n random placebo dates and vs "
+                      "placebo dates from each event's own year (supply_shock_study.json method); p is the larger "
+                      "of the two, as the study's verdict needs both below 5% (year matching controls for the "
+                      "volatility regime, which inflates a 20-session maximum)"),
                 source=SHOCK, statistic=(f"median {metric} %", f"{g}.median_{metric}_pct"),
-                p=Field(f"{g}.p_value_vs_placebo.{metric}"), sided="two",
-                context={"n": f"{g}.n", "placebo_median_pct": f"placebo.median_{metric}_pct",
-                         "year_matched_p": f"{g}.p_value_vs_year_matched_placebo.{metric}"}))
+                p=LargestOf((f"{g}.p_value_vs_placebo.{metric}", f"{g}.p_value_vs_year_matched_placebo.{metric}")),
+                sided="two", context={"n": f"{g}.n", "placebo_median_pct": f"placebo.median_{metric}_pct"}))
     rows += [
         Row(id="shock_removal_vs_threat_peak", family="supply shock",
             hypothesis="Supply-removal events peak higher than threat-only events.",
@@ -618,6 +633,21 @@ def _num(x):
     return x
 
 
+def _by_family(rows: list[dict]) -> dict:
+    """Per family: rows by status, and how many supported rows survive BH at 5% and clear t > 3."""
+    out = {}
+    for fam in dict.fromkeys(r["family"] for r in rows):
+        members = [r for r in rows if r["family"] == fam]
+        supported = [r for r in members if r["status"] == "supported"]
+        out[fam] = {
+            "rows": len(members),
+            "by_status": {s: sum(r["status"] == s for r in members) for s in STATUSES},
+            "supported_surviving_bh_5pct": sum(bool(r["survives_bh_5pct"]) for r in supported),
+            "supported_clearing_hlz_t3": sum(bool(r["clears_hlz_t3"]) for r in supported),
+        }
+    return out
+
+
 def build(load=None) -> dict:
     """The ledger from the committed artifacts (`load(name)` returns a parsed artifact)."""
     load = load or load_artifact
@@ -634,6 +664,7 @@ def build(load=None) -> dict:
         elif row.expects is not None:
             direction_ok = bool(row.expects(float(stat)))
         p_one = None if p is None else _directional_one_sided(p, row.sided, direction_ok)
+        context = {k: _num(resolve(doc, v)) for k, v in row.context.items()}
         rows.append({
             "id": row.id,
             "date": _artifact_date(doc),
@@ -641,13 +672,13 @@ def build(load=None) -> dict:
             "hypothesis": row.hypothesis,
             "test": row.test,
             "statistic": {"name": stat_label, "value": _num(stat)},
-            "context": {k: _num(resolve(doc, v)) for k, v in row.context.items()},
+            "context": context,
             "p_value": None if p is None else float(p),
             "sided": row.sided,
             "p_two_sided": None if p_one is None else float(min(1.0, 2.0 * p_one)),
             "pre_specified": row.pre_specified,
             "status": _status(row, p, direction_ok),
-            "retraction_reason": row.retracted,
+            "retraction_reason": row.retracted.format(**context) if row.retracted else None,
             "note": row.note,
             "artifact": {"path": f"data/{row.source}", "statistic_field": stat_path,
                          "p_value_fields": {k: _num(v) for k, v in p_inputs.items()},
@@ -680,6 +711,7 @@ def build(load=None) -> dict:
         "supported_surviving_holm_5pct": [r["id"] for r in supported if r["survives_holm_5pct"]],
         "supported_clearing_hlz_t3": [r["id"] for r in supported if r["clears_hlz_t3"]],
         "supported_failing_bh_5pct": [r["id"] for r in supported if not r["survives_bh_5pct"]],
+        "by_family": _by_family(rows),
     }
     return {
         "method": ("One row per tested hypothesis; statistics and p-values read from the named artifact "

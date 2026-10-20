@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
 """
-Macro leakage test: compare no_macro vs with_macro walk-forward Sharpe.
+Macro leakage test of the RETRACTED direction model: no_macro vs with_macro walk-forward Sharpe.
 
-Hypothesis: if macro features (EIA weekly stocks, FRED monthly) inflate
-the backtest result via data-revision look-ahead, then WITH_MACRO Sharpe
-should be materially HIGHER than NO_MACRO Sharpe.
+Record only. Both configurations ran the original 1W direction model's walk-forward, which
+trained on labels that matured after the decision (a look-ahead leak; see
+data/leak_anatomy.json), so the committed data/macro_leakage_test.json says nothing about a real
+signal. That record is a quick run with a coarser stride and fewer trees than the constants
+below (its config block gives both). The engine now purges by default
+(backtest_walk_forward.evaluate_horizon), so a rerun measures the purged model and overwrites
+that record.
 
-If WITH_MACRO Sharpe is similar or lower, the no_macro signal is clean
-and adding macro doesn't help (possibly because revised data leaks, but
-the leakage direction is noise rather than signal).
-
-Uses headline config (5y, step=5, estimators=40) so the comparison has
-~199 OOS samples per config and the same statistical power as the headline
-backtest. The prior 3y/step=20 version produced only 25 samples per config
-(p=0.11, not significant), which was too underpowered to distinguish
-leakage from noise.
+What it tested: if macro features (EIA weekly stocks, FRED monthly) inflated the backtest
+result through data-revision look-ahead, the WITH_MACRO Sharpe would be materially higher than
+the NO_MACRO Sharpe.
 
 NOTE: requires EIA_API_KEY and internet access to FRED. Runtime is long
 (~2× headline backtest) because the with_macro config must fetch and align
@@ -38,9 +36,9 @@ from backend.oil import PremiumWTIPredictor
 
 PERIOD = "5y"
 MIN_TRAIN = 200
-STEP = 5         # headline config — ~199 OOS samples, same as walk_forward_backtest_latest
-ESTIMATORS = 40  # headline config — same tree count as the reported Sharpe 2.44 run
-HORIZONS = ["1w"]  # 1D is already dead (p=0.92); focus on the live signal
+STEP = 5         # the retracted 5-year run's stride (~199 OOS decisions)
+ESTIMATORS = 40  # the retracted 5-year run's tree count
+HORIZONS = ["1w"]  # the retracted model's 1W target
 
 
 def run_config(predictor, wti_data, feature_mode: str, horizon: str) -> dict:
@@ -80,7 +78,7 @@ def main():
 
     results = {}
 
-    # ── Config 1: NO_MACRO (matches live model + existing backtest) ──────────
+    # ── Config 1: NO_MACRO (the retracted model's feature set) ───────────────
     print("Running NO_MACRO config (technical + cross-asset, no FRED/EIA)...")
     predictor.use_historical_external_features_in_training = False
     for h in HORIZONS:
@@ -116,7 +114,7 @@ def main():
         verdict = (
             "LEAKAGE RISK: with_macro sharpe much higher — macro data may be revised look-ahead"
             if diff > 0.5
-            else "CLEAN: macro features do not inflate the signal (no revision leakage evidence)"
+            else "No inflation: macro features raise the Sharpe by 0.5 or less (no revision-leakage evidence)"
             if diff <= 0.5
             else "INCONCLUSIVE"
         )

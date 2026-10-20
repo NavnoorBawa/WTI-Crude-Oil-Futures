@@ -149,6 +149,14 @@ class PowerTest(unittest.TestCase):
         # reliably detect even the pre-2007 effect.
         self.assertGreater(pw["mde_spread_pct_per_month"], pw["pre_2007_spread_pct"])
 
+    def test_rank_power_uses_the_two_sided_level_of_the_rank_test(self):
+        pw = json.loads(carry.ARTIFACT_PATH.read_text(encoding="utf-8"))["power_post_2007"]
+        z_a2, z_b = norm.ppf(1 - carry.POWER_ALPHA / 2), norm.ppf(carry.POWER_TARGET)
+        se_z = np.sqrt(carry.SPEARMAN_FISHER_VAR / (pw["n_months"] - 3))
+        self.assertAlmostEqual(pw["mde_rank_corr"], np.tanh((z_a2 + z_b) * se_z), delta=0.001)
+        self.assertAlmostEqual(pw["power_vs_pre_2007_rank_corr"],
+                               norm.cdf(np.arctanh(pw["pre_2007_rank_corr"]) / se_z - z_a2), delta=0.005)
+
     def test_identical_regimes_show_no_change(self):
         rng = np.random.default_rng(4)
         block = _block(rng.normal(0, 0.02, 120), rng.random(120) > 0.5, rng.normal(0.005, 0.08, 120))

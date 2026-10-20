@@ -1,5 +1,5 @@
 {
-  "method": "Each event's path: peak = highest close over sessions 0-19, settle = close at session 10, both vs the mean close of the 5 sessions before day 0 (EIA RWTC daily spot). The placebo applies the identical statistics to every non-event session between the first and last event. p_value_vs_placebo: two-sided resampling test, 20000 groups of n random placebo dates (with replacement) vs the group's median; p_value_vs_year_matched_placebo: the same with each event's draw taken from placebo dates of its own calendar year; mann_whitney_p: two-sided rank test vs all placebo dates (placebo paths overlap, so it is approximate); ci_*: 95% percentile bootstrap of the group median (10000 resamples). Values at the event table's 0.1% resolution; ties count against the hypothesis.",
+  "method": "Each event's path: peak = highest close over sessions 0-19, settle = close at session 10, both vs the mean close of the 5 sessions before day 0 (EIA RWTC daily spot). The placebo applies the identical statistics to every non-event session between the first and last event. p_value_vs_placebo: two-sided resampling test, 20000 groups of n random placebo dates (with replacement) vs the group's median; p_value_vs_year_matched_placebo: the same with each event's draw taken from placebo dates of its own calendar year; mann_whitney_p: two-sided rank test vs all placebo dates (placebo paths overlap, so it is approximate); ci_*: 95% percentile bootstrap of the group median (10000 resamples). Values at the event table's 0.1% resolution; ties count against the hypothesis. The tests treat a group's events as independent draws; events listed in overlapping_events share sessions, so they are not.",
   "data": {
     "source": "EIA RWTC daily WTI Cushing spot, data/eia_wti_spot_daily.json",
     "events_scored": 35,
@@ -548,11 +548,44 @@
     "placebo_weak_day0_n": 6795,
     "placebo_weak_day0_median_further_rise_pct": 5.0
   },
+  "overlapping_events": {
+    "definition": "event pairs fewer than 25 sessions apart, so the later event's 5-session base or 20-session path lies inside the earlier event's path",
+    "pairs": [
+      {
+        "events": [
+          "hurricane_katrina_2005",
+          "hurricane_rita_2005"
+        ],
+        "sessions_apart": 19
+      },
+      {
+        "events": [
+          "saudi_russia_price_war_2020",
+          "opec_record_cut_2020"
+        ],
+        "sessions_apart": 24
+      },
+      {
+        "events": [
+          "opec_cut_2023",
+          "iran_tanker_seizure_2023"
+        ],
+        "sessions_apart": 22
+      },
+      {
+        "events": [
+          "lebanon_hezbollah_2024",
+          "iran_israel_oct_2024"
+        ],
+        "sessions_apart": 6
+      }
+    ]
+  },
   "superseded_claims": {
     "threat_only_peak": "'Threat-only events peak +4.0% and settle near flat' described the statistic, not the events: an ordinary date peaks higher.",
     "supply_lost_label": "'Real barrels lost' also counted announced OPEC(+) cuts and sanctions; the group is 'announced or physical supply removal'."
   },
-  "conclusion": "On a random non-event date the same statistics are +5.4% (peak) and +0.7% (settle): a 20-session maximum is positive on 87% of ordinary dates, so a group's median peak only means something relative to that. Announced or physical supply removal >0.5 mbpd (n=21): median peak +12.1%, settle +4.3% (p = 0.0005 / 0.0445 vs placebo; 0.0015 / 0.1027 year-matched): it differs from an ordinary date on peak (above). Geopolitical threat, no supply removed (n=10): median peak +4.0%, settle +0.5% (p = 0.4897 / 0.9443 vs placebo; 0.6419 / 0.9564 year-matched): it is indistinguishable from an ordinary date. Supply removal vs threat-only directly: p = 0.0309 (peak), 0.3874 (settle). Other groups with a peak above placebo at 5% (unadjusted): Announced OPEC(+) production cut (n=7). Caveats: event dates and groupings were chosen with hindsight, the groups overlap, and these p-values are not adjusted for the number of groups tested (see data/research_ledger.json).",
+  "conclusion": "On a random non-event date the same statistics are +5.4% (peak) and +0.7% (settle): a 20-session maximum is positive on 87% of ordinary dates, so a group's median peak only means something relative to that. Announced or physical supply removal >0.5 mbpd (n=21): median peak +12.1%, settle +4.3% (p = 0.0005 / 0.0445 vs placebo; 0.0015 / 0.1027 year-matched): it differs from an ordinary date on peak (above). Geopolitical threat, no supply removed (n=10): median peak +4.0%, settle +0.5% (p = 0.4897 / 0.9443 vs placebo; 0.6419 / 0.9564 year-matched): it is indistinguishable from an ordinary date. Supply removal vs threat-only directly: p = 0.0309 (peak), 0.3874 (settle). Above the unmatched placebo at 5% but not the year-matched one: Announced OPEC(+) production cut (n=7, peak p = 0.0264 vs 0.0898 year-matched). Caveats: event dates and groupings were chosen with hindsight; the groups overlap; some events are close enough that their windows share sessions (hurricane_katrina_2005 and hurricane_rita_2005, 19 sessions apart; saudi_russia_price_war_2020 and opec_record_cut_2020, 24 sessions apart; opec_cut_2023 and iran_tanker_seizure_2023, 22 sessions apart; lebanon_hezbollah_2024 and iran_israel_oct_2024, 6 sessions apart), so members of a group are not all independent; and these p-values are not adjusted for the number of groups tested (see data/research_ledger.json).",
   "generated_by": "python -m backend.supply_shock_playbook",
-  "generated_at": "2026-10-20T12:21:04.607463+00:00"
+  "generated_at": "2026-10-20T13:31:31.098823+00:00"
 }

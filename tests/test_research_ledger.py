@@ -102,6 +102,58 @@ class MultiplicityTest(unittest.TestCase):
         self.assertEqual(set(s["supported"]),
                          set(s["supported_surviving_bh_5pct"]) | set(s["supported_failing_bh_5pct"]))
 
+    def test_family_summary_adds_up_to_the_overall_one(self):
+        ledger = _committed()
+        s = ledger["summary"]
+        by_family = s["by_family"]
+        self.assertEqual(set(by_family), {r["family"] for r in ledger["rows"]})
+        for status in rl.STATUSES:
+            self.assertEqual(sum(f["by_status"][status] for f in by_family.values()), s["by_status"][status])
+        self.assertEqual(sum(f["rows"] for f in by_family.values()), s["rows"])
+        self.assertEqual(sum(f["supported_surviving_bh_5pct"] for f in by_family.values()),
+                         len(s["supported_surviving_bh_5pct"]))
+        self.assertEqual(sum(f["supported_clearing_hlz_t3"] for f in by_family.values()),
+                         len(s["supported_clearing_hlz_t3"]))
+
+
+class RowDefinitionTest(unittest.TestCase):
+    def setUp(self):
+        self.rows = {r["id"]: r for r in _committed()["rows"]}
+
+    def test_shock_groups_need_both_placebo_tests(self):
+        # The study's verdict needs the unmatched and the year-matched placebo test; so does the ledger.
+        shock = [r for r in self.rows.values() if r["family"] == "supply shock" and len(r["artifact"]["p_value_fields"]) > 1]
+        self.assertEqual(len(shock), 16)
+        for row in shock:
+            with self.subTest(row=row["id"]):
+                fields = row["artifact"]["p_value_fields"]
+                self.assertTrue(any("year_matched" in path for path in fields))
+                self.assertEqual(row["p_value"], max(fields.values()))
+
+    def test_sharpe_rows_use_the_non_normal_standard_error(self):
+        for rid in ("vrp_short_vol_swap_sharpe", "vrp_short_variance_sharpe"):
+            (path,) = self.rows[rid]["artifact"]["p_value_fields"]
+            self.assertIn("sharpe_positive_test", path)
+            self.assertIn("excess_kurtosis", self.rows[rid]["context"])
+
+    def test_retraction_reasons_are_filled_from_the_artifact(self):
+        for row in self.rows.values():
+            if row["retraction_reason"]:
+                self.assertNotIn("{", row["retraction_reason"], row["id"])
+        row = self.rows["vol_dir_vs_mean_reversion"]
+        self.assertEqual(row["status"], "retracted")
+        for label in ("noise_floor_har_pct", "noise_floor_mean_reversion_pct"):
+            self.assertIn(f"{row['context'][label]}%", row["retraction_reason"])
+        # The reason holds only while HAR beats the rule with nothing to forecast.
+        self.assertGreater(row["context"]["noise_floor_har_pct"], row["context"]["noise_floor_mean_reversion_pct"])
+
+    def test_two_configuration_rows_compare_the_configurations(self):
+        for rid, other in (("dir_macro_uplift", "results.no_macro_1w.direction_accuracy"),
+                           ("dir_same_day_context", "results.lagged_1d.direction_accuracy")):
+            row = next(r for r in rl.ledger_rows() if r.id == rid)
+            self.assertEqual(row.beats, other)
+            self.assertIsNone(row.expects)
+
 
 class ResolveTest(unittest.TestCase):
     DOC = {"a": {"list": [{"key": "x", "level": 0.05, "v": 1}, {"key": "x", "level": 0.01, "v": 2}],

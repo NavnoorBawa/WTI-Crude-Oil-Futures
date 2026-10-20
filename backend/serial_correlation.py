@@ -15,7 +15,8 @@ inputs. Feature overlap does not force error correlation — the *targets* (the 
 forward returns) are non-overlapping at step=5 — but regime persistence and model
 continuity still leave a little. This script measures it instead of assuming it.
 
-Method (reproduces data/serial_correlation_check.json exactly):
+Method (as run on the original trades for data/serial_correlation_check.json; the default input,
+data/walk_forward_backtest_latest.json, now holds the purged run, so a rerun audits that instead):
   1. Build the OOS direction-hit series from the backtest trades. A trade is
      "gross-correct" (hit=1) when its net P&L > -cost, i.e. the direction was right
      before the fixed transaction cost is subtracted.
@@ -26,8 +27,7 @@ Method (reproduces data/serial_correlation_check.json exactly):
      windows, so there is no principled reason to deflate further.
   4. One-sided z-test that accuracy > 50% at the *effective* sample size.
 
-Pure standard library (no numpy/scipy) so it runs anywhere and the headline number is
-reproducible from the committed trades alone.
+Pure standard library (no numpy/scipy) so it runs anywhere.
 
 Usage:
     python backend/serial_correlation.py
@@ -78,8 +78,8 @@ def bartlett_ess(series: list, lags: int) -> float:
     # strongly negative one can drive it <= 0 (degenerate). For a significance claim we
     # cap at the nominal n: never credit more independent observations than samples
     # actually collected. This is the conservative choice and the standard one for an
-    # accuracy z-test. (For the 1w hits the factor is 1.133 > 1, so ESS = 175.8 < 199 and
-    # the cap is inactive — the committed artifact reproduces unchanged.)
+    # accuracy z-test. (For the original leaked 1w hits the factor was 1.133 > 1, so ESS = 175.8
+    # < 199 and the cap was inactive.)
     if factor <= 0:
         return float(n)
     return min(float(n), n / factor)
@@ -98,7 +98,7 @@ def round_sig(x: float, sig: int) -> float:
     return round(x, -int(floor(log10(abs(x)))) + (sig - 1))
 
 
-def analyze(trades: list, horizon: str) -> dict:
+def analyze(trades: list, horizon: str, source: str = "data/walk_forward_backtest_latest.json") -> dict:
     hits = [1.0 if float(t["pnl"]) > -TRANSACTION_COST_USD else 0.0 for t in trades]
     pnls = [float(t["pnl"]) for t in trades]
     n = len(hits)
@@ -115,7 +115,7 @@ def analyze(trades: list, horizon: str) -> dict:
 
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "source": f"data/walk_forward_backtest_latest.json ({horizon} trades, n={n})",
+        "source": f"{source} ({horizon} trades, n={n})",
         "method": (
             "Lag-1..10 autocorrelation of the OOS direction-hit series "
             "(gross-correct = pnl > -cost), Bartlett-kernel Newey-West ESS at L=5, "
@@ -147,7 +147,7 @@ def main() -> None:
     if not trades:
         raise SystemExit("No trades found for the requested audit horizon")
 
-    result = analyze(trades, args.horizon)
+    result = analyze(trades, args.horizon, source=args.backtest)
 
     out_path = data_json_path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)

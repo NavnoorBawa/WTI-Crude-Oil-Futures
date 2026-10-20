@@ -57,7 +57,8 @@
       "dir_acc_pct_range": [
         74.1,
         76.5
-      ]
+      ],
+      "mean_reversion_dir_acc_pct_mean": 71.6
     },
     "dir_acc_pct_by_grid_offset": [
       74.4,
@@ -314,6 +315,21 @@
       "worst_year": 2020,
       "short_vol_swap_sharpe_ex_worst_year": 1.24,
       "short_variance_sharpe_ex_worst_year": 0.71,
+      "sharpe_positive_test": {
+        "short_vol_swap": {
+          "sharpe_per_period": 0.1459,
+          "skewness": -4.95,
+          "excess_kurtosis": 39.7,
+          "p_value_one_sided": 0.0695
+        },
+        "short_variance": {
+          "sharpe_per_period": -0.0005,
+          "skewness": -7.22,
+          "excess_kurtosis": 63.19,
+          "p_value_one_sided": 0.5028
+        },
+        "method": "one-sided test of Sharpe > 0 on the non-overlapping periods, standard error of Mertens (2002) / Opdyke (2007) for i.i.d. non-normal returns: sqrt((1 - skewness * SR + (raw kurtosis - 1) / 4 * SR^2) / n), SR per period; raw kurtosis = excess_kurtosis + 3"
+      },
       "mean_premium_variance_pts": -263.3,
       "mean_premium_variance_ci95": [
         -1082.7,
@@ -342,7 +358,7 @@
     "model": "HAR-IV (RV5,RV22,RV66,OVX)",
     "model_version": "har-iv/2",
     "as_of": "2026-10-19",
-    "issued_at": "2026-10-20T11:50:30.754473Z",
+    "issued_at": "2026-10-20T13:28:47.431032Z",
     "inputs": {
       "rv5_pct": 36.76,
       "rv22_pct": 36.81,
@@ -375,5 +391,5 @@
     "model": "HAR-IV (RV5,RV22,RV66,OVX)",
     "period": "max"
   },
-  "generated_at": "2026-10-20T11:50:30.820063+00:00"
+  "generated_at": "2026-10-20T13:28:47.492748+00:00"
 }

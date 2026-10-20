@@ -40,7 +40,8 @@ Labels and inference (2026-10):
     are documented as aliases in `field_notes`. The true sign split (carry > 0 vs <= 0) is the
     robustness block `sign_split`.
   - `power_post_2007`: the minimum detectable effect of the post-2007 sample, and its power to
-    detect the pre-2007 effect, for both the return spread and the rank correlation.
+    detect the pre-2007 effect, for both the return spread and the rank correlation, each at the
+    level its test is run (one-sided for the spread, two-sided for the rank correlation).
     `regime_change_test` asks directly whether the effect differs before and after 2007.
   - `sharpe_difference` (in each sample block): timed minus buy-and-hold Sharpe, tested with the
     Ledoit-Wolf (2008) delta method on a Newey-West covariance and with a stationary block
@@ -82,7 +83,7 @@ REGIME_SPLIT = "2007-01-01"  # pre/post: the shale era and the financialization 
 SEED = 20261020             # the Sharpe bootstrap is seeded: the artifact is deterministic
 SHARPE_BOOT_REPS = 10000
 SHARPE_BOOT_BLOCK = 6       # mean block length in months for the stationary bootstrap
-POWER_ALPHA = 0.05          # one-sided, as in the spread test
+POWER_ALPHA = 0.05          # one-sided for the spread test, two-sided (alpha / 2 a tail) for the rank test
 POWER_TARGET = 0.80
 # Var(atanh(Spearman rho)) ~ 1.06 / (n - 3) (Fieller, Hartley and Pearson 1957).
 SPEARMAN_FISHER_VAR = 1.06
@@ -375,26 +376,30 @@ def _spread_and_se(block: pd.DataFrame) -> tuple[float, float]:
 
 
 def power_analysis(pre: pd.DataFrame, post: pd.DataFrame) -> dict:
-    """What the post-2007 sample could detect: the minimum detectable spread and rank correlation
-    (one-sided 5%, 80% power), and its power against the effect sizes measured before 2007."""
-    z_a, z_b = norm.ppf(1.0 - POWER_ALPHA), norm.ppf(POWER_TARGET)
+    """What the post-2007 sample could detect: the minimum detectable spread (one-sided 5%, as the
+    spread test is run) and rank correlation (two-sided 5%, as the Spearman test is run), both at 80%
+    power, and its power against the effect sizes measured before 2007."""
+    z_a, z_a2, z_b = norm.ppf(1.0 - POWER_ALPHA), norm.ppf(1.0 - POWER_ALPHA / 2.0), norm.ppf(POWER_TARGET)
     pre_spread, _ = _spread_and_se(pre)
     post_spread, se = _spread_and_se(post)
     se_z = np.sqrt(SPEARMAN_FISHER_VAR / (len(post) - 3))
     pre_rho = float(spearmanr(pre["carry"], pre["ret"]).statistic)
     mde_spread = (z_a + z_b) * se * 100.0
     power_spread = float(norm.cdf(pre_spread / se - z_a))
-    mde_rho = float(np.tanh((z_a + z_b) * se_z))
-    power_rho = float(norm.cdf(np.arctanh(pre_rho) / se_z - z_a))
+    mde_rho = float(np.tanh((z_a2 + z_b) * se_z))
+    shift = np.arctanh(pre_rho) / se_z
+    power_rho = float(norm.cdf(shift - z_a2) + norm.cdf(-shift - z_a2))
     statement = (
         f"After 2007 ({len(post)} months) the spread test could only detect a spread of "
-        f"{mde_spread:.2f}%/month or more (one-sided 5%, 80% power); it had {power_spread * 100:.0f}% power "
-        f"against the pre-2007 spread of {pre_spread * 100:.2f}%/month, so a null spread there is weak "
-        f"evidence of decay. The rank test could detect a correlation of {mde_rho:.3f} and had "
-        f"{power_rho * 100:.0f}% power against the pre-2007 rank correlation of {pre_rho:.3f}."
+        f"{mde_spread:.2f}%/month or more (one-sided {POWER_ALPHA:.0%}, {POWER_TARGET:.0%} power); it had "
+        f"{power_spread * 100:.0f}% power against the pre-2007 spread of {pre_spread * 100:.2f}%/month, so a "
+        f"null spread there is weak evidence of decay. The rank test (two-sided {POWER_ALPHA:.0%}) could detect "
+        f"a correlation of {mde_rho:.3f} and had {power_rho * 100:.0f}% power against the pre-2007 rank "
+        f"correlation of {pre_rho:.3f}."
     )
     return {
         "alpha_one_sided": POWER_ALPHA,
+        "alpha_two_sided_rank_corr": POWER_ALPHA,
         "target_power": POWER_TARGET,
         "n_months": int(len(post)),
         "spread_se_pct": round(se * 100.0, 3),

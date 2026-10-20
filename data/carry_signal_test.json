@@ -181,6 +181,7 @@
   },
   "power_post_2007": {
     "alpha_one_sided": 0.05,
+    "alpha_two_sided_rank_corr": 0.05,
     "target_power": 0.8,
     "n_months": 206,
     "spread_se_pct": 1.394,
@@ -188,10 +189,10 @@
     "mde_spread_pct_per_month": 3.47,
     "pre_2007_spread_pct": 2.92,
     "power_vs_pre_2007_spread": 0.673,
-    "mde_rank_corr": 0.178,
+    "mde_rank_corr": 0.2,
     "pre_2007_rank_corr": 0.204,
-    "power_vs_pre_2007_rank_corr": 0.887,
-    "statement": "After 2007 (206 months) the spread test could only detect a spread of 3.47%/month or more (one-sided 5%, 80% power); it had 67% power against the pre-2007 spread of 2.92%/month, so a null spread there is weak evidence of decay. The rank test could detect a correlation of 0.178 and had 89% power against the pre-2007 rank correlation of 0.204."
+    "power_vs_pre_2007_rank_corr": 0.815,
+    "statement": "After 2007 (206 months) the spread test could only detect a spread of 3.47%/month or more (one-sided 5%, 80% power); it had 67% power against the pre-2007 spread of 2.92%/month, so a null spread there is weak evidence of decay. The rank test (two-sided 5%) could detect a correlation of 0.200 and had 82% power against the pre-2007 rank correlation of 0.204."
   },
   "regime_change_test": {
     "spread_difference_pct": 2.07,
@@ -216,6 +217,6 @@
     "mean_contamination_contango_pct": 1.46,
     "corr_contamination_carry": -0.55
   },
-  "verdict": "Months with carry above its prior-months median beat the rest significantly over the full sample (one-sided p = 0.018); the true sign split (backwardation vs contango) agrees (p = 0.015). After 2007 the spread is not distinguishable from zero (p = 0.27), but that test had only 67% power against the pre-2007 spread and the pre/post spread difference is not significant (p = 0.26); the rank correlation, with 89% power, fell from 0.20 to -0.03 (difference p = 0.0210). The Sharpe gain of timing over buy-and-hold is not significant (Ledoit-Wolf p = 0.11 full sample, 0.57 after 2007), and as a sign predictor it does not beat always-long over the full sample. No reliable modern-era edge is demonstrated; how much of the pre-2007 effect survives is not resolved by this sample.",
-  "generated_at": "2026-10-20T12:19:39.532166+00:00"
+  "verdict": "Months with carry above its prior-months median beat the rest significantly over the full sample (one-sided p = 0.018); the true sign split (backwardation vs contango) agrees (p = 0.015). After 2007 the spread is not distinguishable from zero (p = 0.27), but that test had only 67% power against the pre-2007 spread and the pre/post spread difference is not significant (p = 0.26); the rank correlation, with 82% power, fell from 0.20 to -0.03 (difference p = 0.0210). The Sharpe gain of timing over buy-and-hold is not significant (Ledoit-Wolf p = 0.11 full sample, 0.57 after 2007), and as a sign predictor it does not beat always-long over the full sample. No reliable modern-era edge is demonstrated; how much of the pre-2007 effect survives is not resolved by this sample.",
+  "generated_at": "2026-10-20T13:29:07.147844+00:00"
 }

@@ -1,5 +1,5 @@
 {
-  "question": "Was the retracted direction model's 2.4 Sharpe (67% accuracy) mechanical?",
+  "question": "Was the retracted direction model's Sharpe of 2.47 after transaction costs (67% accuracy) mechanical?",
   "design": {
     "label": "sign of the 5-session forward log return",
     "purge_rows": 4,
@@ -13,9 +13,11 @@
       "decision_tree": "fully grown decision tree (scikit-learn DecisionTreeClassifier)",
       "random_forest": "20-tree random forest (scikit-learn RandomForestClassifier), the closest of the three to the retracted tree ensemble"
     },
-    "sharpe": "gross, direction x 5-session log return, annualized by sqrt(252/5)",
+    "sharpe": "gross (no transaction costs): direction x 5-session log return, annualized by sqrt(252/5). The retracted model's Sharpe (retracted_reference) is after costs, so the two are not like for like; costs would only lower these.",
     "synthetic_returns": "i.i.d. normal, daily sd 0.02",
     "shuffled_returns": "CL=F close-to-close log returns (data/market/cl_f_daily.csv), 20-session blocks permuted, first 1300 returns",
+    "independence": "Synthetic runs draw independent returns. The 10 block-shuffled runs are permutations of the same CL=F returns, so they are not independent: their t-test across runs and pooled binomial test overstate the evidence. Real 5-session CL=F returns rise 53.6% of the time, so 50% is not the no-skill accuracy on them; every run is also tested against its own base rate max(p, 1 - p) (runs[].binomial_p_value_vs_base_rate, runs_beating_base_rate_5pct).",
+    "cl_5_session_up_share_pct": 53.6,
     "real_window": [
       "2021-06-21",
       "2026-06-19"
@@ -107,6 +109,8 @@
         ],
         "pooled_accuracy_pct": 72.36,
         "pooled_binomial_p_value_vs_50": 1.8719162449959263e-99,
+        "base_rate_pct_mean": 52.82,
+        "runs_beating_base_rate_5pct": 10,
         "t_stat_vs_50": 24.29,
         "t_test_p_value_vs_50": 8.139799205126763e-10,
         "nearest_is_newest_row_pct_mean": 59.5,
@@ -116,61 +120,81 @@
             "seed": 0,
             "accuracy_pct": 74.07,
             "sharpe_gross": 3.92,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 52.31,
+            "binomial_p_value_vs_base_rate": 4.4665555906776454e-11
           },
           {
             "seed": 1,
             "accuracy_pct": 74.07,
             "sharpe_gross": 4.648,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 51.85,
+            "binomial_p_value_vs_base_rate": 1.8306244553545023e-11
           },
           {
             "seed": 2,
             "accuracy_pct": 73.61,
             "sharpe_gross": 3.929,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 54.17,
+            "binomial_p_value_vs_base_rate": 3.212334811001311e-09
           },
           {
             "seed": 3,
             "accuracy_pct": 74.07,
             "sharpe_gross": 3.879,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 54.17,
+            "binomial_p_value_vs_base_rate": 1.3306168585935785e-09
           },
           {
             "seed": 4,
             "accuracy_pct": 71.76,
             "sharpe_gross": 3.834,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 51.39,
+            "binomial_p_value_vs_base_rate": 8.275088961006049e-10
           },
           {
             "seed": 5,
             "accuracy_pct": 70.83,
             "sharpe_gross": 2.978,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 54.63,
+            "binomial_p_value_vs_base_rate": 7.776562070291008e-07
           },
           {
             "seed": 6,
             "accuracy_pct": 70.37,
             "sharpe_gross": 3.245,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.0,
+            "binomial_p_value_vs_base_rate": 9.7261081193533e-10
           },
           {
             "seed": 7,
             "accuracy_pct": 77.78,
             "sharpe_gross": 3.834,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 56.48,
+            "binomial_p_value_vs_base_rate": 4.7544650838095836e-11
           },
           {
             "seed": 8,
             "accuracy_pct": 68.98,
             "sharpe_gross": 3.438,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 52.78,
+            "binomial_p_value_vs_base_rate": 9.185472887962349e-07
           },
           {
             "seed": 9,
             "accuracy_pct": 68.06,
             "sharpe_gross": 2.989,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.46,
+            "binomial_p_value_vs_base_rate": 1.2310531008653387e-07
           }
         ]
       },
@@ -203,6 +227,8 @@
         ],
         "pooled_accuracy_pct": 50.42,
         "pooled_binomial_p_value_vs_50": 0.35726853015570664,
+        "base_rate_pct_mean": 52.82,
+        "runs_beating_base_rate_5pct": 0,
         "t_stat_vs_50": 0.41,
         "t_test_p_value_vs_50": 0.3454613515732362,
         "nearest_is_newest_row_pct_mean": 22.5,
@@ -212,61 +238,81 @@
             "seed": 0,
             "accuracy_pct": 51.85,
             "sharpe_gross": -0.198,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 52.31,
+            "binomial_p_value_vs_base_rate": 0.5813219382503648
           },
           {
             "seed": 1,
             "accuracy_pct": 48.15,
             "sharpe_gross": -0.134,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 51.85,
+            "binomial_p_value_vs_base_rate": 0.8764379490581912
           },
           {
             "seed": 2,
             "accuracy_pct": 49.07,
             "sharpe_gross": 0.048,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 54.17,
+            "binomial_p_value_vs_base_rate": 0.9416216416935717
           },
           {
             "seed": 3,
             "accuracy_pct": 51.85,
             "sharpe_gross": -0.145,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 54.17,
+            "binomial_p_value_vs_base_rate": 0.7739056182068513
           },
           {
             "seed": 4,
             "accuracy_pct": 50.0,
             "sharpe_gross": -0.017,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 51.39,
+            "binomial_p_value_vs_base_rate": 0.6832543852160318
           },
           {
             "seed": 5,
             "accuracy_pct": 44.44,
             "sharpe_gross": -1.301,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 54.63,
+            "binomial_p_value_vs_base_rate": 0.9989200374730889
           },
           {
             "seed": 6,
             "accuracy_pct": 51.85,
             "sharpe_gross": 0.17,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.0,
+            "binomial_p_value_vs_base_rate": 0.31698505435727553
           },
           {
             "seed": 7,
             "accuracy_pct": 56.94,
             "sharpe_gross": 0.754,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 56.48,
+            "binomial_p_value_vs_base_rate": 0.4738338806790989
           },
           {
             "seed": 8,
             "accuracy_pct": 50.0,
             "sharpe_gross": 0.023,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 52.78,
+            "binomial_p_value_vs_base_rate": 0.81221960770214
           },
           {
             "seed": 9,
             "accuracy_pct": 50.0,
             "sharpe_gross": 0.004,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.46,
+            "binomial_p_value_vs_base_rate": 0.5809242902660302
           }
         ]
       }
@@ -301,6 +347,8 @@
         ],
         "pooled_accuracy_pct": 65.09,
         "pooled_binomial_p_value_vs_50": 1.5051340738154843e-45,
+        "base_rate_pct_mean": 52.82,
+        "runs_beating_base_rate_5pct": 10,
         "t_stat_vs_50": 15.53,
         "t_test_p_value_vs_50": 4.178023728371366e-08,
         "runs": [
@@ -308,61 +356,81 @@
             "seed": 0,
             "accuracy_pct": 64.81,
             "sharpe_gross": 2.212,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 52.31,
+            "binomial_p_value_vs_base_rate": 0.00013610305885737936
           },
           {
             "seed": 1,
             "accuracy_pct": 63.89,
             "sharpe_gross": 2.275,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 51.85,
+            "binomial_p_value_vs_base_rate": 0.00023501884023761292
           },
           {
             "seed": 2,
             "accuracy_pct": 68.06,
             "sharpe_gross": 3.026,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 54.17,
+            "binomial_p_value_vs_base_rate": 2.2178250688168744e-05
           },
           {
             "seed": 3,
             "accuracy_pct": 71.3,
             "sharpe_gross": 3.238,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 54.17,
+            "binomial_p_value_vs_base_rate": 1.8699910860999955e-07
           },
           {
             "seed": 4,
             "accuracy_pct": 62.5,
             "sharpe_gross": 1.802,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 51.39,
+            "binomial_p_value_vs_base_rate": 0.0006481858176523491
           },
           {
             "seed": 5,
             "accuracy_pct": 61.57,
             "sharpe_gross": 2.063,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 54.63,
+            "binomial_p_value_vs_base_rate": 0.023280021468469993
           },
           {
             "seed": 6,
             "accuracy_pct": 66.67,
             "sharpe_gross": 2.802,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.0,
+            "binomial_p_value_vs_base_rate": 5.459961686629086e-07
           },
           {
             "seed": 7,
             "accuracy_pct": 66.67,
             "sharpe_gross": 2.689,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 56.48,
+            "binomial_p_value_vs_base_rate": 0.001424760541076117
           },
           {
             "seed": 8,
             "accuracy_pct": 63.43,
             "sharpe_gross": 1.864,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 52.78,
+            "binomial_p_value_vs_base_rate": 0.0010086342478720116
           },
           {
             "seed": 9,
             "accuracy_pct": 62.04,
             "sharpe_gross": 1.812,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.46,
+            "binomial_p_value_vs_base_rate": 0.00040461265743838796
           }
         ]
       },
@@ -395,6 +463,8 @@
         ],
         "pooled_accuracy_pct": 50.51,
         "pooled_binomial_p_value_vs_50": 0.325694225020993,
+        "base_rate_pct_mean": 52.82,
+        "runs_beating_base_rate_5pct": 0,
         "t_stat_vs_50": 0.52,
         "t_test_p_value_vs_50": 0.30762713454513346,
         "runs": [
@@ -402,61 +472,81 @@
             "seed": 0,
             "accuracy_pct": 50.93,
             "sharpe_gross": -0.105,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 52.31,
+            "binomial_p_value_vs_base_rate": 0.6834869196677051
           },
           {
             "seed": 1,
             "accuracy_pct": 45.37,
             "sharpe_gross": -0.719,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 51.85,
+            "binomial_p_value_vs_base_rate": 0.9758275871067847
           },
           {
             "seed": 2,
             "accuracy_pct": 49.54,
             "sharpe_gross": -0.2,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 54.17,
+            "binomial_p_value_vs_base_rate": 0.9239921233225012
           },
           {
             "seed": 3,
             "accuracy_pct": 50.46,
             "sharpe_gross": -0.117,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 54.17,
+            "binomial_p_value_vs_base_rate": 0.8770252867609121
           },
           {
             "seed": 4,
             "accuracy_pct": 50.0,
             "sharpe_gross": -0.295,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 51.39,
+            "binomial_p_value_vs_base_rate": 0.6832543852160318
           },
           {
             "seed": 5,
             "accuracy_pct": 50.93,
             "sharpe_gross": -0.197,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 54.63,
+            "binomial_p_value_vs_base_rate": 0.8772038894247595
           },
           {
             "seed": 6,
             "accuracy_pct": 50.0,
             "sharpe_gross": 0.083,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.0,
+            "binomial_p_value_vs_base_rate": 0.5271131849384381
           },
           {
             "seed": 7,
             "accuracy_pct": 56.02,
             "sharpe_gross": 0.866,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 56.48,
+            "binomial_p_value_vs_base_rate": 0.582630948263841
           },
           {
             "seed": 8,
             "accuracy_pct": 47.22,
             "sharpe_gross": -0.139,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 52.78,
+            "binomial_p_value_vs_base_rate": 0.9556707288939477
           },
           {
             "seed": 9,
             "accuracy_pct": 54.63,
             "sharpe_gross": 0.579,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.46,
+            "binomial_p_value_vs_base_rate": 0.12364171448625783
           }
         ]
       }
@@ -484,6 +574,8 @@
         ],
         "pooled_accuracy_pct": 66.67,
         "pooled_binomial_p_value_vs_50": 7.600805293903258e-18,
+        "base_rate_pct_mean": 52.78,
+        "runs_beating_base_rate_5pct": 3,
         "t_stat_vs_50": 23.5,
         "t_test_p_value_vs_50": 0.000902908367397385,
         "runs": [
@@ -491,19 +583,25 @@
             "seed": 0,
             "accuracy_pct": 68.06,
             "sharpe_gross": 2.58,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 52.31,
+            "binomial_p_value_vs_base_rate": 1.8991302235845664e-06
           },
           {
             "seed": 1,
             "accuracy_pct": 66.2,
             "sharpe_gross": 3.141,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 51.85,
+            "binomial_p_value_vs_base_rate": 1.3667310485978599e-05
           },
           {
             "seed": 2,
             "accuracy_pct": 65.74,
             "sharpe_gross": 2.819,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 54.17,
+            "binomial_p_value_vs_base_rate": 0.00036333132152751717
           }
         ]
       },
@@ -529,6 +627,8 @@
         ],
         "pooled_accuracy_pct": 50.77,
         "pooled_binomial_p_value_vs_50": 0.36185175294962146,
+        "base_rate_pct_mean": 52.78,
+        "runs_beating_base_rate_5pct": 0,
         "t_stat_vs_50": 0.45,
         "t_test_p_value_vs_50": 0.3498348849487382,
         "runs": [
@@ -536,19 +636,25 @@
             "seed": 0,
             "accuracy_pct": 50.93,
             "sharpe_gross": -0.394,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 52.31,
+            "binomial_p_value_vs_base_rate": 0.6834869196677051
           },
           {
             "seed": 1,
             "accuracy_pct": 53.7,
             "sharpe_gross": 0.369,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 51.85,
+            "binomial_p_value_vs_base_rate": 0.3171007220480162
           },
           {
             "seed": 2,
             "accuracy_pct": 47.69,
             "sharpe_gross": -0.229,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 54.17,
+            "binomial_p_value_vs_base_rate": 0.9759676632103478
           }
         ]
       }
@@ -585,6 +691,8 @@
         ],
         "pooled_accuracy_pct": 72.87,
         "pooled_binomial_p_value_vs_50": 4.0664383757967025e-104,
+        "base_rate_pct_mean": 52.82,
+        "runs_beating_base_rate_5pct": 10,
         "t_stat_vs_50": 29.61,
         "t_test_p_value_vs_50": 1.3947306549816036e-10,
         "nearest_is_newest_row_pct_mean": 65.3,
@@ -594,61 +702,81 @@
             "seed": 0,
             "accuracy_pct": 72.69,
             "sharpe_gross": 3.421,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 53.7,
+            "binomial_p_value_vs_base_rate": 8.101339118711735e-09
           },
           {
             "seed": 1,
             "accuracy_pct": 69.91,
             "sharpe_gross": 3.373,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 56.02,
+            "binomial_p_value_vs_base_rate": 1.9453422977149598e-05
           },
           {
             "seed": 2,
             "accuracy_pct": 73.15,
             "sharpe_gross": 2.512,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.46,
+            "binomial_p_value_vs_base_rate": 8.625849526662148e-12
           },
           {
             "seed": 3,
             "accuracy_pct": 73.61,
             "sharpe_gross": 3.638,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.93,
+            "binomial_p_value_vs_base_rate": 7.993938860157898e-12
           },
           {
             "seed": 4,
             "accuracy_pct": 72.22,
             "sharpe_gross": 2.59,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.46,
+            "binomial_p_value_vs_base_rate": 5.987399810725669e-11
           },
           {
             "seed": 5,
             "accuracy_pct": 72.69,
             "sharpe_gross": 3.658,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 56.02,
+            "binomial_p_value_vs_base_rate": 3.186854835525418e-07
           },
           {
             "seed": 6,
             "accuracy_pct": 77.78,
             "sharpe_gross": 3.872,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 53.24,
+            "binomial_p_value_vs_base_rate": 6.828449129341197e-14
           },
           {
             "seed": 7,
             "accuracy_pct": 75.46,
             "sharpe_gross": 3.624,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 52.78,
+            "binomial_p_value_vs_base_rate": 5.605605036206197e-12
           },
           {
             "seed": 8,
             "accuracy_pct": 69.44,
             "sharpe_gross": 3.036,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 53.7,
+            "binomial_p_value_vs_base_rate": 1.709995629436001e-06
           },
           {
             "seed": 9,
             "accuracy_pct": 71.76,
             "sharpe_gross": 2.408,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.93,
+            "binomial_p_value_vs_base_rate": 3.584047189227809e-10
           }
         ]
       },
@@ -681,6 +809,8 @@
         ],
         "pooled_accuracy_pct": 49.68,
         "pooled_binomial_p_value_vs_50": 0.6265529559160934,
+        "base_rate_pct_mean": 52.82,
+        "runs_beating_base_rate_5pct": 0,
         "t_stat_vs_50": -0.25,
         "t_test_p_value_vs_50": 0.5959925645095681,
         "nearest_is_newest_row_pct_mean": 25.4,
@@ -690,61 +820,81 @@
             "seed": 0,
             "accuracy_pct": 53.24,
             "sharpe_gross": 0.775,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 53.7,
+            "binomial_p_value_vs_base_rate": 0.5816933722516302
           },
           {
             "seed": 1,
             "accuracy_pct": 43.98,
             "sharpe_gross": -0.11,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 56.02,
+            "binomial_p_value_vs_base_rate": 0.9998505874443484
           },
           {
             "seed": 2,
             "accuracy_pct": 46.3,
             "sharpe_gross": -0.151,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.46,
+            "binomial_p_value_vs_base_rate": 0.9020002329352897
           },
           {
             "seed": 3,
             "accuracy_pct": 47.22,
             "sharpe_gross": -0.791,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.93,
+            "binomial_p_value_vs_base_rate": 0.876345177227228
           },
           {
             "seed": 4,
             "accuracy_pct": 47.69,
             "sharpe_gross": -0.12,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.46,
+            "binomial_p_value_vs_base_rate": 0.811799095688608
           },
           {
             "seed": 5,
             "accuracy_pct": 55.09,
             "sharpe_gross": 0.452,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 56.02,
+            "binomial_p_value_vs_base_rate": 0.6349574734625216
           },
           {
             "seed": 6,
             "accuracy_pct": 54.17,
             "sharpe_gross": 0.872,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 53.24,
+            "binomial_p_value_vs_base_rate": 0.4195428640304018
           },
           {
             "seed": 7,
             "accuracy_pct": 53.7,
             "sharpe_gross": 0.347,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 52.78,
+            "binomial_p_value_vs_base_rate": 0.4195082849860192
           },
           {
             "seed": 8,
             "accuracy_pct": 50.0,
             "sharpe_gross": -0.493,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 53.7,
+            "binomial_p_value_vs_base_rate": 0.8768671145598074
           },
           {
             "seed": 9,
             "accuracy_pct": 45.37,
             "sharpe_gross": -0.414,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.93,
+            "binomial_p_value_vs_base_rate": 0.9556009890290038
           }
         ]
       }
@@ -779,6 +929,8 @@
         ],
         "pooled_accuracy_pct": 65.05,
         "pooled_binomial_p_value_vs_50": 2.8094901854566904e-45,
+        "base_rate_pct_mean": 52.82,
+        "runs_beating_base_rate_5pct": 9,
         "t_stat_vs_50": 15.34,
         "t_test_p_value_vs_50": 4.641749551554251e-08,
         "runs": [
@@ -786,61 +938,81 @@
             "seed": 0,
             "accuracy_pct": 64.35,
             "sharpe_gross": 2.235,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 53.7,
+            "binomial_p_value_vs_base_rate": 0.0009834388465797491
           },
           {
             "seed": 1,
             "accuracy_pct": 60.19,
             "sharpe_gross": 1.869,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 56.02,
+            "binomial_p_value_vs_base_rate": 0.1217384299716491
           },
           {
             "seed": 2,
             "accuracy_pct": 66.2,
             "sharpe_gross": 1.89,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.46,
+            "binomial_p_value_vs_base_rate": 2.118234444711642e-06
           },
           {
             "seed": 3,
             "accuracy_pct": 63.43,
             "sharpe_gross": 2.501,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.93,
+            "binomial_p_value_vs_base_rate": 0.0001421880780227271
           },
           {
             "seed": 4,
             "accuracy_pct": 67.59,
             "sharpe_gross": 1.242,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.46,
+            "binomial_p_value_vs_base_rate": 2.584893715851668e-07
           },
           {
             "seed": 5,
             "accuracy_pct": 68.06,
             "sharpe_gross": 2.316,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 56.02,
+            "binomial_p_value_vs_base_rate": 0.00019730726675828273
           },
           {
             "seed": 6,
             "accuracy_pct": 70.83,
             "sharpe_gross": 2.868,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 53.24,
+            "binomial_p_value_vs_base_rate": 9.633594847153105e-08
           },
           {
             "seed": 7,
             "accuracy_pct": 62.96,
             "sharpe_gross": 2.251,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 52.78,
+            "binomial_p_value_vs_base_rate": 0.0015945761700384311
           },
           {
             "seed": 8,
             "accuracy_pct": 63.43,
             "sharpe_gross": 1.976,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 53.7,
+            "binomial_p_value_vs_base_rate": 0.002425764886634094
           },
           {
             "seed": 9,
             "accuracy_pct": 63.43,
             "sharpe_gross": 1.262,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.93,
+            "binomial_p_value_vs_base_rate": 0.0001421880780227271
           }
         ]
       },
@@ -873,6 +1045,8 @@
         ],
         "pooled_accuracy_pct": 47.55,
         "pooled_binomial_p_value_vs_50": 0.9893508891524967,
+        "base_rate_pct_mean": 52.82,
+        "runs_beating_base_rate_5pct": 0,
         "t_stat_vs_50": -1.79,
         "t_test_p_value_vs_50": 0.9467915751858829,
         "runs": [
@@ -880,61 +1054,81 @@
             "seed": 0,
             "accuracy_pct": 51.85,
             "sharpe_gross": 0.489,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 53.7,
+            "binomial_p_value_vs_base_rate": 0.7307105135881498
           },
           {
             "seed": 1,
             "accuracy_pct": 45.83,
             "sharpe_gross": -0.406,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 56.02,
+            "binomial_p_value_vs_base_rate": 0.9989337772537453
           },
           {
             "seed": 2,
             "accuracy_pct": 52.78,
             "sharpe_gross": 0.055,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.46,
+            "binomial_p_value_vs_base_rate": 0.27022993986389754
           },
           {
             "seed": 3,
             "accuracy_pct": 45.37,
             "sharpe_gross": -0.204,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.93,
+            "binomial_p_value_vs_base_rate": 0.9556009890290038
           },
           {
             "seed": 4,
             "accuracy_pct": 49.07,
             "sharpe_gross": 0.08,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.46,
+            "binomial_p_value_vs_base_rate": 0.683080212229654
           },
           {
             "seed": 5,
             "accuracy_pct": 50.0,
             "sharpe_gross": 0.058,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 56.02,
+            "binomial_p_value_vs_base_rate": 0.9675312395853067
           },
           {
             "seed": 6,
             "accuracy_pct": 51.39,
             "sharpe_gross": 0.26,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 53.24,
+            "binomial_p_value_vs_base_rate": 0.7305360840816815
           },
           {
             "seed": 7,
             "accuracy_pct": 47.22,
             "sharpe_gross": -0.172,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 52.78,
+            "binomial_p_value_vs_base_rate": 0.9556707288939477
           },
           {
             "seed": 8,
             "accuracy_pct": 42.59,
             "sharpe_gross": -0.728,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 53.7,
+            "binomial_p_value_vs_base_rate": 0.9995799241779791
           },
           {
             "seed": 9,
             "accuracy_pct": 39.35,
             "sharpe_gross": -0.602,
-            "n_decisions": 216
+            "n_decisions": 216,
+            "base_rate_pct": 50.93,
+            "binomial_p_value_vs_base_rate": 0.9997502601986291
           }
         ]
       }
@@ -963,6 +1157,8 @@
         ],
         "pooled_accuracy_pct": 73.43,
         "pooled_binomial_p_value_vs_50": 5.2459225257645465e-12,
+        "base_rate_pct_mean": 53.62,
+        "runs_beating_base_rate_5pct": 1,
         "nearest_is_newest_row_pct_mean": 57.5,
         "accuracy_when_nearest_is_newest_pct_mean": 83.19,
         "runs": [
@@ -970,7 +1166,9 @@
             "seed": 0,
             "accuracy_pct": 73.43,
             "sharpe_gross": 3.195,
-            "n_decisions": 207
+            "n_decisions": 207,
+            "base_rate_pct": 53.62,
+            "binomial_p_value_vs_base_rate": 3.794845113207481e-09
           }
         ]
       },
@@ -994,6 +1192,8 @@
         ],
         "pooled_accuracy_pct": 46.38,
         "pooled_binomial_p_value_vs_50": 0.8669696858764865,
+        "base_rate_pct_mean": 53.62,
+        "runs_beating_base_rate_5pct": 0,
         "nearest_is_newest_row_pct_mean": 11.1,
         "accuracy_when_nearest_is_newest_pct_mean": 56.52,
         "runs": [
@@ -1001,7 +1201,9 @@
             "seed": 0,
             "accuracy_pct": 46.38,
             "sharpe_gross": -0.462,
-            "n_decisions": 207
+            "n_decisions": 207,
+            "base_rate_pct": 53.62,
+            "binomial_p_value_vs_base_rate": 0.9845109791300397
           }
         ]
       }
@@ -1027,12 +1229,16 @@
         ],
         "pooled_accuracy_pct": 59.9,
         "pooled_binomial_p_value_vs_50": 0.002653166847966564,
+        "base_rate_pct_mean": 53.62,
+        "runs_beating_base_rate_5pct": 1,
         "runs": [
           {
             "seed": 0,
             "accuracy_pct": 59.9,
             "sharpe_gross": 1.517,
-            "n_decisions": 207
+            "n_decisions": 207,
+            "base_rate_pct": 53.62,
+            "binomial_p_value_vs_base_rate": 0.040308301839701084
           }
         ]
       },
@@ -1056,12 +1262,16 @@
         ],
         "pooled_accuracy_pct": 53.14,
         "pooled_binomial_p_value_vs_50": 0.2021536873450568,
+        "base_rate_pct_mean": 53.62,
+        "runs_beating_base_rate_5pct": 0,
         "runs": [
           {
             "seed": 0,
             "accuracy_pct": 53.14,
             "sharpe_gross": 0.032,
-            "n_decisions": 207
+            "n_decisions": 207,
+            "base_rate_pct": 53.62,
+            "binomial_p_value_vs_base_rate": 0.5833986923298913
           }
         ]
       }
@@ -1087,12 +1297,16 @@
         ],
         "pooled_accuracy_pct": 62.8,
         "pooled_binomial_p_value_vs_50": 0.00014050059598472687,
+        "base_rate_pct_mean": 53.62,
+        "runs_beating_base_rate_5pct": 1,
         "runs": [
           {
             "seed": 0,
             "accuracy_pct": 62.8,
             "sharpe_gross": 1.639,
-            "n_decisions": 207
+            "n_decisions": 207,
+            "base_rate_pct": 53.62,
+            "binomial_p_value_vs_base_rate": 0.004740782647232233
           }
         ]
       },
@@ -1116,12 +1330,16 @@
         ],
         "pooled_accuracy_pct": 44.93,
         "pooled_binomial_p_value_vs_50": 0.93698289732911,
+        "base_rate_pct_mean": 53.62,
+        "runs_beating_base_rate_5pct": 0,
         "runs": [
           {
             "seed": 0,
             "accuracy_pct": 44.93,
             "sharpe_gross": -0.777,
-            "n_decisions": 207
+            "n_decisions": 207,
+            "base_rate_pct": 53.62,
+            "binomial_p_value_vs_base_rate": 0.9949854248135864
           }
         ]
       }
@@ -1131,12 +1349,14 @@
     "artifact": "data/wf_5y_unpurged_LEAKED.json",
     "n": 198,
     "accuracy_pct": 67.17,
-    "sharpe": 2.466
+    "sharpe": 2.466,
+    "sharpe_basis": "after transaction costs",
+    "transaction_cost_per_trade_usd": 100.0
   },
   "data": {
     "cl_daily_sha256": "2e0c57f697484b466eac5945c755a76cf26aeb3a1cdf2af96622f7ab3da7949b",
     "sessions_through": "2026-10-19"
   },
-  "conclusion": "Under a pure random walk the newest leaked training label agrees in sign with the test label 79.5% of the time (1/2 + arcsin(0.8)/pi), with no information about the future. On synthetic i.i.d. returns a 1-nearest-neighbour model trained without the purge scores 72.4% (Sharpe 3.67); its nearest neighbour is the newest row in 60% of decisions, and on those it scores 82.6% (a little above the unconditional 79.5%: the newest row is nearest when its one unshared return is small, which makes the two labels even more alike). A 20-tree random forest scores 66.7% with Sharpe 2.85 on noise, against the retracted model's 67.2% and 2.47. With the purge the same models score 50.4% and 50.8%. Block-shuffled real CL=F returns give the same picture (72.9% leaked vs 49.7% purged). The retracted Sharpe was the label overlap, not a forecast.",
-  "generated_at": "2026-10-20T12:13:13.067621+00:00"
+  "conclusion": "Under a pure random walk the newest leaked training label agrees in sign with the test label 79.5% of the time (1/2 + arcsin(0.8)/pi), with no information about the future. On synthetic i.i.d. returns a 1-nearest-neighbour model trained without the purge scores 72.4% (gross Sharpe 3.67); its nearest neighbour is the newest row in 60% of decisions, and on those it scores 82.6% (a little above the unconditional 79.5%: the newest row is nearest when its one unshared return is small, which makes the two labels even more alike). A 20-tree random forest scores 66.7% with a gross Sharpe of 2.85 on noise, against the retracted model's 67.2% and 2.47 after transaction costs. With the purge the same models score 50.4% and 50.8%. Block-shuffled real CL=F returns give the same picture (72.9% leaked vs 49.7% purged). Real 5-session returns rise 53.6% of the time, so the no-skill accuracy there is each run's base rate, not 50%: 10 of 10 leaked runs and 0 of 10 purged runs beat their own base rate at 5%. The shuffled runs reuse the same returns, so they are not independent samples and their pooled tests overstate the evidence. The retracted Sharpe was the label overlap, not a forecast.",
+  "generated_at": "2026-10-20T13:32:05.755627+00:00"
 }
