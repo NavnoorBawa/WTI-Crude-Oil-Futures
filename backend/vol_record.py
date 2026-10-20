@@ -100,6 +100,7 @@ import argparse
 import json
 import math
 import os
+import stat
 import sys
 import tempfile
 from datetime import date, datetime, time, timedelta, timezone
@@ -372,15 +373,21 @@ def load_record(path: str | os.PathLike[str] | None = None) -> dict:
 
 
 def _atomic_write(path: Path, text: str) -> None:
-    """Write via a temporary file in the same directory and rename it into place."""
+    """Write via a temporary file in the same directory and rename it into place. A file that
+    already exists keeps its permission bits; a new one keeps mkstemp's owner-only mode."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        mode: int | None = stat.S_IMODE(os.stat(path).st_mode)
+    except FileNotFoundError:
+        mode = None
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
-        os.chmod(tmp, 0o644)
+        if mode is not None:
+            os.chmod(tmp, mode)
         os.replace(tmp, path)
     except BaseException:
         try:
@@ -850,7 +857,7 @@ def main(argv: list[str] | None = None, now: datetime | None = None) -> int:
 
     if args.init:
         if record_path.exists() or record_path.is_symlink():
-            print(f"vol_record: {record_path} already exists; refusing to overwrite a record", file=sys.stderr)
+            print(f"vol_record: {args.record} already exists; refusing to overwrite a record", file=sys.stderr)
             return 1
         record = init_record(now)
         save_record(record, record_path)

@@ -966,7 +966,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     report = build_report(snapshot, progress=lambda k, n: print(f"  day {k}/{n}", flush=True))
     out_path.write_text(json.dumps(_jsonable(report), indent=1, sort_keys=False) + "\n", encoding="utf-8")
     board = report["leaderboard"]
-    print(f"wrote {out_path}: {report['sample']['n_days']} days; MCS(QLIKE) = {board['mcs_qlike_included']}; "
+    print(f"wrote {args.out}: {report['sample']['n_days']} days; MCS(QLIKE) = {board['mcs_qlike_included']}; "
           f"challenger = {report['config']['challenger']}")
     return 0
 

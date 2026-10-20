@@ -379,7 +379,7 @@ def main() -> None:
                   f"Sharpe {leak['sharpe_mean']:+.2f} | purged {pur['accuracy_pct_mean']:5.1f}% "
                   f"{pur['accuracy_pct_range']} Sharpe {pur['sharpe_mean']:+.2f}")
     print(f"-> {res['conclusion']}")
-    print(f"wrote {path}")
+    print(f"wrote data/{ARTIFACT}")
 
 
 if __name__ == "__main__":

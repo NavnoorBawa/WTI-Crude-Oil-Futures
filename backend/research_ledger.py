@@ -782,7 +782,7 @@ def main() -> None:
     s = ledger["summary"]
     print(f"\n{s['rows']} rows ({s['by_status']}); supported surviving BH: {len(s['supported_surviving_bh_5pct'])}"
           f"/{len(s['supported'])}; clearing t > 3: {len(s['supported_clearing_hlz_t3'])}")
-    print(f"wrote {path}")
+    print(f"wrote data/{ARTIFACT}")
 
 
 if __name__ == "__main__":

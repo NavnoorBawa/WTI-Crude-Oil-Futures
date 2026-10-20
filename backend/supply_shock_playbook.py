@@ -788,7 +788,7 @@ def main():
     print(f"\n-> {study['conclusion']}")
     path = data_json_path(STUDY_ARTIFACT)
     path.write_text(json.dumps(study, indent=2) + "\n", encoding="utf-8")
-    print(f"\nwrote {path}")
+    print(f"\nwrote data/{STUDY_ARTIFACT}")
 
 
 if __name__ == "__main__":

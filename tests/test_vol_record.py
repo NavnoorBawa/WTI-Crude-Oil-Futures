@@ -810,6 +810,13 @@ class RecordFileTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "--init"):
             vr.load_record(self.path)
 
+    def test_writes_keep_an_existing_files_mode_and_create_new_files_owner_only(self):
+        vr.save_record(recorded(), self.path)
+        self.assertEqual(os.stat(self.path).st_mode & 0o777, 0o600)
+        os.chmod(self.path, 0o644)
+        vr.save_record(recorded(), self.path)
+        self.assertEqual(os.stat(self.path).st_mode & 0o777, 0o644)
+
     def test_malformed_records_are_rejected(self):
         good = recorded()
         entry = good["entries"][0]
