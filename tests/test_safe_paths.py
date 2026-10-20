@@ -16,6 +16,16 @@ class SafePathTest(unittest.TestCase):
                 safe_paths.DATA_ROOT / "walk_forward_backtest_latest.json",
             ),
             (
+                safe_paths.data_json_path,
+                "data/vol_track_record.json",
+                safe_paths.DATA_ROOT / "vol_track_record.json",
+            ),
+            (
+                safe_paths.data_json_path,
+                "./data/vol_track_record.json",
+                safe_paths.DATA_ROOT / "vol_track_record.json",
+            ),
+            (
                 safe_paths.public_json_path,
                 "public/data.json",
                 safe_paths.PUBLIC_ROOT / "data.json",
@@ -50,14 +60,18 @@ class SafePathTest(unittest.TestCase):
 
     def test_untrusted_path_shapes_are_rejected(self):
         bad_values = (
-            "../signal_state.json",
-            "/tmp/signal_state.json",
-            "data-evil/signal_state.json",
-            "data/nested/signal_state.json",
-            "data/signal_state.txt",
+            "../vol_track_record.json",
+            "/tmp/vol_track_record.json",
+            "data-evil/vol_track_record.json",
+            "data/nested/vol_track_record.json",
+            "data/vol_track_record.txt",
             "data/unknown.json",
-            "data\\..\\signal_state.json",
+            "data\\..\\vol_track_record.json",
             "",
+            # Retired runtime state of the retracted direction model: no longer writable.
+            "data/signal_state.json",
+            "data/live_track_record.json",
+            "live_track_record.json",
         )
         for value in bad_values:
             with self.subTest(value=value), self.assertRaises(ValueError):
@@ -68,7 +82,7 @@ class SafePathTest(unittest.TestCase):
             (safe_paths.public_json_path, "public/price.json"),
             (safe_paths.public_json_path, "../public/data.json"),
             (safe_paths.fixture_json_path, "tests/fixtures/other.json"),
-            (safe_paths.dashboard_payload_path, "data/signal_state.json"),
+            (safe_paths.dashboard_payload_path, "data/vol_track_record.json"),
             (safe_paths.public_output_directory, "public/subdirectory"),
             (safe_paths.public_output_directory, "/tmp/public"),
         ):
@@ -85,14 +99,14 @@ class SafePathTest(unittest.TestCase):
             outside_root.mkdir()
             outside_file = outside_root / "secret.json"
             outside_file.write_text("{}", encoding="utf-8")
-            (data_root / "signal_state.json").symlink_to(outside_file)
+            (data_root / "vol_track_record.json").symlink_to(outside_file)
 
             with (
                 mock.patch.object(safe_paths, "PROJECT_ROOT", project_root),
                 mock.patch.object(safe_paths, "DATA_ROOT", data_root),
                 self.assertRaises(ValueError),
             ):
-                safe_paths.data_json_path("data/signal_state.json")
+                safe_paths.data_json_path("data/vol_track_record.json")
 
     def test_symlinked_public_directory_cannot_escape_repository(self):
         with tempfile.TemporaryDirectory() as temporary_directory:

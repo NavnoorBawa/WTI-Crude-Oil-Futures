@@ -38,18 +38,14 @@ def _trusted_file(root: Path, filename: str) -> Path:
 
 def data_json_path(value: str | os.PathLike[str]) -> Path:
     normalized = _normalized_argument(value)
+    # The live vol track record (backend/vol_record.py): runtime state restored from and persisted
+    # to the live-data branch by refresh.yml, never committed to main.
     if normalized in {
-        "signal_state.json",
-        "data/signal_state.json",
-        "./data/signal_state.json",
+        "vol_track_record.json",
+        "data/vol_track_record.json",
+        "./data/vol_track_record.json",
     }:
-        return _trusted_file(DATA_ROOT, "signal_state.json")
-    if normalized in {
-        "live_track_record.json",
-        "data/live_track_record.json",
-        "./data/live_track_record.json",
-    }:
-        return _trusted_file(DATA_ROOT, "live_track_record.json")
+        return _trusted_file(DATA_ROOT, "vol_track_record.json")
     if normalized in {
         "walk_forward_backtest_latest.json",
         "data/walk_forward_backtest_latest.json",
