@@ -54,8 +54,9 @@ export const fmtSignedUsd = (value, digits = 0) => {
   return rounded === 0 ? body : `${rounded > 0 ? "+" : MINUS}${body}`;
 };
 
-// Rounding must never carry a p-value up to a threshold it is below (0.0496 is not "p = 0.05",
-// 0.9996 is not "p = 1.00"): digits are added until it prints below the threshold, else "p < t".
+// Rounding must never carry a p-value onto a threshold it is not at: 0.0496 is not "p = 0.05",
+// 0.9996 is not "p = 1.00", and 0.0548 is not "p = 0.05" either. Digits are added until the text
+// leaves the threshold, else "p < t" (from below) or "p > t" (from above).
 const P_THRESHOLDS = [0.01, 0.05, 0.1, 1];
 const MAX_P_DIGITS = 4;
 export const fmtP = (value) => {
@@ -63,14 +64,17 @@ export const fmtP = (value) => {
   if (p == null) return null;
   if (p < 0.001) return "p < 0.001";
   const crossed = (text) => P_THRESHOLDS.find((t) => p < t && Number(text) >= t);
+  const landed = (text) => P_THRESHOLDS.find((t) => p > t && Number(text) === t);
   let digits = p < 0.01 ? 3 : 2;
   let text = p.toFixed(digits);
-  while (crossed(text) != null && digits < MAX_P_DIGITS) {
+  while ((crossed(text) != null || landed(text) != null) && digits < MAX_P_DIGITS) {
     digits += 1;
     text = p.toFixed(digits);
   }
-  const threshold = crossed(text);
-  return threshold != null ? `p < ${threshold}` : `p = ${text}`;
+  const below = crossed(text);
+  if (below != null) return `p < ${below}`;
+  const above = landed(text);
+  return above != null ? `p > ${above}` : `p = ${text}`;
 };
 
 export const signClass = (value, up = "up", down = "down") => {
@@ -156,8 +160,15 @@ export const fmtShare = (value, digits = 1) => {
 /** p-value text without the "p = " prefix, for table cells ("0.0059", "< 0.001"). */
 export const fmtPValue = (value) => {
   const text = fmtP(value);
-  return text == null ? DASH : text.replace(/^p = /, "").replace(/^p < /, "< ");
+  return text == null ? DASH : text.replace(/^p = /, "").replace(/^p ([<>]) /, "$1 ");
 };
+
+// Source prose quotes exchange times in ET while the page's clock is CT. Both zones change for
+// daylight saving on the same days, so CT is always one hour behind: each "HH:MM ET" gets its twin.
+export const withCentralTime = (text) =>
+  typeof text === "string"
+    ? text.replace(/\b(\d{1,2}):(\d{2}) ET\b/g, (match, hour, minute) => `${match} / ${(Number(hour) + 23) % 24}:${minute} CT`)
+    : text;
 
 /** Elapsed time as a compact age: "12m", "2h 14m", "3d 4h". */
 export const fmtAge = (ms) => {

@@ -3,7 +3,17 @@ import Chip from "./Chip";
 import ErrorBoundary from "./ErrorBoundary";
 import keepHyphenated from "./keepHyphenated";
 
-export const REPRODUCE_COMMAND = "python -m backend.vol_lab";
+/** The command that rebuilds each artifact a panel reads (see README, "Reproduce"). */
+export const REPRODUCE = {
+  lab: "python -m backend.vol_lab",
+  validation: "python -m backend.vol_forecast",
+  leakAnatomy: "python -m backend.leak_anatomy",
+  walkForward: "python -m backend.backtest_walk_forward [--no-purge]",
+  carry: "python -m backend.carry_signal_test",
+  supply: "python -m backend.supply_shock_playbook",
+  ledger: "python -m backend.research_ledger",
+};
+export const REPRODUCE_COMMAND = REPRODUCE.lab;
 
 /**
  * One research section. Anatomy, top to bottom: a code chip and plain section name; the assertion
@@ -20,7 +30,8 @@ export const REPRODUCE_COMMAND = "python -m backend.vol_lab";
  * @param {Array<import("react").ReactNode>} [props.meta]   short facts; falsy entries are skipped
  * @param {import("react").ReactNode} [props.actions]       extra controls (range presets, toggles)
  * @param {import("react").ReactNode} [props.caption]
- * @param {{artifact: string|string[], reproduce?: string|null}} [props.source]
+ * @param {{artifact: string|string[], reproduce?: string|string[]|null}} [props.source]  reproduce
+ *   defaults to the benchmark lab's command; panels built from other artifacts name their own
  * @param {() => import("react").ReactNode} [props.table]  renders the table view (only when shown)
  * @param {"full"|"half"|"wide"|"narrow"} [props.span]    width in the 12-column grid
  * @param {unknown} [props.resetKey]            retries a failed figure when it changes (fresh data)
@@ -45,7 +56,7 @@ export default function Panel({
   const bodyId = `${id}-body`;
   const metaItems = meta.filter(Boolean);
   const artifacts = source ? [].concat(source.artifact).filter(Boolean) : [];
-  const reproduce = source?.reproduce === undefined ? REPRODUCE_COMMAND : source.reproduce;
+  const reproduce = [].concat(source?.reproduce === undefined ? REPRODUCE_COMMAND : source.reproduce).filter(Boolean);
 
   return (
     <section id={id} className={`panel span-${span}`} aria-labelledby={titleId}>
@@ -89,7 +100,7 @@ export default function Panel({
 
       {caption && <p className="panel-caption">{caption}</p>}
 
-      {(artifacts.length > 0 || reproduce) && (
+      {(artifacts.length > 0 || reproduce.length > 0) && (
         <footer className="panel-source">
           {artifacts.length > 0 && (
             <span>
@@ -97,10 +108,10 @@ export default function Panel({
               {artifacts.map((artifact) => <code key={artifact}>{artifact}</code>)}
             </span>
           )}
-          {reproduce && (
+          {reproduce.length > 0 && (
             <span>
               <span className="micro">Reproduce</span>
-              <code>{reproduce}</code>
+              {reproduce.map((command) => <code key={command}>{command}</code>)}
             </span>
           )}
         </footer>

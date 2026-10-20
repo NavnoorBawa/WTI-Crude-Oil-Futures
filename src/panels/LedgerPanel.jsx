@@ -1,10 +1,10 @@
 import { useId, useMemo, useState } from "react";
 import Chip from "../components/Chip";
 import DataTable from "../components/DataTable";
-import Panel from "../components/Panel";
+import Panel, { REPRODUCE } from "../components/Panel";
 import { ledgerAssertion } from "../lib/assertions";
-import { DASH, fmtDate, fmtInt, fmtNum, fmtPValue, humanizeKey } from "../lib/format";
-import { asText, researchLedger } from "../lib/research";
+import { DASH, fmtDate, fmtInt, fmtNum, fmtPValue, humanizeKey, num } from "../lib/format";
+import { asObject, asText, researchLedger } from "../lib/research";
 import { ResearchUnavailable } from "./common";
 
 const STATUS_TONE = { supported: "status-resolved", rejected: "muted", retracted: "warn", inconclusive: "status-pending" };
@@ -13,6 +13,17 @@ const STATUS_ORDER = ["supported", "rejected", "retracted", "inconclusive"];
 /** Filters ledger rows by family and status ("all" passes everything). */
 export const filterLedger = (rows, family, status) =>
   rows.filter((row) => (family === "all" || row.family === family) && (status === "all" || row.status === status));
+
+/**
+ * A ledger statistic as text: a statistic that is itself a p-value is printed like one (never
+ * "0.00"), anything else to two decimals (one at 10 or more).
+ */
+export const fmtLedgerStatistic = (row) => {
+  const value = num(row?.statistic);
+  if (value == null) return DASH;
+  if (/p-value/i.test(asText(row.statistic_name) ?? "")) return fmtPValue(value);
+  return fmtNum(value, Math.abs(value) >= 10 ? 1 : 2);
+};
 
 /** LEDG: every hypothesis the project tested, with BH/Holm-adjusted p-values and the t > 3 hurdle. */
 export default function LedgerPanel({ research, researchStatus }) {
@@ -25,8 +36,8 @@ export default function LedgerPanel({ research, researchStatus }) {
   if (!ledger) {
     return (
       <Panel id="ledg" code="LEDG" name="Research ledger" title={null} fallbackTitle="Research ledger"
-        source={{ artifact: "research.json → ledger", reproduce: null }}>
-        <ResearchUnavailable status={researchStatus === "ready" ? "unavailable" : researchStatus} what="the ledger of tested hypotheses" />
+        source={{ artifact: "research.json → ledger", reproduce: REPRODUCE.ledger }}>
+        <ResearchUnavailable status={researchStatus} what="the ledger of tested hypotheses" />
       </Panel>
     );
   }
@@ -53,7 +64,10 @@ export default function LedgerPanel({ research, researchStatus }) {
             <span className="sr-only">Family</span>
             <select id={selectId} className="select" value={family} onChange={(event) => setFamily(event.target.value)}>
               <option value="all">All families</option>
-              {families.map((name) => <option key={name} value={name}>{humanizeKey(name)}</option>)}
+              {families.map((name) => {
+                const count = num(asObject(ledger.byFamily?.[name])?.rows) ?? ledger.rows.filter((row) => row.family === name).length;
+                return <option key={name} value={name}>{humanizeKey(name)} ({fmtInt(count)})</option>;
+              })}
             </select>
           </label>
           <label className="select-label" htmlFor={`${selectId}-status`}>
@@ -65,8 +79,16 @@ export default function LedgerPanel({ research, researchStatus }) {
           </label>
         </>
       )}
-      caption={ledger.method ? ledger.method.split(/(?<=\.)\s/).slice(0, 2).join(" ") : null}
-      source={{ artifact: "research.json → ledger", reproduce: null }}
+      caption={(
+        <>
+          p is the p-value as the test was run, one-sided where the hypothesis is directional. q (Benjamini-Hochberg)
+          and the t &gt; {fmtNum(ledger.hurdle ?? 3, 0)} hurdle use the two-sided p (a one-sided p doubled). Each row&apos;s
+          test line gives its sample and sign convention, so a comparison can appear here with another sign and size than
+          elsewhere on the page: the verdict tile&apos;s DM t comes from the weekly production validation, positive favouring
+          the model of record.
+        </>
+      )}
+      source={{ artifact: "research.json → ledger", reproduce: REPRODUCE.ledger }}
       resetKey={research}
     >
       <DataTable
@@ -82,7 +104,8 @@ export default function LedgerPanel({ research, researchStatus }) {
             key: "hypothesis", label: "Hypothesis", rowHeader: true, className: "wrap-cell ledger-hypothesis",
             render: (row) => (
               <>
-                <span title={row.test ?? undefined}>{row.hypothesis}</span>
+                <span>{row.hypothesis}</span>
+                {asText(row.test) && <span className="ledger-test">{row.test}</span>}
                 <code className="ledger-id">{row.id ?? DASH}</code>
               </>
             ),
@@ -90,10 +113,21 @@ export default function LedgerPanel({ research, researchStatus }) {
           { key: "family", label: "Family", sortable: true, className: "muted-cell" },
           {
             key: "statistic", label: "Statistic", align: "right", sortable: true,
-            render: (row) => <span className="num" title={asText(row.statistic_name) ?? undefined}>{fmtNum(row.statistic, Math.abs(row.statistic ?? 0) >= 10 ? 1 : 2)}</span>,
+            render: (row) => (
+              <span className="stat-block">
+                <span className="num">{fmtLedgerStatistic(row)}</span>
+                {asText(row.statistic_name) && <span className="cell-note">{row.statistic_name}</span>}
+              </span>
+            ),
           },
-          { key: "p", label: "p", align: "right", sortable: true, render: (row) => <span className="num">{fmtPValue(row.p)}</span> },
-          { key: "q", label: "q (BH)", title: "Benjamini-Hochberg q-value across every row", align: "right", sortable: true, render: (row) => <span className="num">{fmtPValue(row.q)}</span> },
+          {
+            key: "p", label: "p", title: "p-value as the test was run (one-sided where the test is one-sided)", align: "right", sortable: true,
+            render: (row) => <span className="num">{fmtPValue(row.p)}</span>,
+          },
+          {
+            key: "q", label: "q (BH)", title: "Benjamini-Hochberg q-value across every row, on the two-sided p", align: "right", sortable: true,
+            render: (row) => <span className="num">{fmtPValue(row.q)}</span>,
+          },
           {
             key: "survives_bh", label: "BH 5%", align: "center", sortable: true, sortValue: (row) => (row.survives_bh ? 1 : 0), firstDirection: "desc",
             render: (row) => (row.survives_bh === true ? "yes" : row.survives_bh === false ? "no" : DASH),

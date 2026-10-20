@@ -1,12 +1,21 @@
 // Small pieces shared by the panels.
 
 /**
- * Shown in place of a figure that needs research.json when it is still loading or unavailable.
+ * Shown in place of a figure that needs research.json when it is still loading, unavailable, or
+ * loaded without the block this figure reads ("ready").
  * @param {{status: "loading"|"ready"|"unavailable", what?: string}} props
  */
 export function ResearchUnavailable({ status, what = "this figure" }) {
   if (status === "loading") {
     return <div className="figure-empty" role="status"><p className="empty-text">Loading research.json…</p></div>;
+  }
+  if (status === "ready") {
+    return (
+      <div className="figure-empty">
+        <p className="empty-title">Not in this research.json</p>
+        <p className="empty-text">research.json loaded but carries no data for {what}; the other sections are unaffected.</p>
+      </div>
+    );
   }
   return (
     <div className="figure-empty">

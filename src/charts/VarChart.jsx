@@ -22,8 +22,8 @@ const BAR_COLORS = {
 };
 
 /**
- * Weekly 5-session returns (bars) against the model of record's forecast-scaled VaR, drawn as
- * negative step lines; breaches are coloured and the 99% ones marked.
+ * Weekly 5-session log returns (bars) against the model of record's forecast-scaled VaR on the
+ * same log-return scale, drawn as negative step lines; breaches are coloured and the 99% ones marked.
  *
  * @param {{rows: {date:string, ret:number, var95:number|null, var99:number|null}[], range: "3Y"|"10Y"|"ALL"}} props
  */
@@ -107,12 +107,20 @@ export default function VarChart({ rows, range = "ALL" }) {
 
   const shown = (hoverDate && model.lookup.get(hoverDate)) || model.lookup.get(rows[rows.length - 1]?.date) || null;
   const status = { var99: "breached 99% VaR", var95: "breached 95% VaR", ok: "within VaR", none: "VaR warming up" };
+  const summary = useMemo(() => {
+    const scored = rows.filter((row) => row.var95 != null && row.var99 != null);
+    const e99 = scored.filter((row) => breachOf(row) === "var99").length;
+    const e95 = scored.filter((row) => breachOf(row) !== "ok").length;
+    return `Weekly 5-session log returns, ${rows.length} weeks${rows.length ? ` from ${fmtDate(rows[0].date)} to ${fmtDate(rows[rows.length - 1].date)}` : ""}, `
+      + `against the forecast-scaled 95% and 99% VaR; ${e99} of ${scored.length} weeks fell below the 99% line and ${e95} below the 95% line. `
+      + "The Table button lists the latest weeks.";
+  }, [rows]);
 
   return (
-    <div className="lw-figure">
+    <div className="lw-figure" role="img" aria-label={summary}>
       <div className="chart-legend" aria-hidden="true">
         <span className="legend-date">{shown ? fmtDate(shown.date) : DASH}</span>
-        <span className="legend-item"><i className="swatch swatch-bar" />5-day return {fmtSigned(shown?.ret, 1, "%")}</span>
+        <span className="legend-item"><i className="swatch swatch-bar" />5-session log return {fmtSigned(shown?.ret, 1, "%")}</span>
         <span className="legend-item"><i className="swatch swatch-model" />−VaR 95% {shown?.var95 != null ? fmtNum(-shown.var95, 1) : DASH}</span>
         <span className="legend-item"><i className="swatch swatch-alt" />−VaR 99% {shown?.var99 != null ? fmtNum(-shown.var99, 1) : DASH}</span>
         {shown && <span className={`legend-item legend-status is-${shown.breach}`}>{status[shown.breach]}</span>}

@@ -64,7 +64,7 @@
   "min_train_rows": 250,
   "purge_rows": 4,
   "ovx_lag_sessions": 1,
-  "evaluation": "every OOS day (overlapping 5-session targets), plus each weekday grid on its own",
+  "evaluation": "every OOS day (overlapping 5-session targets), plus each 5-session sampling grid on its own",
   "mcs": {
    "size": 0.1,
    "reps": 5000,

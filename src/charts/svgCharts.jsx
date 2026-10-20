@@ -68,16 +68,17 @@ export const spreadLabels = (items, gap = 12) => {
  * realized vol per window, OVX as a dashed level and the live forecast at the 5-session window.
  *
  * @param {{windows: {window:number,p5:number,p25:number,p50:number,p75:number,p95:number,latest:number}[],
- *   implied: number|null, forecast: number|null}} props
+ *   implied: number|null, impliedLabel?: string|null, forecast: number|null}} props
  */
-export function ConeChart({ windows, implied = null, forecast = null }) {
+export function ConeChart({ windows, implied = null, impliedLabel = null, forecast = null }) {
   const height = 300;
   const rows = windows.filter((row) => [row.window, row.p5, row.p95].every(Number.isFinite));
   return (
     <Frame
       height={height}
       draw={(width) => {
-        const m = { ...MARGIN, right: 68 };
+        // Room right of the cone for the percentile and OVX labels.
+        const m = { ...MARGIN, right: Math.max(68, Math.ceil((impliedLabel ?? "").length * MONO_CHAR_PX) + 14) };
         const x = scaleLog().domain(extent(rows.map((row) => row.window))).range([m.left + 8, width - m.right - 8]);
         const top = Math.max(...rows.map((row) => Math.max(row.p95, row.latest ?? 0)), implied ?? 0, forecast ?? 0);
         const y = scaleLinear().domain([0, top * 1.08]).nice().range([height - m.bottom, m.top]);
@@ -87,7 +88,7 @@ export function ConeChart({ windows, implied = null, forecast = null }) {
         const first = rows[0];
         return (
           <svg width={width} height={height} className="svg-chart" role="img"
-            aria-label={`Volatility cone over ${rows.length} windows from ${first?.window} to ${last?.window} sessions`}>
+            aria-label={`Volatility cone over ${rows.length} windows from ${first?.window} to ${last?.window} trading days`}>
             <YAxis scale={y} ticks={y.ticks(5)} format={(t) => `${t}%`} left={m.left} right={width - m.right} />
             <path d={band("p5", "p95")} className="fill-cone-outer" />
             <path d={band("p25", "p75")} className="fill-cone-inner" />
@@ -108,7 +109,7 @@ export function ConeChart({ windows, implied = null, forecast = null }) {
             )}
             {last && spreadLabels([
               ...["p95", "p75", "p50", "p25", "p5"].map((key) => ({ key, text: key, y: y(last[key]), className: "axis-label" })),
-              ...(implied != null ? [{ key: "ovx", text: `OVX ${fmtNum(implied, 1)}`, y: y(implied), className: "label-implied" }] : []),
+              ...(implied != null ? [{ key: "ovx", text: impliedLabel ?? `OVX ${fmtNum(implied, 1)}`, y: y(implied), className: "label-implied" }] : []),
             ]).map((item) => (
               <text key={item.key} className={item.className} x={x(last.window) + 8} y={item.y} dy="0.32em">{item.text}</text>
             ))}
@@ -189,7 +190,7 @@ export function YearlySmallMultiples({ years, models }) {
 
 /**
  * Diebold-Mariano t of each model vs the model of record, full sample (large dot) and on each of
- * the weekday grids (small dots on the min-max range). Positive = lower loss than the record.
+ * the 5-session sampling grids (small dots on the min-max range). Positive = lower loss than the record.
  *
  * @param {{rows: {key:string,label:string,dmStat:number|null,dmMin:number|null,dmMax:number|null,
  *   grid:number[], tone:string}[], critical?: number}} props
@@ -208,7 +209,7 @@ export function DmGridStrip({ rows, critical = 1.96 }) {
         const bottom = rows.length * rowHeight + 8;
         return (
           <svg width={width} height={height} className="svg-chart" role="img"
-            aria-label="Diebold-Mariano statistics versus the model of record by weekday grid">
+            aria-label="Diebold-Mariano statistics versus the model of record by 5-session sampling grid">
             <rect x={x(-critical)} width={x(critical) - x(-critical)} y={0} height={bottom} className="fill-noise-zone" />
             {[-critical, 0, critical].map((value) => (
               <line key={value} className={value === 0 ? "stroke-axis" : "stroke-reference dashed"} x1={x(value)} x2={x(value)} y1={0} y2={bottom} />
@@ -311,7 +312,7 @@ export function MzForest({ rows }) {
         const x = scaleLinear().domain([Math.min(0, lo), hi]).nice().range([labelWidth + 8, width - 12]);
         const bottom = rows.length * rowHeight + 6;
         return (
-          <svg width={width} height={height} className="svg-chart" role="img" aria-label="Mincer-Zarnowitz slopes with 95% intervals">
+          <svg width={width} height={height} className="svg-chart" role="img" aria-label="Mincer-Zarnowitz slopes on every out-of-sample day, with 95% intervals">
             <line className="stroke-target" x1={x(1)} x2={x(1)} y1={0} y2={bottom} />
             {rows.map((row, index) => {
               const cy = index * rowHeight + rowHeight / 2;

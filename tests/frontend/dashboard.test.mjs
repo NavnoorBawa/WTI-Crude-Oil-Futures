@@ -26,11 +26,39 @@ test("fmtP never prints a p-value as a threshold it is below", () => {
   for (let i = 1000; i < 1_000_000; i += 7) {
     const p = i / 1_000_000;
     const out = fmtP(p);
-    const shown = Number(out.replace(/^p [=<] /, ""));
+    const shown = Number(out.replace(/^p [=<>] /, ""));
     for (const threshold of [0.01, 0.05, 0.1, 1]) {
       assert.ok(!(p < threshold && out.startsWith("p =") && shown >= threshold), `fmtP(${p}) = ${out}`);
     }
   }
+});
+
+test("fmtP never rounds a p-value down onto a threshold it is above", () => {
+  const { fmtP, fmtPValue } = dashboard.format;
+  assert.equal(fmtP(0.0548), "p = 0.055");      // the SPA lower bound that printed as "0.05"
+  assert.equal(fmtP(0.1048), "p = 0.105");
+  assert.equal(fmtP(0.0104), "p = 0.0104");
+  assert.equal(fmtP(0.05004), "p > 0.05");       // still on the threshold at four digits
+  assert.equal(fmtP(0.1), "p = 0.10");           // exactly at a threshold is printed as such
+  assert.equal(fmtP(0.0368), "p = 0.04");
+  assert.equal(fmtPValue(0.05004), "> 0.05");
+  for (let i = 1000; i < 1_000_000; i += 7) {
+    const p = i / 1_000_000;
+    const out = fmtP(p);
+    if (!out.startsWith("p =")) continue;
+    const shown = Number(out.slice(4));
+    for (const threshold of [0.01, 0.05, 0.1]) {
+      assert.ok(!(p > threshold && shown === threshold), `fmtP(${p}) = ${out}`);
+    }
+  }
+});
+
+test("withCentralTime gives every ET clock time its CT twin", () => {
+  const { withCentralTime } = dashboard.format;
+  assert.equal(withCentralTime("the first CL settlement (14:30 ET) after"), "the first CL settlement (14:30 ET / 13:30 CT) after");
+  assert.equal(withCentralTime("00:15 ET and 16:15 ET"), "00:15 ET / 23:15 CT and 16:15 ET / 15:15 CT");
+  assert.equal(withCentralTime("no times here"), "no times here");
+  assert.equal(withCentralTime(null), null);
 });
 
 test("fmtNum renders a zero Sharpe as 0.00, never -0.00", () => {

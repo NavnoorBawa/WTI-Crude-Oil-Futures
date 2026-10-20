@@ -1,5 +1,5 @@
 import DataTable from "../components/DataTable";
-import Panel, { REPRODUCE_COMMAND } from "../components/Panel";
+import Panel, { REPRODUCE } from "../components/Panel";
 import { methodAssertion } from "../lib/assertions";
 import { DASH, fmtCT, fmtDate, fmtInt, fmtNum, fmtShare, num, shortHash, toMs } from "../lib/format";
 import { asArray, asObject, asText, getLab, getVol } from "../lib/research";
@@ -19,6 +19,23 @@ export const REFERENCES = [
   { method: "Dynamic quantile test", ref: "Engle & Manganelli (2004), JBES" },
   { method: "Realized utility of volatility forecasts", ref: "Bollerslev, Hood, Huss & Pedersen (2018), RFS" },
 ];
+
+// Each artifact on the page and the command that rebuilds it, in the order the README runs them.
+const REPRODUCE_STEPS = [
+  ["pip install -r requirements.txt", null],
+  [REPRODUCE.lab, "data/vol_lab.json, offline"],
+  [REPRODUCE.validation, "production, downloads data"],
+  [REPRODUCE.walkForward, "post-mortem, downloads data"],
+  [REPRODUCE.leakAnatomy, "data/leak_anatomy.json"],
+  [REPRODUCE.carry, "offline, committed EIA curve"],
+  [REPRODUCE.supply, "offline, committed EIA spot"],
+  [REPRODUCE.ledger, "re-reads every artifact"],
+  ["python scripts/build_research_bundle.py", "assembles research.json"],
+];
+const reproduceLines = () => {
+  const width = Math.max(...REPRODUCE_STEPS.map(([command]) => command.length)) + 2;
+  return REPRODUCE_STEPS.map(([command, note]) => (note ? `${command.padEnd(width)}# ${note}` : command)).join("\n");
+};
 
 /** METH: data provenance, timing, the purge, the statistics used, and how to reproduce. */
 export default function MethodPanel({ data, research, researchStatus }) {
@@ -81,6 +98,11 @@ export default function MethodPanel({ data, research, researchStatus }) {
               rows={files}
             />
           ) : <ResearchUnavailable status={researchStatus} what="the data manifest" />}
+          <p className="prose-note is-muted">
+            The digests pin the benchmark lab&apos;s inputs. The production validation and the direction-model post-mortem are
+            committed records of runs on data downloaded at the time (data/vol_forecast_validation.json and the walk-forward
+            reports); the carry and supply-shock studies read committed EIA files.
+          </p>
           <Facts items={[
             quality && { label: "CL sessions", value: fmtInt(quality.sessions), note: [
               num(quality.range_blanked_nonpositive_bars) ? `${quality.range_blanked_nonpositive_bars} non-positive bar blanked` : null,
@@ -100,7 +122,7 @@ export default function MethodPanel({ data, research, researchStatus }) {
           <div className="method-block">
             <h3 className="figure-title">HAR-IV coefficients (log scale)</h3>
             <DataTable
-              caption={`HAR-IV regression: R² ${fmtNum(coefficients.r2_log, 3)} on ${fmtInt(coefficients.n_rows)} rows, HAC ${fmtInt(coefficients.hac_lags)} lags`}
+              caption={`HAR-IV regression on the full sample (in-sample): R² ${fmtNum(coefficients.r2_log, 3)} on log realized vol, ${fmtInt(coefficients.n_rows)} rows, HAC ${fmtInt(coefficients.hac_lags)} lags`}
               rowKey={(row) => row.term}
               dense
               columns={[
@@ -124,14 +146,11 @@ export default function MethodPanel({ data, research, researchStatus }) {
 
         <div className="method-block">
           <h3 className="figure-title">Reproduce</h3>
-          <pre className="code-block"><code>{[
-            "pip install -r requirements.txt",
-            `${REPRODUCE_COMMAND}            # rebuilds data/vol_lab.json`,
-            "python scripts/build_research_bundle.py  # copies committed artifacts into research.json",
-          ].join("\n")}</code></pre>
+          <pre className="code-block"><code>{reproduceLines()}</code></pre>
           <p className="prose-note is-muted">
-            Inputs are pinned by the SHA-256 digests above and the bootstrap is seeded, so a rerun on the
-            same files should reproduce the research figures on this page. Limitations: close-to-close and daily-range measures stand in
+            The benchmark lab&apos;s inputs are pinned by the SHA-256 digests above and its bootstrap is seeded, so a rerun on
+            the same files should reproduce its figures on this page; the runs that download data reproduce on the data of the
+            day they run. Limitations: close-to-close and daily-range measures stand in
             for intraday realized variance, OVX is an index on options on an ETF rather than on CL itself,
             and the live record is short.
           </p>

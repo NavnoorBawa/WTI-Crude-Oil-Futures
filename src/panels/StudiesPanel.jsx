@@ -1,8 +1,8 @@
 import DataTable from "../components/DataTable";
-import Panel from "../components/Panel";
+import Panel, { REPRODUCE } from "../components/Panel";
 import { carryAssertion, studiesAssertion, supplyPlaybookAssertion, supplyStudyAssertion } from "../lib/assertions";
 import { DASH, fmtInt, fmtNum, fmtP, fmtPValue, fmtSigned, fmtSignedPct, num } from "../lib/format";
-import { asObject, asText, supplyStudy } from "../lib/research";
+import { asObject, asText, researchLedger, supplyStudy } from "../lib/research";
 
 // Fallback labels for data.json playbook groups that carry no `label` of their own.
 const SUPPLY_LABELS = {
@@ -106,6 +106,7 @@ export default function StudiesPanel({ data, research }) {
   const carry = asObject(research?.carry);
   const playbook = asObject(data?.supply_shock_playbook);
   const study = supplyStudy(research);
+  const ledger = researchLedger(research);
   const rows = supplyRows(playbook);
   const priced = pricedInNote(playbook);
   const eventCount = num(playbook?.event_count);
@@ -133,13 +134,16 @@ export default function StudiesPanel({ data, research }) {
         study?.placebo?.n != null ? `${fmtInt(study.placebo.n)} placebo dates` : null,
         "descriptive; not traded",
       ]}
-      source={{ artifact: ["research.json → carry", "research.json → supply_study", "data.json → supply_shock_playbook"], reproduce: null }}
+      source={{
+        artifact: ["research.json → carry", "research.json → supply_study", "data.json → supply_shock_playbook"],
+        reproduce: [REPRODUCE.carry, REPRODUCE.supply],
+      }}
       resetKey={data}
     >
       <div className="split split--even">
         {carryRows.length > 0 && (
           <div className="study">
-            <h3 className="study-title">{carryAssertion(carry) ?? "Carry"}</h3>
+            <h3 className="study-title">{carryAssertion(carry, ledger) ?? "Carry"}</h3>
             <DataTable
               caption="Carry: second-nearby holding return when carry is above vs at or below its prior-months median"
               captionHidden

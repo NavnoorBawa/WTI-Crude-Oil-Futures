@@ -78,6 +78,23 @@ export const informationSet = (model, { comboMembers = [], byKey = new Map() } =
 
 // ------------------------------------------------------------------------------------ leaderboard
 
+// Payloads written before the timing_control flag existed carry the same-day-OVX variant unflagged.
+const LEGACY_TIMING_CONTROL = "har_iv_sameday";
+
+/**
+ * A timing control uses information published after the decision (same-day OVX): its losses are
+ * reported for comparison, but it is not a feasible forecast, so it takes no part in the Model
+ * Confidence Set or in any "best model" statement.
+ */
+export const isTimingControl = (model) =>
+  typeof model?.timing_control === "boolean" ? model.timing_control : model?.key === LEGACY_TIMING_CONTROL;
+
+/** The Model Confidence Set's confidence level in percent (90 for size 0.10), or null. */
+export const mcsLevel = (lab) => {
+  const size = num(lab?.config?.mcs?.size);
+  return size != null && size > 0 && size < 1 ? Math.round((1 - size) * 100) : null;
+};
+
 /**
  * @typedef {object} LeaderRow
  * @property {string} key
@@ -87,11 +104,13 @@ export const informationSet = (model, { comboMembers = [], byKey = new Map() } =
  * @property {number|null} qlike           full-sample daily QLIKE (lower is better)
  * @property {number|null} dmStat          Diebold-Mariano t vs the model of record (+ = better than it)
  * @property {number|null} dmP
- * @property {number|null} dmMin           min/max DM t across the weekday grids
+ * @property {number|null} dmMin           min/max DM t across the 5-session sampling grids
  * @property {number|null} dmMax
  * @property {number|null} mcsP
+ * @property {boolean} timingControl      see isTimingControl(); never in the MCS
+ * @property {boolean} mcsEligible        false for timing controls and leaderboard.mcs_excludes
  * @property {boolean} inMcs              in the full-sample QLIKE Model Confidence Set
- * @property {boolean[]} grids            MCS membership on each weekday grid
+ * @property {boolean[]} grids            MCS membership on each sampling grid
  * @property {number|null} gridsIn
  * @property {number|null} utility        realized utility, % (higher is better)
  * @property {number|null} mzSlope
@@ -109,10 +128,13 @@ export const leaderboardRows = (lab) => {
   const byKey = new Map(models.map((model) => [model.key, model]));
   const comboMembers = asArray(lab?.config?.combo_members).filter((key) => typeof key === "string");
   const included = new Set(asArray(board.mcs_qlike_included));
+  const excluded = new Set(asArray(board.mcs_excludes));
   const byGrid = asObject(board.mcs_qlike_by_grid) ?? {};
   const gridKeys = Object.keys(byGrid).sort((a, b) => Number(a) - Number(b));
   return models.map((model) => {
-    const grids = gridKeys.map((grid) => asArray(byGrid[grid]).includes(model.key));
+    const timingControl = isTimingControl(model);
+    const eligible = !timingControl && !excluded.has(model.key);
+    const grids = eligible ? gridKeys.map((grid) => asArray(byGrid[grid]).includes(model.key)) : [];
     const dmByGrid = finite(asArray(model.dm_qlike_vs_har_iv_by_grid));
     return {
       key: model.key,
@@ -125,10 +147,12 @@ export const leaderboardRows = (lab) => {
       dmMin: dmByGrid.length ? Math.min(...dmByGrid) : null,
       dmMax: dmByGrid.length ? Math.max(...dmByGrid) : null,
       dmByGrid: asArray(model.dm_qlike_vs_har_iv_by_grid).map(num),
-      mcsP: num(model.mcs_qlike_p),
-      inMcs: model.in_mcs_qlike === true || included.has(model.key),
+      timingControl,
+      mcsEligible: eligible,
+      mcsP: eligible ? num(model.mcs_qlike_p) : null,
+      inMcs: eligible && (model.in_mcs_qlike === true || included.has(model.key)),
       grids,
-      gridsIn: num(model.in_mcs_qlike_grids) ?? (gridKeys.length ? grids.filter(Boolean).length : null),
+      gridsIn: eligible ? num(model.in_mcs_qlike_grids) ?? (gridKeys.length ? grids.filter(Boolean).length : null) : null,
       utility: num(model.realized_utility_pct),
       mzSlope: num(model.mincer_zarnowitz?.slope),
       mzSe: num(model.mincer_zarnowitz?.slope_se),
@@ -141,22 +165,35 @@ export const leaderboardRows = (lab) => {
   });
 };
 
+/** Whether the leaderboard carries Model Confidence Set results at all (an older or partial payload may not). */
+export const hasMcsResults = (lab) => {
+  const board = asObject(lab?.leaderboard);
+  return Boolean(board) && (Array.isArray(board.mcs_qlike_included)
+    || asArray(board.models).some((model) => typeof model?.in_mcs_qlike === "boolean"));
+};
+
 /**
- * Model Confidence Set headline numbers.
- * @returns {{total:number, survivors:number, level:number|null, gridCount:number,
- *   champion: {label:string, inMcs:boolean, gridsIn:number|null, mcsP:number|null}|null}|null}
+ * Model Confidence Set headline numbers over the eligible models. `survivors` is null when the
+ * payload carries no MCS results (never a count of zero it did not compute).
+ * @returns {{total:number, eligible:number, survivors:number|null, level:number|null, gridCount:number,
+ *   excluded: string[], champion: {label:string, inMcs:boolean, gridsIn:number|null, mcsP:number|null}|null}|null}
  */
 export const mcsSummary = (lab) => {
   const rows = leaderboardRows(lab);
   if (!rows.length) return null;
-  const size = num(lab?.config?.mcs?.size);
+  const eligible = rows.filter((row) => row.mcsEligible);
   const record = rows.find((row) => row.role === "record") ?? null;
+  const available = hasMcsResults(lab);
   return {
     total: rows.length,
-    survivors: rows.filter((row) => row.inMcs).length,
-    level: size != null && size > 0 && size < 1 ? Math.round((1 - size) * 100) : null,
-    gridCount: rows[0].grids.length,
-    champion: record && { label: shortLabel(record.label), inMcs: record.inMcs, gridsIn: record.gridsIn, mcsP: record.mcsP },
+    eligible: eligible.length,
+    survivors: available ? eligible.filter((row) => row.inMcs).length : null,
+    level: mcsLevel(lab),
+    gridCount: Math.max(0, ...eligible.map((row) => row.grids.length)),
+    excluded: rows.filter((row) => !row.mcsEligible).map((row) => shortLabel(row.label)),
+    champion: record && available
+      ? { label: shortLabel(record.label), inMcs: record.inMcs, gridsIn: record.gridsIn, mcsP: record.mcsP }
+      : null,
   };
 };
 
@@ -165,8 +202,8 @@ export const mcsSummary = (lab) => {
 const QUANTILE_LABELS = { fhs: "Filtered hist. sim.", normal: "Normal" };
 
 /**
- * One row per VaR method x level from var_backtest.summary (pass counts over the weekday grids),
- * joined with grid 0's own test statistics.
+ * One row per VaR method x level from var_backtest.summary (pass counts over the 5-session
+ * sampling grids), joined with grid 0's own test statistics.
  */
 export const varRows = (lab) => {
   const backtest = asObject(lab?.var_backtest);
@@ -221,10 +258,11 @@ export const recordVar = (rows, level) => {
  * Weekly forecast-vs-realized rows. research.json vol_lab.series (2008-) is the history; data.json
  * recent_oos (the latest ~3 years, from the live pipeline) fills any newer weeks and is the whole
  * series when research.json is unavailable. `date` is the forecast date; `actual` is realized vol
- * over the following 5 sessions.
+ * over the following 5 sessions. `source` says which pipeline the row (and so its band) came from:
+ * "lab" (the benchmark lab's adaptive conformal band) or "live" (the production validation's).
  *
- * @returns {{date:string, actual:number|null, forecast:number|null, lo:number|null, hi:number|null,
- *   ovx:number|null, challenger:number|null, rv5:number|null}[]}
+ * @returns {{date:string, source:"lab"|"live", actual:number|null, forecast:number|null, lo:number|null,
+ *   hi:number|null, ovx:number|null, challenger:number|null, rv5:number|null}[]}
  */
 export const forecastRows = (lab, recentOos) => {
   const rows = new Map();
@@ -234,6 +272,7 @@ export const forecastRows = (lab, recentOos) => {
       if (typeof date !== "string") return;
       rows.set(date, {
         date,
+        source: "lab",
         actual: num(series.actual?.[index]),
         forecast: num(series.har_iv?.[index]),
         lo: num(series.lo80?.[index]),
@@ -250,6 +289,7 @@ export const forecastRows = (lab, recentOos) => {
       if (typeof date !== "string" || rows.has(date)) return;
       rows.set(date, {
         date,
+        source: "live",
         actual: num(recent.actual?.[index]),
         forecast: num(recent.forecast?.[index]),
         lo: num(recent.lo80?.[index]),
@@ -263,7 +303,27 @@ export const forecastRows = (lab, recentOos) => {
   return [...rows.values()].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 };
 
-/** Weekly 5-session returns with the forecast-scaled VaR (vol_lab.series ret5/var95/var99). */
+/**
+ * Coverage of the band as drawn: the share of forecastRows() weeks with a realized value and a band
+ * whose realized vol fell inside it, with how many of those weeks each pipeline supplied.
+ * @returns {{n:number, covered:number, coverage:number|null, lab:number, live:number}}
+ */
+export const bandCoverage = (rows) => {
+  const scored = asArray(rows).filter((row) => row.actual != null && row.lo != null && row.hi != null);
+  const covered = scored.filter((row) => row.actual >= row.lo && row.actual <= row.hi).length;
+  return {
+    n: scored.length,
+    covered,
+    coverage: scored.length ? (covered / scored.length) * 100 : null,
+    lab: scored.filter((row) => row.source === "lab").length,
+    live: scored.filter((row) => row.source === "live").length,
+  };
+};
+
+/**
+ * Weekly 5-session returns with the forecast-scaled VaR (vol_lab.series ret5/var95/var99). `ret`
+ * is a LOG return in percent (a sum of daily log returns), as is the VaR it is tested against.
+ */
 export const varSeries = (lab) => {
   const series = asObject(lab?.series);
   if (!series) return [];
@@ -275,6 +335,12 @@ export const varSeries = (lab) => {
       var99: num(series.var99?.[index]),
     }))
     .filter((row) => typeof row.date === "string" && row.ret != null);
+};
+
+/** A log return in percent as the simple return it implies, in percent (−80.6 log -> −55.3 simple). */
+export const logToSimplePct = (value) => {
+  const n = num(value);
+  return n == null ? null : Math.expm1(n / 100) * 100;
 };
 
 /** Exceedance counts recomputed from the (rounded) chart series, for the chart's own legend. */
@@ -342,6 +408,26 @@ export const estimateTargetEnd = (dateText, horizon = 5) => {
   return addWeekdays(issueSession, horizon);
 };
 
+const PROMOTION_STATUSES = new Set(["accruing", "promote", "keep"]);
+
+/**
+ * live_record.promotion, normalized: where the challenger stands against the promotion rule.
+ * `paired` independent resolved weeks have both forecasts; the test runs once `required` accrue.
+ */
+export const promotionStatus = (raw) => {
+  const promotion = asObject(raw);
+  const status = asText(promotion?.status);
+  if (!status || !PROMOTION_STATUSES.has(status)) return null;
+  return {
+    status,
+    paired: num(promotion.n_independent_paired),
+    required: num(promotion.required),
+    dmStat: num(promotion.dm_stat),
+    p: num(promotion.p_value),
+    meanDifference: num(promotion.mean_qlike_difference),
+  };
+};
+
 /**
  * The live forward record (data.json vol_forecast.live_record), normalized. `firstResult` is the
  * earliest pending call's target_end, or (no calls yet) an estimate from the start date.
@@ -365,10 +451,12 @@ export const liveRecordSummary = (record, horizon = 5) => {
     pending: num(lr.n_pending),
     skipped: num(lr.n_skipped_roll),
     expired: num(lr.n_expired),
+    lateCommit: num(lr.n_late_commit),
     independent: num(lr.n_independent),
     champion: asObject(lr.champion) ?? {},
     challenger: asObject(lr.challenger) ?? {},
     recent,
+    promotion: promotionStatus(lr.promotion),
     promotionRule: asText(lr.promotion_rule),
     note: asText(lr.note),
     directionNote: asText(lr.direction_note),
@@ -506,9 +594,11 @@ export const researchLedger = (research) => {
   const summary = asObject(ledger?.summary) ?? {};
   return {
     rows,
+    byId: new Map(rows.filter((row) => asText(row.id)).map((row) => [row.id, row])),
     method: asText(ledger?.method),
     alpha: num(ledger?.alpha),
     hurdle: num(ledger?.hlz_t),
+    byFamily: asObject(summary.by_family),
     byStatus: asObject(summary.by_status) ?? rows.reduce((acc, row) => ({ ...acc, [row.status]: (acc[row.status] ?? 0) + 1 }), {}),
     supported: asArray(summary.supported).length || rows.filter((row) => row.status === "supported").length,
     survivingBh: Array.isArray(summary.supported_surviving_bh_5pct) ? summary.supported_surviving_bh_5pct.length : null,
@@ -550,6 +640,16 @@ export const volTargetRisk = (overlay) => {
     vsBuyHold: test("forecast_minus_buy_hold"),
     vsTrailing: test("forecast_minus_trailing"),
   };
+};
+
+/**
+ * The strongest simple benchmark in the weekly validation: a regression on OVX alone. `dm` is
+ * signed so that a positive value favours the model of record.
+ */
+export const ovxOnlyBenchmark = (validation) => {
+  const qlike = num(validation?.ovx_only_qlike);
+  if (qlike == null) return null;
+  return { qlike, dm: num(validation?.har_vs_ovx_only_qlike_dm), p: num(validation?.har_vs_ovx_only_qlike_dm_p_value) };
 };
 
 // ------------------------------------------------------------------------------------ postmortem

@@ -54,6 +54,10 @@ export async function loadDashboard() {
     dashboard: await load("/src/app/Dashboard.jsx"),
     vrp: await load("/src/panels/VrpPanel.jsx"),
     ledger: await load("/src/panels/LedgerPanel.jsx"),
+    marketStrip: await load("/src/panels/MarketStrip.jsx"),
+    panel: await load("/src/components/Panel.jsx"),
+    forecastChart: await load("/src/charts/ForecastChart.jsx"),
+    varChart: await load("/src/charts/VarChart.jsx"),
     close: () => server.close(),
   };
 }

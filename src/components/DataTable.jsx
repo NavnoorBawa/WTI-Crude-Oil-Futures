@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 /**
  * @typedef {object} Column
@@ -49,7 +49,9 @@ const ARIA_SORT = { asc: "ascending", desc: "descending" };
 
 /**
  * A semantic, optionally sortable table: <caption>, scoped headers, aria-sort on sortable columns,
- * and a keyboard-focusable scroll region so wide tables never widen the page.
+ * and a keyboard-focusable scroll region so wide tables never widen the page. While columns are
+ * cut off, a visible cue says so (a phone shows no scrollbar) and a rule marks the right edge while
+ * more lies beyond it.
  *
  * @param {object} props
  * @param {import("react").ReactNode} props.caption
@@ -59,6 +61,7 @@ const ARIA_SORT = { asc: "ascending", desc: "descending" };
  * @param {(row: object) => string} props.rowKey
  * @param {(row: object) => string|undefined} [props.rowClass]
  * @param {{key: string, direction: "asc"|"desc"}} [props.initialSort]
+ * @param {(row: object) => boolean} [props.pinLast]  rows kept after the sorted ones, in input order
  * @param {boolean} [props.dense]
  * @param {boolean} [props.tall]           cap the height and scroll vertically, header stuck on top
  * @param {boolean} [props.stickyFirst]    keep the first column in view while scrolling sideways (default on)
@@ -72,6 +75,7 @@ export default function DataTable({
   rowKey,
   rowClass,
   initialSort = null,
+  pinLast = null,
   dense = false,
   tall = false,
   stickyFirst = true,
@@ -79,20 +83,48 @@ export default function DataTable({
 }) {
   const captionId = useId();
   const [sort, setSort] = useState(initialSort);
+  const scrollRef = useRef(null);
+  const [overflow, setOverflow] = useState({ wide: false, moreRight: false });
   const sorted = useMemo(() => {
-    if (!sort) return rows;
-    const column = columns.find((col) => col.key === sort.key);
-    if (!column) return rows;
-    const accessor = column.sortValue ?? ((row) => row[column.key]);
-    return sortRows(rows, accessor, sort.direction);
-  }, [rows, columns, sort]);
+    const pinned = pinLast ? rows.filter(pinLast) : [];
+    const free = pinned.length ? rows.filter((row) => !pinLast(row)) : rows;
+    const column = sort ? columns.find((col) => col.key === sort.key) : null;
+    const ordered = column ? sortRows(free, column.sortValue ?? ((row) => row[column.key]), sort.direction) : free;
+    return pinned.length ? [...ordered, ...pinned] : ordered;
+  }, [rows, columns, sort, pinLast]);
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return undefined;
+    const update = () => {
+      const wide = node.scrollWidth - node.clientWidth > 1;
+      const moreRight = wide && node.scrollWidth - node.clientWidth - node.scrollLeft > 1;
+      setOverflow((previous) => (previous.wide === wide && previous.moreRight === moreRight ? previous : { wide, moreRight }));
+    };
+    update();
+    node.addEventListener("scroll", update, { passive: true });
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    observer?.observe(node);
+    if (node.firstElementChild) observer?.observe(node.firstElementChild);
+    return () => {
+      node.removeEventListener("scroll", update);
+      observer?.disconnect();
+    };
+  }, []);
 
   // The <caption> stays in the table for assistive tech; the visible copy sits outside the scroll
   // region so a wide table on a phone never pushes its title off screen.
   return (
     <div className="table-wrap">
       {!captionHidden && <p className="table-caption" aria-hidden="true">{caption}</p>}
-      <div className={`table-scroll${tall ? " is-tall" : ""}`} role="region" aria-labelledby={captionId} tabIndex={0}>
+      {overflow.wide && <p className="table-more" aria-hidden="true">Scroll sideways for all columns ↔</p>}
+      <div
+        ref={scrollRef}
+        className={`table-scroll${tall ? " is-tall" : ""}${overflow.moreRight ? " has-more" : ""}`}
+        role="region"
+        aria-labelledby={captionId}
+        tabIndex={0}
+      >
         <table className={`data-table${dense ? " is-dense" : ""}${stickyFirst ? " has-sticky" : ""}`}>
           <caption id={captionId} className="sr-only">{caption}</caption>
           <thead>

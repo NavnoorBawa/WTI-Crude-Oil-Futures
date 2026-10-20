@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { getVrpScatter } from "../charts/lazy";
 import DataTable from "../components/DataTable";
 import LazyMount from "../components/LazyMount";
-import Panel from "../components/Panel";
+import Panel, { REPRODUCE } from "../components/Panel";
 import { ALPHA, vrpAssertion } from "../lib/assertions";
 import { DASH, fmtDate, fmtInt, fmtNum, fmtP, fmtPct, fmtSigned, fmtSpan, num } from "../lib/format";
 import { asArray, asObject, getLab, getVol, vrpPoints } from "../lib/research";
@@ -26,8 +26,9 @@ export const vrpStatRows = (vrp) => {
     { key: "n", label: "Periods", value: fmtInt(vrp.n_periods), note: null },
     { key: "mean", label: "Mean premium", value: `${fmtSigned(vrp.mean_premium_vol_pts, 1)} pts`, note: "OVX minus realized vol" },
     num(vrp.mean_premium_variance_pts) != null && {
-      key: "meanVariance", label: "Mean premium, variance units", value: fmtSigned(vrp.mean_premium_variance_pts, 1),
-      note: varianceCi.length === 2 && varianceCi.every((v) => v != null) ? `95% CI ${fmtSigned(varianceCi[0], 1)} to ${fmtSigned(varianceCi[1], 1)}` : null,
+      key: "meanVariance", label: "Mean premium, variance units", value: `${fmtSigned(vrp.mean_premium_variance_pts, 1)} pts²`,
+      note: ["OVX² minus realized², in vol pts²", varianceCi.length === 2 && varianceCi.every((v) => v != null)
+        ? `95% CI ${fmtSigned(varianceCi[0], 1)} to ${fmtSigned(varianceCi[1], 1)}` : null].filter(Boolean).join("; "),
     },
     { key: "share", label: "Premium positive", value: fmtPct(vrp.share_positive_pct), note: null },
     {
@@ -50,7 +51,7 @@ export const vrpStatRows = (vrp) => {
       key: "timingRegression", label: "Timing regression", value: `t ${fmtNum(regression.t_hac, 2)}`,
       note: [fmtP(regression.p_value), regression.n != null ? `n ${fmtInt(regression.n)}` : null, "Newey-West"].filter(Boolean).join(", "),
     },
-  ].filter((row) => row && row.value !== DASH && row.value !== `${DASH} pts`);
+  ].filter((row) => row && row.value !== DASH && row.value !== `${DASH} pts` && row.value !== `${DASH} pts²`);
 };
 
 /** VRP: implied (OVX) against the volatility that followed. */
@@ -78,20 +79,26 @@ export default function VrpPanel({ data, research, researchStatus }) {
         points.length ? `scatter: ${fmtInt(points.length)} weeks` : null,
       ]}
       caption={points.length
-        ? `Each dot is a week: OVX against the realized vol of the following week (log scales); ${fmtInt(below)} of ${fmtInt(points.length)} weeks (${fmtPct((below / points.length) * 100)}) fall below the diagonal, where implied exceeded realized. The ring marks the latest week.`
-        : "Premium statistics from the live pipeline; the weekly scatter needs research.json."}
-      source={{ artifact: ["data.json → vol_forecast.economic.variance_risk_premium", "research.json → vol_lab.series"] }}
+        ? `Each dot is a week: OVX, a 30-calendar-day implied vol, against realized vol over the following 5 sessions (log scales); ${fmtInt(below)} of ${fmtInt(points.length)} weeks (${fmtPct((below / points.length) * 100)}) fall below the diagonal, where implied exceeded realized. The horizons differ, so this gap is not the premium in the table, whose horizon its method note gives. The ring marks the latest week.`
+        : "Premium statistics from the production pipeline; the weekly scatter needs research.json."}
+      source={{
+        artifact: ["data.json → vol_forecast.economic.variance_risk_premium", "research.json → vol_lab.series"],
+        reproduce: [REPRODUCE.validation, REPRODUCE.lab],
+      }}
       resetKey={data}
       table={points.length ? () => (
         <DataTable
-          caption="Latest 26 weeks: OVX and the realized vol that followed (percent)"
+          caption="Latest 26 weeks: OVX (30-calendar-day implied) and realized vol over the next 5 sessions (percent)"
           rowKey={(row) => row.date}
           dense
           columns={[
             { key: "date", label: "Week of", rowHeader: true, render: (row) => fmtDate(row.date) },
             { key: "ovx", label: "OVX", align: "right", render: (row) => fmtNum(row.ovx, 1) },
-            { key: "actual", label: "Realized", align: "right", render: (row) => fmtNum(row.actual, 1) },
-            { key: "gap", label: "Premium", align: "right", render: (row) => fmtSigned(row.ovx - row.actual, 1) },
+            { key: "actual", label: "Realized, 5 sessions", align: "right", render: (row) => fmtNum(row.actual, 1) },
+            {
+              key: "gap", label: "OVX − realized", title: "30-day implied minus 5-session realized: different horizons, so not the premium in the statistics table",
+              align: "right", render: (row) => fmtSigned(row.ovx - row.actual, 1),
+            },
           ]}
           rows={points.slice(-26).reverse()}
         />

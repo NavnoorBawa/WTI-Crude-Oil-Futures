@@ -210,6 +210,7 @@ button { font: inherit; color: inherit; }
 .chip--status-resolved { color: var(--text-1); border-color: var(--text-4); }
 .chip--status-skipped_roll { color: var(--warn); }
 .chip--status-expired { color: var(--text-3); border-style: dashed; }
+.chip--status-late_commit { color: var(--warn); border-style: dashed; }
 .chip--status-warn { color: var(--warn); border-color: var(--warn); }
 
 /* ------------------------------------------------------------------------------------ verdict */
@@ -268,6 +269,7 @@ button { font: inherit; color: inherit; }
 .fact dd { font-size: var(--fs-14); color: var(--text-1); margin-top: 2px; }
 .fact-note { display: block; font-size: var(--fs-11); color: var(--text-3); margin-top: 1px; }
 .accent-model { color: var(--s-model); font-weight: 600; }
+.fact--minor dd { color: var(--text-2); }
 .hero-model {
   margin-top: var(--sp-4);
   padding-top: var(--sp-3);
@@ -325,8 +327,11 @@ button { font: inherit; color: inherit; }
   color: var(--text-2);
 }
 .ms-symbol { display: inline-flex; align-items: center; gap: var(--sp-2); }
+.ms-spark { display: inline-flex; align-items: center; gap: 6px; }
+.ms-spark-label { font-size: var(--fs-11); color: var(--text-3); white-space: nowrap; }
 .sparkline { display: inline-flex; align-items: center; }
 .sparkline path { fill: none; stroke: var(--s-truth); stroke-width: 1.25; stroke-linejoin: round; }
+.sparkline.is-muted path { stroke: var(--text-4); stroke-dasharray: 2 2; }
 .ms-name { color: var(--text-3); }
 .ms-price { font-size: var(--fs-14); font-weight: 600; color: var(--text-1); }
 .ms-change.is-up { color: var(--pos); }
@@ -429,7 +434,7 @@ button { font: inherit; color: inherit; }
 @container (min-width: 600px) and (max-width: 879px) {
   .split--vrp { grid-template-columns: minmax(0, 1fr) minmax(220px, 0.8fr); gap: var(--sp-5); }
 }
-.data-table .stat-label { min-width: 140px; }
+.data-table .wrap-cell.stat-label { min-width: 140px; }
 .cell-note { display: block; font-size: var(--fs-11); font-weight: 400; color: var(--text-3); }
 .study-title { font-size: var(--fs-14); line-height: 1.4; font-weight: 600; color: var(--text-1); margin-bottom: var(--sp-3); }
 
@@ -507,6 +512,9 @@ button { font: inherit; color: inherit; }
 /* ------------------------------------------------------------------------------------- tables */
 .table-wrap { min-width: 0; }
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+/* A rule on the right edge while columns lie beyond it, and a visible cue (phones hide scrollbars). */
+.table-scroll.has-more { box-shadow: inset -1px 0 0 var(--rule-strong); }
+.table-more { margin: 0 0 var(--sp-1); font-size: var(--fs-11); line-height: 16px; color: var(--text-3); text-align: right; }
 .table-scroll:focus-visible { outline-offset: -2px; }
 .data-table { width: 100%; border-collapse: collapse; font-size: var(--fs-13); }
 .data-table.is-dense { font-size: var(--fs-12); }
@@ -587,6 +595,12 @@ tr.is-record .grid-dots .dot.is-on { background: var(--s-model); border-color: v
 .ledger-id { display: block; margin-top: 2px; font-size: var(--fs-11); font-weight: 400; color: var(--text-3); }
 .data-table .ledger-hypothesis { min-width: 240px; max-width: 560px; font-weight: 400; color: var(--text-1); }
 tr.is-reference > * { color: var(--text-3); }
+tr.is-timing-control > * { color: var(--text-3); }
+tr.is-timing-control .model-name { color: var(--text-2); }
+tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timing-control > * { border-top: 1px solid var(--rule-strong); }
+.ledger-test { display: block; margin-top: 2px; font-size: var(--fs-11); color: var(--text-3); }
+.stat-block { display: inline-flex; flex-direction: column; align-items: flex-end; }
+.stat-block .cell-note { white-space: normal; max-width: 160px; text-align: right; }
 .superseded { margin-top: var(--sp-3); font-size: var(--fs-11); color: var(--text-3); max-width: var(--measure); }
 .superseded .micro { margin-right: var(--sp-1); }
 

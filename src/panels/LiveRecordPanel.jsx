@@ -1,17 +1,29 @@
 import Chip from "../components/Chip";
 import DataTable from "../components/DataTable";
 import Panel from "../components/Panel";
-import { INTERVAL_LEVEL_PCT, liveAssertion } from "../lib/assertions";
-import { DASH, fmtDate, fmtInt, fmtNum, fmtPct } from "../lib/format";
-import { getVol, liveRecordSummary } from "../lib/research";
+import { INTERVAL_LEVEL_PCT, liveAssertion, promotionText } from "../lib/assertions";
+import { DASH, fmtDate, fmtInt, fmtNum, fmtP, fmtPct, fmtSigned, num, withCentralTime } from "../lib/format";
+import { asObject, getVol, liveRecordSummary } from "../lib/research";
 import { Facts } from "./common";
 
-const STATUS_LABEL = { pending: "pending", resolved: "resolved", skipped_roll: "skipped: roll", expired: "expired" };
+const STATUS_LABEL = {
+  pending: "pending",
+  resolved: "resolved",
+  skipped_roll: "skipped: roll",
+  expired: "expired",
+  late_commit: "late commit",
+};
+const STATUS_TITLE = {
+  skipped_roll: "The target window spans a contract roll; never scored",
+  late_commit: "Sealed after its target window opened; never scored",
+  expired: "No settlement data arrived in time; never scored",
+};
 
 /** LIVE: the forward record of the model of record and the challenger. */
 export default function LiveRecordPanel({ data }) {
-  const { liveRecord, live } = getVol(data);
+  const { liveRecord, live, validation } = getVol(data);
   const summary = liveRecordSummary(liveRecord);
+  const noise = asObject(validation?.direction_noise_floor);
   const challengerLabel = typeof live?.challenger?.label === "string" ? live.challenger.label
     : typeof liveRecord?.challenger?.key === "string" ? liveRecord.challenger.key : null;
 
@@ -27,6 +39,8 @@ export default function LiveRecordPanel({ data }) {
   const champion = summary.champion;
   const challenger = summary.challenger;
   const empty = summary.recent.length === 0;
+  const promotion = summary.promotion;
+  const noiseSims = num(noise?.sims);
   return (
     <Panel
       id="live"
@@ -39,16 +53,28 @@ export default function LiveRecordPanel({ data }) {
         `${fmtInt(summary.recorded ?? 0)} recorded`,
         `${fmtInt(summary.resolved ?? 0)} resolved`,
         `${fmtInt(summary.independent ?? 0)} independent`,
+        promotion ? `promotion ${promotionText(promotion)}` : null,
         typeof champion.model_version === "string" ? `record ${champion.model_version}` : null,
       ]}
-      caption={summary.note ?? "Each forecast is stored when issued and scored only after its target window has closed."}
+      caption={withCentralTime(summary.note) ?? "Each forecast is stored when issued and scored only after its target window has closed."}
       source={{ artifact: "data.json → vol_forecast.live_record", reproduce: null }}
       resetKey={data}
     >
       <Facts className="facts--row" items={[
         { label: "Pending", value: fmtInt(summary.pending ?? 0) },
-        { label: "Skipped at rolls", value: fmtInt(summary.skipped ?? 0) },
+        { label: "Skipped at rolls", value: fmtInt(summary.skipped ?? 0), note: summary.skipped ? "never scored" : null },
+        summary.lateCommit != null && { label: "Sealed late", value: fmtInt(summary.lateCommit), note: summary.lateCommit ? "never scored" : null },
         summary.expired != null && { label: "Expired", value: fmtInt(summary.expired) },
+        promotion && {
+          label: "Promotion test",
+          value: promotion.status === "accruing" && promotion.paired != null && promotion.required != null
+            ? `${fmtInt(promotion.paired)}/${fmtInt(promotion.required)}`
+            : promotionText(promotion),
+          note: promotion.status === "accruing"
+            ? "independent paired weeks; accruing"
+            : [promotion.dmStat != null ? `DM ${fmtSigned(promotion.dmStat, 2)}` : null, promotion.p != null ? `one-sided ${fmtP(promotion.p)}` : null]
+              .filter(Boolean).join(", ") || null,
+        },
         { label: "QLIKE, record", value: fmtNum(champion.qlike, 3) },
         {
           label: "QLIKE, challenger", value: fmtNum(challenger.qlike, 3),
@@ -87,7 +113,11 @@ export default function LiveRecordPanel({ data }) {
             { key: "realized_pct", label: "Realized", align: "right", render: (row) => fmtNum(row.realized_pct, 1) },
             {
               key: "status", label: "Status",
-              render: (row) => <Chip tone={`status-${row.status ?? "unknown"}`}>{STATUS_LABEL[row.status] ?? String(row.status ?? DASH)}</Chip>,
+              render: (row) => (
+                <Chip tone={`status-${row.status ?? "unknown"}`} title={STATUS_TITLE[row.status]}>
+                  {STATUS_LABEL[row.status] ?? String(row.status ?? DASH)}
+                </Chip>
+              ),
             },
           ]}
           rows={summary.recent}
@@ -95,10 +125,19 @@ export default function LiveRecordPanel({ data }) {
       )}
 
       {summary.promotionRule && (
-        <p className="rule-note"><span className="micro">Promotion rule</span>{summary.promotionRule}</p>
+        <p className="rule-note">
+          <span className="micro">Promotion rule</span>
+          {summary.promotionRule}
+          {promotion?.meanDifference != null
+            ? ` Mean QLIKE difference, record minus challenger (positive favours the challenger): ${fmtSigned(promotion.meanDifference, 4)}.`
+            : ""}
+        </p>
       )}
       {summary.directionNote && (
-        <p className="rule-note"><span className="micro">Direction</span>{summary.directionNote}</p>
+        <p className="rule-note">
+          <span className="micro">Direction{noiseSims != null ? `, production validation (${fmtInt(noiseSims)} simulations)` : ""}</span>
+          {summary.directionNote}
+        </p>
       )}
     </Panel>
   );

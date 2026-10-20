@@ -15,7 +15,7 @@ const COMPARISON_KEYS = [
   { key: "raw_ovx", tone: "implied" },
 ];
 
-/** STAB: does the ranking hold across years and across weekday grids? */
+/** STAB: does the ranking hold across years and across the 5-session sampling grids? */
 export default function StabilityPanel({ research, researchStatus }) {
   const lab = getLab(research);
   const labels = useMemo(() => modelLabels(lab), [lab]);
@@ -32,12 +32,13 @@ export default function StabilityPanel({ research, researchStatus }) {
       .map((model) => ({ ...model, label: shortLabel(labels.get(model.key) ?? model.key) }));
   }, [lab, labels, champion, challenger]);
   const years = useMemo(() => yearlyQlike(lab, models.map((model) => model.key)), [lab, models]);
+  // A timing control is drawn last and named first in its label: a comparison, not a ranked model.
   const dmRows = useMemo(() => leaderboardRows(lab)
     .filter((row) => row.role !== "record" && row.dmStat != null)
-    .sort((a, b) => b.dmStat - a.dmStat)
+    .sort((a, b) => Number(a.timingControl) - Number(b.timingControl) || b.dmStat - a.dmStat)
     .map((row) => ({
       key: row.key,
-      label: shortLabel(row.label),
+      label: `${row.timingControl ? "Timing control: " : ""}${shortLabel(row.label)}`,
       dmStat: row.dmStat,
       dmMin: row.dmMin,
       dmMax: row.dmMax,
@@ -66,8 +67,8 @@ export default function StabilityPanel({ research, researchStatus }) {
       span="half"
       title={stabilityAssertion(years, { champion, challenger, bench: "gjr", labels })}
       fallbackTitle="Yearly QLIKE by model"
-      meta={[`${years.length} years`, `${first}–${last}`, "QLIKE per calendar year", "DM t by weekday grid"]}
-      caption={`Faint ticks repeat ${models[0].label} in each panel. Below: DM t vs ${models[0].label} over the full sample (large dot) and on each weekday grid (small dots); the shaded band is |t| < 1.96.`}
+      meta={[`${years.length} years`, `${first}–${last}`, "QLIKE per calendar year", "DM t by 5-session sampling grid"]}
+      caption={`Faint ticks repeat ${models[0].label} in each panel. Below: DM t vs ${models[0].label} over the full sample (large dot) and on each 5-session sampling grid (small dots; each grid scores every fifth session from a different start day); the shaded band is |t| < 1.96.`}
       source={{ artifact: ["research.json → vol_lab.yearly", "vol_lab.leaderboard"] }}
       resetKey={research}
       table={() => (
@@ -91,7 +92,7 @@ export default function StabilityPanel({ research, researchStatus }) {
       <LazyMount minHeight={170} label="yearly comparison">
         <YearlySmallMultiples years={years} models={models} />
       </LazyMount>
-      <h3 className="figure-title">DM t vs {models[0].label}, by weekday grid</h3>
+      <h3 className="figure-title">DM t vs {models[0].label}, by sampling grid</h3>
       <Legend items={[
         { tone: "alt", label: "challenger", shape: "dot" },
         { tone: "truth", label: "uses OVX or range", shape: "dot" },

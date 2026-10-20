@@ -20,6 +20,7 @@ export default function ConePanel({ data, research, researchStatus }) {
     p95: num(row?.p95), latest: num(row?.latest), percentile: num(row?.latest_percentile),
   })).filter((row) => row.window != null && row.p5 != null && row.p95 != null).sort((a, b) => a.window - b.window), [cone]);
   const implied = num(cone?.implied_ovx);
+  const impliedDate = typeof cone?.as_of === "string" ? fmtDate(cone.as_of, { year: false }) : null;
   const forecast = num(live?.forecast_next_week_vol_annualized_pct);
   const ConeChart = getConeChart();
 
@@ -35,8 +36,10 @@ export default function ConePanel({ data, research, researchStatus }) {
   const nearMonth = windows.reduce((best, row) =>
     Math.abs(row.window - IMPLIED_HORIZON_SESSIONS) < Math.abs(best.window - IMPLIED_HORIZON_SESSIONS) ? row : best);
   const caption = implied != null && nearMonth.latest != null
-    ? `OVX is a 30-day implied vol: ${fmtNum(implied, 1)} against ${fmtNum(nearMonth.latest, 1)} realized over ${nearMonth.window} days (${ordinal(nearMonth.percentile)} percentile). The diamond is the live 5-session forecast.`
-    : "Percentiles of rolling close-to-close realized volatility, annualized.";
+    ? `OVX, a 30-calendar-day implied vol (about ${IMPLIED_HORIZON_SESSIONS} sessions), closed at ${fmtNum(implied, 1)}${impliedDate ? ` on ${impliedDate}` : ""}; `
+      + `realized vol over the last ${nearMonth.window} trading days was ${fmtNum(nearMonth.latest, 1)} (${ordinal(nearMonth.percentile)} percentile), so the two horizons are close but not equal. `
+      + "The hero's OVX is the previous session's close, the one the model uses. The diamond is the live 5-session forecast."
+    : "Percentiles of rolling close-to-close realized volatility, annualized; windows in trading days.";
 
   return (
     <Panel
@@ -50,7 +53,7 @@ export default function ConePanel({ data, research, researchStatus }) {
         `${windows.length} windows`,
         typeof cone?.since === "string" ? `since ${fmtDate(cone.since)}` : null,
         typeof cone?.as_of === "string" ? `as of ${fmtDate(cone.as_of)}` : null,
-        "close-to-close, annualized",
+        "close-to-close, annualized, windows in trading days",
       ]}
       caption={caption}
       source={{ artifact: "research.json → vol_lab.vol_cone" }}
@@ -74,7 +77,7 @@ export default function ConePanel({ data, research, researchStatus }) {
         ...[...new Set([windows[0], nearMonth, windows[windows.length - 1]])].map((row) => ({
           label: `Realized ${row.window}d`, value: `${fmtNum(row.latest, 1)}%`, note: `${ordinal(row.percentile)} pctile`,
         })),
-        implied != null && { label: "OVX", value: fmtNum(implied, 1) },
+        implied != null && { label: "OVX", value: fmtNum(implied, 1), note: impliedDate ? `${impliedDate} close` : null },
         forecast != null && { label: "Forecast, 5d", value: `${fmtNum(forecast, 1)}%` },
       ]} />
       <Legend items={[
@@ -82,11 +85,11 @@ export default function ConePanel({ data, research, researchStatus }) {
         { tone: "cone-inner", label: "p25–p75", shape: "band" },
         { tone: "cone-outer", label: "p5–p95", shape: "band" },
         { tone: "median", label: "median", shape: "line" },
-        ...(implied != null ? [{ tone: "implied", label: "OVX", shape: "dash" }] : []),
+        ...(implied != null ? [{ tone: "implied", label: impliedDate ? `OVX, ${impliedDate} close` : "OVX", shape: "dash" }] : []),
         ...(forecast != null ? [{ tone: "model", label: "forecast", shape: "diamond" }] : []),
       ]} />
       <LazyMount minHeight={300} label="volatility cone">
-        <ConeChart windows={windows} implied={implied} forecast={forecast} />
+        <ConeChart windows={windows} implied={implied} impliedLabel={impliedDate ? `OVX ${fmtNum(implied, 1)}, ${impliedDate}` : null} forecast={forecast} />
       </LazyMount>
     </Panel>
   );

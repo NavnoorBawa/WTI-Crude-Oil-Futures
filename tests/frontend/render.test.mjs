@@ -45,7 +45,9 @@ test("the full dashboard renders every section with its computed title", () => {
   const live = data.vol_forecast.live;
   assert.match(text, new RegExp(`${live.forecast_next_week_vol_annualized_pct} %`), "hero forecast");
   assert.ok(text.includes(`${live.interval_80.low_pct}–${live.interval_80.high_pct}%`), "80% interval");
-  assert.ok(text.includes("Implied-vol and range-based models are statistically tied at the top; return-only models are significantly worse"));
+  const lab = research.vol_lab;
+  const modl = m.assertions.leaderboardAssertion(m.research.leaderboardRows(lab), { level: m.research.mcsLevel(lab) });
+  assert.ok(modl && text.includes(modl), "the MODL title");
   const purged = research.postmortem.five_year.purged;
   assert.ok(text.includes(`purged accuracy ${purged.direction_acc_pct}%`), "retraction line");
   assert.ok(text.includes("RETRACTED") || text.includes("Retracted"));
@@ -54,10 +56,108 @@ test("the full dashboard renders every section with its computed title", () => {
   // Section anatomy: chips, assertion titles, source footers, table toggles.
   assert.equal((html.match(/class="chip chip--code"/g) ?? []).length >= 13, true);
   assert.ok((html.match(/aria-pressed="false"[^>]*>Table<\/button>/g) ?? []).length >= 8, "table toggles");
-  assert.ok((text.match(/python -m backend\.vol_lab/g) ?? []).length >= 8, "reproduce lines");
+  // Each panel names the command that rebuilds what it shows, not the lab's by default.
+  const reproduce = (id) => html.match(new RegExp(`<section id="${id}"[\\s\\S]*?</section>`))?.[0].match(/<span class="micro">Reproduce<\/span>(.*?)<\/span>/s)?.[1] ?? "";
+  for (const [id, commands] of Object.entries({
+    fcst: ["backend.vol_lab", "backend.vol_forecast"],
+    modl: ["backend.vol_lab"],
+    risk: ["backend.vol_lab", "backend.vol_forecast"],
+    vrp: ["backend.vol_forecast", "backend.vol_lab"],
+    leak: ["backend.backtest_walk_forward", "backend.leak_anatomy"],
+    stdy: ["backend.carry_signal_test", "backend.supply_shock_playbook"],
+    ledg: ["backend.research_ledger"],
+  })) {
+    for (const command of commands) assert.ok(reproduce(id).includes(`python -m ${command}`), `${id} reproduces with ${command}`);
+  }
+  for (const id of ["leak", "stdy", "ledg"]) assert.ok(!reproduce(id).includes("backend.vol_lab"), `${id} is not built by vol_lab`);
   // Accessibility: one h2 per panel, KPI tiles in a dl.
   assert.equal((html.match(/<h2 /g) ?? []).length, 14);   // verdict + 13 panels
   assert.match(html, /<dl class="kpi-grid">(<div class="kpi">.*?<\/div>){6}<\/dl>/s);
+});
+
+test("the timing control is listed below the ranking, outside the MCS and every count", () => {
+  const { html, text } = render(data, research);
+  const modl = html.match(/<section id="modl"[\s\S]*?<\/section>/)[0];
+  const bodies = [...modl.matchAll(/<tbody>([\s\S]*?)<\/tbody>/g)].map((match) => match[1]);
+  const rows = [...bodies[bodies.length - 1].matchAll(/<tr( class="([^"]*)")?>/g)].map((match) => match[2] ?? "");
+  const controls = rows.map((cls, index) => (cls.includes("is-timing-control") ? index : -1)).filter((index) => index >= 0);
+  assert.ok(controls.length >= 1, "the timing control row is shown");
+  assert.deepEqual(controls, controls.map((_, k) => rows.length - controls.length + k), "and pinned after the ranked rows");
+  assert.match(modl, /chip--warn"[^>]*>timing control</);
+  assert.match(modl, />not eligible</);
+  const summary = m.research.mcsSummary(research.vol_lab);
+  assert.ok(text.includes(`${summary.survivors}/${summary.eligible} models`), "the MCS tile counts eligible models only");
+  assert.ok(text.includes("timing control excluded"));
+});
+
+test("the direction probability is demoted and labelled uncalibrated", () => {
+  const { html } = render(data, research);
+  const hero = html.match(/<div class="verdict-hero">[\s\S]*?<dl class="kpi-grid">/)[0];
+  assert.match(hero, /<div class="fact fact--minor"><dt>P\(vol rises\)<\/dt><dd class="num">[^<]*<span class="fact-note">model-implied, uncalibrated<\/span>/);
+  assert.doesNotMatch(hero, /accent-model/, "no accent colour");
+  assert.doesNotMatch(hero, /[↑↓]/, "no direction arrow");
+});
+
+test("degraded payloads say exactly what is missing", () => {
+  const noMcs = structuredClone(research);
+  delete noMcs.vol_lab.leaderboard.mcs_qlike_included;
+  delete noMcs.vol_lab.leaderboard.mcs_qlike_by_grid;
+  for (const model of noMcs.vol_lab.leaderboard.models) { delete model.in_mcs_qlike; delete model.mcs_qlike_p; delete model.in_mcs_qlike_grids; }
+  delete noMcs.vol_lab.var_backtest;
+  const partial = render(data, noMcs);
+  assert.deepEqual(partial.errors, []);
+  assert.ok(partial.text.includes("no Model Confidence Set in research.json"));
+  assert.ok(partial.text.includes("no VaR backtest in research.json"));
+  assert.ok(!partial.text.includes("research.json unavailable"), "research.json did load");
+  assert.doesNotMatch(partial.text, /Model Confidence Set 0\//, "never a count of zero it did not compute");
+
+  const none = render(data, null);
+  const retraction = visibleText(none.html.match(/<p class="retracted-line">[\s\S]*?<\/p>/)[0]);
+  assert.equal((retraction.match(/look-ahead leak/g) ?? []).length, 1, "the retraction line says it once");
+  const recent = data.vol_forecast.recent_oos.date.length;
+  const fcst = none.html.match(/<section id="fcst"[\s\S]*?<\/section>/)[0];
+  assert.ok(visibleText(fcst).includes(`${recent} weeks drawn`), "FCST meta describes the rows drawn");
+  assert.ok(!visibleText(fcst).includes(`${data.vol_forecast.validation.n} weeks drawn`));
+  assert.match(visibleText(fcst), /band drawn \(production validation\) covered/);
+
+  const noLive = structuredClone(data);
+  delete noLive.vol_forecast.live;
+  const empty = render(noLive, research);
+  assert.deepEqual(empty.errors, []);
+  assert.ok(empty.text.includes("No live forecast in this snapshot"));
+  assert.doesNotMatch(empty.html.match(/<div class="verdict-hero">[\s\S]*?<dl class="kpi-grid">/)[0], /hero-value/);
+});
+
+test("late commits and the promotion status render, and degrade when absent", () => {
+  const payload = structuredClone(data);
+  const record = payload.vol_forecast.live_record;
+  record.recent = [{ ...record.recent[0], status: "late_commit" }];
+  Object.assign(record, { n_late_commit: 1, n_skipped_roll: 0, promotion: {
+    status: "accruing", n_independent_paired: 0, required: 52, dm_stat: null, p_value: null, mean_qlike_difference: null,
+  } });
+  const { html, text } = render(payload, research);
+  const live = html.match(/<section id="live"[\s\S]*?<\/section>/)[0];
+  assert.match(live, /chip--status-late_commit"[^>]*>late commit</);
+  assert.ok(visibleText(live).includes("promotion accruing 0/52"));
+  assert.ok(text.includes("1 sealed after its window opened (never scored)"));
+  assert.ok(text.includes("promotion accruing 0/52 "), "the verdict tile carries the promotion status");
+  const plain = render(data, research);
+  assert.ok(!/promotion accruing/.test(plain.text), "no promotion block, no promotion status");
+  assert.ok(plain.text.includes("13:30 CT"), "the scoring note's ET time also reads in CT");
+});
+
+test("canvas charts carry an accessible summary of what they draw", async () => {
+  const { createElement: h } = await import("react");
+  const rows = m.research.forecastRows(research.vol_lab, data.vol_forecast.recent_oos);
+  const forecast = renderToStaticMarkup(h(m.forecastChart.default, { rows, live: null, modelLabel: "HAR-IV", bandLabel: "benchmark lab" }));
+  assert.match(forecast, new RegExp(`role="img" aria-label="Weekly HAR-IV forecast against realized next-week volatility, ${rows.length} weeks from `));
+  assert.match(forecast, /with the 80% band \(benchmark lab\) and OVX/);
+  const series = m.research.varSeries(research.vol_lab);
+  const counts = m.research.countExceedances(series);
+  const varChart = renderToStaticMarkup(h(m.varChart.default, { rows: series }));
+  assert.match(varChart, new RegExp(`role="img" aria-label="Weekly 5-session log returns, ${series.length} weeks`));
+  assert.ok(varChart.includes(`${counts.e99} of ${counts.n} weeks fell below the 99% line and ${counts.e95} below the 95% line`));
+  assert.match(varChart, /5-session log return/);
 });
 
 test("the retired direction model has no output, overlay or sizing anywhere", () => {

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { getEquityChart, getLeakDumbbell, getPurgeDiagram, getSignAgreementLadder } from "../charts/lazy";
 import DataTable from "../components/DataTable";
 import LazyMount from "../components/LazyMount";
-import Panel from "../components/Panel";
+import Panel, { REPRODUCE } from "../components/Panel";
 import Segmented from "../components/Segmented";
 import { ALPHA, leakAnatomyAssertion, leakAssertion } from "../lib/assertions";
 import { fmtDate, fmtInt, fmtNum, fmtP, fmtPValue, fmtPct, fmtSignedUsd, fmtSpan, num } from "../lib/format";
@@ -61,6 +61,11 @@ function LeakAnatomy({ anatomy }) {
   );
 }
 
+const SOURCE = {
+  artifact: ["research.json → postmortem", "research.json → leak_anatomy"],
+  reproduce: [REPRODUCE.walkForward, REPRODUCE.leakAnatomy],
+};
+
 /** LEAK: the retracted 1-week direction model, leaked vs purged. The integrity story. */
 export default function LeakPanel({ data, research, researchStatus }) {
   const [windowKey, setWindowKey] = useState("five_year");
@@ -77,7 +82,7 @@ export default function LeakPanel({ data, research, researchStatus }) {
     return (
       <Panel id="leak" code="LEAK" name="Leak post-mortem" title={null}
         fallbackTitle={`1-week direction model: ${asText(retracted?.status)?.toLowerCase() ?? "retracted"}${asText(retracted?.reason) ? ` (${retracted.reason})` : ""}`}
-        source={{ artifact: "research.json → postmortem" }}>
+        source={SOURCE}>
         <ResearchUnavailable status={researchStatus} what="the leaked-vs-purged comparison" />
       </Panel>
     );
@@ -107,7 +112,7 @@ export default function LeakPanel({ data, research, researchStatus }) {
         ? <Segmented label="Walk-forward window" options={available} value={windowKey} onChange={setWindowKey} />
         : null}
       caption={`Same model, data and costs; the only change is dropping the training rows whose labels overlap the forecast. ${asText(retracted?.status) ? `Status: ${retracted.status.toLowerCase()}` : "Retracted"}; the direction model is not run in production.`}
-      source={{ artifact: ["research.json → postmortem", "research.json → leak_anatomy"] }}
+      source={SOURCE}
       resetKey={research}
       table={() => (<>
         <DataTable

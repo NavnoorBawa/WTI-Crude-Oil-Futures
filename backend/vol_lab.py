@@ -40,10 +40,10 @@ exception is a timing control, below):
 Sampling. Forecasts are made EVERY out-of-sample day (about 4,600) for the same 5-session target, so
 consecutive targets overlap; inference uses Newey-West variances and block bootstraps long enough to
 cover the overlap. The weekly test grid used by the production validator samples one day in five,
-and conclusions drawn on one weekday grid can differ from the next (the QLIKE gap between two models
+and conclusions drawn on one sampling grid can differ from the next (the QLIKE gap between two models
 moved from p = 0.39 to p = 0.003 when the grid moved by one day), so every comparison is also run on
-each of the five weekday grids separately and the report says on how many it holds. VaR tests,
-which need non-overlapping outcomes, run on each weekly grid.
+each of the five 5-session sampling grids (offsets 0-4) separately and the report says on how many it
+holds. VaR tests, which need non-overlapping outcomes, run on each sampling grid.
 
 Every input comes from the pinned snapshot in data/market (backend/market_data.py), so the artifact
 data/vol_lab.json reproduces from it offline: `python -m backend.vol_lab` (or `--refresh` to download a
@@ -347,7 +347,7 @@ def _regression_designs(X: np.ndarray, XR: np.ndarray, lev: np.ndarray, ovx_same
 
 def walk_forward(d: Design, *, include_slow: bool = True, progress: Progress | None = None) -> pd.DataFrame:
     """One row per OOS day: the realized target, the persistence / mean-reversion references, the
-    5-session forward log return (`ret5`, for VaR), the weekday grid the row belongs to (`grid`,
+    5-session forward log return (`ret5`, for VaR), the 5-session sampling grid the row belongs to (`grid`,
     0-4; grid 0 is the production validator's), and for every model its variance-consistent
     forecast (column `<model>`, used for losses and risk) and its median forecast (column
     `<model>__med`, used for the direction call and the intervals). Both are annualized vols.
@@ -566,7 +566,7 @@ def spa_vs_champion(losses: pd.DataFrame, block: int = MCS_BLOCK, reps: int = SP
 
 
 def leaderboard(frame: pd.DataFrame) -> dict[str, Any]:
-    """Every model on every OOS day, plus the same comparison on each weekday grid on its own. Every
+    """Every model on every OOS day, plus the same comparison on each 5-session sampling grid on its own. Every
     Model Confidence Set is computed over the FEASIBLE models; the timing controls keep their losses
     and DM tests, with null MCS fields."""
     y = frame["actual"].to_numpy()
@@ -679,7 +679,7 @@ def oos_selection(frame: pd.DataFrame) -> dict[str, Any]:
 
 def var_backtest(frame: pd.DataFrame,
                  models: tuple[str, ...] = ("har_iv", "gjr", "ewma", "raw_ovx")) -> dict[str, Any]:
-    """Weekly (5-session) VaR for a long position, VaR = -q * sigma_5d, on each weekday grid (VaR
+    """Weekly (5-session) VaR for a long position, VaR = -q * sigma_5d, on each 5-session sampling grid (VaR
     tests need non-overlapping outcomes). q is the normal quantile, or (filtered historical
     simulation) the empirical quantile of the grid's PAST standardized outcomes ret5 / sigma_5d
     (after WARMUP weeks). Unconditional historical simulation (trailing quantile of past 5-session
@@ -856,7 +856,7 @@ def build_report(snapshot: market_data.MarketSnapshot, *, include_slow: bool = T
         "config": {
             "horizon_sessions": vf.H, "step": vf.STEP, "min_train_rows": vf.MIN_TRAIN,
             "purge_rows": vf.H - 1, "ovx_lag_sessions": vf.OVX_LAG_SESSIONS,
-            "evaluation": "every OOS day (overlapping 5-session targets), plus each weekday grid on its own",
+            "evaluation": "every OOS day (overlapping 5-session targets), plus each 5-session sampling grid on its own",
             "mcs": {"size": MCS_SIZE, "reps": MCS_REPS, "block_daily": MCS_BLOCK, "block_weekly": MCS_BLOCK_WEEKLY,
                     "statistic": "range", "bootstrap": "stationary", "seed": SEED},
             "conformal": {"method": "adaptive conformal inference (Gibbs-Candes 2021) with 5-session delayed feedback",

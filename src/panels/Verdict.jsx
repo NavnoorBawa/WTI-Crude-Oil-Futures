@@ -1,9 +1,9 @@
 import Chip from "../components/Chip";
 import Kpi from "../components/Kpi";
-import { INTERVAL_LEVEL_PCT } from "../lib/assertions";
-import { DASH, fmtCT, fmtDate, fmtInt, fmtNum, fmtP, fmtPct, num, toMs } from "../lib/format";
+import { INTERVAL_LEVEL_PCT, promotionText, shortModelName } from "../lib/assertions";
+import { DASH, fmtCT, fmtDate, fmtInt, fmtNum, fmtP, fmtPct, fmtSigned, num, toMs } from "../lib/format";
 import {
-  asObject, asText, getLab, getVol, liveRecordSummary, mcsSummary, recordVar, varRows,
+  asObject, asText, getLab, getVol, liveRecordSummary, mcsSummary, ovxOnlyBenchmark, recordVar, varRows,
 } from "../lib/research";
 
 /**
@@ -36,8 +36,6 @@ export function RangeBar({ lo, hi, forecast, realized, implied }) {
   );
 }
 
-const arrowFor = (direction) => (direction === "RISING" ? "↑" : direction === "FALLING" ? "↓" : "");
-
 function Hero({ live }) {
   const forecast = num(live?.forecast_next_week_vol_annualized_pct);
   const median = num(live?.forecast_median_pct);
@@ -48,15 +46,30 @@ function Hero({ live }) {
   const implied = num(live?.implied_vol_ovx_pct);
   const ovxSession = asText(live?.inputs?.ovx_session);
   const challenger = asObject(live?.challenger);
-  const direction = typeof live?.direction === "string" ? live.direction.toUpperCase() : null;
   const issuedMs = toMs(live?.issued_at);
+  const title = <h2 className="micro verdict-label" id="verdict-title">Next-week WTI realized volatility · forecast</h2>;
+
+  if (forecast == null) {
+    return (
+      <div className="verdict-hero">
+        {title}
+        <div className="figure-empty is-compact">
+          <p className="empty-title">No live forecast in this snapshot</p>
+          <p className="empty-text">
+            data.json carries no usable vol_forecast.live block, so there is no current forecast or interval
+            to show. The out-of-sample evidence below does not depend on it.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="verdict-hero">
-      <h2 className="micro verdict-label" id="verdict-title">Next-week WTI realized volatility · forecast</h2>
+      {title}
       <div className="hero-row">
         <p className="hero-value num">
-          {forecast != null ? fmtNum(forecast, 1) : DASH}
+          {fmtNum(forecast, 1)}
           <span className="hero-unit">%</span>
         </p>
         <div className="hero-side">
@@ -73,12 +86,6 @@ function Hero({ live }) {
       <RangeBar lo={lo} hi={hi} forecast={forecast} realized={realized} implied={implied} />
       <dl className="hero-facts">
         <div className="fact">
-          <dt>P(vol rises)</dt>
-          <dd className="num accent-model">
-            {probRise != null ? <>{arrowFor(direction)} {fmtPct(probRise)}</> : DASH}
-          </dd>
-        </div>
-        <div className="fact">
           <dt><i className="swatch swatch-truth is-tick" />Realized 5d</dt>
           <dd className="num">{fmtPct(realized)}</dd>
         </div>
@@ -86,7 +93,7 @@ function Hero({ live }) {
           <dt><i className="swatch swatch-implied is-diamond" />OVX</dt>
           <dd className="num">
             {fmtNum(implied, 1)}
-            {ovxSession && <span className="fact-note">{fmtDate(ovxSession, { year: false })} close</span>}
+            {ovxSession && <span className="fact-note">{fmtDate(ovxSession, { year: false })} close, the model's input</span>}
           </dd>
         </div>
         {challenger && (
@@ -95,6 +102,17 @@ function Hero({ live }) {
             <dd className="num">
               {fmtPct(challenger.forecast_next_week_vol_annualized_pct)}
               {asText(challenger.label) && <span className="fact-note">{challenger.label}</span>}
+            </dd>
+          </div>
+        )}
+        {probRise != null && (
+          // Direction carries no demonstrated skill (LIVE, MODL: accuracy sits at its noise floor),
+          // so the probability is shown last, unemphasized and labelled as uncalibrated.
+          <div className="fact fact--minor">
+            <dt>P(vol rises)</dt>
+            <dd className="num">
+              {fmtPct(probRise)}
+              <span className="fact-note">model-implied, uncalibrated</span>
             </dd>
           </div>
         )}
@@ -109,9 +127,17 @@ function Hero({ live }) {
   );
 }
 
+/** What a tile says when its research.json figure is absent: loading, no file, or no such block. */
+const researchGap = (research, researchStatus, what) => {
+  if (researchStatus === "loading") return "loading research.json";
+  return research ? `no ${what} in research.json` : "research.json unavailable";
+};
+
 /**
  * The verdict strip: the live forecast as the hero number, and six evidence tiles, each with a
- * named baseline and its sample/test.
+ * named baseline and its sample/test. Tiles from the weekly production validation (data.json) and
+ * from the every-day benchmark lab (research.json) say which they are, since the two samples give
+ * different values of the same statistic.
  */
 export default function Verdict({ data, research, researchStatus }) {
   const { live, validation, liveRecord } = getVol(data);
@@ -120,50 +146,83 @@ export default function Verdict({ data, research, researchStatus }) {
   const var99 = recordVar(varRows(lab), 0.01);
   const record = liveRecordSummary(liveRecord);
   const mz = asObject(validation?.har_mincer_zarnowitz);
-  const researchNote = researchStatus === "loading" ? "loading research.json" : "research.json unavailable";
+  const ovx = ovxOnlyBenchmark(validation);
   const n = num(validation?.n);
+  const model = shortModelName(live?.model) ?? shortModelName(validation?.model) ?? "the model";
+  const weeks = n != null ? `${fmtInt(n)} wk OOS, weekly` : "weekly OOS";
+  const promotion = promotionText(record?.promotion);
+  const persistenceDm = num(validation?.har_vs_persistence_qlike_dm);
+  const dmParts = [
+    persistenceDm != null ? `${fmtSigned(persistenceDm, 2)} vs persistence` : null,
+    ovx?.dm != null ? `${fmtSigned(ovx.dm, 2)} vs OVX-only${ovx.p != null ? ` (${fmtP(ovx.p)})` : ""}` : null,
+  ].filter(Boolean);
+  const mcsAvailable = mcs?.survivors != null;
+
+  let liveFoot = null;
+  if (record) {
+    const status = (record.resolved ?? 0) === 0
+      ? (record.firstResult
+        ? `first result ${record.firstResultIsEstimate ? "≈ " : ""}${fmtDate(record.firstResult)}`
+        : `${fmtInt(record.recorded ?? 0)} recorded · ${fmtInt(record.skipped ?? 0)} skipped at roll${record.lateCommit ? ` · ${fmtInt(record.lateCommit)} sealed late` : ""}`)
+      : `${fmtInt(record.independent)} independent · QLIKE ${fmtNum(record.champion?.qlike, 3)}`;
+    liveFoot = promotion ? `${status} · promotion ${promotion}` : status;
+  }
 
   return (
     <section className="verdict" aria-labelledby="verdict-title">
       <Hero live={live} />
       <dl className="kpi-grid">
         <Kpi
-          label="Forecast loss (QLIKE)"
-          href="#modl"
+          label="Forecast loss (QLIKE), weekly"
+          href="#fcst"
           value={fmtNum(validation?.har_qlike, 3)}
-          baseline={<>vs <b className="num">{fmtNum(validation?.persistence_qlike, 3)}</b> persistence · lower is better</>}
-          foot={`DM t ${fmtNum(validation?.har_vs_persistence_qlike_dm, 2)} · ${n != null ? `${fmtInt(n)} wk OOS` : "OOS"}`}
+          baseline={(
+            <>
+              vs <b className="num">{fmtNum(validation?.persistence_qlike, 3)}</b> persistence
+              {ovx && <>, <b className="num">{fmtNum(ovx.qlike, 3)}</b> OVX-only</>} · lower is better
+            </>
+          )}
+          foot={`${dmParts.length ? `DM t (+ favours ${model}) ${dmParts.join(", ")} · ` : ""}${weeks}`}
         />
         <Kpi
           label="Model Confidence Set"
           href="#modl"
-          value={mcs ? `${mcs.survivors}/${mcs.total}` : DASH}
-          unit={mcs ? "models" : undefined}
-          baseline={mcs ? `survive at ${mcs.level ?? DASH}% on QLIKE` : researchNote}
-          foot={mcs?.champion
-            ? `${mcs.champion.label} in it on ${mcs.champion.gridsIn ?? DASH}/${mcs.gridCount} weekday grids${mcs.champion.inMcs ? "" : `; out on the full sample${mcs.champion.mcsP != null ? ` (${fmtP(mcs.champion.mcsP)})` : ""}`}`
+          value={mcsAvailable ? `${mcs.survivors}/${mcs.eligible}` : DASH}
+          unit={mcsAvailable ? "models" : undefined}
+          baseline={mcsAvailable
+            ? `in the ${mcs.level ?? DASH}% set on QLIKE, every OOS day`
+            : researchGap(research, researchStatus, "Model Confidence Set")}
+          foot={mcsAvailable && mcs.champion
+            ? `${mcs.champion.label} in it on ${mcs.champion.gridsIn ?? DASH}/${mcs.gridCount} sampling grids`
+              + `${mcs.champion.inMcs ? "" : `; out on the full sample${mcs.champion.mcsP != null ? ` (${fmtP(mcs.champion.mcsP)})` : ""}`}`
+              + `${mcs.excluded.length ? ` · ${mcs.excluded.length === 1 ? "timing control" : `${mcs.excluded.length} timing controls`} excluded` : ""}`
             : null}
         />
         <Kpi
-          label={`${INTERVAL_LEVEL_PCT}% interval coverage`}
+          label={`${INTERVAL_LEVEL_PCT}% interval coverage, weekly`}
           href="#calb"
           value={fmtPct(validation?.interval_80_coverage_pct)}
           baseline={`target ${INTERVAL_LEVEL_PCT}%`}
-          foot={`${fmtInt(validation?.interval_80_n)} wk · adaptive conformal`}
+          foot={`${fmtInt(validation?.interval_80_n)} wk OOS · production validation, adaptive conformal`}
         />
         <Kpi
           label="99% VaR breaches"
           href="#risk"
           value={var99?.exceedances != null ? fmtInt(var99.exceedances) : DASH}
-          baseline={var99 ? <>vs <b className="num">{fmtNum(var99.expected, 1)}</b> expected</> : researchNote}
-          foot={var99 ? `Kupiec ${fmtP(var99.kupiecP) ?? DASH} · ${var99.quantileLabel} · ${fmtInt(var99.n)} wk` : null}
+          baseline={var99 ? <>vs <b className="num">{fmtNum(var99.expected, 1)}</b> expected</> : researchGap(research, researchStatus, "VaR backtest")}
+          foot={var99
+            ? `Kupiec ${fmtP(var99.kupiecP) ?? DASH} · ${var99.quantileLabel} · grid 0, ${fmtInt(var99.n)} wk`
+              + `${var99.exceedMin != null ? `; ${fmtInt(var99.exceedMin)}–${fmtInt(var99.exceedMax)} across grids` : ""}`
+            : null}
         />
         <Kpi
-          label="Mincer-Zarnowitz slope"
+          label="Mincer-Zarnowitz slope, weekly"
           href="#calb"
           value={fmtNum(mz?.slope, 2)}
           baseline="1 = unbiased"
-          foot={mz ? `SE ${fmtNum(mz.slope_se, 2)} · unbiased ${fmtP(mz.p_unbiased) ?? DASH} · R² ${fmtNum(mz.r2, 2)}` : null}
+          foot={mz
+            ? `SE ${fmtNum(mz.slope_se, 2)} · unbiased ${fmtP(mz.p_unbiased) ?? DASH} · variance-regression R² ${fmtNum(mz.r2, 2)} · ${weeks}`
+            : null}
         />
         <Kpi
           label="Live forward record"
@@ -171,11 +230,7 @@ export default function Verdict({ data, research, researchStatus }) {
           value={record ? fmtInt(record.resolved ?? 0) : DASH}
           unit="resolved"
           baseline={record?.started ? `started ${fmtDate(record.started)}` : "no record in this snapshot"}
-          foot={record && (record.resolved ?? 0) === 0
-            ? (record.firstResult
-              ? `first result ${record.firstResultIsEstimate ? "≈ " : ""}${fmtDate(record.firstResult)}`
-              : `${fmtInt(record.recorded ?? 0)} recorded · ${fmtInt(record.skipped ?? 0)} skipped at roll`)
-            : record ? `${fmtInt(record.independent)} independent · QLIKE ${fmtNum(record.champion?.qlike, 3)}` : null}
+          foot={liveFoot}
         />
       </dl>
     </section>
@@ -194,10 +249,12 @@ export function RetractedLine({ data, research }) {
       <Chip tone="warn">{asText(retracted?.status) ?? "Retracted"}</Chip>
       <span className="sep-list">
         <span>1W direction model</span>
-        <span>look-ahead leak</span>
-        {accuracy != null
-          ? <span>purged accuracy <b className="num">{fmtPct(accuracy)}</b>{p ? ` (${p})` : ""}</span>
-          : asText(retracted?.reason) && <span>{retracted.reason}</span>}
+        {accuracy != null ? (
+          <>
+            <span>look-ahead leak</span>
+            <span>purged accuracy <b className="num">{fmtPct(accuracy)}</b>{p ? ` (${p})` : ""}</span>
+          </>
+        ) : <span>{asText(retracted?.reason) ?? "look-ahead leak"}</span>}
         <span><a href="#leak">post-mortem →</a></span>
       </span>
     </p>

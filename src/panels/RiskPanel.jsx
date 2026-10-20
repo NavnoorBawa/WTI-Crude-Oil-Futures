@@ -3,12 +3,12 @@ import { getVarChart } from "../charts/lazy";
 import Chip from "../components/Chip";
 import DataTable from "../components/DataTable";
 import LazyMount from "../components/LazyMount";
-import Panel from "../components/Panel";
+import Panel, { REPRODUCE } from "../components/Panel";
 import Segmented from "../components/Segmented";
 import { riskAssertion, volTargetAssertion } from "../lib/assertions";
 import { DASH, fmtDate, fmtInt, fmtNum, fmtP, fmtPValue, fmtPct, fmtSigned, fmtSpan } from "../lib/format";
 import {
-  countExceedances, getLab, getRoles, getVol, modelLabels, recordVar, varRows, varSeries, volTargetRisk,
+  countExceedances, getLab, getRoles, getVol, logToSimplePct, modelLabels, recordVar, varRows, varSeries, volTargetRisk,
 } from "../lib/research";
 import { ResearchUnavailable } from "./common";
 
@@ -29,7 +29,16 @@ function PassMeter({ pass, total }) {
   );
 }
 
-/** RISK: does the forecast-scaled VaR breach as often as it should, and independently? */
+const SOURCE = {
+  artifact: ["research.json → vol_lab.series (ret5, var95, var99)", "vol_lab.var_backtest", "data.json → vol_forecast.economic.vol_target_overlay"],
+  reproduce: [REPRODUCE.lab, REPRODUCE.validation],
+};
+
+/**
+ * RISK: does the forecast-scaled VaR breach as often as it should, and independently? The VaR
+ * series and its returns are 5-session LOG returns; the vol-targeting table below reports simple
+ * returns, so the caption converts the worst week to make the two comparable.
+ */
 export default function RiskPanel({ data, research, researchStatus }) {
   const [range, setRange] = useState("ALL");
   const [level, setLevel] = useState("0.01");
@@ -44,7 +53,7 @@ export default function RiskPanel({ data, research, researchStatus }) {
   if (!methods.length || !series.length) {
     return (
       <Panel id="risk" code="RISK" name="VaR backtest" title={null} fallbackTitle="Value-at-Risk backtest"
-        source={{ artifact: "research.json → vol_lab.var_backtest" }}>
+        source={SOURCE}>
         <ResearchUnavailable status={researchStatus} what="the VaR backtest" />
         <VolTargeting overlay={getVol(data).economic?.vol_target_overlay} />
       </Panel>
@@ -59,6 +68,10 @@ export default function RiskPanel({ data, research, researchStatus }) {
   const evaluationWeeks = lab?.var_backtest?.grid0?.evaluation_weeks;
   const firstVar = series.find((row) => row.var95 != null);
   const recordName = labels.get(champion)?.replace(/\s*\(model of record\)\s*$/i, "") ?? "the model of record";
+  const worst = series.reduce((low, row) => (low == null || row.ret < low.ret ? row : low), null);
+  const worstNote = worst
+    ? ` The worst week, ${fmtDate(worst.date)}, is ${fmtSigned(worst.ret, 1, "%")} as a log return, ${fmtSigned(logToSimplePct(worst.ret), 1, "%")} as a simple return (the vol-targeting table reports simple returns).`
+    : "";
 
   return (
     <Panel
@@ -70,21 +83,21 @@ export default function RiskPanel({ data, research, researchStatus }) {
       meta={[
         evaluationWeeks != null ? `n ${fmtInt(evaluationWeeks)} weeks` : null,
         fmtSpan(firstVar?.date, series[series.length - 1]?.date),
-        `${methods[0]?.gridCount ?? DASH} weekday grids`,
+        `${methods[0]?.gridCount ?? DASH} 5-session sampling grids`,
         "Kupiec 1995 · Christoffersen 1998 · DQ (Engle-Manganelli 2004)",
       ]}
       actions={<Segmented label="VaR chart range" options={RANGES} value={range} onChange={setRange} />}
-      caption={`Bars: weekly 5-session returns. Lines: −VaR from ${recordName} scaled by filtered historical simulation. In this series ${fmtInt(counts.e99)} of ${fmtInt(counts.n)} weeks breached the 99% line and ${fmtInt(counts.e95)} the 95% line (grid 0, rounded series).`}
-      source={{ artifact: ["research.json → vol_lab.series (ret5, var95, var99)", "vol_lab.var_backtest", "data.json → vol_forecast.economic.vol_target_overlay"] }}
+      caption={`Bars: weekly 5-session log returns, in percent. Lines: −VaR on the same log-return scale, from ${recordName} scaled by filtered historical simulation. In this series ${fmtInt(counts.e99)} of ${fmtInt(counts.n)} weeks breached the 99% line and ${fmtInt(counts.e95)} the 95% line (grid 0, rounded series).${worstNote}`}
+      source={SOURCE}
       resetKey={research}
       table={() => (
         <DataTable
-          caption="Latest 26 weeks: 5-session return and VaR (percent)"
+          caption="Latest 26 weeks: 5-session log return and VaR (percent, log-return scale)"
           rowKey={(row) => row.date}
           dense
           columns={[
             { key: "date", label: "Week of", rowHeader: true, render: (row) => fmtDate(row.date) },
-            { key: "ret", label: "Return", align: "right", render: (row) => fmtSigned(row.ret, 1) },
+            { key: "ret", label: "Log return", align: "right", render: (row) => fmtSigned(row.ret, 1) },
             { key: "var95", label: "−VaR 95%", align: "right", render: (row) => (row.var95 != null ? fmtNum(-row.var95, 1) : DASH) },
             { key: "var99", label: "−VaR 99%", align: "right", render: (row) => (row.var99 != null ? fmtNum(-row.var99, 1) : DASH) },
             {
@@ -120,7 +133,7 @@ export default function RiskPanel({ data, research, researchStatus }) {
         />
       </div>
       <DataTable
-        caption={`VaR backtest at ${Math.round((1 - shownLevel) * 100)}%: breaches on grid 0 and tests passed (p ≥ 0.05) across weekday grids`}
+        caption={`VaR backtest at ${Math.round((1 - shownLevel) * 100)}%: breaches on grid 0 and tests passed (p ≥ 0.05) across the 5-session sampling grids`}
         rowKey={(row) => row.id}
         rowClass={(row) => (row.id === recordVar(methods, shownLevel)?.id ? "is-record" : row.isHistorical ? "is-flagged" : undefined)}
         dense
@@ -135,7 +148,7 @@ export default function RiskPanel({ data, research, researchStatus }) {
             render: (row) => <span className="num">{fmtInt(row.exceedances)} <span className="muted">/ {fmtNum(row.expected, 1)}</span></span>,
           },
           {
-            key: "range", label: "All grids", title: "Breaches across the weekday grids (min–max)", align: "right",
+            key: "range", label: "All grids", title: "Breaches across the 5-session sampling grids (min–max)", align: "right",
             render: (row) => (row.exceedMin != null ? <span className="num muted">{fmtInt(row.exceedMin)}–{fmtInt(row.exceedMax)}</span> : DASH),
           },
           { key: "kupiecP", label: "Kupiec p", align: "right", sortable: true, firstDirection: "desc", render: (row) => <span className="num">{fmtPValue(row.kupiecP)}</span> },
@@ -160,11 +173,16 @@ function VolTargeting({ overlay }) {
   const risk = volTargetRisk(overlay);
   if (!risk?.rows.length) return null;
   const test = risk.vsBuyHold;
+  const trailing = risk.vsTrailing;
+  const describe = (name, value) => (value?.difference != null
+    ? `forecast-vol target minus ${name}: ${fmtSigned(value.difference, 2)}${value.ci?.length === 2 && value.ci.every((v) => v != null) ? ` (95% CI ${fmtSigned(value.ci[0], 2)} to ${fmtSigned(value.ci[1], 2)})` : ""}${value.p != null ? `, ${fmtP(value.p)}` : ""}`
+    : null);
+  const differences = [describe("buy-and-hold", test), describe("trailing-vol target", trailing)].filter(Boolean);
   return (
     <div className="subsection ruled">
       <h3 className="study-title">{volTargetAssertion(risk) ?? "Volatility targeting on the forecast"}</h3>
       <DataTable
-        caption={`Long front-month WTI, weekly rebalanced${risk.weeks != null ? `, ${fmtInt(risk.weeks)} weeks` : ""}${risk.target != null ? `, ${fmtNum(risk.target, 0)}% vol target` : ""}`}
+        caption={`Long front-month WTI, weekly rebalanced${risk.weeks != null ? `, ${fmtInt(risk.weeks)} weeks` : ""}${risk.target != null ? `, ${fmtNum(risk.target, 0)}% vol target` : ""}; simple returns, percent`}
         rowKey={(row) => row.key}
         rowClass={(row) => (row.key === "forecast_vol_target" ? "is-record" : undefined)}
         dense
@@ -179,8 +197,8 @@ function VolTargeting({ overlay }) {
           { key: "sharpe", label: "Sharpe", align: "right", render: (row) => <span className="num">{fmtNum(row.sharpe, 2)}</span> },
         ]}
         rows={risk.rows}
-        footnote={test?.difference != null
-          ? `Sharpe, forecast-vol target minus buy-and-hold: ${fmtSigned(test.difference, 2)}${test.ci?.length === 2 ? ` (95% CI ${fmtSigned(test.ci[0], 2)} to ${fmtSigned(test.ci[1], 2)})` : ""}, ${fmtP(test.p) ?? ""}. No return advantage is claimed; the use is risk control.`
+        footnote={differences.length
+          ? `Sharpe difference, ${differences.join("; ")}. No return advantage is claimed; the use is risk control, and sizing on trailing realized vol is the simple alternative it must beat.`
           : null}
       />
     </div>
