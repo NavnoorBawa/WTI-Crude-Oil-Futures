@@ -1,16 +1,15 @@
 import unittest
 import json
 import math
-from datetime import datetime, timezone
+from datetime import timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from backend import oil
 from backend.oil import PremiumWTIPredictor, get_historical_data
-from backend import server as server_module
-from backend.server import _build_horizon_metrics
 
 
 class OilLogicGuardsTest(unittest.TestCase):
@@ -279,309 +278,87 @@ class OilLogicGuardsTest(unittest.TestCase):
         self.assertTrue(math.isfinite(feature_map[after_monthly_release]["hist_macro_growth_vs_rates"]))
 
 
-class ServerMetricSelectionTest(unittest.TestCase):
-    def setUp(self):
-        # Isolate from the repo's walk-forward artifact: these tests exercise the
-        # display-fallback logic, which the merged-in walk-forward stats override.
-        patcher = patch("backend.server._load_walk_forward_stats", return_value={})
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
-    def test_unqualified_sparse_live_accuracy_falls_back_to_backtest_display(self):
-        accuracy_metrics = {
-            "1h": {"total_predictions": 0, "direction_accuracy": 0.0},
-            "1d": {"total_predictions": 3, "direction_accuracy": 100.0},
-            "1w": {"total_predictions": 0, "direction_accuracy": 0.0},
-        }
-        horizon_backtests = {
-            "1h": {"direction_accuracy": 45.4, "samples": 240},
-            "1d": {"direction_accuracy": 39.4, "samples": 33},
-            "1w": {"direction_accuracy": 42.4, "samples": 33},
-        }
-        horizon_confidence = {"1h": 31.7, "1d": 10.0, "1w": 10.0}
-        horizon_quality = {
-            "1h": {"status": "qualified", "qualified": True, "reasons": []},
-            "1d": {"status": "unqualified", "qualified": False, "reasons": ["low_direction_accuracy"]},
-            "1w": {"status": "unqualified", "qualified": False, "reasons": ["low_direction_accuracy"]},
-        }
-
-        metrics_by_horizon, headline_horizon = _build_horizon_metrics(
-            accuracy_metrics,
-            horizon_backtests,
-            horizon_confidence,
-            horizon_quality,
-            min_live_accuracy_samples=18,
-        )
-
-        # 1H is computed but retracted from display, so it can never be the headline.
-        self.assertEqual(headline_horizon, "1w")
-        self.assertEqual(metrics_by_horizon["1d"]["display_accuracy"], 39.4)
-        self.assertEqual(metrics_by_horizon["1d"]["display_accuracy_source"], "backtest")
-
-
-class ServerRuntimeGuardTest(unittest.TestCase):
-    def setUp(self):
-        patcher = patch("backend.server._load_walk_forward_stats", return_value={})
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
-    def _state(self, cached=None, timestamp=0, ml_ready=False):
-        return {
-            "initialized": True,
-            "ml_ready": ml_ready,
-            "last_prediction_time": timestamp,
-            "last_price_update_time": 0,
-            "error_count": 0,
-            "cached_predictions": cached,
-            "cached_accuracy": None,
-        }
-
-    def test_force_refresh_bypasses_a_recent_prediction_cache(self):
-        cached = {"is_real_prediction": True, "prediction_1h": 80.0}
-        fresh = {"is_real_prediction": True, "prediction_1h": 81.0}
-        with (
-            patch.dict(server_module.system_state, self._state(cached, 990, True), clear=True),
-            patch.object(server_module.time, "time", side_effect=[1000, 1001]),
-            patch.object(
-                server_module,
-                "get_multi_horizon_wti_predictions",
-                return_value=fresh,
-            ) as generate,
-            patch.object(server_module, "get_prediction_accuracy_metrics", return_value={}),
-        ):
-            predictions, _ = server_module.get_cached_ml_data(force_refresh=True)
-
-            self.assertIs(predictions, fresh)
-            self.assertIs(server_module.system_state["cached_predictions"], fresh)
-            self.assertEqual(server_module.system_state["last_prediction_time"], 1001)
-            generate.assert_called_once_with()
-
-    def test_request_path_can_serve_stale_cache_without_model_generation(self):
-        cached = {"is_real_prediction": True, "prediction_1h": 80.0}
-        with (
-            patch.dict(server_module.system_state, self._state(cached, 100, True), clear=True),
-            patch.object(server_module.time, "time", return_value=1000),
-            patch.object(server_module, "get_multi_horizon_wti_predictions") as generate,
-            patch.object(server_module, "get_prediction_accuracy_metrics", return_value={}),
-        ):
-            predictions, _ = server_module.get_cached_ml_data(refresh_if_stale=False)
-
-            self.assertIs(predictions, cached)
-            generate.assert_not_called()
-
-    def test_health_is_cached_readiness_only_and_has_security_headers(self):
-        cached = {"is_real_prediction": True}
-        with (
-            patch.dict(server_module.system_state, self._state(cached, 900, True), clear=True),
-            patch.object(server_module, "ensure_startup_started"),
-            patch.object(server_module._startup_ready, "is_set", return_value=True),
-            patch.object(server_module, "get_current_wti_contract") as upstream,
-        ):
-            response = server_module.app.test_client().get(
-                "/health", headers={"Origin": "https://evil.example"}
-            )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
-        self.assertEqual(response.headers["X-Frame-Options"], "DENY")
-        self.assertNotIn("Access-Control-Allow-Origin", response.headers)
-        upstream.assert_not_called()
-
-    def test_health_returns_503_until_predictions_are_ready(self):
-        with (
-            patch.dict(server_module.system_state, self._state(), clear=True),
-            patch.object(server_module, "ensure_startup_started"),
-            patch.object(server_module._startup_ready, "is_set", return_value=True),
-        ):
-            response = server_module.app.test_client().get("/health")
-
-        self.assertEqual(response.status_code, 503)
-        self.assertFalse(response.get_json()["ready"])
-
-    def test_headline_horizon_prefers_qualified_horizon(self):
-        accuracy_metrics = {
-            "1h": {"total_predictions": 15, "direction_accuracy": 53.3},
-            "1d": {"total_predictions": 0, "direction_accuracy": 0.0},
-            "1w": {"total_predictions": 0, "direction_accuracy": 0.0},
-        }
-        horizon_backtests = {
-            "1h": {"direction_accuracy": 45.4, "samples": 240},
-            "1d": {"direction_accuracy": 39.4, "samples": 33},
-            "1w": {"direction_accuracy": 39.4, "samples": 33},
-        }
-        horizon_confidence = {"1h": 31.7, "1d": 10.0, "1w": 10.0}
-        horizon_quality = {
-            "1h": {"status": "qualified", "qualified": True, "reasons": []},
-            "1d": {"status": "unqualified", "qualified": False, "reasons": ["low_direction_accuracy"]},
-            "1w": {"status": "unqualified", "qualified": False, "reasons": ["low_direction_accuracy"]},
-        }
-
-        metrics_by_horizon, headline_horizon = _build_horizon_metrics(
-            accuracy_metrics,
-            horizon_backtests,
-            horizon_confidence,
-            horizon_quality,
-            min_live_accuracy_samples=18,
-        )
-
-        # Even as the only "qualified" horizon, the retracted 1H is never promoted to headline;
-        # its metrics are still reported per horizon.
-        self.assertEqual(headline_horizon, "1w")
-        self.assertEqual(metrics_by_horizon["1h"]["display_accuracy_source"], "live_sparse")
-        self.assertEqual(metrics_by_horizon["1d"]["display_accuracy_source"], "backtest")
-
-    def test_headline_horizon_uses_best_available_metrics_when_none_qualified(self):
-        accuracy_metrics = {
-            "1h": {"total_predictions": 0, "direction_accuracy": 0.0},
-            "1d": {"total_predictions": 0, "direction_accuracy": 0.0},
-            "1w": {"total_predictions": 0, "direction_accuracy": 0.0},
-        }
-        horizon_backtests = {
-            "1h": {"direction_accuracy": 45.4, "samples": 240},
-            "1d": {"direction_accuracy": 39.4, "samples": 33},
-            "1w": {"direction_accuracy": 42.4, "samples": 33},
-        }
-        horizon_confidence = {"1h": 31.7, "1d": 10.0, "1w": 10.0}
-        horizon_quality = {
-            "1h": {"status": "unqualified", "qualified": False, "reasons": ["low_direction_accuracy"]},
-            "1d": {"status": "unqualified", "qualified": False, "reasons": ["low_direction_accuracy"]},
-            "1w": {"status": "unqualified", "qualified": False, "reasons": ["low_direction_accuracy"]},
-        }
-
-        metrics_by_horizon, headline_horizon = _build_horizon_metrics(
-            accuracy_metrics,
-            horizon_backtests,
-            horizon_confidence,
-            horizon_quality,
-            min_live_accuracy_samples=18,
-        )
-
-        # Best available among the displayed horizons: 1W's 42.4% beats 1D's 39.4%.
-        self.assertEqual(headline_horizon, "1w")
-        self.assertEqual(metrics_by_horizon["1h"]["display_accuracy"], 45.4)
-
-
 class HistoricalPayloadTest(unittest.TestCase):
-    def test_historical_data_debug_logs_exclude_untrusted_content(self):
-        untrusted_timestamp = "2026-03-28T10:00:00Z\nFORGED_LOG_ENTRY"
-        exception_secret = "provider-secret-value\nFAKE_SUCCESS"
+    """oil.get_historical_data: the production chart, built without the retracted model."""
 
-        class PredictorStub:
-            storage_timezone = timezone.utc
-            stored_actual_prices = {
-                untrusted_timestamp: {
-                    "timestamp": untrusted_timestamp,
-                    "price": 100.0,
-                    "volume": 1200,
-                }
-            }
-            stored_predictions = {}
+    NY = ZoneInfo("America/New_York")
 
-            def get_wti_historical_data(self, period="6mo", interval="1d"):
-                return pd.DataFrame()
-
-            def _safe_parse_iso(self, value):
-                return None
-
-        class TimestampStub:
-            tzinfo = None
-
-            def tz_localize(self, timezone_value):
-                raise ValueError(f"{exception_secret}: {untrusted_timestamp}")
-
-            def to_pydatetime(self):
-                return datetime(2026, 3, 28, 10, 0, 0)
-
-        with (
-            patch("backend.oil.get_premium_predictor", return_value=PredictorStub()),
-            patch("backend.oil.pd.Timestamp", return_value=TimestampStub()),
-            self.assertLogs("backend.oil", level="DEBUG") as logs,
-        ):
-            get_historical_data(limit=50)
-
-        output = "\n".join(logs.output)
-        self.assertIn("chart_timezone_normalization_failed error_type=ValueError", output)
-        self.assertIn("chart_timestamp_fallback_used error_type=ValueError", output)
-        self.assertNotIn(untrusted_timestamp, output)
-        self.assertNotIn(exception_secret, output)
-
-    def test_every_chart_point_says_whether_it_is_a_daily_bar_an_hourly_bar_or_a_live_quote(self):
+    def _frames(self):
         # The hourly window opens mid-session, so Monday's daily bar (00:00 ET) shares its session
         # with Monday's first hourly bars; spacing alone cannot tell them apart, the kind can.
-        ny = ZoneInfo("America/New_York")
-        daily = pd.DataFrame({"Close": [62.0, 63.4], "Volume": [310000, 300000]},
-                             index=pd.DatetimeIndex(["2026-09-11", "2026-09-14"]).tz_localize(ny))
-        hourly = pd.DataFrame({"Close": [63.1, 63.2], "Volume": [20000, 20000]},
-                              index=pd.DatetimeIndex(["2026-09-14 06:00", "2026-09-14 07:00"]).tz_localize(ny))
+        daily = pd.DataFrame({"Close": [62.0, 63.4, 63.3], "Volume": [310000, 300000, 290000]},
+                             index=pd.DatetimeIndex(["2026-09-11", "2026-09-14", "2026-09-15"]).tz_localize(self.NY))
+        hourly = pd.DataFrame({"Close": [63.1, float("nan"), 63.2], "Volume": [20000, 0, 20000]},
+                              index=pd.DatetimeIndex(["2026-09-14 06:00", "2026-09-14 06:30", "2026-09-14 07:00"])
+                              .tz_localize(self.NY))
+        return {"1d": daily, "1h": hourly}
 
-        class PredictorStub:
-            storage_timezone = timezone.utc
-            stored_actual_prices = {"2026-09-14T11:42:17+00:00": {"price": 63.25, "volume": 41000}}
-            stored_predictions = {}
+    def _chart(self, live_quote=None, frames=None):
+        frames = frames or self._frames()
+        with patch("backend.oil._chart_bars", side_effect=lambda period, interval: frames[interval]) as bars, \
+                patch.object(PremiumWTIPredictor, "__init__", side_effect=AssertionError("model constructed")):
+            chart = get_historical_data(live_quote=live_quote)
+        self.assertEqual({call.args for call in bars.call_args_list}, {("10y", "1d"), ("1mo", "1h")})
+        return chart["actual"]
 
-            def get_wti_historical_data(self, period="6mo", interval="1d"):
-                return daily if interval == "1d" else hourly
-
-            def _safe_parse_iso(self, value):
-                return datetime.fromisoformat(value)
-
-        with patch("backend.oil.get_premium_predictor", return_value=PredictorStub()):
-            actual = get_historical_data(limit=50)["actual"]
+    def test_every_chart_point_says_whether_it_is_a_daily_bar_an_hourly_bar_or_the_quote(self):
+        actual = self._chart(live_quote=("2026-09-14T11:42:17Z", 63.25, 41000))
         self.assertEqual(actual["kinds"], ["1d", "1d", "1h", "1h", "live"])
-        self.assertEqual(len(actual["kinds"]), len(actual["values"]))
+        self.assertEqual(actual["timestamps"], ["2026-09-11T04:00:00Z", "2026-09-14T04:00:00Z",
+                                                "2026-09-14T10:00:00Z", "2026-09-14T11:00:00Z",
+                                                "2026-09-14T11:42:17Z"])
+        self.assertEqual(actual["values"], [62.0, 63.4, 63.1, 63.2, 63.25])   # the NaN bar is dropped
+        self.assertEqual(actual["volumes"], [310000, 300000, 20000, 20000, 41000])
 
-    def test_historical_data_uses_matured_target_timestamps(self):
-        class PredictorStub:
-            def __init__(self):
-                self.stored_actual_prices = {
-                    "2026-03-28T10:00:00": {
-                        "timestamp": "2026-03-28T10:00:00",
-                        "price": 100.0,
-                        "volume": 1200,
-                    }
-                }
-                self.stored_predictions = {
-                    "2026-03-28T08:00:00": {
-                        "predictions": {"1h": 101.0, "1d": 110.0},
-                        "prediction_intervals": {"1h": {"upper": 102.0, "lower": 99.0}},
-                        "current_price": 99.0,
-                    },
-                    "2026-03-28T15:00:00": {
-                        "predictions": {"1h": 102.0},
-                        "prediction_intervals": {"1h": {"upper": 103.0, "lower": 100.0}},
-                        "current_price": 100.0,
-                    },
-                }
+    def test_the_quote_is_appended_only_when_newer_than_the_newest_bar(self):
+        # A quote never displaces or interleaves with exchange bars.
+        for stamp in ("2026-09-14T11:00:00Z", "2026-09-14T10:30:00Z", "not a time", None):
+            with self.subTest(stamp=stamp):
+                actual = self._chart(live_quote=(stamp, 63.25, 41000))
+                self.assertNotIn("live", actual["kinds"])
+                self.assertEqual(len(actual["values"]), 4)
+        for price in (0.0, -37.63, float("nan"), None):
+            with self.subTest(price=price):
+                self.assertNotIn("live", self._chart(live_quote=("2026-09-14T11:42:17Z", price, 1))["kinds"])
 
-            def get_wti_historical_data(self, period="6mo", interval="1d"):
-                return pd.DataFrame()
+    def test_without_hourly_bars_the_daily_history_runs_to_the_quote(self):
+        frames = self._frames()
+        frames["1h"] = pd.DataFrame()
+        actual = self._chart(live_quote=("2026-09-15T13:00:00Z", 63.5, 0), frames=frames)
+        self.assertEqual(actual["kinds"], ["1d", "1d", "1d", "live"])
 
-            def _safe_parse_iso(self, value):
-                return datetime.fromisoformat(value)
+    def test_download_failures_are_logged_by_type_only(self):
+        secret = "https://query1.finance.yahoo.com/?crumb=provider-secret\nFAKE_SUCCESS"
+        with patch("backend.oil._chart_bars", side_effect=RuntimeError(secret)), \
+                self.assertLogs("backend.oil", level="WARNING") as logs:
+            actual = get_historical_data(live_quote=("2026-09-15T13:00:00Z", 63.5, 0))["actual"]
+        output = "\n".join(logs.output)
+        self.assertIn("Daily chart history unavailable error_type=RuntimeError", output)
+        self.assertIn("Hourly chart history unavailable error_type=RuntimeError", output)
+        self.assertNotIn("provider-secret", output)
+        # Only the quote is left: the deploy validator rejects a chart without a market bar.
+        self.assertEqual(actual["kinds"], ["live"])
 
-        with patch("backend.oil.get_premium_predictor", return_value=PredictorStub()):
-            payload = get_historical_data(limit=50)
+    def test_long_histories_are_thinned_but_keep_the_newest_point(self):
+        index = pd.date_range("2010-01-01", periods=5000, freq="D", tz="UTC")
+        frames = {"1d": pd.DataFrame({"Close": [50.0 + i * 0.001 for i in range(5000)], "Volume": 1}, index=index),
+                  "1h": pd.DataFrame()}
+        actual = self._chart(live_quote=("2030-01-01T00:00:00Z", 60.0, 0), frames=frames)
+        self.assertLessEqual(len(actual["values"]), oil.CHART_MAX_POINTS)
+        self.assertEqual(actual["kinds"][-1], "live")
+        self.assertEqual(actual["timestamps"], sorted(actual["timestamps"]))
 
-        backend_tz = datetime.now().astimezone().tzinfo
-        expected_actual_timestamp = pd.Timestamp("2026-03-28T10:00:00").tz_localize(backend_tz).tz_convert("UTC").isoformat().replace("+00:00", "Z")
-        expected_issue_timestamp = pd.Timestamp("2026-03-28T08:00:00").tz_localize(backend_tz).tz_convert("UTC").isoformat().replace("+00:00", "Z")
-        expected_target_timestamp = pd.Timestamp("2026-03-28T09:00:00").tz_localize(backend_tz).tz_convert("UTC").isoformat().replace("+00:00", "Z")
-
-        actual_history = payload["actual"]
-        hourly_history = payload["predicted"]["historical_by_horizon"]["1h"]
-        daily_history = payload["predicted"]["historical_by_horizon"]["1d"]
-        issued_daily_history = payload["predicted"]["issued_by_horizon"]["1d"]
-        issued_hourly_history = payload["predicted"]["issued_by_horizon"]["1h"]
-
-        self.assertEqual(actual_history["timestamps"], [expected_actual_timestamp])
-        self.assertEqual(hourly_history["issue_timestamps"], [expected_issue_timestamp])
-        self.assertEqual(hourly_history["target_timestamps"], [expected_target_timestamp])
-        self.assertEqual(hourly_history["timestamps"], [expected_target_timestamp])
-        self.assertEqual(hourly_history["values"], [101.0])
-        self.assertEqual(daily_history["values"], [])
-        self.assertEqual(issued_daily_history["issue_timestamps"], [expected_issue_timestamp])
-        self.assertEqual(issued_daily_history["values"], [110.0])
-        self.assertEqual(len(issued_hourly_history["values"]), 2)
+    def test_bars_are_cached_briefly(self):
+        frame = self._frames()["1d"]
+        oil._chart_cache.clear()
+        self.addCleanup(oil._chart_cache.clear)
+        with patch("backend.oil._yf_history_with_retry", return_value=frame) as download, \
+                patch.object(oil.time, "time", side_effect=[1000.0, 1030.0, 1100.0]):
+            oil._chart_bars("10y", "1d")
+            oil._chart_bars("10y", "1d")              # 30 s later: cached
+            oil._chart_bars("10y", "1d")              # 100 s later: downloaded again
+        self.assertEqual(download.call_count, 2)
+        download.assert_called_with("CL=F", period="10y", interval="1d", timeout=15)
 
 
 if __name__ == "__main__":

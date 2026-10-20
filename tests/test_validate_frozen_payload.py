@@ -1,20 +1,45 @@
 import copy
 import json
+import subprocess
+import sys
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from scripts.validate_frozen_payload import validate_payload
+from scripts.validate_frozen_payload import (
+    RETRACTED_MODEL_FIELDS,
+    research_payload_path,
+    validate_payload,
+    validate_research,
+)
+
+FIXTURES = Path(__file__).parent / "fixtures"
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class FrozenPayloadValidationTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        fixture = Path(__file__).parent / "fixtures" / "valid_frozen_payload.json"
-        cls.valid = json.loads(fixture.read_text(encoding="utf-8"))
+        # A real schema_version 3 freeze (python freeze.py --out public) with the chart trimmed.
+        cls.valid = json.loads((FIXTURES / "valid_frozen_payload.json").read_text(encoding="utf-8"))
+
+    def mutated(self, mutate):
+        payload = copy.deepcopy(self.valid)
+        mutate(payload)
+        return payload
 
     def test_valid_fixture_satisfies_render_invariants(self):
-        self.assertEqual(validate_payload(self.valid), [])
+        notes = []
+        self.assertEqual(validate_payload(self.valid, warnings=notes), [])
+        self.assertEqual(notes, [])
+        # No direction-model output is needed (or allowed): the v2 hard gate is gone.
+        self.assertNotIn("multi_horizon_predictions", self.valid)
+
+    def test_schema_version_must_be_3(self):
+        for version in (None, 2, "3", 3.5):
+            with self.subTest(version=version):
+                payload = self.mutated(lambda p: p.update(schema_version=version))
+                self.assertIn("schema_version must be 3", validate_payload(payload))
 
     def test_rejects_string_and_non_finite_prices(self):
         for bad_price in ("76.54", float("nan"), float("inf"), -1.0):
@@ -42,7 +67,7 @@ class FrozenPayloadValidationTest(unittest.TestCase):
             max_age_minutes=30,
         )
         self.assertIn("frozen_at is older than 30 minutes", errors)
-
+        self.assertEqual(validate_payload(self.valid, now=frozen + timedelta(minutes=29), max_age_minutes=30), [])
 
     def test_null_daily_change_is_allowed_but_strings_are_not(self):
         payload = copy.deepcopy(self.valid)
@@ -62,10 +87,16 @@ class FrozenPayloadValidationTest(unittest.TestCase):
         errors = validate_payload(payload)
         self.assertIn("current_price disagrees with the latest market bar by more than 5%", errors)
 
+    def test_the_fixture_chart_ends_with_the_quote_as_a_live_point(self):
+        actual = self.valid["unified_data"]["actual"]
+        self.assertEqual(actual["kinds"][-1], "live")
+        self.assertEqual(actual["values"][-1], self.valid["current_price"])
+        self.assertEqual({"1d", "1h"}, set(actual["kinds"][:-1]))
+
     def test_chart_check_skips_the_quote_appended_as_a_live_point(self):
-        # As in every deployed snapshot, the server appends the quote it forecast from (stamped when
-        # it was stored) after the Yahoo bars, so the old check compared 100.30 with itself and
-        # passed. The last real bar (here from a series 6% away) is what has to agree with the quote.
+        # The server appends the quote after the Yahoo bars, so comparing the last point with the
+        # quote compares 100.30 with itself. The last real bar (here from a series 6% away) is what
+        # has to agree with the quote; untagged payloads tell it apart by its time.
         payload = copy.deepcopy(self.valid)
         payload["current_price"] = 100.3
         payload["contract"]["market_time"] = "2026-09-18T21:00:00Z"
@@ -81,8 +112,8 @@ class FrozenPayloadValidationTest(unittest.TestCase):
                          validate_payload(payload))
 
     def test_chart_check_skips_live_points_by_kind(self):
-        # A live quote stamped before the quote's exchange time (e.g. a stored tick from earlier in
-        # the session) is still not a market bar; the payload's kinds say so.
+        # A live quote stamped before the quote's exchange time is still not a market bar; the
+        # payload's kinds say so.
         payload = copy.deepcopy(self.valid)
         payload["current_price"] = 100.3
         payload["contract"]["market_time"] = "2026-09-18T21:00:00Z"
@@ -109,7 +140,7 @@ class FrozenPayloadValidationTest(unittest.TestCase):
 
     def test_chart_without_market_bars_is_rejected(self):
         payload = copy.deepcopy(self.valid)
-        payload["contract"]["market_time"] = "2026-01-15T10:00:00Z"   # before every chart point
+        payload["contract"]["market_time"] = "2026-09-01T10:00:00Z"   # before every chart point
         self.assertIn("the chart has no market bar at or before the quote time", validate_payload(payload))
 
     def test_chart_check_needs_the_quote_time(self):
@@ -124,41 +155,249 @@ class FrozenPayloadValidationTest(unittest.TestCase):
     def test_never_older_than_the_published_snapshot(self):
         # The publish job passes the live site's frozen_at: a re-run of an old run must not roll it back.
         frozen = self.valid["frozen_at"]
+        moment = datetime.fromisoformat(frozen)
         self.assertEqual(validate_payload(self.valid, not_older_than=frozen), [])   # same snapshot
-        self.assertEqual(validate_payload(self.valid, not_older_than="2026-01-15T11:00:00+00:00"), [])
+        self.assertEqual(validate_payload(self.valid, not_older_than=(moment - timedelta(hours=4)).isoformat()), [])
         self.assertIn("frozen_at is older than the snapshot already published",
-                      validate_payload(self.valid, not_older_than="2026-01-15T16:17:00Z"))
+                      validate_payload(self.valid, not_older_than=(moment + timedelta(hours=4)).isoformat()))
         self.assertIn("the published snapshot's frozen_at is not an aware ISO-8601 timestamp",
-                      validate_payload(self.valid, not_older_than="2026-01-15 16:17"))
-
-    def test_rejects_percentage_that_contradicts_its_prediction(self):
-        payload = copy.deepcopy(self.valid)
-        payload["multi_horizon_predictions"]["percentage_changes"]["1w"] = 25.0
-        self.assertIn("percentage_changes.1w disagrees with its prediction", validate_payload(payload))
-
-    def test_rejects_significance_flag_that_contradicts_p_value(self):
-        # A flipped flag would publish a LONG/SHORT lean for a model with p = 0.71.
-        payload = copy.deepcopy(self.valid)
-        payload["performance_metrics"]["by_horizon"]["1w"]["wf_is_significant"] = True
-        self.assertIn("wf_is_significant contradicts wf_p_value", validate_payload(payload))
+                      validate_payload(self.valid, not_older_than="2026-10-20 16:17"))
 
     def test_market_data_freshness_uses_the_quote_time(self):
         payload = copy.deepcopy(self.valid)
-        payload["contract"]["market_time"] = "2025-11-15T12:00:00Z"   # two months stale
+        payload["contract"]["market_time"] = "2026-08-15T12:00:00Z"   # two months stale
         errors = validate_payload(payload, max_market_age_days=4)
         self.assertIn("quote is more than 4 days older than the snapshot", errors)
         self.assertEqual(validate_payload(self.valid, max_market_age_days=4), [])
 
-    def test_vol_card_is_optional_but_validated_when_present(self):
+    def test_retracted_direction_model_statement_is_required(self):
+        for block in (None, {}, {"status": "ACTIVE"}, "RETRACTED"):
+            with self.subTest(block=block):
+                payload = self.mutated(lambda p: p.update(retracted_direction_model=block))
+                self.assertIn("retracted_direction_model.status must be RETRACTED", validate_payload(payload))
+
+    def test_retracted_direction_model_output_is_never_published(self):
+        # A stale renderer that still runs the retracted model must not get its forecast onto the site.
+        for field in RETRACTED_MODEL_FIELDS:
+            with self.subTest(field=field):
+                payload = self.mutated(lambda p: p.update({field: {}}))
+                self.assertIn(f"retracted direction-model output must not be published: {field}",
+                              validate_payload(payload))
+        payload = self.mutated(lambda p: p["unified_data"].update(predicted={"future": {}}))
+        self.assertIn("retracted direction-model output must not be published: unified_data.predicted",
+                      validate_payload(payload))
+
+    def test_supply_shock_playbook_is_optional(self):
+        notes = []
+        payload = self.mutated(lambda p: p.pop("supply_shock_playbook"))
+        self.assertEqual(validate_payload(payload, warnings=notes), [])
+        self.assertTrue(any("supply_shock_playbook is absent" in note for note in notes))
+
+
+class VolForecastValidationTest(unittest.TestCase):
+    """The volatility forecast is the product: required, and every rendered number sane."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.valid = json.loads((FIXTURES / "valid_frozen_payload.json").read_text(encoding="utf-8"))
+
+    def errors_with(self, mutate):
+        payload = copy.deepcopy(self.valid)
+        mutate(payload["vol_forecast"])
+        return validate_payload(payload)
+
+    def live_with(self, **fields):
+        return self.errors_with(lambda vol: vol["live"].update(fields))
+
+    def test_the_fixture_carries_the_real_forecast(self):
+        live = self.valid["vol_forecast"]["live"]
+        self.assertEqual(live["model_version"], "har-iv/2")
+        self.assertIsNotNone(live["interval_80"])
+
+    def test_vol_forecast_is_required(self):
+        for value in (None, [], "missing"):
+            with self.subTest(value=value):
+                payload = copy.deepcopy(self.valid)
+                payload["vol_forecast"] = value
+                self.assertIn("vol_forecast is required", validate_payload(payload))
         payload = copy.deepcopy(self.valid)
         del payload["vol_forecast"]
-        notes = []
-        self.assertEqual(validate_payload(payload, warnings=notes), [])
-        self.assertTrue(any("vol_forecast is absent" in n for n in notes))
+        self.assertIn("vol_forecast is required", validate_payload(payload))
+
+    def test_forecast_median_and_current_vol_must_be_finite_and_positive(self):
+        for key in ("forecast_next_week_vol_annualized_pct", "forecast_median_pct",
+                    "current_realized_vol_5d_annualized_pct"):
+            for bad in (0, -1.0, float("nan"), float("inf"), "47.6", None, True):
+                with self.subTest(key=key, bad=bad):
+                    errors = self.live_with(**{key: bad})
+                    self.assertIn(f"vol_forecast.live.{key} must be finite and positive", errors)
+
+    def test_direction_must_be_rising_or_falling(self):
+        for bad in ("UP", "rising", None, ""):
+            with self.subTest(bad=bad):
+                self.assertIn("vol_forecast.live.direction must be RISING or FALLING",
+                              self.live_with(direction=bad))
+        self.assertEqual(self.live_with(direction="FALLING"), [])
+
+    def test_probability_must_be_a_percentage(self):
+        for bad in (-0.1, 100.1, None, float("nan"), "58.3"):
+            with self.subTest(bad=bad):
+                self.assertIn("vol_forecast.live.prob_vol_rises_pct must be a percentage",
+                              self.live_with(prob_vol_rises_pct=bad))
+        for good in (0, 100, 58.3):
+            with self.subTest(good=good):
+                self.assertEqual(self.live_with(prob_vol_rises_pct=good), [])
+
+    def test_interval_must_contain_the_median_when_present(self):
+        median = self.valid["vol_forecast"]["live"]["forecast_median_pct"]
+        for low, high in ((median + 1, median + 20), (median - 20, median - 1), (median + 5, median - 5)):
+            with self.subTest(low=low, high=high):
+                self.assertIn("vol_forecast.live.interval_80 must contain the median forecast",
+                              self.live_with(interval_80={"low_pct": low, "high_pct": high}))
+        self.assertEqual(self.live_with(interval_80={"low_pct": median, "high_pct": median}), [])
+        # Without OVX the forecaster publishes no interval: allowed.
+        self.assertEqual(self.live_with(interval_80=None), [])
+        self.assertEqual(self.errors_with(lambda vol: vol["live"].pop("interval_80")), [])
+
+    def test_interval_bounds_must_be_finite_and_positive(self):
+        for interval in ({"low_pct": None, "high_pct": 60.0}, {"low_pct": 20.0, "high_pct": float("inf")},
+                         {"low_pct": -5.0, "high_pct": 60.0}, {}, "23-64"):
+            with self.subTest(interval=interval):
+                self.assertIn("vol_forecast.live.interval_80 bounds must be finite and positive",
+                              self.live_with(interval_80=interval))
+
+    def test_model_version_must_be_a_string(self):
+        for bad in (None, "", "  ", 2):
+            with self.subTest(bad=bad):
+                self.assertIn("vol_forecast.live.model_version must be a non-empty string",
+                              self.live_with(model_version=bad))
+
+    def test_as_of_must_be_a_date(self):
+        for bad in (None, "yesterday", "2026-10-19T00:00:00Z", 20261019):
+            with self.subTest(bad=bad):
+                self.assertIn("vol_forecast.live.as_of must be an ISO date", self.live_with(as_of=bad))
+
+    def test_as_of_at_most_four_business_days_before_the_quote_session(self):
+        # The fixture's quote is Tuesday 2026-10-20 07:51 ET; its forecast is as of Monday (1 day).
+        stale = "vol_forecast.live.as_of is more than 4 business days before the quote's session"
+        self.assertEqual(self.live_with(as_of="2026-10-14"), [])            # Wed: 4 business days
+        self.assertIn(stale, self.live_with(as_of="2026-10-13"))            # Tue: 5
+        self.assertIn(stale, self.live_with(as_of="2025-10-19"))
+        self.assertIn("vol_forecast.live.as_of is after the quote's session", self.live_with(as_of="2026-10-21"))
+
+    def test_freshness_anchor_is_the_cme_session_of_the_quote_time(self):
+        # 18:30 ET belongs to the next day's session, so Wednesday's forecast is fresh against it and
+        # a forecast as of the previous Wednesday is now five sessions old.
         payload = copy.deepcopy(self.valid)
-        payload["vol_forecast"]["validation"]["har_dir_acc_pct"] = 172.0
-        self.assertIn("vol_forecast.validation.har_dir_acc_pct must be a percentage",
+        payload["contract"]["market_time"] = "2026-10-20T22:30:00Z"
+        payload["vol_forecast"]["live"]["as_of"] = "2026-10-21"
+        self.assertNotIn("vol_forecast.live.as_of is after the quote's session", validate_payload(payload))
+        payload["vol_forecast"]["live"]["as_of"] = "2026-10-14"
+        self.assertIn("vol_forecast.live.as_of is more than 4 business days before the quote's session",
                       validate_payload(payload))
+
+    def test_freshness_falls_back_to_frozen_at_without_a_quote_time(self):
+        payload = copy.deepcopy(self.valid)
+        del payload["contract"]["market_time"]
+        payload["vol_forecast"]["live"]["as_of"] = "2026-09-01"
+        notes = []
+        self.assertIn("vol_forecast.live.as_of is more than 4 business days before the quote's session",
+                      validate_payload(payload, warnings=notes))
+        self.assertTrue(any("vol_forecast freshness was checked against frozen_at" in n for n in notes))
+
+    def test_validation_sample_size_must_be_a_positive_integer(self):
+        for bad in (0, -1, 1.5, True, "927", None):
+            with self.subTest(bad=bad):
+                self.assertIn("vol_forecast.validation.n must be a positive integer",
+                              self.errors_with(lambda vol: vol["validation"].update(n=bad)))
+
+    def test_validation_qlike_must_be_finite(self):
+        for bad in (None, float("nan"), float("inf"), "0.19"):
+            with self.subTest(bad=bad):
+                self.assertIn("vol_forecast.validation.har_qlike must be finite",
+                              self.errors_with(lambda vol: vol["validation"].update(har_qlike=bad)))
+
+    LIVE_RECORD = {
+        "started": "2026-10-20", "n_recorded": 3, "n_resolved": 1, "n_pending": 2, "n_skipped_roll": 0,
+        "n_independent": 1,
+        "champion": {"model_version": "har-iv/2", "qlike": 0.2, "interval_80_coverage_pct": 100.0,
+                     "direction_hit_pct": 100.0, "mean_forecast_pct": 47.6, "mean_realized_pct": 44.0},
+        "challenger": {"key": "har_iv_range", "qlike": 0.21},
+        "recent": [{"as_of": "2026-10-19", "issued_at": "2026-10-20T12:01:59Z", "target_start": "2026-10-20",
+                    "target_end": "2026-10-26", "forecast_pct": 47.6, "median_pct": 40.0, "lo80_pct": 23.3,
+                    "hi80_pct": 63.9, "challenger_pct": 48.4, "realized_pct": None, "status": "pending"}],
+        "promotion_rule": "...",
+    }
+
+    def test_live_record_is_optional_but_well_formed_when_present(self):
+        self.assertNotIn("live_record", self.valid["vol_forecast"])
+        record = copy.deepcopy(self.LIVE_RECORD)
+        self.assertEqual(self.errors_with(lambda vol: vol.update(live_record=record)), [])
+        empty = {**record, "n_recorded": 0, "n_resolved": 0, "n_pending": 0, "n_independent": 0, "recent": []}
+        self.assertEqual(self.errors_with(lambda vol: vol.update(live_record=empty)), [])
+
+    def test_live_record_counts_must_be_non_negative_integers(self):
+        for key in ("n_recorded", "n_resolved", "n_pending", "n_skipped_roll", "n_independent"):
+            for bad in (-1, 1.0, True, "3", None):
+                with self.subTest(key=key, bad=bad):
+                    record = {**self.LIVE_RECORD, key: bad}
+                    self.assertIn(f"vol_forecast.live_record.{key} must be a non-negative integer",
+                                  self.errors_with(lambda vol: vol.update(live_record=record)))
+
+    def test_live_record_recent_must_be_a_list_of_objects(self):
+        for bad in (None, {}, "[]", [1, 2], [{"status": "pending"}, None]):
+            with self.subTest(bad=bad):
+                record = {**self.LIVE_RECORD, "recent": bad}
+                self.assertIn("vol_forecast.live_record.recent must be a list of objects",
+                              self.errors_with(lambda vol: vol.update(live_record=record)))
+        self.assertIn("vol_forecast.live_record must be an object",
+                      self.errors_with(lambda vol: vol.update(live_record=[])))
+
+
+class ResearchValidationTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.research = json.loads((FIXTURES / "research.json").read_text(encoding="utf-8"))
+
+    def test_valid_research_bundle_passes(self):
+        self.assertEqual(validate_research(self.research), [])
+
+    def test_builder_checks_are_applied(self):
+        broken = copy.deepcopy(self.research)
+        broken["schema_version"] = 2
+        broken["vol_lab"]["series"]["actual"] = broken["vol_lab"]["series"]["actual"][:-1]
+        broken["postmortem"]["ten_year"]["leaked"]["equity"] = []
+        self.assertEqual(validate_research(broken), [
+            "research.json: schema_version",
+            "research.json: series.actual length",
+            "research.json: postmortem.ten_year.equity",
+        ])
+
+    def test_malformed_research_is_reported_not_a_crash(self):
+        self.assertEqual(validate_research([]), ["research.json: root must be a JSON object"])
+        self.assertEqual(validate_research({"schema_version": 1, "vol_lab": {"series": ["actual"]}}),
+                         ["research.json: malformed (AttributeError)"])
+
+    def test_only_the_published_or_fixture_research_path_is_accepted(self):
+        self.assertEqual(research_payload_path("public/research.json").name, "research.json")
+        self.assertEqual(research_payload_path("tests/fixtures/research.json").parent.name, "fixtures")
+        for bad in ("../research.json", "/tmp/research.json", "public/data.json", "data/vol_lab.json"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                research_payload_path(bad)
+
+    def _cli(self, *args):
+        return subprocess.run(  # nosec B603 - fixed argv: this interpreter and the repository's script
+            [sys.executable, "scripts/validate_frozen_payload.py", *args],
+            cwd=ROOT, capture_output=True, text=True, timeout=60, check=False,
+        )
+
+    def test_cli_validates_both_files(self):
+        result = self._cli("tests/fixtures/valid_frozen_payload.json", "--research", "tests/fixtures/research.json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("data.json and research.json", result.stdout)
+        refused = self._cli("tests/fixtures/valid_frozen_payload.json", "--research", "data/vol_lab.json")
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("research.json is unreadable error_type=ValueError", refused.stderr)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,8 @@
-"""Thread safety, performance and per-session storage of the live forecast/quote stores (backend.oil)."""
+"""Thread safety, performance and per-session storage of PremiumWTIPredictor's forecast/quote stores.
+
+The direction model is retracted and off the production path; its class is kept (and tested) so the
+post-mortem backtest stays reproducible.
+"""
 
 import random
 import tempfile
@@ -11,7 +15,7 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from backend import oil
-from backend.oil import PremiumWTIPredictor, get_historical_data, horizon_target_time
+from backend.oil import PremiumWTIPredictor, horizon_target_time
 
 ET = ZoneInfo("America/New_York")
 
@@ -240,7 +244,7 @@ class AccuracyPerformanceTest(unittest.TestCase):
 
 
 class ConcurrentStoreTest(unittest.TestCase):
-    def test_price_thread_writes_while_accuracy_and_chart_readers_iterate(self):
+    def test_quote_writes_while_the_accuracy_reader_iterates(self):
         with tempfile.TemporaryDirectory() as tmp:
             predictor = make_store_predictor(tmp)
             now = datetime.now(timezone.utc)
@@ -280,15 +284,7 @@ class ConcurrentStoreTest(unittest.TestCase):
                     predictor._get_recent_realized_abs_errors("1w", relative=True)
                     time.sleep(0.001)
 
-            def chart_reader():
-                from unittest.mock import patch
-                with patch("backend.oil.get_premium_predictor", return_value=predictor), \
-                        patch.object(predictor, "get_wti_historical_data", side_effect=RuntimeError("offline")):
-                    while not stop.is_set():
-                        get_historical_data(limit=50)
-                        time.sleep(0.001)
-
-            threads = [threading.Thread(target=guarded(fn)) for fn in (writer, accuracy_reader, chart_reader)]
+            threads = [threading.Thread(target=guarded(fn)) for fn in (writer, accuracy_reader)]
             for thread in threads:
                 thread.start()
             for thread in threads:
