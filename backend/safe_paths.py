@@ -38,6 +38,11 @@ def _trusted_file(root: Path, filename: str) -> Path:
 
 def data_json_path(value: str | os.PathLike[str]) -> Path:
     normalized = _normalized_argument(value)
+    # Secondary-research artifacts: the supply-shock placebo study, the leak anatomy and the
+    # research ledger (each written by its own backend module).
+    for study_artifact in ("supply_shock_study.json", "leak_anatomy.json", "research_ledger.json"):
+        if normalized in {study_artifact, f"data/{study_artifact}", f"./data/{study_artifact}"}:
+            return _trusted_file(DATA_ROOT, study_artifact)
     if normalized in {
         "signal_state.json",
         "data/signal_state.json",
