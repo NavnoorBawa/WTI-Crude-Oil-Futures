@@ -483,6 +483,62 @@ def ledger_block() -> str:
     return "\n".join(out)
 
 
+def design_block() -> str:
+    lab = _lab()
+    c, smp = lab["config"], lab["sample"]
+    mcs = c["mcs"]
+    return "\n".join([
+        f"- **Target.** Annualized realized volatility of the next {c['horizon_sessions']} settlement-to-settlement "
+        f"log returns of `CL=F`, the front-month NYMEX WTI future.",
+        f"- **Decision time.** The 14:30 ET settlement that opens the target window. Every input is published by "
+        f"then; OVX, which settles at 16:15 ET, enters with a {c['ovx_lag_sessions']}-session lag.",
+        f"- **Walk-forward.** Expanding window from the first {c['min_train_rows']} rows, refit every "
+        f"{c['step']} sessions. The last {c['purge_rows']} training rows are purged at every step, because their "
+        f"targets overlap the test target and are not known at the decision.",
+        f"- **Sample.** {smp['n_days']:,} out-of-sample days, {smp['first']} to {smp['last']}. Losses and "
+        f"tests use every day. Each of the five weekday sampling grids ({smp['n_weeks']} non-overlapping weeks) "
+        f"is also scored on its own, and VaR is scored only there, since it needs independent outcomes.",
+        f"- **Forecasts.** Losses, VaR and risk use the variance-consistent forecast (the median times a Duan "
+        f"smearing factor). The direction call and the intervals use the median.",
+        f"- **Inference.** Model Confidence Set at {100 - mcs['size'] * 100:g}% ({mcs['statistic']} statistic, "
+        f"{mcs['reps']:,} {mcs['bootstrap']}-bootstrap replications, blocks of {mcs['block_daily']} days or "
+        f"{mcs['block_weekly']} weeks, seed {mcs['seed']}); Diebold-Mariano with Newey-West variance and the "
+        f"Harvey-Leybourne-Newbold correction; Hansen's SPA across the whole field.",
+    ])
+
+
+def promotion_rule() -> str:
+    from backend.vol_record import PROMOTION_RULE
+
+    return f"> {PROMOTION_RULE}"
+
+
+def promotion_power(min_weeks: int = 52, alpha: float = 0.10) -> str:
+    """Power of the promotion rule if the challenger's historical edge is its true edge.
+
+    The per-grid Diebold-Mariano statistics are on ~n_weeks non-overlapping weeks, so the expected
+    statistic after w independent weeks is about stat * sqrt(w / n_weeks)."""
+    from statistics import NormalDist, median
+
+    from backend.vol_record import PROMOTION_RULE
+
+    if str(min_weeks) not in PROMOTION_RULE or f"{alpha:.2f}" not in PROMOTION_RULE:
+        raise ValueError("promotion_power's constants no longer match vol_record.PROMOTION_RULE")
+    lab = _lab()
+    chall = _model(lab, lab["config"]["challenger"])
+    n_weeks = lab["sample"]["n_weeks"]
+    stat = median(chall["dm_qlike_vs_har_iv_by_grid"])
+    z = NormalDist()
+    crit = z.inv_cdf(1 - alpha)
+    power = 1 - z.cdf(crit - stat * (min_weeks / n_weeks) ** 0.5)
+    weeks_80 = n_weeks * ((crit + z.inv_cdf(0.80)) / stat) ** 2
+    return (f"How long the forward record needs: on the weekly grids the challenger's historical edge is a "
+            f"Diebold-Mariano statistic of about {stat:.1f} over {n_weeks} weeks. If that is its true edge, "
+            f"{min_weeks} independent weeks give the rule a {power * 100:.0f}% chance of promoting it, and 80% "
+            f"power takes about {weeks_80:,.0f} weeks ({weeks_80 / 52:.0f} years). The rule is built not to "
+            f"promote on luck. A challenger still unpromoted after a year has not been shown to be worse.")
+
+
 def print_block(name: str) -> None:
     """Entry point for cog: `[[[cog import scripts.readme_blocks as b; b.print_block("leaderboard_table") ]]]`."""
     import cog  # provided by cogapp at generation time
