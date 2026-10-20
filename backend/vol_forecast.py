@@ -426,6 +426,62 @@ def same_contract_returns(r: np.ndarray, dates: pd.DatetimeIndex,
     return out, rebuilt, end
 
 
+def _nw_regression(y: np.ndarray, x: np.ndarray) -> dict | None:
+    """OLS of y on [1, x] with a Newey-West slope t-statistic; None when too short."""
+    yv, xv = np.asarray(y, float), np.asarray(x, float)
+    if yv.size < 24:
+        return None
+    A = np.column_stack([np.ones(yv.size), xv])
+    beta, *_ = np.linalg.lstsq(A, yv, rcond=None)
+    resid = yv - A @ beta
+    xc = xv - xv.mean()
+    lrv, lags = newey_west_lrv(xc * resid)
+    se = np.sqrt(lrv / yv.size) / (xc @ xc / yv.size) if lrv > 0 else float("nan")
+    t = float(beta[1] / se) if np.isfinite(se) and se > 0 else 0.0
+    return {"slope": round(float(beta[1]), 4), "t_hac": round(t, 2), "p_value": round(float(2 * norm.sf(abs(t))), 3),
+            "n": int(yv.size), "lags": int(lags)}
+
+
+def _risk_profile(weekly: np.ndarray, periods_per_year: float) -> dict:
+    """Risk-control scorecard of a weekly return series: realized vol vs the target, vol of vol
+    (dispersion of 26-week realized vol), kurtosis, worst week, 97.5% expected shortfall and drawdown."""
+    w = np.asarray(weekly, dtype=float)
+    rolling = pd.Series(w).rolling(26).std().dropna().to_numpy() * np.sqrt(periods_per_year)
+    wealth = np.cumprod(1.0 + w)
+    drawdown = 1.0 - wealth / np.maximum.accumulate(wealth)
+    tail = np.sort(w)[: max(1, int(np.ceil(0.025 * w.size)))]
+    return {
+        "sharpe": _sharpe(w, periods_per_year),
+        "realized_vol_pct": _pct(np.std(w, ddof=1) * np.sqrt(periods_per_year)),
+        "vol_of_vol_pct": _pct(np.std(rolling, ddof=1)) if rolling.size > 1 else None,
+        "excess_kurtosis": round(float(pd.Series(w).kurt()), 2),
+        "worst_week_pct": _pct(w.min()),
+        "expected_shortfall_97_5_pct": _pct(tail.mean()),
+        "max_drawdown_pct": _pct(drawdown.max()),
+    }
+
+
+def _sharpe_difference(a: np.ndarray, b: np.ndarray, periods_per_year: float, reps: int = 2000) -> dict:
+    """Sharpe(a) - Sharpe(b) with a stationary block bootstrap p-value (two-sided), preserving the
+    serial dependence and the cross-correlation of the two weekly series (Ledoit-Wolf 2008 spirit)."""
+    from arch.bootstrap import StationaryBootstrap
+
+    x, y = np.asarray(a, float), np.asarray(b, float)
+
+    def diff(u, v):
+        su, sv = np.std(u, ddof=1), np.std(v, ddof=1)
+        return (np.mean(u) / su - np.mean(v) / sv) * np.sqrt(periods_per_year) if su > 0 and sv > 0 else 0.0
+
+    observed = diff(x, y)
+    block = max(2, int(round(x.size ** (1 / 3))))
+    boot = StationaryBootstrap(block, x, y, seed=NOISE_FLOOR_SEED)
+    draws = np.array([diff(u, v) for (u, v), _ in boot.bootstrap(reps)])
+    centered = draws - draws.mean()
+    p = float(np.mean(np.abs(centered) >= abs(observed)))
+    return {"difference": round(float(observed), 2), "p_value": round(p, 3),
+            "ci95": [round(float(np.quantile(draws, 0.025)), 2), round(float(np.quantile(draws, 0.975)), 2)]}
+
+
 def _economic_tests(d: pd.DataFrame, r: np.ndarray, dates: pd.DatetimeIndex,
                     curve: pd.DataFrame | None = None) -> dict:
     """Out-of-sample economic value: a vol-targeting overlay and the variance risk premium.
@@ -459,20 +515,31 @@ def _economic_tests(d: pd.DataFrame, r: np.ndarray, dates: pd.DatetimeIndex,
     }
     ppy = 252.0 / STEP
     week = np.array([np.expm1(r[p + 1 : p + 1 + H].sum()) for p in pos])   # next-week simple return
-    buy_hold = _overlay_returns(np.ones(len(week)), week)
-    naive = _overlay_returns(np.minimum(LEVERAGE_CAP, TARGET_VOL / dd["rv22"].to_numpy()), week)
-    model = _overlay_returns(np.minimum(LEVERAGE_CAP, TARGET_VOL / dd["pred"].to_numpy()), week)
+    # Size on the variance-consistent forecast: a vol target is a variance target.
+    books = {
+        "buy_hold": _overlay_returns(np.ones(len(week)), week),
+        "trailing_vol_target": _overlay_returns(np.minimum(LEVERAGE_CAP, TARGET_VOL / dd["rv22"].to_numpy()), week),
+        "forecast_vol_target": _overlay_returns(np.minimum(LEVERAGE_CAP, TARGET_VOL / dd["pred_mean"].to_numpy()), week),
+    }
+    risk = {name: _risk_profile(ret, ppy) for name, ret in books.items()}
     out["vol_target_overlay"] = {
         "n_weeks": int(len(week)),
-        "sharpe_buy_hold": _sharpe(buy_hold, ppy),
-        "sharpe_trailing_vol_target": _sharpe(naive, ppy),
-        "sharpe_forecast_vol_target": _sharpe(model, ppy),
+        "sharpe_buy_hold": risk["buy_hold"]["sharpe"],
+        "sharpe_trailing_vol_target": risk["trailing_vol_target"]["sharpe"],
+        "sharpe_forecast_vol_target": risk["forecast_vol_target"]["sharpe"],
+        # What vol targeting is for (Harvey et al. 2018): hitting the risk target and taming the tails.
+        "risk": risk,
+        "sharpe_difference_tests": {
+            "forecast_minus_buy_hold": _sharpe_difference(books["forecast_vol_target"], books["buy_hold"], ppy),
+            "forecast_minus_trailing": _sharpe_difference(books["forecast_vol_target"], books["trailing_vol_target"], ppy),
+        },
         "target_vol_pct": _pct(TARGET_VOL),
         "leverage_cap": LEVERAGE_CAP,
         "cost_bps_per_turn": round(COST_PER_TURN * 1e4, 1),
         "method": ("Weekly rebalanced long front-month WTI, rolled at each expiry (same-contract returns); "
-                   "position = min(cap, target vol / forecast vol). Trailing-vol sizing uses 22-day "
-                   "realized vol; costs on every unit of turnover."),
+                   "position = min(cap, target vol / forecast vol), sized on the variance-consistent forecast. "
+                   "Trailing-vol sizing uses 22-day realized vol; costs on every unit of turnover. Sharpe "
+                   "differences use a stationary block bootstrap."),
     }
 
     has_ovx = bool(np.isfinite(dd["ovx"]).all())
@@ -496,6 +563,11 @@ def _economic_tests(d: pd.DataFrame, r: np.ndarray, dates: pd.DatetimeIndex,
             timing_p = (float(ttest_ind(rich_pnl, cheap_pnl, equal_var=False, alternative="greater").pvalue)
                         if len(rich_pnl) > 2 and len(cheap_pnl) > 2 else None)
             starts = pd.DatetimeIndex(dd["date"].to_numpy()[idx])
+            var_premium = (implied ** 2 - realized ** 2) * 1e4            # variance points (vol pts^2)
+            lrv, _ = newey_west_lrv(var_premium)
+            half = 1.96 * np.sqrt(lrv / len(var_premium)) if lrv > 0 else 0.0
+            var_ci = (float(np.mean(var_premium) - half), float(np.mean(var_premium) + half))
+            timing_reg = _nw_regression(short_var[scored], spread[scored])
             worst = np.argsort(premium_pts)[:3]
             worst_year = int(starts[worst[0]].year)
             outside = starts.year != worst_year
@@ -517,12 +589,20 @@ def _economic_tests(d: pd.DataFrame, r: np.ndarray, dates: pd.DatetimeIndex,
                 # Both proxies without the worst year, so the gap is compared like for like.
                 "short_vol_swap_sharpe_ex_worst_year": _sharpe(premium_pts[outside], per_year),
                 "short_variance_sharpe_ex_worst_year": _sharpe(short_var[outside], per_year),
+                # The premium in VARIANCE units (what a variance swap pays), with a Newey-West 95% CI.
+                "mean_premium_variance_pts": round(float(np.mean(var_premium)), 1),
+                "mean_premium_variance_ci95": [round(float(v), 1) for v in var_ci],
+                # Timing as a regression: does (OVX - model forecast) predict the short-variance P&L?
+                "timing_regression": timing_reg,
                 "timed_rich_mean_pnl": round(float(np.mean(rich_pnl)), 4) if len(rich_pnl) else None,
                 "timed_cheap_mean_pnl": round(float(np.mean(cheap_pnl)), 4) if len(cheap_pnl) else None,
                 "timing_p_value": round(timing_p, 3) if timing_p is not None else None,
-                "method": ("OVX vs realized vol over the next 20 trading days, non-overlapping. Short-vol "
-                           "proxies: vol swap = IV - RV; variance swap per unit vega = (IV^2 - RV^2) / (2 IV). "
-                           "Timing: rich = OVX minus the model's forecast above its trailing median."),
+                "method": ("OVX (the CBOE Crude Oil ETF Volatility Index, a 30-calendar-day implied vol from "
+                           "options on the USO ETF, not on CL futures, so it carries a basis to front-month WTI) "
+                           "vs realized vol over the next 20 trading days (about 29 calendar days), non-overlapping. "
+                           "Short-vol proxies: vol swap = IV - RV; variance swap per unit vega = (IV^2 - RV^2) / (2 IV). "
+                           "Timing: short-variance P&L regressed on OVX minus the model's forecast (Newey-West t), "
+                           "and rich = that spread above its trailing median."),
             }
     return out
 

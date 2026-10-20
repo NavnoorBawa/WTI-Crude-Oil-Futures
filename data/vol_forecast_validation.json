@@ -238,10 +238,57 @@
       "sharpe_buy_hold": 0.04,
       "sharpe_trailing_vol_target": -0.09,
       "sharpe_forecast_vol_target": -0.07,
+      "risk": {
+        "buy_hold": {
+          "sharpe": 0.04,
+          "realized_vol_pct": 49.3,
+          "vol_of_vol_pct": 30.3,
+          "excess_kurtosis": 58.18,
+          "worst_week_pct": -55.3,
+          "expected_shortfall_97_5_pct": -17.8,
+          "max_drawdown_pct": 97.8
+        },
+        "trailing_vol_target": {
+          "sharpe": -0.09,
+          "realized_vol_pct": 38.0,
+          "vol_of_vol_pct": 6.4,
+          "excess_kurtosis": 1.96,
+          "worst_week_pct": -23.0,
+          "expected_shortfall_97_5_pct": -15.5,
+          "max_drawdown_pct": 95.4
+        },
+        "forecast_vol_target": {
+          "sharpe": -0.07,
+          "realized_vol_pct": 34.9,
+          "vol_of_vol_pct": 6.2,
+          "excess_kurtosis": 1.82,
+          "worst_week_pct": -19.1,
+          "expected_shortfall_97_5_pct": -13.5,
+          "max_drawdown_pct": 93.1
+        }
+      },
+      "sharpe_difference_tests": {
+        "forecast_minus_buy_hold": {
+          "difference": -0.12,
+          "p_value": 0.408,
+          "ci95": [
+            -0.39,
+            0.19
+          ]
+        },
+        "forecast_minus_trailing": {
+          "difference": 0.01,
+          "p_value": 0.764,
+          "ci95": [
+            -0.07,
+            0.09
+          ]
+        }
+      },
       "target_vol_pct": 35.0,
       "leverage_cap": 2.0,
       "cost_bps_per_turn": 5.0,
-      "method": "Weekly rebalanced long front-month WTI, rolled at each expiry (same-contract returns); position = min(cap, target vol / forecast vol). Trailing-vol sizing uses 22-day realized vol; costs on every unit of turnover."
+      "method": "Weekly rebalanced long front-month WTI, rolled at each expiry (same-contract returns); position = min(cap, target vol / forecast vol), sized on the variance-consistent forecast. Trailing-vol sizing uses 22-day realized vol; costs on every unit of turnover. Sharpe differences use a stationary block bootstrap."
     },
     "variance_risk_premium": {
       "n_periods": 200,
@@ -267,10 +314,22 @@
       "worst_year": 2020,
       "short_vol_swap_sharpe_ex_worst_year": 1.24,
       "short_variance_sharpe_ex_worst_year": 0.71,
+      "mean_premium_variance_pts": -263.3,
+      "mean_premium_variance_ci95": [
+        -1082.7,
+        556.1
+      ],
+      "timing_regression": {
+        "slope": 0.8041,
+        "t_hac": 0.78,
+        "p_value": 0.435,
+        "n": 188,
+        "lags": 4
+      },
       "timed_rich_mean_pnl": 0.0175,
       "timed_cheap_mean_pnl": -0.0104,
       "timing_p_value": 0.235,
-      "method": "OVX vs realized vol over the next 20 trading days, non-overlapping. Short-vol proxies: vol swap = IV - RV; variance swap per unit vega = (IV^2 - RV^2) / (2 IV). Timing: rich = OVX minus the model's forecast above its trailing median."
+      "method": "OVX (the CBOE Crude Oil ETF Volatility Index, a 30-calendar-day implied vol from options on the USO ETF, not on CL futures, so it carries a basis to front-month WTI) vs realized vol over the next 20 trading days (about 29 calendar days), non-overlapping. Short-vol proxies: vol swap = IV - RV; variance swap per unit vega = (IV^2 - RV^2) / (2 IV). Timing: short-variance P&L regressed on OVX minus the model's forecast (Newey-West t), and rich = that spread above its trailing median."
     }
   },
   "live": {
@@ -283,7 +342,7 @@
     "model": "HAR-IV (RV5,RV22,RV66,OVX)",
     "model_version": "har-iv/2",
     "as_of": "2026-10-19",
-    "issued_at": "2026-10-20T11:35:11.131520Z",
+    "issued_at": "2026-10-20T11:50:30.754473Z",
     "inputs": {
       "rv5_pct": 36.76,
       "rv22_pct": 36.81,
@@ -316,5 +375,5 @@
     "model": "HAR-IV (RV5,RV22,RV66,OVX)",
     "period": "max"
   },
-  "generated_at": "2026-10-20T11:35:11.209545+00:00"
+  "generated_at": "2026-10-20T11:50:30.820063+00:00"
 }
