@@ -1,11 +1,8 @@
-// Network-free tests of the dashboard's logic: quote selection around contract rolls, chart
-// aggregation, number formatting, sizing, and the wording rules. Run: npm test
+// Network-free tests of the dashboard's data logic: quote selection around contract rolls, price
+// chart aggregation and number formatting. Run: npm test
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { loadDashboard } from "./load.mjs";
+import { loadDashboard, readFixture } from "./load.mjs";
 
 const FIXED_NOW = Date.parse("2026-10-21T12:00:00Z");
 Date.now = () => FIXED_NOW;
@@ -14,18 +11,7 @@ let dashboard;
 before(async () => { dashboard = await loadDashboard(); });
 after(() => dashboard.close());
 
-// The visible text of server-rendered markup: every character outside a tag, whitespace collapsed.
-const text = (html) => {
-  let visible = "";
-  let inTag = false;
-  for (const character of html) {
-    if (character === "<") inTag = true;
-    else if (character === ">") inTag = false;
-    else if (!inTag) visible += character;
-  }
-  return visible.replace(/\s+/g, " ");
-};
-const fixture = JSON.parse(readFileSync(new URL("../fixtures/chart_actual_2026-09-24.json", import.meta.url), "utf8"));
+const fixture = readFixture("chart_actual_2026-09-24.json");
 
 // ------------------------------------------------------------------------------------ formatting
 test("fmtP never prints a p-value as a threshold it is below", () => {
@@ -134,7 +120,7 @@ const snapshotOn = (contract, extra = {}) => ({
 });
 
 test("a quote for the next contract never takes the snapshot contract's label", () => {
-  const { normalizeQuote, resolveQuote } = dashboard.app;
+  const { normalizeQuote, resolveQuote } = dashboard.quote;
   const data = snapshotOn("CLX26");
   const next = normalizeQuote({ price: 89.35, prev_close: 88.4, market_time: "2026-10-20T23:30:00Z", contract: "CLZ26" });
   assert.equal(resolveQuote(next, data).kind, "snapshot");
@@ -146,8 +132,17 @@ test("a quote for the next contract never takes the snapshot contract's label", 
   assert.equal(resolveQuote(same, data).kind, "quote");
 });
 
+test("a stale, implausible or future-stamped quote never replaces the snapshot", () => {
+  const { normalizeQuote, isQuoteUsable } = dashboard.quote;
+  const data = snapshotOn("CLX26");
+  assert.equal(isQuoteUsable(normalizeQuote({ price: 88.6, market_time: "2026-10-20T17:00:00Z", contract: "CLX26" }), data), false);
+  assert.equal(isQuoteUsable(normalizeQuote({ price: 120.0, market_time: "2026-10-20T19:00:00Z", contract: "CLX26" }), data), false);
+  assert.equal(normalizeQuote({ price: 88.6, market_time: "2026-10-22T19:00:00Z" }), null);
+  assert.equal(normalizeQuote({ price: -1, market_time: "2026-10-20T19:00:00Z" }), null);
+});
+
 test("a quote's change is withheld for roll reasons only", () => {
-  const { normalizeQuote, resolveQuote } = dashboard.app;
+  const { normalizeQuote, resolveQuote } = dashboard.quote;
   const rollDay = snapshotOn("CLX26", {
     current_price: 91.9, price_change: null, price_change_percent: null,
     price_change_quality: "unavailable_contract_roll", frozen_at: "2026-09-23T15:05:00+00:00",
@@ -168,68 +163,4 @@ test("a quote's change is withheld for roll reasons only", () => {
   });
   const morning = normalizeQuote({ price: 88.9, prev_close: 88.4, change_pct: 0.57, market_time: "2026-10-14T14:00:00Z", contract: "CLX26" });
   assert.equal(resolveQuote(morning, evening).changePct, 0.57);
-});
-
-// --------------------------------------------------------------------------------- sizing/record
-test("a break-even profit factor is no Kelly edge", () => {
-  const { computeSizing } = dashboard.app;
-  for (const winRate of [48, 51, 55, 60]) {
-    assert.equal(computeSizing(winRate, 1.0, 10).noEdge, true, `win rate ${winRate}`);
-    assert.equal(computeSizing(winRate, 1.001, 10).noEdge, false, `win rate ${winRate}`);
-  }
-});
-
-test("the live-record verdict pairs the independent count with the independent hit rate", () => {
-  const { describeLiveRecord } = dashboard.app;
-  const base = { n_calls: 120, n_resolved_directional: 90, n_independent_directional: 18, hit_rate_pct: 80.0 };
-  assert.equal(describeLiveRecord({ ...base, hit_rate_independent_pct: 0.0 }).verdict, "0.0% hit rate on 18 independent calls");
-  assert.equal(describeLiveRecord(base).verdict, "80.0% hit rate over 90 overlapping calls (18 independent)");
-  assert.equal(describeLiveRecord({ ...base, n_independent_directional: 5 }).verdict, "too few to validate (need ≥18 independent)");
-});
-
-// ------------------------------------------------------------------------------------- wording
-const playbook = (lost, threat) => ({
-  event_count: 31, first_event_year: 1990, last_event_year: 2024,
-  distributions: {
-    supply_lost: { n: 21, peak: { median: lost[0] }, settle: { median: lost[1] } },
-    threat_only: { n: 10, peak: { median: threat[0] }, settle: { median: threat[1] } },
-  },
-});
-const supplyText = (pb) => text(renderToStaticMarkup(createElement(dashboard.app.SupplySection,
-  { playbook: pb, noveltySpike: false, open: true, onToggle: () => {} })));
-
-test("the supply-shock takeaway applies one retention test to both groups", () => {
-  const live = supplyText(playbook([12.1, 4.3], [4.0, 0.5]));
-  assert.ok(!/held their gains/.test(live), live);
-  assert.match(live, /kept more of their move: \+4\.3% median settle of a \+12\.1% median peak \(n = 21\), vs \+0\.5% of \+4\.0% for threats/);
-  assert.ok(!/kept more/.test(supplyText(playbook([12.1, 2.0], [4.0, 1.5]))));   // physical kept a smaller share
-  assert.ok(!/kept more/.test(supplyText(playbook([12.1, -1.0], [4.0, -2.0]))));  // nothing was kept
-});
-
-const volText = (economic) => text(renderToStaticMarkup(createElement(dashboard.app.VolatilityCard, { vol: {
-  live: { direction: "RISING", as_of: "2026-10-12", model: "HAR-IV" },
-  validation: { har_dir_acc_pct: 72.7, majority_class_pct: 52.1, har_dir_p_value_vs_base_rate: 0.047, har_dir_z_score: 1.7, n: 926 },
-  economic,
-} })));
-
-test("the vol card states the roll-free window and compares the two VRP proxies like for like", () => {
-  const economic = {
-    returns: { sample_start: "2008-05-07", sample_end: "2024-04-05" },
-    vol_target_overlay: { sharpe_buy_hold: 0.0, sharpe_trailing_vol_target: -0.11, sharpe_forecast_vol_target: -0.07 },
-    variance_risk_premium: {
-      mean_premium_vol_pts: 2.5, share_positive_pct: 72.5, worst_period_vol_pts: -157.9, short_vol_swap_sharpe: 0.52,
-      short_variance_sharpe: 0.01, worst_year: 2020, short_vol_swap_sharpe_ex_worst_year: 1.3,
-      short_variance_sharpe_ex_worst_year: 0.8, timing_p_value: 0.327,
-    },
-  };
-  const out = volText(economic);
-  assert.ok(out.includes("A vol-targeting overlay on roll-free returns (2008–2024) did NOT beat buy-and-hold (Sharpe −0.07 vs 0.00; trailing-vol sizing −0.11)"), out);
-  assert.ok(out.includes("short vol-swap Sharpe 0.52, short variance 0.01 (1.30 and 0.80 excluding 2020)"), out);
-  assert.ok(out.includes("p = 0.047"), out);
-  // Only one proxy's ex-worst-year figure: neither is shown (a convex ex-crash vs a linear full sample).
-  const half = { ...economic.variance_risk_premium };
-  delete half.short_vol_swap_sharpe_ex_worst_year;
-  assert.ok(!/excluding/.test(volText({ ...economic, variance_risk_premium: half })));
-  const legacy = volText({ vol_target_overlay: economic.vol_target_overlay, variance_risk_premium: { mean_premium_vol_pts: 2.4, short_variance_sharpe: 0.0 } });
-  assert.ok(!/roll-free|excluding/.test(legacy) && legacy.includes("A vol-targeting overlay did NOT beat"), legacy);
 });

@@ -1,0 +1,584 @@
+// Pure selectors over data.json (schema 3) and research.json (schema 1). See docs/DATA_CONTRACT.md.
+// Every function tolerates a missing or malformed field and returns null / [] instead of throwing:
+// research.json is optional, and one bad field must cost a figure, not the page.
+import { addWeekdays, num } from "./format";
+
+export const asObject = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : null);
+export const asArray = (value) => (Array.isArray(value) ? value : []);
+export const asText = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
+const finite = (values) => values.map(num).filter((value) => value != null);
+
+/** research.json -> vol_lab, or null. */
+export const getLab = (research) => asObject(asObject(research)?.vol_lab);
+
+/** data.json -> vol_forecast pieces (each may be null). */
+export const getVol = (data) => {
+  const vol = asObject(data?.vol_forecast) ?? {};
+  return {
+    live: asObject(vol.live),
+    validation: asObject(vol.validation),
+    economic: asObject(vol.economic),
+    recentOos: asObject(vol.recent_oos),
+    liveRecord: asObject(vol.live_record),
+  };
+};
+
+/** Model of record and challenger keys: research config first, then the live payload. */
+export const getRoles = (lab, live) => ({
+  champion: asText(lab?.config?.champion),
+  challenger: asText(lab?.config?.challenger) ?? asText(live?.challenger?.key),
+});
+
+/** key -> display label, from vol_lab.models and the leaderboard rows. */
+export const modelLabels = (lab) => {
+  const labels = new Map();
+  for (const model of [...asArray(lab?.models), ...asArray(lab?.leaderboard?.models)]) {
+    const key = asText(model?.key);
+    const label = asText(model?.label);
+    if (key && label && !labels.has(key)) labels.set(key, label);
+  }
+  return labels;
+};
+
+/** A short label without the "(model of record)" suffix the payload appends for the champion. */
+export const shortLabel = (label) => (typeof label === "string" ? label.replace(/\s*\(model of record\)\s*$/i, "") : label);
+
+// ------------------------------------------------------------------------------ information sets
+
+const INFO_IMPLIED = "implied";
+const INFO_RANGE = "range";
+
+/**
+ * Which information beyond close-to-close returns a model uses: "implied" (OVX) and/or "range"
+ * (intraday high/low). The contract carries no inputs field, so this is inferred from the model's
+ * key and family: an "iv"/"ovx" token or the implied family means OVX; a "range" token means the
+ * range-based measure; the machine-learning model is documented as using every feature; a
+ * combination inherits its members (vol_lab.config.combo_members). An empty set = return-only.
+ *
+ * @param {{key:string, family?:string}} model
+ * @param {{comboMembers?: string[], byKey?: Map<string, object>}} [context]
+ * @returns {Set<string>}
+ */
+export const informationSet = (model, { comboMembers = [], byKey = new Map() } = {}, depth = 0) => {
+  const key = asText(model?.key) ?? "";
+  const family = (asText(model?.family) ?? "").toLowerCase();
+  const info = new Set();
+  const tokens = key.toLowerCase().split(/[_\s-]+/);
+  if (family === "implied" || tokens.includes("iv") || tokens.includes("ovx")) info.add(INFO_IMPLIED);
+  if (tokens.includes("range")) info.add(INFO_RANGE);
+  if (family === "machine learning") { info.add(INFO_IMPLIED); info.add(INFO_RANGE); }
+  if (family === "combination" && depth === 0) {
+    for (const member of comboMembers) {
+      const memberModel = byKey.get(member) ?? { key: member };
+      informationSet(memberModel, { comboMembers, byKey }, depth + 1).forEach((item) => info.add(item));
+    }
+  }
+  return info;
+};
+
+// ------------------------------------------------------------------------------------ leaderboard
+
+/**
+ * @typedef {object} LeaderRow
+ * @property {string} key
+ * @property {string} label
+ * @property {string|null} family
+ * @property {string|null} description
+ * @property {number|null} qlike           full-sample daily QLIKE (lower is better)
+ * @property {number|null} dmStat          Diebold-Mariano t vs the model of record (+ = better than it)
+ * @property {number|null} dmP
+ * @property {number|null} dmMin           min/max DM t across the weekday grids
+ * @property {number|null} dmMax
+ * @property {number|null} mcsP
+ * @property {boolean} inMcs              in the full-sample QLIKE Model Confidence Set
+ * @property {boolean[]} grids            MCS membership on each weekday grid
+ * @property {number|null} gridsIn
+ * @property {number|null} utility        realized utility, % (higher is better)
+ * @property {number|null} mzSlope
+ * @property {number|null} mzSe
+ * @property {"record"|"challenger"|null} role
+ * @property {Set<string>} info           see informationSet()
+ */
+
+/** @returns {LeaderRow[]} */
+export const leaderboardRows = (lab) => {
+  const board = asObject(lab?.leaderboard);
+  if (!board) return [];
+  const { champion, challenger } = getRoles(lab, null);
+  const models = asArray(board.models).filter((model) => asText(model?.key));
+  const byKey = new Map(models.map((model) => [model.key, model]));
+  const comboMembers = asArray(lab?.config?.combo_members).filter((key) => typeof key === "string");
+  const included = new Set(asArray(board.mcs_qlike_included));
+  const byGrid = asObject(board.mcs_qlike_by_grid) ?? {};
+  const gridKeys = Object.keys(byGrid).sort((a, b) => Number(a) - Number(b));
+  return models.map((model) => {
+    const grids = gridKeys.map((grid) => asArray(byGrid[grid]).includes(model.key));
+    const dmByGrid = finite(asArray(model.dm_qlike_vs_har_iv_by_grid));
+    return {
+      key: model.key,
+      label: asText(model.label) ?? model.key,
+      family: asText(model.family),
+      description: asText(model.description),
+      qlike: num(model.qlike),
+      dmStat: num(model.dm_qlike_vs_har_iv?.stat),
+      dmP: num(model.dm_qlike_vs_har_iv?.p_value),
+      dmMin: dmByGrid.length ? Math.min(...dmByGrid) : null,
+      dmMax: dmByGrid.length ? Math.max(...dmByGrid) : null,
+      dmByGrid: asArray(model.dm_qlike_vs_har_iv_by_grid).map(num),
+      mcsP: num(model.mcs_qlike_p),
+      inMcs: model.in_mcs_qlike === true || included.has(model.key),
+      grids,
+      gridsIn: num(model.in_mcs_qlike_grids) ?? (gridKeys.length ? grids.filter(Boolean).length : null),
+      utility: num(model.realized_utility_pct),
+      mzSlope: num(model.mincer_zarnowitz?.slope),
+      mzSe: num(model.mincer_zarnowitz?.slope_se),
+      mzP: num(model.mincer_zarnowitz?.p_unbiased),
+      directionAcc: num(model.direction_acc_pct),
+      qlikeByGrid: asArray(model.qlike_by_grid).map(num),
+      role: model.key === champion ? "record" : model.key === challenger ? "challenger" : null,
+      info: informationSet(model, { comboMembers, byKey }),
+    };
+  });
+};
+
+/**
+ * Model Confidence Set headline numbers.
+ * @returns {{total:number, survivors:number, level:number|null, gridCount:number,
+ *   champion: {label:string, inMcs:boolean, gridsIn:number|null, mcsP:number|null}|null}|null}
+ */
+export const mcsSummary = (lab) => {
+  const rows = leaderboardRows(lab);
+  if (!rows.length) return null;
+  const size = num(lab?.config?.mcs?.size);
+  const record = rows.find((row) => row.role === "record") ?? null;
+  return {
+    total: rows.length,
+    survivors: rows.filter((row) => row.inMcs).length,
+    level: size != null && size > 0 && size < 1 ? Math.round((1 - size) * 100) : null,
+    gridCount: rows[0].grids.length,
+    champion: record && { label: shortLabel(record.label), inMcs: record.inMcs, gridsIn: record.gridsIn, mcsP: record.mcsP },
+  };
+};
+
+// ------------------------------------------------------------------------------------------- VaR
+
+const QUANTILE_LABELS = { fhs: "Filtered hist. sim.", normal: "Normal" };
+
+/**
+ * One row per VaR method x level from var_backtest.summary (pass counts over the weekday grids),
+ * joined with grid 0's own test statistics.
+ */
+export const varRows = (lab) => {
+  const backtest = asObject(lab?.var_backtest);
+  const summary = asObject(backtest?.summary);
+  if (!summary) return [];
+  const labels = modelLabels(lab);
+  const grid0 = asArray(backtest?.grid0?.methods);
+  const { champion } = getRoles(lab, null);
+  return Object.entries(summary).map(([id, stats]) => {
+    const [method, levelText] = id.split("@");
+    const level = num(levelText);
+    const [model, quantile] = method.includes(":") ? method.split(":") : [method, null];
+    const base = grid0.find((row) => row?.key === method && num(row?.level) === level) ?? null;
+    const byGrid = finite(asArray(stats?.exceedances_by_grid));
+    return {
+      id,
+      method,
+      model,
+      quantile,
+      level,
+      confidence: level != null ? Math.round((1 - level) * 100) : null,
+      isRecord: model === champion,
+      isHistorical: quantile == null && /historical/i.test(model),
+      label: quantile == null ? (/historical/i.test(model) ? "Historical simulation" : model) : shortLabel(labels.get(model) ?? model),
+      quantileLabel: quantile ? (QUANTILE_LABELS[quantile] ?? quantile) : "Empirical",
+      expected: num(stats?.expected) ?? num(base?.kupiec?.expected),
+      exceedances: num(base?.kupiec?.exceedances),
+      n: num(base?.kupiec?.n),
+      kupiecP: num(base?.kupiec?.p_value),
+      independenceP: num(base?.christoffersen?.p_independence),
+      dqP: num(base?.dq?.p_value),
+      exceedMin: byGrid.length ? Math.min(...byGrid) : null,
+      exceedMax: byGrid.length ? Math.max(...byGrid) : null,
+      gridCount: byGrid.length || null,
+      kupiecPass: num(stats?.kupiec_pass_grids),
+      independencePass: num(stats?.independence_pass_grids),
+      ccPass: num(stats?.conditional_coverage_pass_grids),
+      dqPass: num(stats?.dq_pass_grids),
+    };
+  });
+};
+
+/** The model of record's VaR at a level: filtered historical simulation first (the series' method). */
+export const recordVar = (rows, level) => {
+  const candidates = rows.filter((row) => row.isRecord && row.level === level);
+  return candidates.find((row) => row.quantile === "fhs") ?? candidates[0] ?? null;
+};
+
+// ---------------------------------------------------------------------------------------- series
+
+/**
+ * Weekly forecast-vs-realized rows. research.json vol_lab.series (2008-) is the history; data.json
+ * recent_oos (the latest ~3 years, from the live pipeline) fills any newer weeks and is the whole
+ * series when research.json is unavailable. `date` is the forecast date; `actual` is realized vol
+ * over the following 5 sessions.
+ *
+ * @returns {{date:string, actual:number|null, forecast:number|null, lo:number|null, hi:number|null,
+ *   ovx:number|null, challenger:number|null, rv5:number|null}[]}
+ */
+export const forecastRows = (lab, recentOos) => {
+  const rows = new Map();
+  const series = asObject(lab?.series);
+  if (series) {
+    asArray(series.date).forEach((date, index) => {
+      if (typeof date !== "string") return;
+      rows.set(date, {
+        date,
+        actual: num(series.actual?.[index]),
+        forecast: num(series.har_iv?.[index]),
+        lo: num(series.lo80?.[index]),
+        hi: num(series.hi80?.[index]),
+        ovx: num(series.ovx?.[index]),
+        challenger: num(series.challenger?.[index]),
+        rv5: num(series.rv5?.[index]),
+      });
+    });
+  }
+  const recent = asObject(recentOos);
+  if (recent) {
+    asArray(recent.date).forEach((date, index) => {
+      if (typeof date !== "string" || rows.has(date)) return;
+      rows.set(date, {
+        date,
+        actual: num(recent.actual?.[index]),
+        forecast: num(recent.forecast?.[index]),
+        lo: num(recent.lo80?.[index]),
+        hi: num(recent.hi80?.[index]),
+        ovx: null,
+        challenger: null,
+        rv5: num(recent.rv5?.[index]),
+      });
+    });
+  }
+  return [...rows.values()].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+};
+
+/** Weekly 5-session returns with the forecast-scaled VaR (vol_lab.series ret5/var95/var99). */
+export const varSeries = (lab) => {
+  const series = asObject(lab?.series);
+  if (!series) return [];
+  return asArray(series.date)
+    .map((date, index) => ({
+      date,
+      ret: num(series.ret5?.[index]),
+      var95: num(series.var95?.[index]),
+      var99: num(series.var99?.[index]),
+    }))
+    .filter((row) => typeof row.date === "string" && row.ret != null);
+};
+
+/** Exceedance counts recomputed from the (rounded) chart series, for the chart's own legend. */
+export const countExceedances = (rows) => {
+  let n = 0, e95 = 0, e99 = 0;
+  for (const row of rows) {
+    if (row.var95 == null || row.var99 == null) continue;
+    n += 1;
+    if (row.ret < -row.var95) e95 += 1;
+    if (row.ret < -row.var99) e99 += 1;
+  }
+  return { n, e95, e99 };
+};
+
+/** Pairs of (OVX, next-week realized) for the VRP scatter. */
+export const vrpPoints = (lab) => {
+  const series = asObject(lab?.series);
+  if (!series) return [];
+  return asArray(series.date)
+    .map((date, index) => ({ date, ovx: num(series.ovx?.[index]), actual: num(series.actual?.[index]) }))
+    .filter((row) => row.ovx != null && row.actual != null && row.ovx > 0 && row.actual > 0);
+};
+
+// --------------------------------------------------------------------------------------- yearly
+
+/** Yearly QLIKE for the given model keys: [{year, values: {key: qlike}}]. */
+export const yearlyQlike = (lab, keys) =>
+  asArray(lab?.yearly)
+    .filter((row) => num(row?.year) != null)
+    .map((row) => ({
+      year: num(row.year),
+      nDays: num(row.n_days),
+      values: Object.fromEntries(keys.map((key) => [key, num(row[`${key}_qlike`])])),
+    }));
+
+/** How many years model `a` had lower QLIKE than model `b` (years where both exist). */
+export const yearsBetter = (yearly, a, b) => {
+  const both = yearly.filter((row) => row.values[a] != null && row.values[b] != null);
+  return { wins: both.filter((row) => row.values[a] < row.values[b]).length, total: both.length };
+};
+
+/** Conformal coverage by year for a model: [{year, coverage}]. */
+export const coverageByYear = (lab, key) => {
+  const byYear = asObject(lab?.conformal?.[key]?.coverage_by_year_pct);
+  if (!byYear) return [];
+  return Object.entries(byYear)
+    .map(([year, coverage]) => ({ year: num(year), coverage: num(coverage) }))
+    .filter((row) => row.year != null && row.coverage != null)
+    .sort((a, b) => a.year - b.year);
+};
+
+// ------------------------------------------------------------------------------------ live record
+
+/**
+ * The session a call issued on `dateText` resolves: it is scored on the `horizon` settlement-to-
+ * settlement returns after the first settlement following the issue, so its window ends `horizon`
+ * weekdays after the issue session. Exchange holidays and late-day issues are not modelled, so the
+ * result is labelled as an estimate wherever it is shown.
+ */
+export const estimateTargetEnd = (dateText, horizon = 5) => {
+  const start = addWeekdays(dateText, 0);
+  if (!start) return null;
+  const day = new Date(`${start}T00:00:00Z`).getUTCDay();
+  const issueSession = day === 0 || day === 6 ? addWeekdays(start, 1) : start;
+  return addWeekdays(issueSession, horizon);
+};
+
+/**
+ * The live forward record (data.json vol_forecast.live_record), normalized. `firstResult` is the
+ * earliest pending call's target_end, or (no calls yet) an estimate from the start date.
+ */
+export const liveRecordSummary = (record, horizon = 5) => {
+  const lr = asObject(record);
+  if (!lr) return null;
+  const recent = asArray(lr.recent).filter((row) => asObject(row));
+  const started = asText(lr.started);
+  const pendingEnds = recent
+    .filter((row) => row.status === "pending" && asText(row.target_end))
+    .map((row) => row.target_end)
+    .sort();
+  // With calls on record but none pending (e.g. the first was skipped at a roll), there is no
+  // honest date to quote, so none is estimated.
+  const firstResult = pendingEnds[0] ?? (started && recent.length === 0 ? estimateTargetEnd(started, horizon) : null);
+  return {
+    started,
+    recorded: num(lr.n_recorded),
+    resolved: num(lr.n_resolved),
+    pending: num(lr.n_pending),
+    skipped: num(lr.n_skipped_roll),
+    expired: num(lr.n_expired),
+    independent: num(lr.n_independent),
+    champion: asObject(lr.champion) ?? {},
+    challenger: asObject(lr.challenger) ?? {},
+    recent,
+    promotionRule: asText(lr.promotion_rule),
+    note: asText(lr.note),
+    directionNote: asText(lr.direction_note),
+    firstResult,
+    firstResultIsEstimate: pendingEnds.length === 0,
+  };
+};
+
+// ---------------------------------------------------------------------------------- leak anatomy
+
+const EXPERIMENT_LABELS = {
+  synthetic_random_walk: "Random walk",
+  block_shuffled_cl: "Shuffled CL=F",
+  real_cl_5y_window: "Real CL=F, 5y",
+};
+const MODEL_LABELS = { nearest_neighbour: "1-NN", decision_tree: "Tree", random_forest: "Forest" };
+
+/**
+ * research.json leak_anatomy, normalized: the analytic sign-agreement ladder by training row and
+ * one row per experiment x model with unpurged and purged accuracy / Sharpe.
+ */
+export const leakAnatomy = (research) => {
+  const anatomy = asObject(research?.leak_anatomy);
+  if (!anatomy) return null;
+  const ladder = asArray(anatomy.analytic?.by_training_row)
+    .filter((row) => asText(row?.training_row) && num(row?.p_sign_agree_pct) != null)
+    .map((row) => ({
+      row: row.training_row,
+      shared: num(row.shared_daily_returns),
+      correlation: num(row.label_correlation),
+      agree: num(row.p_sign_agree_pct),
+      known: row.label_known_at_decision === true,
+    }));
+  const experiments = [];
+  for (const [experiment, models] of Object.entries(asObject(anatomy.experiments) ?? {})) {
+    for (const [model, runs] of Object.entries(asObject(models) ?? {})) {
+      const unpurged = asObject(runs?.unpurged);
+      const purged = asObject(runs?.purged);
+      if (!unpurged || !purged) continue;
+      experiments.push({
+        key: `${experiment}:${model}`,
+        experiment,
+        model,
+        label: `${EXPERIMENT_LABELS[experiment] ?? experiment} · ${MODEL_LABELS[model] ?? model}`,
+        experimentLabel: EXPERIMENT_LABELS[experiment] ?? experiment,
+        modelLabel: MODEL_LABELS[model] ?? model,
+        runs: num(unpurged.n_runs),
+        unpurged: num(unpurged.accuracy_pct_mean),
+        unpurgedRange: asArray(unpurged.accuracy_pct_range).map(num),
+        unpurgedSharpe: num(unpurged.sharpe_mean),
+        purged: num(purged.accuracy_pct_mean),
+        purgedRange: asArray(purged.accuracy_pct_range).map(num),
+        purgedSharpe: num(purged.sharpe_mean),
+        purgedP: num(purged.pooled_binomial_p_value_vs_50),
+        isHeadline: experiment === "synthetic_random_walk" && model === anatomy.headline_model,
+      });
+    }
+  }
+  const reference = asObject(anatomy.retracted_reference);
+  return {
+    ladder,
+    experiments,
+    formula: asText(anatomy.analytic?.formula),
+    headlineModel: asText(anatomy.headline_model),
+    unpurgedAcc: num(anatomy.unpurged_dir_acc_pct_mean),
+    purgedAcc: num(anatomy.purged_dir_acc_pct_mean),
+    unpurgedSharpe: num(anatomy.unpurged_sharpe_mean),
+    sims: num(anatomy.sims),
+    signAgreement: num(anatomy.analytic_sign_agreement_pct),
+    reference: reference ? { accuracy: num(reference.accuracy_pct), sharpe: num(reference.sharpe), n: num(reference.n) } : null,
+    conclusion: asText(anatomy.conclusion),
+    note: asText(anatomy.note),
+  };
+};
+
+// --------------------------------------------------------------------------------- supply study
+
+/** research.json supply_study, normalized: the placebo and each event group vs that placebo. */
+export const supplyStudy = (research) => {
+  const study = asObject(research?.supply_study);
+  if (!study) return null;
+  const placebo = asObject(study.placebo);
+  const pv = (value, side) => (asObject(value) ? num(value[side]) : num(value));
+  const groups = asArray(study.groups)
+    .filter((group) => asObject(group) && asText(group.key))
+    .map((group) => ({
+      key: group.key,
+      name: asText(group.name) ?? group.key,
+      definition: asText(group.definition),
+      n: num(group.n),
+      peak: num(group.median_peak_pct),
+      settle: num(group.median_settle_pct),
+      ciPeak: asArray(group.ci_peak).map(num),
+      excessPeak: num(group.excess_peak_vs_placebo_pct),
+      peakP: pv(group.p_value_vs_placebo, "peak"),
+      settleP: pv(group.p_value_vs_placebo, "settle"),
+      peakPYear: pv(group.p_value_vs_year_matched_placebo, "peak"),
+    }));
+  const between = asObject(study.between_groups);
+  return {
+    method: asText(study.method),
+    placebo: placebo ? {
+      n: num(placebo.n),
+      peak: num(placebo.median_peak_pct),
+      settle: num(placebo.median_settle_pct),
+      shareUp: num(placebo.share_peak_positive_pct),
+    } : null,
+    groups,
+    between: between ? {
+      groups: asArray(between.groups),
+      peakDiff: num(between.median_peak_difference_pct),
+      peakP: pv(between.p_value, "peak"),
+      settleP: pv(between.p_value, "settle"),
+    } : null,
+    superseded: Object.values(asObject(study.superseded_claims) ?? {}).filter((text) => asText(text)),
+    conclusion: asText(study.conclusion),
+  };
+};
+
+// --------------------------------------------------------------------------------------- ledger
+
+/** research.json ledger: every tested hypothesis with multiplicity-adjusted p-values. */
+export const researchLedger = (research) => {
+  const ledger = asObject(research?.ledger);
+  const rows = asArray(ledger?.rows ?? research?.ledger)
+    .filter((row) => asObject(row) && (asText(row.id) || asText(row.hypothesis)))
+    .map((row) => ({
+      ...row,
+      statistic: num(row.statistic_value ?? row.statistic),
+      p: num(row.p_value),
+      q: num(row.q_bh),
+      holm: num(row.p_holm),
+    }));
+  if (!rows.length) return null;
+  const summary = asObject(ledger?.summary) ?? {};
+  return {
+    rows,
+    method: asText(ledger?.method),
+    alpha: num(ledger?.alpha),
+    hurdle: num(ledger?.hlz_t),
+    byStatus: asObject(summary.by_status) ?? rows.reduce((acc, row) => ({ ...acc, [row.status]: (acc[row.status] ?? 0) + 1 }), {}),
+    supported: asArray(summary.supported).length || rows.filter((row) => row.status === "supported").length,
+    survivingBh: Array.isArray(summary.supported_surviving_bh_5pct) ? summary.supported_surviving_bh_5pct.length : null,
+    clearingHurdle: Array.isArray(summary.supported_clearing_hlz_t3) ? summary.supported_clearing_hlz_t3.length : null,
+    preSpecified: num(summary.pre_specified_rows),
+  };
+};
+
+// ---------------------------------------------------------------------------------- vol target
+
+/** data.json vol_forecast.economic.vol_target_overlay: risk profile of each sizing rule. */
+export const volTargetRisk = (overlay) => {
+  const risk = asObject(overlay?.risk);
+  if (!risk) return null;
+  const LABELS = { buy_hold: "Buy and hold", trailing_vol_target: "Trailing-vol target", forecast_vol_target: "Forecast-vol target" };
+  const rows = Object.entries(risk)
+    .filter(([, value]) => asObject(value))
+    .map(([key, value]) => ({
+      key,
+      label: LABELS[key] ?? key,
+      sharpe: num(value.sharpe),
+      vol: num(value.realized_vol_pct),
+      volOfVol: num(value.vol_of_vol_pct),
+      kurtosis: num(value.excess_kurtosis),
+      worstWeek: num(value.worst_week_pct),
+      es: num(value.expected_shortfall_97_5_pct),
+      maxDrawdown: num(value.max_drawdown_pct),
+    }));
+  const tests = asObject(overlay?.sharpe_difference_tests) ?? {};
+  const test = (key) => {
+    const value = asObject(tests[key]);
+    return value ? { difference: num(value.difference), p: num(value.p_value), ci: asArray(value.ci95).map(num) } : null;
+  };
+  return {
+    rows,
+    target: num(overlay?.target_vol_pct),
+    weeks: num(overlay?.n_weeks),
+    method: asText(overlay?.method),
+    vsBuyHold: test("forecast_minus_buy_hold"),
+    vsTrailing: test("forecast_minus_trailing"),
+  };
+};
+
+// ------------------------------------------------------------------------------------ postmortem
+
+/** research.json postmortem window ("five_year" | "ten_year") -> {leaked, purged, config} or null. */
+export const postmortemWindow = (research, windowKey) => {
+  const window = asObject(asObject(research?.postmortem)?.[windowKey]);
+  if (!window) return null;
+  const run = (raw) => {
+    const value = asObject(raw);
+    if (!value) return null;
+    return {
+      n: num(value.n),
+      accuracy: num(value.direction_acc_pct),
+      p: num(value.p_value),
+      sharpe: num(value.sharpe),
+      pnl: num(value.total_pnl_usd),
+      maxDrawdown: num(value.max_drawdown_usd),
+      first: asText(value.first)?.slice(0, 10) ?? null,
+      last: asText(value.last)?.slice(0, 10) ?? null,
+      equity: asArray(value.equity)
+        .filter((point) => Array.isArray(point) && typeof point[0] === "string" && num(point[1]) != null)
+        .map(([date, pnl]) => ({ date: date.slice(0, 10), pnl: num(pnl) })),
+    };
+  };
+  return {
+    leaked: run(window.leaked),
+    purged: run(window.purged),
+    purgeRows: num(window.config?.purge_rows_by_horizon?.["1w"]),
+    trainWindow: num(window.config?.train_window),
+  };
+};

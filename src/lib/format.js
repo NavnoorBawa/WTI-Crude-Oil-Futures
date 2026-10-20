@@ -138,3 +138,82 @@ export const fmtDate = (value, { year = true } = {}) => {
   const ms = toMs(value);
   return ms == null ? DASH : fmtCT(ms, { time: false, year: year ? true : "auto" });
 };
+
+// ------------------------------------------------------------------------------ research helpers
+
+/** Integer with thousands separators: 4370 -> "4,370". */
+export const fmtInt = (value) => {
+  const n = num(value);
+  return n == null ? DASH : Math.round(n).toLocaleString("en-US");
+};
+
+/** A share held as a fraction (0.9988) shown as a percentage ("99.88%"). */
+export const fmtShare = (value, digits = 1) => {
+  const n = num(value);
+  return n == null ? DASH : `${(n * 100).toFixed(digits)}%`;
+};
+
+/** p-value text without the "p = " prefix, for table cells ("0.0059", "< 0.001"). */
+export const fmtPValue = (value) => {
+  const text = fmtP(value);
+  return text == null ? DASH : text.replace(/^p = /, "").replace(/^p < /, "< ");
+};
+
+/** Elapsed time as a compact age: "12m", "2h 14m", "3d 4h". */
+export const fmtAge = (ms) => {
+  const n = num(ms);
+  if (n == null || n < 0) return DASH;
+  const minutes = Math.floor(n / 60000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+};
+
+/** "2008-05-08" -> "May 2008" (calendar month, never shifted by time zone). */
+export const fmtMonthYear = (value) => {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}/.test(value)) return DASH;
+  return formatter({ timeZone: "UTC", month: "short", year: "numeric" }).format(Date.parse(value.slice(0, 10)));
+};
+
+/** "May 2008 – Oct 2026" from two ISO dates; a missing side degrades to the other. */
+export const fmtSpan = (start, end) => {
+  const a = fmtMonthYear(start);
+  const b = fmtMonthYear(end);
+  if (a === DASH || b === DASH || a === b) return a === DASH ? b : a;
+  return `${a} – ${b}`;
+};
+
+/** The calendar date `count` weekdays after an ISO date (exchange holidays are not modelled). */
+export const addWeekdays = (dateText, count) => {
+  if (typeof dateText !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dateText)) return null;
+  const date = new Date(`${dateText}T00:00:00Z`);
+  let left = count;
+  while (left > 0) {
+    date.setUTCDate(date.getUTCDate() + 1);
+    const day = date.getUTCDay();
+    if (day !== 0 && day !== 6) left -= 1;
+  }
+  return date.toISOString().slice(0, 10);
+};
+
+/** Ordinal for percentile ranks: 1 -> "1st", 68.3 -> "68th", 92 -> "92nd", 13 -> "13th". */
+export const ordinal = (value) => {
+  const n = num(value);
+  if (n == null) return DASH;
+  const r = Math.round(n);
+  const mod100 = r % 100;
+  const suffix = mod100 >= 11 && mod100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[r % 10] ?? "th");
+  return `${r}${suffix}`;
+};
+
+/** First characters of a hex digest, shown next to the full value (in a title attribute). */
+export const shortHash = (value, length = 12) =>
+  typeof value === "string" && /^[0-9a-f]{16,}$/i.test(value) ? value.slice(0, length) : DASH;
+
+/** "har_iv_range" -> "Har iv range": a readable fallback label for unknown payload keys. */
+export const humanizeKey = (key) => {
+  if (typeof key !== "string" || !key) return DASH;
+  const text = key.replace(/_pct$/, " %").replace(/_/g, " ").trim();
+  return text.charAt(0).toUpperCase() + text.slice(1);
+};

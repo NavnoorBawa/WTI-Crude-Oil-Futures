@@ -1,0 +1,65 @@
+/*
+ * Design tokens. The dashboard is dark only (color-scheme: dark).
+ * Series colours are mirrored in chartTheme.js because canvas charts cannot read CSS custom
+ * properties; tests/frontend/theme.test.mjs fails if the two drift apart.
+ *
+ * Contrast on --bg-1 (WCAG 2.x): text-1 15.5, text-2 8.8, text-3 5.3 (all AA for body text);
+ * text-4 is 3.2 and is for decoration only (rules, ticks, disabled glyphs), never for words.
+ */
+:root {
+  color-scheme: dark;
+
+  /* surfaces */
+  --bg-0: #0A0C10;
+  --bg-1: #0F1217;
+  --bg-2: #151922;
+  --rule: #1F2530;
+  --rule-strong: #2A313C;
+
+  /* text */
+  --text-1: #E6EAF0;
+  --text-2: #A9B2BD;
+  --text-3: #7F8A96;
+  --text-4: #5C6672;
+
+  /* data series (CVD-safe set, distinguishable by lightness as well as hue) */
+  --s-truth: #C9D1D9;
+  --s-model: #3987E5;
+  --s-implied: #D95926;
+  --s-bench: #199E70;
+  --s-alt: #9085E9;
+  --s-alt2: #D55181;
+
+  /* status (never used to colour volatility rising or falling) */
+  --pos: #1AA385;
+  --neg: #E0603A;
+  --warn: #E0A030;
+
+  /* type */
+  --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-16: 16px;
+  --fs-20: 20px;
+  --fs-28: 28px;
+  --fs-48: 48px;
+  --tracking-micro: 0.08em;
+  --measure: 68ch;
+
+  /* 4px spacing scale */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+
+  --topbar-h: 48px;
+  --radius: 2px;
+}
