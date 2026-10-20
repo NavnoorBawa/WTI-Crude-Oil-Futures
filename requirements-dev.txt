@@ -12,6 +12,10 @@ types-requests==2.33.0.20260906
 hypothesis==6.168.3
 coverage==7.16.2
 
+# Generated documentation: README/model-card/datasheet numbers (cog) and figures (matplotlib)
+cogapp==3.6.0
+matplotlib==3.10.7
+
 # Lint, security scan and dependency audit (the same versions the Tests workflow gates on)
 ruff==0.15.18
 bandit==1.9.4

@@ -1,7 +1,7 @@
 name: Reproduce research artifact
 
 # Rebuilds data/vol_lab.json from the pinned market-data snapshot (data/market/, SHA-256 digests in
-# MANIFEST.json) and requires it to equal the committed artifact. The rebuild is offline: nothing is
+# MANIFEST.json) and requires it to match the committed artifact. The rebuild is offline: nothing is
 # downloaded after the dependency install. It runs when anything the artifact is computed from
 # changes, weekly (a new runner image or a dependency's numerics must not silently move the
 # published results), and on demand. Read-only token; no secrets.
@@ -50,13 +50,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
-      # A pinned numeric environment. The GARCH refits are iterative optimizations, so a last-bit
-      # difference in a BLAS or vectorized-math result (BLAS thread count, CPU-specific kernel)
-      # moves later digits of the GARCH-family results: measured up to ~1e-3 relative, enough to
-      # move a few published figures in their last digit (no model set, flag or challenger). One thread
-      # everywhere, OpenBLAS's AVX2 kernel and NumPy's AVX2 code paths run the same instructions
-      # on every x86-64-v3 runner host (Intel with AVX-512 and AMD without), so the comparison
-      # can be exact. data/vol_lab.json must be generated under these same variables.
+      # A pinned numeric environment: one thread everywhere, OpenBLAS's AVX2 kernel and NumPy's AVX2
+      # code paths, so Intel (AVX-512) and AMD runner hosts execute the same instructions and the
+      # rebuild can be bit for bit. Where it is not, backend/vol_lab.py compare_reports decides:
+      # every model set, flag, label and count must be identical and every number equal to 1e-4
+      # relative or to the last decimal it is published with (the GARCH refits converge tightly, so
+      # kernel differences stay near 2e-5). data/vol_lab.json is generated under these variables.
       OMP_NUM_THREADS: '1'
       OPENBLAS_NUM_THREADS: '1'
       MKL_NUM_THREADS: '1'
@@ -106,51 +105,37 @@ jobs:
         id: reproduce
         env:
           RUN_SLOW: '1'
-        run: python -B -m unittest -v tests.test_vol_lab.ArtifactContractTest.test_artifact_reproduces_bit_for_bit
+          VOL_LAB_REBUILT: ${{ runner.temp }}/vol_lab.rebuilt.json
+        run: python -B -m unittest -v tests.test_vol_lab.ArtifactContractTest.test_artifact_reproduces_from_the_snapshot
 
-      - name: Diagnose a mismatch
-        # Only after a failed comparison: rebuild once more and say how large the difference is and
-        # whether any conclusion (model sets, flags, labels) moved, or only trailing digits.
-        if: ${{ failure() && steps.reproduce.outcome == 'failure' }}
+      - name: Describe the comparison
+        # Bit for bit, floating-point noise only (backend/vol_lab.py compare_reports), or which
+        # conclusions moved.
+        if: ${{ !cancelled() && steps.reproduce.outcome != 'skipped' }}
+        env:
+          VOL_LAB_REBUILT: ${{ runner.temp }}/vol_lab.rebuilt.json
         run: |
           set -euo pipefail
+          test -f "$VOL_LAB_REBUILT" || { echo "### The rebuild did not finish" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
           python -B - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
           import json
+          import os
 
-          from backend import market_data as md
-          from backend import vol_lab as lab
+          from backend.vol_lab import REPRO_REL_TOL, compare_reports
 
-          rebuilt = json.loads(json.dumps(lab._jsonable(lab.build_report(md.load_snapshot()))))
           committed = json.loads(open("data/vol_lab.json", encoding="utf-8").read())
-          numeric, other = [], []
-
-          def walk(a, b, path):
-              if isinstance(a, dict) and isinstance(b, dict):
-                  for key in sorted(set(a) | set(b)):
-                      if key in a and key in b:
-                          walk(a[key], b[key], f"{path}/{key}")
-                      else:
-                          other.append(f"{path}/{key}: present on one side only")
-              elif isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
-                  for i, (x, y) in enumerate(zip(a, b)):
-                      walk(x, y, f"{path}[{i}]")
-              elif (isinstance(a, (int, float)) and isinstance(b, (int, float))
-                    and not isinstance(a, bool) and not isinstance(b, bool)):
-                  if a != b:
-                      numeric.append((abs(a - b) / max(abs(a), abs(b)), path, a, b))
-              elif a != b:
-                  other.append(f"{path}: {a!r} != {b!r}")
-
-          walk(committed, rebuilt, "")
-          numeric.sort(reverse=True)
-          print("### Reproduction mismatch")
-          print(f"- numbers that differ: {len(numeric)}; largest relative difference: "
-                f"{numeric[0][0]:.2e}" if numeric else "- no numeric difference")
-          print(f"- non-numeric differences (sets, flags, labels): {len(other)}")
-          for rel, path, a, b in numeric[:10]:
-              print(f"  - `{path}`: committed {a!r}, rebuilt {b!r} (rel {rel:.1e})")
-          for line in other[:20]:
-              print(f"  - `{line}`")
+          rebuilt = json.loads(open(os.environ["VOL_LAB_REBUILT"], encoding="utf-8").read())
+          diff = compare_reports(committed, rebuilt)
+          if diff["identical"]:
+              print("### Rebuild: bit for bit identical")
+          elif not diff["violations"]:
+              print(f"### Rebuild: every conclusion identical; {diff['numbers_differing']} numbers differ "
+                    f"in the last bits (largest {diff['largest_relative_difference']:.1e} relative, "
+                    f"tolerance {REPRO_REL_TOL:g} or the published last place)")
+          else:
+              print(f"### Rebuild: {len(diff['violations'])} differences beyond floating-point noise")
+              for line in diff["violations"][:30]:
+                  print(f"- `{line}`")
           PY
 
       - name: Summarize the artifact
@@ -167,7 +152,7 @@ jobs:
           snapshot = report["generated_from"]
           sample = report["sample"]
           board = report["leaderboard"]
-          verdict = {"success": "reproduced exactly", "failure": "DID NOT reproduce",
+          verdict = {"success": "reproduced", "failure": "DID NOT reproduce",
                      "skipped": "not run"}.get(os.environ.get("OUTCOME", ""), "not run")
 
           print(f"### data/vol_lab.json: {verdict}")

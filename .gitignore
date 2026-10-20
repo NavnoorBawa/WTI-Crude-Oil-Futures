@@ -84,3 +84,9 @@ temp_repo/
 
 # Local notes (not part of the project)
 GRILL_NOTES.md
+
+# Local coverage runs (CI uploads its own report)
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/

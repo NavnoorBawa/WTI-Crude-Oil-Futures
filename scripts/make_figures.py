@@ -13,9 +13,9 @@ import json
 from datetime import date
 from pathlib import Path
 
-import matplotlib
+import matplotlib as mpl
 
-matplotlib.use("Agg")
+mpl.use("Agg")
 import matplotlib.dates as mdates  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 
@@ -68,7 +68,7 @@ def forecast_vs_realized() -> None:
     ax.set_yscale("log")
     ax.set_yticks([10, 20, 40, 80, 160])
     ax.set_yticklabels(["10%", "20%", "40%", "80%", "160%"])
-    ax.yaxis.set_minor_locator(matplotlib.ticker.NullLocator())
+    ax.yaxis.set_minor_locator(mpl.ticker.NullLocator())
     ax.set_ylim(5, 260)
     ax.set_ylabel("annualized volatility (log scale)")
     ax.xaxis.set_major_locator(mdates.YearLocator(2))

@@ -42,6 +42,12 @@ def _p(value) -> str:
     return f"{value:.3f}"
 
 
+def _peq(value) -> str:
+    """'p = 0.123' or 'p < 0.001'."""
+    text = _p(value)
+    return f"p {text}" if text.startswith("<") else f"p = {text}"
+
+
 def _model(lab: dict, key: str) -> dict:
     return next(m for m in lab["leaderboard"]["models"] if m["key"] == key)
 
@@ -194,6 +200,287 @@ def provenance_table() -> str:
         rows.append(f"| `data/market/{entry['file']}` | {entry['rows']:,} | {entry['first']} | {entry['last']} | "
                     f"`{entry['sha256'][:16]}…` | {entry['source']} |")
     return "\n".join(rows)
+
+
+def _worse_than_record(lab: dict, alpha: float = 0.05) -> list[dict]:
+    """Models whose QLIKE is significantly above the model of record's (DM, two-sided p < alpha)."""
+    return [m for m in lab["leaderboard"]["models"]
+            if m["dm_qlike_vs_har_iv"] and m["dm_qlike_vs_har_iv"]["stat"] < 0
+            and m["dm_qlike_vs_har_iv"]["p_value"] < alpha]
+
+
+def _names(models: list[dict]) -> str:
+    labels = [m["label"] for m in models]
+    return labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " and " + labels[-1]
+
+
+def abstract() -> str:
+    lab, ledger = _lab(), _load("research_ledger.json")
+    k = key_numbers()
+    leak = _load("leak_anatomy.json")["synthetic_random_walk"]["random_forest"]
+    pm = _load("wf_5y_purged.json")["results"]["1w"]["pnl_metrics"]["sharpe_ratio_annualized"]
+    lk = _load("wf_5y_unpurged_LEAKED.json")["results"]["1w"]["pnl_metrics"]["sharpe_ratio_annualized"]
+    worse = [m for m in _worse_than_record(lab) if m["key"] != "persistence"]
+    ovx_only = _model(lab, "ovx_only")
+    var99 = lab["var_backtest"]["summary"][f"{lab['config']['champion']}:fhs@0.01"]
+    summary = ledger["summary"]
+    return (
+        f"This project forecasts the realized volatility of front-month NYMEX WTI crude oil over the next five "
+        f"sessions from free data, and keeps a public, git-timestamped record of its live forecasts. Over "
+        f"{k['n_days']:,} out-of-sample days ({k['first'][:4]}–{k['last'][:4]}), a heterogeneous autoregressive "
+        f"model with lagged implied volatility (HAR-IV) has a QLIKE loss of {_fmt(k['champ_qlike'])}, against "
+        f"{_fmt(k['persistence_qlike'])} for a random-walk forecast. It is significantly better than "
+        f"{_names(worse)} (Diebold-Mariano p < 0.05 each). Most of that skill is the options market's: the "
+        f"elasticity on OVX is {_fmt(k['ovx_coef']['coef'], 2)}, and a regression on OVX alone "
+        f"({_fmt(ovx_only['qlike'])}) is statistically tied with the full model. A range-based variant has the "
+        f"lowest loss of the {k['n_models']} models ({_fmt(k['chall_qlike'])}, DM {_peq(k['chall_dm_p'])}) "
+        f"and stays in the 90% Model Confidence Set on all {k['chall_grids']} weekday sampling grids. Hansen's "
+        f"SPA test gives p = {_fmt(k['spa_p'])} for any model in the field beating the model of record, so the "
+        f"variant runs live as a challenger under a promotion rule fixed in advance. The forecast's 80% "
+        f"adaptive conformal intervals cover {k['coverage']}% of outcomes. Used to size a "
+        f"{k['target_vol']:g}% volatility target, it keeps realized volatility at {k['fc_realized_vol']}% and cuts "
+        f"excess kurtosis from {k['bh_kurt']} to {k['fc_kurt']}. Its weekly 99% VaR breaches "
+        f"{var99['exceedances_by_grid'][0]} times against {var99['expected']} expected. It does not raise the "
+        f"Sharpe ratio. Next-week direction accuracy ({k['dir_acc']}%) is not evidence of skill: the same "
+        f"pipeline scores {k['noise_floor']}% on simulated returns with nothing to forecast.\n\n"
+        f"The project began as a machine-learning direction model whose backtest Sharpe ratio of "
+        f"{_fmt(lk, 2)} was a look-ahead leak; purged, it is {_fmt(pm, 2)}. The same leak manufactures a "
+        f"Sharpe ratio of {_fmt(leak['unpurged_leaked']['sharpe_mean'], 2)} from a pure random walk. All "
+        f"{summary['rows']} hypotheses the project has tested are listed in a research ledger with "
+        f"multiplicity adjustments; {len(summary['supported_surviving_bh_5pct'])} of the "
+        f"{summary['by_status']['supported']} supported ones survive Benjamini-Hochberg at 5%."
+    )
+
+
+def results_at_a_glance() -> str:
+    lab, prod = _lab(), _prod()
+    k = key_numbers()
+    champ = _model(lab, lab["config"]["champion"])
+    raw = _model(lab, "raw_ovx")
+    var99 = lab["var_backtest"]["summary"][f"{lab['config']['champion']}:fhs@0.01"]
+    hs99 = lab["var_backtest"]["summary"]["historical_simulation@0.01"]
+    tests = prod["economic"]["vol_target_overlay"]["sharpe_difference_tests"]["forecast_minus_buy_hold"]
+    vrp = prod["economic"]["variance_risk_premium"]
+    ci = vrp["mean_premium_variance_ci95"]
+    leak = _load("leak_anatomy.json")
+    rows = ["| Question | Answer | Evidence |", "|---|---|---|"]
+    rows.append(f"| Is next-week WTI volatility forecastable from free data? | Yes | QLIKE {_fmt(k['champ_qlike'])} vs "
+                f"{_fmt(k['persistence_qlike'])} for persistence; {len(_worse_than_record(lab))} of "
+                f"{k['n_models'] - 1} benchmarks significantly worse |")
+    rows.append(f"| Does it add to implied volatility? | Not detectably | Raw OVX {_fmt(raw['qlike'])} "
+                f"(DM {_peq(raw['dm_qlike_vs_har_iv']['p_value'])}); OVX elasticity "
+                f"{_fmt(k['ovx_coef']['coef'], 2)} (HAC t {_fmt(k['ovx_coef']['t_hac'], 1)}) |")
+    rows.append(f"| Is anything better? | Possibly: a range-based variant | QLIKE {_fmt(k['chall_qlike'])}, DM "
+                f"{_peq(k['chall_dm_p'])}, but SPA p = {_fmt(k['spa_p'])} after the search; challenger on the live record |")
+    rows.append(f"| Are the forecasts calibrated? | Close | Mincer-Zarnowitz slope {_fmt(champ['mincer_zarnowitz']['slope'], 2)} "
+                f"(joint p = {_p(champ['mincer_zarnowitz']['p_unbiased'])}); 80% intervals cover {k['coverage']}% |")
+    rows.append(f"| Does it make a better weekly VaR? | Yes: breaches stop clustering | 99% VaR breaches are independent on "
+                f"{var99['independence_pass_grids']}/5 weekday grids vs {hs99['independence_pass_grids']}/5 for historical "
+                f"simulation; {var99['exceedances_by_grid'][0]} breaches vs {var99['expected']} expected (Kupiec passes "
+                f"{var99['kupiec_pass_grids']}/5) |")
+    rows.append(f"| Does it make money as a vol target? | No, it controls risk | Sharpe difference vs buy-and-hold "
+                f"{_fmt(tests['difference'], 2, True)} (p = {_p(tests['p_value'])}); excess kurtosis "
+                f"{k['fc_kurt']} vs {k['bh_kurt']} |")
+    rows.append(f"| Is there a variance risk premium? | In vol points, yes; in variance, not significant | "
+                f"IV above next-month RV in {vrp['share_positive_pct']}% of periods; mean variance premium "
+                f"{_fmt(vrp['mean_premium_variance_pts'], 0)} (95% CI {_fmt(ci[0], 0)} to {_fmt(ci[1], 0)}) |")
+    rows.append(f"| Is direction accuracy evidence of skill? | No | {k['dir_acc']}% observed vs {k['noise_floor']}% "
+                f"with nothing to forecast |")
+    rows.append(f"| Was the original direction model's Sharpe real? | No, a look-ahead leak | Leaked label agrees in "
+                f"sign with the test label {leak['analytic']['p_sign_agree_leaked_pct']}% of the time on a "
+                f"random walk |")
+    return "\n".join(rows)
+
+
+def coefficients_table() -> str:
+    c = _lab()["har_iv_coefficients"]
+    rows = ["| Term | Coefficient | HAC t |", "|---|---:|---:|"]
+    for t in c["terms"]:
+        rows.append(f"| {t['term']} | {_fmt(t['coef'], 3, True)} | {_fmt(t['t_hac'], 2, True)} |")
+    rows.append("")
+    rows.append(f"Full-sample fit of the model of record: {c['n_rows']:,} daily rows, R² {c['r2_log']} on log "
+                f"realized vol, Newey-West t with {c['hac_lags']} lags (the five-session targets overlap).")
+    return "\n".join(rows)
+
+
+def calibration_block() -> str:
+    lab = _lab()
+    champ_key, chall_key = lab["config"]["champion"], lab["config"]["challenger"]
+    conf = lab["conformal"]
+    rows = ["| Model | MZ intercept | MZ slope | Joint p (unbiased) | Actual / forecast | 80% coverage | "
+            "Coverage by year (min to max) | Interval score |", "|---|---:|---:|---:|---:|---:|---|---:|"]
+    for key in (champ_key, chall_key):
+        m, c = _model(lab, key), conf[key]
+        mz = m["mincer_zarnowitz"]
+        years = list(c["coverage_by_year_pct"].values())
+        rows.append(f"| {m['label']} | {_fmt(mz['intercept'], 3, True)} | {_fmt(mz['slope'], 2)} | "
+                    f"{_p(mz['p_unbiased'])} | {_fmt(m['mean_ratio_actual_to_forecast'], 3)} | {c['coverage_pct']}% | "
+                    f"{min(years)}% to {max(years)}% | {c['interval_score_pct']} |")
+    rows.append("")
+    rows.append(f"Mincer-Zarnowitz regression of realized on forecast variance with a HAC covariance. Intervals: "
+                f"{lab['config']['conformal']['method']}, step {lab['config']['conformal']['gamma']}, scored only "
+                f"after each target has settled; interval score of Gneiting and Raftery (2007), in vol points "
+                f"(lower is better).")
+    return "\n".join(rows)
+
+
+def vrp_block() -> str:
+    vrp = _prod()["economic"]["variance_risk_premium"]
+    t = vrp["timing_regression"]
+    ci = vrp["mean_premium_variance_ci95"]
+    worst = ", ".join(f"{w['start']} ({_fmt(w['premium_vol_pts'], 1)} vol pts)" for w in vrp["worst_periods"])
+    return "\n".join([
+        f"- **In vol points the premium is there.** OVX exceeded the realized volatility of the following 20 "
+        f"sessions in {vrp['share_positive_pct']}% of {vrp['n_periods']} non-overlapping periods, by "
+        f"{vrp['mean_premium_vol_pts']} points on average.",
+        f"- **In variance units, the units an option seller is paid in, it is not significant.** The mean "
+        f"premium is {_fmt(vrp['mean_premium_variance_pts'], 1)} variance points (95% Newey-West CI "
+        f"{_fmt(ci[0], 0)} to {_fmt(ci[1], 0)}): the few periods where realized volatility explodes "
+        f"({worst}) "
+        f"outweigh the many small gains.",
+        f"- **Harvesting it.** A short vol-swap proxy has a Sharpe ratio of {vrp['short_vol_swap_sharpe']}; "
+        f"the convex short-variance position {vrp['short_variance_sharpe']} "
+        f"({vrp['short_variance_sharpe_ex_worst_year']} without {vrp['worst_year']}).",
+        f"- **Timing it with the forecast does not help.** Regressing short-variance P&L on OVX minus the "
+        f"forecast: slope {_fmt(t['slope'], 2)}, HAC t {t['t_hac']}, {_peq(t['p_value'])} (n = {t['n']}).",
+    ])
+
+
+def noise_block() -> str:
+    lab, prod = _lab(), _prod()
+    nf = lab["noise_floor"]
+    o = prod["overall"]
+    board = lab["leaderboard"]
+    return "\n".join([
+        "| Pipeline run on | Direction accuracy | Mean-reversion rule |", "|---|---:|---:|",
+        f"| WTI, production weekly grid ({o['n']} weeks) | {o['har_dir_acc_pct']}% | {o['mean_reversion_dir_acc_pct']}% |",
+        f"| WTI, every out-of-sample day | {_fmt(_model(lab, lab['config']['champion'])['direction_acc_pct'], 1)}% | "
+        f"{board['mean_reversion_acc_pct']}% |",
+        f"| {nf['process']}, {nf['sims']} simulations | {nf['har_direction_acc_pct_mean']}% "
+        f"({nf['har_direction_acc_pct_range'][0]}–{nf['har_direction_acc_pct_range'][1]}) | "
+        f"{nf['mean_reversion_acc_pct_mean']}% |",
+        "",
+        f"{nf['note']} The call compares next week's realized volatility with this week's, and a five-session "
+        f"realized volatility is a noisy estimate that reverts toward its mean whether or not the underlying "
+        f"volatility moves. Accuracy against that comparison measures the noise in the proxy. The losses above "
+        f"measure forecasting skill.",
+    ])
+
+
+def robustness_block() -> str:
+    lab, prod = _lab(), _prod()
+    o = prod["overall"]
+    champ = _model(lab, lab["config"]["champion"])
+    chall = _model(lab, lab["config"]["challenger"])
+    same = _model(lab, "har_iv_sameday")
+    sel = lab["oos_selection"]
+    ret = prod["economic"]["returns"]
+    qby = champ["qlike_by_grid"]
+    picks = sorted(sel["pick_share_pct"].items(), key=lambda kv: -kv[1])[:3]
+    kept = "; ".join(_model(lab, key)["label"] for key in lab["leaderboard"]["mcs_qlike_range_proxy_included"])
+    chosen = ", ".join(f"{_model(lab, key)['label']} {share}%" for key, share in picks)
+    return "\n".join([
+        f"- **Weekday grids.** The model of record's QLIKE on the five weekly grids ranges "
+        f"{_fmt(min(qby))} to {_fmt(max(qby))}; the challenger is in the 90% MCS on "
+        f"{chall['in_mcs_qlike_grids']}/5 and the model of record on {champ['in_mcs_qlike_grids']}/5. A "
+        f"conclusion that holds on one grid and not the next is reported as fragile.",
+        f"- **Implied-vol timing.** OVX settles at 16:15 ET, after the 14:30 CL settlement that opens the "
+        f"target window, so the model uses the previous session's OVX. Using the same day's value lowers QLIKE "
+        f"to {_fmt(same['qlike'])} (DM {_fmt(same['dm_qlike_vs_har_iv']['stat'], 2, True)}, "
+        f"{_peq(same['dm_qlike_vs_har_iv']['p_value'])}): the extra 1h45m of information is worth having, and is "
+        f"not available at the decision time.",
+        f"- **Roll gaps.** `CL=F` books each roll's calendar spread as a return. With the "
+        f"{ret['roll_days_rebuilt']} roll days through {ret['sample_end'][:4]} rebuilt as same-contract returns "
+        f"from EIA's curve, the production model's QLIKE is {ret['har_qlike_on_same_contract_returns']} over the "
+        f"same {ret['n_on_same_contract_returns']} weeks ({o['har_qlike']} as published).",
+        f"- **Second volatility proxy.** On a range-based realized variance (Rogers-Satchell plus the "
+        f"overnight return) the model of record's QLIKE is {_fmt(champ['qlike_range_proxy'])}; the MCS on "
+        f"that proxy keeps {kept}.",
+        f"- **Choosing the model out of sample.** Picking, each day, the model with the lowest trailing "
+        f"{lab['config']['selection_window_weeks']}-week loss scores {_fmt(sel['qlike'])} vs "
+        f"{_fmt(sel['qlike_har_iv'])} for always using the model of record (DM "
+        f"{_peq(sel['dm_vs_har_iv']['p_value'])}); it picks "
+        f"{chosen} of the time.",
+    ])
+
+
+def leak_table() -> str:
+    a = _load("leak_anatomy.json")
+    names = {"nearest_neighbour": "1-nearest neighbour", "decision_tree": "Decision tree",
+             "random_forest": "Random forest (20 trees)"}
+    data = {"synthetic_random_walk": "i.i.d. random walk", "block_shuffled_cl": "Block-shuffled CL=F returns",
+            "real_cl_5y_window": "Real CL=F, 5-year window"}
+    rows = ["| Data | Model | Runs | Accuracy unpurged → purged | Sharpe unpurged → purged |",
+            "|---|---|---:|---|---|"]
+    for dkey, dname in data.items():
+        for mkey, block in a[dkey].items():
+            if not (isinstance(block, dict) and "purged" in block):
+                continue
+            u, p = block["unpurged_leaked"], block["purged"]
+            rows.append(f"| {dname} | {names.get(mkey, mkey)} | {u['n_runs']} | {u['accuracy_pct_mean']:.1f}% → "
+                        f"**{p['accuracy_pct_mean']:.1f}%** | {_fmt(u['sharpe_mean'], 2)} → **{_fmt(p['sharpe_mean'], 2)}** |")
+    ref = a["retracted_reference"]
+    rows.append("")
+    rows.append(f"For comparison, the retracted model: {ref['accuracy_pct']:.1f}% and Sharpe {ref['sharpe']:.2f} over "
+                f"{ref['n']} weeks. Same walk-forward, same five-session labels, the purge switched off and on; "
+                f"`backend/leak_anatomy.py`.")
+    return "\n".join(rows)
+
+
+def carry_table() -> str:
+    c = _load("carry_signal_test.json")
+    rows = ["| Sample | Months | Return above / below median carry (%/mo) | One-sided p | Rank corr. (p) | "
+            "Timed vs buy-and-hold Sharpe |", "|---|---:|---|---:|---|---|"]
+    for key, name in (("full_sample", "Full"), ("pre_2007", "Before 2007"), ("post_2007", "2007 on")):
+        s = c[key]
+        rows.append(f"| {name} ({s['span'][:4]}–{s['span'][-10:-6]}) | {s['n_months']} | "
+                    f"{_fmt(s['mean_ret_above_median_carry_pct'], 2, True)} / {_fmt(s['mean_ret_below_median_carry_pct'], 2, True)} | "
+                    f"{_fmt(s['spread_p_value_one_sided'])} | {_fmt(s['carry_rank_corr'], 2, True)} "
+                    f"({_fmt(s['carry_rank_corr_p_value'])}) | {_fmt(s['carry_timed_sharpe'], 2)} vs {_fmt(s['buy_hold_sharpe'], 2)} |")
+    pw, rc = c["power_post_2007"], c["regime_change_test"]
+    rows.append("")
+    rows.append(f"Second-nearby contract held over each contract cycle on EIA's futures curve (no roll gap in any "
+                f"return). After 2007 the spread test could detect only a spread of {pw['mde_spread_pct_per_month']}%/month "
+                f"(80% power), and had {round(pw['power_vs_pre_2007_spread'] * 100)}% power against the pre-2007 "
+                f"spread; the change in spread is not significant (p = {_fmt(rc['spread_difference_p_value'])}), the "
+                f"change in rank correlation is (p = {_fmt(rc['rank_corr_difference_p_value'])}).")
+    return "\n".join(rows)
+
+
+def supply_table() -> str:
+    s = _load("supply_shock_study.json")
+    pl = s["placebo"]
+    rows = ["| Group | n | Median peak | Median settle | p vs placebo (peak / settle) |", "|---|---:|---:|---:|---|"]
+    rows.append(f"| Ordinary dates (placebo) | {pl['n']:,} | {_fmt(pl['median_peak_pct'], 1, True)}% | "
+                f"{_fmt(pl['median_settle_pct'], 1, True)}% | — |")
+    for g in s["groups"]:
+        pv = g["p_value_vs_placebo"]
+        rows.append(f"| {g['name']} | {g['n']} | {_fmt(g['median_peak_pct'], 1, True)}% | "
+                    f"{_fmt(g['median_settle_pct'], 1, True)}% | {_p(pv['peak'])} / {_p(pv['settle'])} |")
+    bg = s["between_groups"]
+    rows.append("")
+    rows.append(f"Peak = highest close in the 20 sessions after the event vs the day before; settle = 10 sessions "
+                f"after the peak; EIA daily Cushing spot. Supply removal vs threat-only directly: p = "
+                f"{_fmt(bg['p_value']['peak'])} (peak), {_fmt(bg['p_value']['settle'])} (settle). Event dates and "
+                f"groups were chosen with hindsight and the p-values are not adjusted for the groups tested.")
+    return "\n".join(rows)
+
+
+def ledger_block() -> str:
+    led = _load("research_ledger.json")
+    s = led["summary"]
+    rows_by_id = {r["id"]: r for r in led["rows"]}
+    out = [f"{s['rows']} hypotheses: {s['by_status']['supported']} supported, {s['by_status']['rejected']} rejected, "
+           f"{s['by_status']['inconclusive']} inconclusive, {s['by_status']['retracted']} retracted. Of the "
+           f"supported ones, {len(s['supported_surviving_bh_5pct'])} survive Benjamini-Hochberg at 5%, "
+           f"{len(s['supported_surviving_holm_5pct'])} survive Holm, and {len(s['supported_clearing_hlz_t3'])} clear "
+           f"the t > 3 hurdle of Harvey, Liu and Zhu (2016):", "",
+           "| Claim | p | BH q | Clears t > 3 |", "|---|---:|---:|:---:|"]
+    for key in s["supported_surviving_bh_5pct"]:
+        r = rows_by_id[key]
+        out.append(f"| {r['hypothesis']} | {_p(r['p_value'])} | {_p(r.get('q_value_bh'))} | "
+                   f"{'yes' if r.get('clears_hlz_t3') else 'no'} |")
+    return "\n".join(out)
 
 
 def print_block(name: str) -> None:

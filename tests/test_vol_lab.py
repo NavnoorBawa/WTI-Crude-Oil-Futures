@@ -4,7 +4,7 @@ The look-ahead test is the centerpiece, as in test_vol_forecast.py: every benchm
 GARCH refits, the tree model and the combination) must give the same forecast for a test week no
 matter what happens after that week's test day. The statistical tests are checked against cases
 whose answer is known, and the committed artifact is checked against its own contract (and, with
-RUN_SLOW=1, reproduced bit for bit from the committed snapshot).
+RUN_SLOW=1, rebuilt from the committed snapshot and compared with vol_lab.compare_reports).
 """
 
 import json
@@ -331,11 +331,23 @@ class ArtifactContractTest(unittest.TestCase):
         # by a week at the end of the sample.
         self.assertAlmostEqual(champ["qlike_by_grid"][0], prod["har_qlike"], delta=0.005)
 
-    @unittest.skipUnless(os.environ.get("RUN_SLOW") == "1", "set RUN_SLOW=1 to rebuild the artifact (~2 min)")
-    def test_artifact_reproduces_bit_for_bit(self):
-        rebuilt = lab._jsonable(lab.build_report(md.load_snapshot()))
+    def test_reproduction_rule_separates_noise_from_a_changed_result(self):
+        committed = {"sets": ["a", "b"], "p": 0.0028, "acc": 66.1, "raw": 0.20370903366594823, "n": 4}
+        noise = {**committed, "p": 0.0029, "raw": committed["raw"] * (1 + 2e-5)}      # last bits, last place
+        self.assertEqual(lab.compare_reports(committed, noise)["violations"], [])
+        self.assertFalse(lab.compare_reports(committed, noise)["identical"])
+        for key, value in (("sets", ["a"]), ("p", 0.0030), ("acc", 66.3), ("raw", 0.2038), ("n", 5)):
+            with self.subTest(key=key):
+                self.assertTrue(lab.compare_reports(committed, {**committed, key: value})["violations"])
+        self.assertTrue(lab.compare_reports(committed, {**committed, "extra": 1})["violations"])
+
+    @unittest.skipUnless(os.environ.get("RUN_SLOW") == "1", "set RUN_SLOW=1 to rebuild the artifact (~3 min)")
+    def test_artifact_reproduces_from_the_snapshot(self):
+        rebuilt = json.loads(json.dumps(lab._jsonable(lab.build_report(md.load_snapshot()))))
+        if os.environ.get("VOL_LAB_REBUILT"):                                # kept for the CI job summary
+            Path(os.environ["VOL_LAB_REBUILT"]).write_text(json.dumps(rebuilt), encoding="utf-8")
         committed = json.loads((ROOT / "data" / "vol_lab.json").read_text())
-        self.assertEqual(json.loads(json.dumps(rebuilt)), committed)
+        self.assertEqual(lab.compare_reports(committed, rebuilt)["violations"], [])
 
 
 if __name__ == "__main__":

@@ -2,8 +2,9 @@
 
 Every number in the research artifact (data/vol_lab.json) is computed from the CSV files in
 data/market/, whose SHA-256 digests are pinned in data/market/MANIFEST.json. Loading verifies the
-digests, so a reviewer who clones the repository reproduces the artifact bit for bit, offline,
-without depending on what Yahoo Finance serves on the day. `python -m backend.vol_lab --refresh`
+digests, so a reviewer who clones the repository reproduces the artifact offline (bit for bit under
+the same numeric environment; see vol_lab.compare_reports otherwise), without depending on what
+Yahoo Finance serves on the day. `python -m backend.vol_lab --refresh`
 downloads a new snapshot (free sources only) and rewrites the manifest.
 
 Sources (all free, no API key):

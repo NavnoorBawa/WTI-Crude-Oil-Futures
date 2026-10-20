@@ -13,8 +13,11 @@ backs the new one.
   and realized utility on variance-consistent forecasts; Model Confidence Set, Hansen SPA,
   Diebold-Mariano, Mincer-Zarnowitz; weekly VaR backtests; delayed-feedback adaptive conformal
   intervals; a range-based second proxy; the direction noise floor; coefficient paths.
-- **Reproducibility.** A hash-pinned data snapshot (`data/market/`), a bit-for-bit reproduction test,
-  and a CI workflow that re-runs it.
+- **Reproducibility.** A hash-pinned data snapshot (`data/market/`), a test that rebuilds the
+  research artifact from it and requires every conclusion to match (and every number to 1e-4), and a
+  CI workflow that re-runs it under a pinned numeric environment. The GARCH-family refits now
+  converge to a 1e-9 tolerance, so BLAS thread counts and CPU kernels no longer move published
+  figures.
 - **Model of record v2** (`har-iv/2`): OVX lagged one session (entry-time clean); losses, risk and
   the published forecast use the variance-consistent mean (Duan smearing); the median decides the
   direction call; a probability of rising vol; an adaptive conformal 80% interval; an implied-vol-only

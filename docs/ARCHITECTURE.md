@@ -18,7 +18,7 @@ flowchart LR
     subgraph pinned["Pinned snapshot (git)"]
         S["data/market/*.csv<br/>MANIFEST.json (SHA-256)"]
     end
-    subgraph research["Research (offline, bit-for-bit reproducible)"]
+    subgraph research["Research (offline, reproducible)"]
         L["backend/vol_lab.py<br/>14 models, MCS, SPA, VaR, conformal"]
         W["backend/backtest_walk_forward.py<br/>direction post-mortem"]
         C["carry / supply-shock / leak anatomy"]

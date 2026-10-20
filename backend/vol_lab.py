@@ -42,8 +42,11 @@ each of the five weekday grids separately and the report says on how many it hol
 which need non-overlapping outcomes, run on each weekly grid.
 
 Every input comes from the pinned snapshot in data/market (backend/market_data.py), so the artifact
-data/vol_lab.json reproduces bit for bit: `python -m backend.vol_lab` (offline) or
-`python -m backend.vol_lab --refresh` (downloads a new snapshot first).
+data/vol_lab.json reproduces from it offline: `python -m backend.vol_lab` (or `--refresh` to download a
+new snapshot first). Under the same numeric environment the rebuild is bit for bit; across BLAS
+thread counts and CPU kernels the iterative GARCH fits differ in the last bits, so `compare_reports`
+defines agreement: every model set, flag, label and count identical, every number equal to 1e-4
+relative or to the last decimal it is published with.
 """
 
 from __future__ import annotations
@@ -98,6 +101,8 @@ CONFORMAL_WINDOW = 156 * 5       # trailing matured daily errors (3 years)
 VAR_LEVELS = (0.05, 0.01)
 EWMA_LAMBDA = 0.94               # RiskMetrics daily decay
 GARCH_SCALE = 100.0              # arch fits percent returns for numerical stability
+GARCH_TOL = 1e-9                 # optimizer tolerance: converge to the optimum, not near it (below)
+REPRO_REL_TOL = 1e-4             # reproduction check: relative agreement required of every number
 LGBM_RETRAIN_WEEKS = 13          # retrain the tree model quarterly (it is the slow one)
 CONE_WINDOWS = (5, 10, 22, 66, 126, 252)
 CONE_PERCENTILES = (5, 25, 50, 75, 95)
@@ -241,7 +246,12 @@ class _GarchState:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             if refit or self.params is None:
-                res = model.fit(disp="off", starting_values=self.params, show_warning=False)
+                # Each refit is warm-started from the last, so with the default tolerance a last-bit
+                # difference in a BLAS result (thread count, CPU kernel) carried through ~930 refits
+                # and moved published GJR figures (direction accuracy, an MCS p-value). Converging
+                # tightly keeps two machines' artifacts within ~2e-5 relative (measured: 4 BLAS
+                # threads vs one thread on the Haswell kernel), with every rounded figure equal.
+                res = model.fit(disp="off", starting_values=self.params, show_warning=False, tol=GARCH_TOL)
                 self.params = res.params.to_numpy()
             else:
                 res = model.fix(self.params)
@@ -826,6 +836,53 @@ def _jsonable(obj: Any) -> Any:
     if isinstance(obj, (np.bool_,)):
         return bool(obj)
     return obj
+
+
+def _last_place(value: float) -> float:
+    """One unit in the last decimal place of a published (rounded) number; 0 for full precision."""
+    text = repr(value)
+    if "e" in text or "E" in text or "." not in text:
+        return 0.0
+    decimals = len(text.split(".")[1])
+    return 10.0 ** -decimals if decimals < 15 else 0.0
+
+
+def compare_reports(committed: Any, rebuilt: Any) -> dict[str, Any]:
+    """How a rebuilt artifact differs from the committed one (both as parsed JSON).
+
+    `violations` lists every difference that is not floating-point noise: a key, length, string,
+    flag, null or integer that differs, or a number off by more than REPRO_REL_TOL relative and more
+    than one unit in the last decimal it is published with (a value rounded to 3 places may land on
+    the other side of a rounding boundary). Empty means every conclusion reproduces."""
+    violations: list[str] = []
+    numeric: list[tuple[float, str]] = []
+
+    def walk(a: Any, b: Any, path: str) -> None:
+        if isinstance(a, dict) and isinstance(b, dict):
+            for key in sorted(set(a) | set(b)):
+                if key in a and key in b:
+                    walk(a[key], b[key], f"{path}/{key}")
+                else:
+                    violations.append(f"{path}/{key}: present on one side only")
+        elif isinstance(a, list) and isinstance(b, list):
+            if len(a) != len(b):
+                violations.append(f"{path}: length {len(a)} != {len(b)}")
+            for i, (x, y) in enumerate(zip(a, b)):
+                walk(x, y, f"{path}[{i}]")
+        elif isinstance(a, float) and isinstance(b, float):
+            if a != b:
+                rel = abs(a - b) / max(abs(a), abs(b))
+                numeric.append((rel, path))
+                if rel > REPRO_REL_TOL and abs(a - b) > _last_place(a) * (1 + 1e-9):
+                    violations.append(f"{path}: committed {a!r}, rebuilt {b!r}")
+        elif type(a) is not type(b) or a != b:
+            violations.append(f"{path}: committed {a!r}, rebuilt {b!r}")
+
+    walk(committed, rebuilt, "")
+    numeric.sort(reverse=True)
+    return {"identical": committed == rebuilt, "numbers_differing": len(numeric),
+            "largest_relative_difference": numeric[0][0] if numeric else 0.0,
+            "largest_at": numeric[0][1] if numeric else None, "violations": violations}
 
 
 def main(argv: Sequence[str] | None = None) -> int:

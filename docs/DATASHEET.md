@@ -5,7 +5,7 @@ After Gebru et al. (2021), *Datasheets for Datasets*. Generated facts come from
 
 ## Motivation
 
-The volatility research must reproduce bit for bit, offline, years from now. Yahoo Finance revises
+The volatility research must reproduce offline, years from now. Yahoo Finance revises
 history (holiday-dated partial bars come and go, and past closes of the continuous series have
 changed between downloads), so the research runs on a frozen copy whose SHA-256 digests are pinned
 in `MANIFEST.json`. `backend/market_data.load_snapshot()` refuses any file that does not match.
