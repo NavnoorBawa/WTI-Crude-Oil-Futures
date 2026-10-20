@@ -43,11 +43,11 @@ The project began as a machine-learning direction model whose backtest Sharpe ra
 | Are the forecasts calibrated? | Unbiasedness not rejected | Mincer-Zarnowitz slope 0.86 (joint p = 0.161); 80% intervals cover 80.0% | lab |
 | Does it make a better weekly VaR? | Yes: its breaches do not cluster | Breach independence passes on 5/5 grids at 95% and 5/5 at 99%, vs 0/5 and 1/5 for historical simulation; 99%: 14 breaches vs 8.8 expected on the production grid (Kupiec passes 5/5) | lab |
 | Does it make money as a vol target? | No, it controls risk | Sharpe difference vs buy-and-hold −0.12 (p = 0.408); excess kurtosis 1.82 vs 58.18 | production run |
-| Is there a variance risk premium? | In vol points, yes; in variance and as a return, not significant | IV above next-month RV in 73.5% of periods; mean variance premium −263 (95% CI −1083 to 556); short vol-swap Sharpe 0.52 (one-sided p = 0.070, non-normal test) | production run |
+| Is there a variance risk premium? | In vol points, yes; in variance, not significant; as a short vol-swap return, not significant | IV above next-month RV in 73.5% of periods; mean variance premium −263 (95% CI −1083 to 556); short vol-swap Sharpe 0.52 (one-sided p = 0.070, non-normal test) | production run |
 | Is direction accuracy evidence of skill? | No | 74.4% observed vs 75.5% for HAR without OVX on simulated returns with nothing to forecast | production run |
 | Was the original direction model's Sharpe real? | No, a look-ahead leak | Leaked label agrees in sign with the test label 79.52% of the time on a random walk; purged, the Sharpe ratio is −0.98 | leak anatomy; recorded runs |
 
-Source: *lab*: `data/vol_lab.json`, rebuilt from the pinned snapshot and checked in CI. *production run*: `data/vol_forecast_validation.json`, a recorded run on data downloaded from Yahoo Finance and FRED, not rebuilt in CI (Yahoo revises history). *leak anatomy*: `data/leak_anatomy.json`, offline from the pinned snapshot and synthetic returns. *recorded runs*: the direction post-mortem's `data/wf_*.json`, also runs on downloaded data.
+Source: *lab*: `data/vol_lab.json`, rebuilt from the pinned snapshot and checked in CI. *production run*: `data/vol_forecast_validation.json`, a recorded run on data downloaded from Yahoo Finance and FRED, not rebuilt in CI (Yahoo revises history). *leak anatomy*: `data/leak_anatomy.json`, offline from the pinned snapshot and synthetic returns (the unit suite re-runs a subset). *recorded runs*: the direction post-mortem's `data/wf_*.json`, also runs on downloaded data.
 <!-- [[[end]]] -->
 
 The tables and statistics on this page are generated from the committed artifacts in
@@ -291,6 +291,8 @@ volatility rises last among its headline figures, labelled uncalibrated.
 - **Roll gaps** (production run). `CL=F` books each roll's calendar spread as a return. With the 283 roll days through 2024 rebuilt as same-contract returns from EIA's curve, the production model's QLIKE is 0.368 over the same 927 weeks (0.376 as published).
 - **Second volatility proxy.** Against the range-based realized variance of the target week (full bars, Rogers-Satchell plus the overnight return, not rescaled to the close-to-close level) the model of record's QLIKE is 0.189, and the MCS on that proxy keeps HAR-IV-range, Combination, Implied-vol regression, Implied vol (raw OVX) and HAR-IV (model of record).
 - **Choosing the model out of sample.** Picking, each day, the feasible model with the lowest trailing 156-week loss scores 0.365 vs 0.370 for always using the model of record (DM p = 0.380); it picks HAR-IV-range 38.6%, Implied vol (raw OVX) 20.2%, HAR-range 15.8% of the time.
+
+Source: lab, except the bullet marked production run.
 <!-- [[[end]]] -->
 
 Calendar-year results, the volatility cone and the per-grid tables are in `data/vol_lab.json` and
@@ -498,6 +500,8 @@ The supported hypotheses that survive Benjamini-Hochberg at 5%:
 | The challenger HAR-IV-range beats the model of record on QLIKE. | 0.002 | 0.010 | yes |
 | OVX carries information about next-week realized vol beyond the HAR terms (in-sample). | < 0.001 | < 0.001 | yes |
 | Events in group 'supply_lost' move WTI differently from a random non-event date (peak). | 0.002 | 0.009 | yes |
+
+Source: `data/research_ledger.json`, rebuilt from the artifacts by `python -m backend.research_ledger`.
 <!-- [[[end]]] -->
 
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("ledger_reading") ]]] -->

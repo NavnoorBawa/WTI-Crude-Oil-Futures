@@ -38,8 +38,8 @@ GLOSS = {"har_iv_range": "a range-based variant of the model of record"}
 SOURCE_NOTE = ("*lab*: `data/vol_lab.json`, rebuilt from the pinned snapshot and checked in CI. *production "
                "run*: `data/vol_forecast_validation.json`, a recorded run on data downloaded from Yahoo Finance "
                "and FRED, not rebuilt in CI (Yahoo revises history). *leak anatomy*: `data/leak_anatomy.json`, "
-               "offline from the pinned snapshot and synthetic returns. *recorded runs*: the direction "
-               "post-mortem's `data/wf_*.json`, also runs on downloaded data.")
+               "offline from the pinned snapshot and synthetic returns (the unit suite re-runs a subset). "
+               "*recorded runs*: the direction post-mortem's `data/wf_*.json`, also runs on downloaded data.")
 
 
 # --------------------------------------------------------------------------- loading and formatting
@@ -357,8 +357,10 @@ def results_at_a_glance() -> str:
         "Yes" if tests["difference"] > 0 else "No: it lowers the Sharpe ratio")
     vol_pts = _ledger_row(ledger, "vrp_exists")["status"] == "supported"
     var_sig = ci[0] > 0 or ci[1] < 0
-    vrp_answer = (("In vol points, yes" if vol_pts else "In vol points, not shown") + "; "
-                  + ("in variance, significant" if var_sig else "in variance and as a return, not significant"))
+    swap_sig = _sig(swap["p_value_one_sided"])
+    vrp_answer = (("In vol points, yes" if vol_pts else "In vol points, not shown") + "; in variance, "
+                  + ("significant" if var_sig else "not significant") + "; as a short vol-swap return, "
+                  + ("significant" if swap_sig else "not significant"))
     direction = "No" if _ledger_row(ledger, "vol_dir_vs_noise_floor")["status"] != "supported" else "Above its floor"
 
     rows = ["| Question | Answer | Evidence | Source |", "|---|---|---|---|"]
@@ -821,8 +823,8 @@ def vrp_block() -> str:
         f"{vrp['short_variance_sharpe_ex_worst_year']} without {vrp['worst_year']}).",
         f"- **Timing it with the forecast {'does not help' if not _sig(t['p_value']) and not _sig(timing_p) else 'may help'}.** "
         f"Regressing short-variance P&L on OVX minus the forecast: slope {_fmt(t['slope'], 2)}, HAC t {t['t_hac']}, "
-        f"{_peq(t['p_value'])} (n = {t['n']}); selling only when OVX is above the forecast against selling only "
-        f"when it is below: {_peq(timing_p)}.",
+        f"{_peq(t['p_value'])} (n = {t['n']}); short-variance P&L in periods when OVX minus the forecast is above "
+        f"its trailing median against the other periods (one-sided Welch t-test): {_peq(timing_p)}.",
         "",
         "Source: production run (`data/vol_forecast_validation.json`).",
     ])
@@ -936,6 +938,8 @@ def robustness_block() -> str:
         f"{lab['config']['selection_window_weeks']}-week loss scores {_fmt(sel['qlike'])} vs "
         f"{_fmt(sel['qlike_har_iv'])} for always using the model of record (DM "
         f"{_peq(sel['dm_vs_har_iv']['p_value'])}); it picks {chosen} of the time.",
+        "",
+        "Source: lab, except the bullet marked production run.",
     ]
     return "\n".join(out)
 
@@ -1181,6 +1185,7 @@ def ledger_block() -> str:
         r = rows_by_id[key]
         out.append(f"| {r['hypothesis']} | {_p(r['p_value'])} | {_p(r.get('q_value_bh'))} | "
                    f"{'yes' if r.get('clears_hlz_t3') else 'no'} |")
+    out += ["", "Source: `data/research_ledger.json`, rebuilt from the artifacts by `python -m backend.research_ledger`."]
     return "\n".join(out)
 
 
@@ -1193,12 +1198,13 @@ def ledger_reading() -> str:
     text = []
     if leak and len(every) == len(leak):
         text.append(f"{'Both' if len(leak) == 2 else f'All {len(leak)}'} supported leak demonstrations survive every "
-                    f"adjustment: some of the project's most robust findings are about how its own first result was "
+                    f"adjustment, so some of the project's strongest results are about how its own first result was "
                     f"wrong.")
     shuffled = [r for r in leak if "block-shuffled" in r["hypothesis"]]
     if shuffled:
-        text.append("The block-shuffled one pools ten runs that permute the same returns, so its p-value overstates "
-                    "the evidence (section 4).")
+        runs = shuffled[0].get("context", {}).get("runs")
+        text.append(f"The block-shuffled one pools {runs} runs that permute the same returns, so its p-value "
+                    f"overstates the evidence (section 4); the synthetic runs draw independent returns.")
     retracted = s["by_status"]["retracted"]
     text.append(f"The {retracted} retracted rows stay in the multiplicity count: they were tested.")
     return " ".join(text)
