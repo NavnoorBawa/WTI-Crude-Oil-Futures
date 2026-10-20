@@ -1,0 +1,46 @@
+# Local mirror of the CI gates in .github/workflows/tests.yml, run on the files staged in a commit:
+#   pip install -r requirements.txt -r requirements-dev.txt pre-commit==4.6.2 && pre-commit install
+# Remote hooks are pinned to full commit SHAs (as the workflow guards require of actions); mypy and
+# bandit run from the active environment, so they use the versions pinned in requirements-dev.txt.
+# The one fixer never touches data/ (generated artifacts and the SHA-256-pinned market snapshot,
+# whose bytes must not change) or tests/fixtures/.
+
+minimum_pre_commit_version: '3.2.0'
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+        exclude: ^(data|tests/fixtures)/
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: 77039ccbba72c8aede339c5f8ae29b42aced0a2e  # frozen: v0.15.18
+    hooks:
+      - id: ruff-check
+        name: ruff check (CI gate F,E9)
+        args: [--select, 'F,E9']
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: 914e7df21a07ef503a81201c76d2b11c789d3fca  # frozen: v1.7.12
+    hooks:
+      - id: actionlint
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy --strict (scope in pyproject.toml)
+        entry: python -m mypy
+        language: system
+        pass_filenames: false
+        files: ^(backend/.*\.py|pyproject\.toml)$
+      - id: bandit
+        name: bandit
+        entry: python -m bandit -q -r backend scripts freeze.py
+        language: system
+        pass_filenames: false
+        files: ^((backend|scripts)/.*\.py|freeze\.py)$
