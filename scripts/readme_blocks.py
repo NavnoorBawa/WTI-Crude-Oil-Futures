@@ -201,3 +201,49 @@ def print_block(name: str) -> None:
     import cog  # provided by cogapp at generation time
 
     cog.out("\n" + globals()[name]() + "\n")
+
+
+def model_card_metrics() -> str:
+    """Evaluation summary of the model of record and the challenger (model card, section 'Metrics')."""
+    lab, prod = _lab(), _prod()
+    o = prod["overall"]
+    champ, chall = _model(lab, lab["config"]["champion"]), _model(lab, lab["config"]["challenger"])
+    conf = lab["conformal"]
+    rows = ["| Metric | Model of record (HAR-IV v2) | Challenger (" + chall["label"] + ") | Reference |",
+            "|---|---:|---:|---|"]
+    rows.append(f"| QLIKE, every OOS day (lower is better) | {_fmt(champ['qlike'])} | {_fmt(chall['qlike'])} | "
+                f"persistence {_fmt(_model(lab, 'persistence')['qlike'])}; raw OVX {_fmt(_model(lab, 'raw_ovx')['qlike'])} |")
+    rows.append(f"| In the 90% Model Confidence Set | {'yes' if champ['in_mcs_qlike'] else 'no'} "
+                f"({champ['in_mcs_qlike_grids']}/5 weekday grids) | {'yes' if chall['in_mcs_qlike'] else 'no'} "
+                f"({chall['in_mcs_qlike_grids']}/5) | {len(lab['leaderboard']['mcs_qlike_included'])} of "
+                f"{len(lab['leaderboard']['models'])} models survive |")
+    rows.append(f"| Mincer-Zarnowitz slope (joint unbiasedness p) | {_fmt(champ['mincer_zarnowitz']['slope'], 2)} "
+                f"({_p(champ['mincer_zarnowitz']['p_unbiased'])}) | {_fmt(chall['mincer_zarnowitz']['slope'], 2)} "
+                f"({_p(chall['mincer_zarnowitz']['p_unbiased'])}) | 1 (unbiased) |")
+    rows.append(f"| 80% conformal interval coverage | {conf[lab['config']['champion']]['coverage_pct']}% | "
+                f"{conf[lab['config']['challenger']]['coverage_pct']}% | target 80% |")
+    rows.append(f"| Realized utility (% per year) | {_fmt(champ['realized_utility_pct'], 2)} | "
+                f"{_fmt(chall['realized_utility_pct'], 2)} | maximum {lab['leaderboard']['realized_utility_max_pct']} |")
+    rows.append(f"| Direction accuracy (not skill evidence) | {o['har_dir_acc_pct']}% (production grid) | "
+                f"{_fmt(chall['direction_acc_pct'], 1)}% (every day) | noise floor "
+                f"{lab['noise_floor']['har_direction_acc_pct_mean']}% with nothing to forecast |")
+    return "\n".join(rows)
+
+
+def data_quality_block() -> str:
+    """Data-quality facts of the pinned snapshot: repaired bars and the Yahoo vs FRED OVX check."""
+    lab = _lab()
+    q = lab["generated_from"]["cl_data_quality"]
+    agree = lab["ovx_source_agreement"]
+    worst = ", ".join(f"{d['date']} (Yahoo {d['yahoo']}, FRED {d['fred']})" for d in agree["largest_differences"])
+    return "\n".join([
+        f"- `CL=F` sessions kept: {q['sessions']:,}. Bars with a non-positive open, high or low (the session "
+        f"after the 2020-04-20 negative settlement): {q['range_blanked_nonpositive_bars']}, close kept, range "
+        f"blanked. Bars whose high was below the open or close: {q['repaired_high_below_open_or_close']}; "
+        f"whose low was above them: {q['repaired_low_above_open_or_close']} (repaired by widening the range; "
+        "closes are never changed).",
+        f"- OVX, Yahoo vs FRED: {agree['common_days']:,} common days, {agree['share_within_0_05_pts'] * 100:.2f}% "
+        f"within 0.05 points, correlation {agree['correlation']}, largest differences {worst}.",
+        f"- Snapshot retrieved {lab['generated_from']['retrieved_at']}, finished sessions through "
+        f"{lab['generated_from']['sessions_through']}.",
+    ])
