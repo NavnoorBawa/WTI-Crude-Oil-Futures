@@ -61,6 +61,7 @@ const ARIA_SORT = { asc: "ascending", desc: "descending" };
  * @param {{key: string, direction: "asc"|"desc"}} [props.initialSort]
  * @param {boolean} [props.dense]
  * @param {boolean} [props.tall]           cap the height and scroll vertically, header stuck on top
+ * @param {boolean} [props.stickyFirst]    keep the first column in view while scrolling sideways (default on)
  * @param {import("react").ReactNode} [props.footnote]
  */
 export default function DataTable({
@@ -73,6 +74,7 @@ export default function DataTable({
   initialSort = null,
   dense = false,
   tall = false,
+  stickyFirst = true,
   footnote = null,
 }) {
   const captionId = useId();
@@ -91,7 +93,7 @@ export default function DataTable({
     <div className="table-wrap">
       {!captionHidden && <p className="table-caption" aria-hidden="true">{caption}</p>}
       <div className={`table-scroll${tall ? " is-tall" : ""}`} role="region" aria-labelledby={captionId} tabIndex={0}>
-        <table className={`data-table${dense ? " is-dense" : ""}`}>
+        <table className={`data-table${dense ? " is-dense" : ""}${stickyFirst ? " has-sticky" : ""}`}>
           <caption id={captionId} className="sr-only">{caption}</caption>
           <thead>
             <tr>

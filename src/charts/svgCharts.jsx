@@ -276,8 +276,9 @@ export function CoverageByYear({ series, target }) {
                     d={line().x((p) => x(p.year)).y((p) => y(p.coverage))(s.points)} />
                 )}
                 {s.points.map((p) => (
-                  <circle key={p.year} cx={x(p.year) + (index === 0 ? 0 : 0)} cy={y(p.coverage)} r={index === 0 ? 3.5 : 3}
-                    className={index === 0 ? `fill-${s.tone}` : `ring-${s.tone}`}>
+                  // The second series is an open ring larger than the first's dot, so equal values show both.
+                  <circle key={p.year} cx={x(p.year)} cy={y(p.coverage)} r={index === 0 ? 3 : 5.5}
+                    className={index === 0 ? `fill-${s.tone}` : `ring-${s.tone} is-open`}>
                     <title>{`${s.label} ${p.year}: ${fmtNum(p.coverage, 1)}%`}</title>
                   </circle>
                 ))}
@@ -495,7 +496,7 @@ export function SignAgreementLadder({ rows }) {
  */
 export function LeakDumbbell({ rows, reference }) {
   const rowHeight = 22;
-  const height = rows.length * rowHeight + 46;
+  const height = rows.length * rowHeight + 58;
   return (
     <Frame
       height={height}
@@ -510,11 +511,12 @@ export function LeakDumbbell({ rows, reference }) {
             aria-label="Direction accuracy without and with the purge, by experiment and model">
             {x.ticks(5).map((tick) => <line key={tick} className="grid-line" x1={x(tick)} x2={x(tick)} y1={14} y2={bottom} />)}
             <line className="stroke-axis" x1={x(50)} x2={x(50)} y1={14} y2={bottom} />
-            <text className="axis-note" x={x(50)} y={10} textAnchor="middle">coin flip</text>
+            <text className="axis-note" x={x(50)} y={height - 1} textAnchor="start">50% = coin flip</text>
             {reference?.accuracy != null && (
               <g>
                 <line className="stroke-alt2 dashed" x1={x(reference.accuracy)} x2={x(reference.accuracy)} y1={14} y2={bottom} />
-                <text className="label-alt2" x={x(reference.accuracy)} y={10} textAnchor="middle">retracted {fmtNum(reference.accuracy, 1)}%</text>
+                <text className="label-alt2" x={x(reference.accuracy)} y={10}
+                  textAnchor={x(reference.accuracy) > width - 60 ? "end" : "middle"}>retracted model {fmtNum(reference.accuracy, 1)}%</text>
               </g>
             )}
             {rows.map((row, index) => {

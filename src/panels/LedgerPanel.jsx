@@ -75,10 +75,18 @@ export default function LedgerPanel({ research, researchStatus }) {
         rowClass={(row) => (row.status === "retracted" ? "is-flagged" : undefined)}
         dense
         tall
+        stickyFirst={false}
         initialSort={{ key: "q", direction: "asc" }}
         columns={[
-          { key: "id", label: "ID", rowHeader: true, sortable: true, render: (row) => <code className="ledger-id">{row.id ?? DASH}</code> },
-          { key: "hypothesis", label: "Hypothesis", className: "wrap-cell ledger-hypothesis", render: (row) => <span title={row.test ?? undefined}>{row.hypothesis}</span> },
+          {
+            key: "hypothesis", label: "Hypothesis", rowHeader: true, className: "wrap-cell ledger-hypothesis",
+            render: (row) => (
+              <>
+                <span title={row.test ?? undefined}>{row.hypothesis}</span>
+                <code className="ledger-id">{row.id ?? DASH}</code>
+              </>
+            ),
+          },
           { key: "family", label: "Family", sortable: true, className: "muted-cell" },
           {
             key: "statistic", label: "Statistic", align: "right", sortable: true,

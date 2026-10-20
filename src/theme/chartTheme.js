@@ -92,11 +92,14 @@ export const baseChartOptions = () => ({
 });
 
 /** Lightweight-charts injects an unlabeled TradingView link; give it an accessible name. */
-export const labelAttribution = (host) => {
+export const labelAttribution = (host, attempt = 0) => {
   const link = host?.querySelector?.('a[href*="tradingview"]');
   if (link) {
     link.setAttribute("aria-label", "Charts by TradingView Lightweight Charts (opens tradingview.com)");
     link.setAttribute("rel", "noopener noreferrer");
+  } else if (attempt < 5 && typeof requestAnimationFrame === "function") {
+    // The library may add its logo on the first paint rather than at creation.
+    requestAnimationFrame(() => labelAttribution(host, attempt + 1));
   }
 };
 

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Chip from "./Chip";
 import ErrorBoundary from "./ErrorBoundary";
+import keepHyphenated from "./keepHyphenated";
 
 export const REPRODUCE_COMMAND = "python -m backend.vol_lab";
 
@@ -69,7 +70,7 @@ export default function Panel({
             )}
           </div>
         )}
-        <h2 id={titleId} className="panel-title">{title || fallbackTitle || name}</h2>
+        <h2 id={titleId} className="panel-title">{keepHyphenated(title || fallbackTitle || name)}</h2>
         {metaItems.length > 0 && (
           <p className="panel-meta sep-list">
             {metaItems.map((item, index) => <span key={index}>{item}</span>)}

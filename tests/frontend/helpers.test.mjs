@@ -86,6 +86,16 @@ test("SVG label helpers fit labels and keep stacked labels apart", () => {
   assert.equal(m.sparkline.sparkPath([1], 10, 10), null);
 });
 
+test("hyphenated tokens in titles are kept on one line", async () => {
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const keep = m.keepHyphenated.default;
+  const html = renderToStaticMarkup(createElement("h2", null, keep("HAR-IV beat GJR-GARCH(1,1)-t in 16 years")));
+  assert.equal(html, '<h2><span class="nowrap">HAR-IV</span> beat <span class="nowrap">GJR-GARCH(1,1)-t</span> in 16 years</h2>');
+  assert.equal(keep("no hyphen here"), "no hyphen here");
+  assert.equal(keep(null), null);
+});
+
 // ------------------------------------------------------------------------------------ selectors
 test("leaderboard rows classify information sets and mark the record and challenger", () => {
   const rows = m.research.leaderboardRows(research.vol_lab);

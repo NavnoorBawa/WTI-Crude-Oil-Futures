@@ -46,6 +46,7 @@ button { font: inherit; color: inherit; }
 
 .num { font-variant-numeric: tabular-nums; }
 .muted { color: var(--text-3); }
+.nowrap { white-space: nowrap; }
 
 /* Inline lists separated by a middle dot that trails each item, so a wrapped line never starts with one. */
 .sep-list { display: flex; flex-wrap: wrap; align-items: baseline; row-gap: 2px; }
@@ -510,7 +511,7 @@ button { font: inherit; color: inherit; }
 .data-table { width: 100%; border-collapse: collapse; font-size: var(--fs-13); }
 .data-table.is-dense { font-size: var(--fs-12); }
 .table-caption { margin: 0 0 var(--sp-2); font-size: var(--fs-11); line-height: 16px; letter-spacing: var(--tracking-micro); text-transform: uppercase; color: var(--text-3); }
-.data-table tbody th[scope="row"], .data-table thead th:first-child { position: sticky; left: 0; z-index: 1; background: var(--bg-1); }
+.data-table.has-sticky tbody th[scope="row"], .data-table.has-sticky thead th:first-child { position: sticky; left: 0; z-index: 1; background: var(--bg-1); }
 .data-table th, .data-table td { padding: 6px var(--sp-2); border-bottom: 1px solid var(--rule); text-align: left; vertical-align: middle; white-space: nowrap; }
 .data-table.is-dense th, .data-table.is-dense td { padding: 5px var(--sp-2); }
 .data-table th:first-child, .data-table td:first-child { padding-left: 0; }
@@ -583,8 +584,8 @@ tr.is-record .grid-dots .dot.is-on { background: var(--s-model); border-color: v
 .table-scroll.is-tall { max-height: 560px; overflow-y: auto; }
 .table-scroll.is-tall thead th { position: sticky; top: 0; z-index: 2; background: var(--bg-1); }
 .table-scroll.is-tall thead th:first-child { z-index: 3; }
-.ledger-id { font-size: var(--fs-11); color: var(--text-2); }
-.data-table .ledger-hypothesis { min-width: 320px; max-width: 520px; color: var(--text-2); }
+.ledger-id { display: block; margin-top: 2px; font-size: var(--fs-11); font-weight: 400; color: var(--text-3); }
+.data-table .ledger-hypothesis { min-width: 240px; max-width: 560px; font-weight: 400; color: var(--text-1); }
 tr.is-reference > * { color: var(--text-3); }
 .superseded { margin-top: var(--sp-3); font-size: var(--fs-11); color: var(--text-3); max-width: var(--measure); }
 .superseded .micro { margin-right: var(--sp-1); }
@@ -711,6 +712,7 @@ tr.is-reference > * { color: var(--text-3); }
 .ring-truth { fill: none; stroke: var(--s-truth); stroke-width: 1.5; }
 .ring-model { fill: var(--bg-1); stroke: var(--s-model); stroke-width: 1.5; }
 .ring-alt { fill: var(--bg-1); stroke: var(--s-alt); stroke-width: 1.5; }
+.svg-chart .is-open { fill: none; }
 /* .label-* tint SVG text (fill) and HTML text (color) alike */
 .label-truth { fill: var(--s-truth); color: var(--s-truth); }
 .label-model { fill: var(--s-model); color: var(--s-model); }

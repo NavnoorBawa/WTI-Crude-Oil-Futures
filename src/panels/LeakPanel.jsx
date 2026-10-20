@@ -31,7 +31,7 @@ function LeakAnatomy({ anatomy }) {
         headline && { label: "Unpurged, on noise", value: fmtPct(headline.unpurged), note: headline.unpurgedSharpe != null ? `Sharpe ${fmtNum(headline.unpurgedSharpe, 2)}` : null },
         headline && { label: "Purged, on noise", value: fmtPct(headline.purged), note: headline.purgedSharpe != null ? `Sharpe ${fmtNum(headline.purgedSharpe, 2)}` : null },
         anatomy.reference && { label: "Retracted model", value: fmtPct(anatomy.reference.accuracy), note: anatomy.reference.sharpe != null ? `Sharpe ${fmtNum(anatomy.reference.sharpe, 2)}, n ${fmtInt(anatomy.reference.n)}` : null },
-        anatomy.signAgreement != null && { label: "Label sign agreement, t−1", value: fmtPct(anatomy.signAgreement), note: "analytic, random walk" },
+        anatomy.signAgreement != null && { label: "Sign agreement, t−1", value: fmtPct(anatomy.signAgreement), note: "analytic, random walk" },
       ]} />
       <div className="split">
         {anatomy.ladder.length > 0 && (
@@ -50,7 +50,7 @@ function LeakAnatomy({ anatomy }) {
               { tone: "alt2", label: "unpurged", shape: "dot" },
               { tone: "truth", label: "purged", shape: "dot" },
             ]} />
-            <LazyMount minHeight={anatomy.experiments.length * 22 + 46} label="experiment chart">
+            <LazyMount minHeight={anatomy.experiments.length * 22 + 58} label="experiment chart">
               <Dumbbell rows={anatomy.experiments} reference={anatomy.reference} />
             </LazyMount>
           </div>
