@@ -1690,7 +1690,11 @@
       "stance": "NEUTRAL",
       "wf_is_significant": false,
       "eligible_for_validation": false,
-      "resolved": false
+      "resolved": true,
+      "resolution_date": "2026-10-20",
+      "resolution_trading_date": "2026-10-20",
+      "resolution_at": "2026-10-20T04:36:41+00:00",
+      "skipped_contract_roll": true
     },
     {
       "date": "2026-10-14",
@@ -1751,10 +1755,25 @@
       "wf_is_significant": false,
       "eligible_for_validation": false,
       "resolved": false
+    },
+    {
+      "date": "2026-10-20",
+      "trading_date": "2026-10-20",
+      "entry_at": "2026-10-20T04:36:41+00:00",
+      "frozen_at": "2026-10-20T04:48:42.787818+00:00",
+      "contract": "CLZ26",
+      "contract_basis": "quote_match",
+      "model_bar_date": "2026-10-19",
+      "entry_price": 98.71,
+      "forecast_pct": 1.094,
+      "stance": "NEUTRAL",
+      "wf_is_significant": false,
+      "eligible_for_validation": false,
+      "resolved": false
     }
   ],
   "summary": {
-    "n_calls": 130,
+    "n_calls": 131,
     "n_resolved_directional": 0,
     "n_independent_directional": 0,
     "min_independent_to_validate": 18,
@@ -1762,11 +1781,11 @@
     "hit_rate_pct": null,
     "hit_rate_independent_pct": null,
     "n_pending": 5,
-    "n_skipped_roll": 31,
+    "n_skipped_roll": 32,
     "n_skipped_late": 0,
-    "n_neutral": 85,
+    "n_neutral": 86,
     "n_ineligible_directional": 45,
     "first_call_date": "2026-06-10",
-    "updated_at": "2026-10-18T22:27:09.309949+00:00"
+    "updated_at": "2026-10-20T04:48:43.124368+00:00"
   }
 }
