@@ -1,10 +1,12 @@
 """Network-free tests for the volatility research lab, its statistics and its pinned data snapshot.
 
 The look-ahead test is the centerpiece, as in test_vol_forecast.py: every benchmark (including the
-GARCH refits, the tree model and the combination) must give the same forecast for a test week no
-matter what happens after that week's test day. The statistical tests are checked against cases
-whose answer is known, and the committed artifact is checked against its own contract (and, with
-RUN_SLOW=1, rebuilt from the committed snapshot and compared with vol_lab.compare_reports).
+GARCH refits, the tree model and the combination) must give the same forecast for a test day no
+matter what happens after that day's 14:30 ET settlement, in later sessions or in the test day's
+own bar after the settlement (its High and Low run to 17:00 ET). The statistical tests are checked
+against cases whose answer is known, and the committed artifact is checked against its own contract
+(and, with RUN_SLOW=1, rebuilt from the committed snapshot and compared with
+vol_lab.compare_reports).
 """
 
 import json
@@ -76,10 +78,35 @@ class RangeVarianceTest(unittest.TestCase):
                              "Close": [100.0, 90.0]})
         r = np.array([0.0, np.log(0.9)])
         self.assertAlmostEqual(lab.range_variance(ohlc, r)[1], np.log(0.9) ** 2, places=12)
+        self.assertAlmostEqual(lab.settlement_range_variance(ohlc, r)[1], np.log(0.9) ** 2, places=12)
+
+    def test_settlement_part_is_overnight_plus_open_to_settle(self):
+        ohlc = pd.DataFrame({"Open": [100.0, 102.0], "High": [101.0, 104.0], "Low": [99.0, 101.0],
+                             "Close": [100.5, 103.0]})
+        r = np.array([0.0, np.log(103.0 / 100.5)])
+        v = lab.settlement_range_variance(ohlc, r)
+        self.assertAlmostEqual(v[1], np.log(102.0 / 100.5) ** 2 + np.log(103.0 / 102.0) ** 2, places=12)
+        wide = ohlc.assign(High=ohlc["High"] * 1.2, Low=ohlc["Low"] * 0.8)     # the bar after 14:30 ET
+        np.testing.assert_array_equal(lab.settlement_range_variance(wide, r), v)
+
+
+def _widen_bar(ohlc, t, factor):
+    """Session t's High and Low moved outward, its Open and Close unchanged."""
+    out = ohlc.copy()
+    out.iloc[t, out.columns.get_loc("High")] *= factor
+    out.iloc[t, out.columns.get_loc("Low")] /= factor
+    return out
+
+
+def _row_features(design, i):
+    """Every input any model reads at row i: each regression design and the tree model's features."""
+    designs = lab._regression_designs(design.X, design.XR, design.lev, design.ovx_same)
+    feats = np.column_stack([design.X, design.XR, design.lev])
+    return {**{key: Z[i] for key, Z in designs.items()}, "lgbm": feats[i]}
 
 
 class NoLookAheadTest(unittest.TestCase):
-    """A forecast for week k may depend only on data up to and including its test day."""
+    """A forecast made at a test day's 14:30 ET settlement may depend only on data known then."""
 
     def test_every_model_ignores_the_future(self):
         r, dates, ovx, ohlc = _synthetic_market()
@@ -89,9 +116,10 @@ class NoLookAheadTest(unittest.TestCase):
         k = len(design.ends) // 2
         t = int(design.pos[design.ends[k]])
         rng = np.random.default_rng(99)
-        r2, ovx2, ohlc2 = r.copy(), ovx.copy(), ohlc.copy()
+        r2, ovx2 = r.copy(), ovx.copy()
         r2[t + 1:] = rng.normal(0, 0.05, r2.size - t - 1)          # a completely different future
         ovx2[t + 1:] = ovx2[t + 1:] * 3.0
+        ohlc2 = _widen_bar(ohlc, t, 1.3)                            # day t's trading after its settlement
         ohlc2.iloc[t + 1:, :] = ohlc2.iloc[t + 1:, :].to_numpy() * 1.7
         d2 = lab.build_design(r2, dates, ovx2, ohlc2)
         moved = lab.walk_forward(d2)
@@ -100,6 +128,21 @@ class NoLookAheadTest(unittest.TestCase):
             np.testing.assert_allclose(base[key].iloc[: k + 1].to_numpy(), moved[key].iloc[: k + 1].to_numpy(),
                                        rtol=1e-9, err_msg=key)
         self.assertFalse(np.allclose(base["actual"].iloc[k + 1:], moved["actual"].iloc[k + 1:]))
+
+    def test_range_features_read_the_test_days_bar_only_to_its_settlement(self):
+        # Yahoo's daily High and Low run to the 17:00 ET close, after the 14:30 ET settlement (Close).
+        r, dates, ovx, ohlc = _synthetic_market()
+        design = lab.build_design(r, dates, ovx, ohlc)
+        i = len(design.pos) // 2
+        t = int(design.pos[i])
+        base = _row_features(design, i)
+        same_day = _row_features(lab.build_design(r, dates, ovx, _widen_bar(ohlc, t, 1.3)), i)
+        for key, value in base.items():
+            np.testing.assert_array_equal(same_day[key], value, err_msg=key)
+        day_before = _row_features(lab.build_design(r, dates, ovx, _widen_bar(ohlc, t - 1, 1.3)), i)
+        changed = {key for key, value in base.items() if not np.array_equal(day_before[key], value)}
+        self.assertEqual(changed, {"har_range", "har_iv_range", "lgbm"})
+        self.assertTrue((day_before["har_range"] > base["har_range"]).all())     # RV5, RV22 and RV66 all move
 
     def test_only_the_v1_timing_row_reads_the_test_days_own_ovx(self):
         r, dates, ovx, ohlc = _synthetic_market()
@@ -173,6 +216,18 @@ class NoLookAheadTest(unittest.TestCase):
         self.assertAlmostEqual(out["forecast_median_pct"], round(med * 100, 1))
         combo = lab.live_model_forecast("combo", r, dates, ovx, ohlc)
         self.assertGreater(combo["forecast_next_week_vol_annualized_pct"], 0)
+
+    def test_live_range_forecast_uses_the_settlement_time_features(self):
+        r, dates, ovx, ohlc = _synthetic_market()
+        t = len(r) - 1
+        design = lab.build_design(r, dates, ovx, ohlc)
+        beta, smear = lab._fit_log(design.XR, design.y)
+        _, mean = lab._median_mean(beta, smear, np.array(lab.range_features(design.v_range, design.v_settle, t)))
+        out = lab.live_model_forecast("har_range", r, dates, ovx, ohlc)
+        self.assertAlmostEqual(out["forecast_next_week_vol_annualized_pct"], round(mean * 100, 1))
+        for key in ("har_range", "har_iv_range", "lgbm"):
+            wide = lab.live_model_forecast(key, r, dates, ovx, _widen_bar(ohlc, t, 1.3))
+            self.assertEqual(wide, lab.live_model_forecast(key, r, dates, ovx, ohlc), key)
 
 
 class LossAndTestTest(unittest.TestCase):
@@ -321,8 +376,30 @@ class ArtifactContractTest(unittest.TestCase):
     def test_mcs_membership_matches_p_values(self):
         board = self.report["leaderboard"]
         for row in board["models"]:
+            if row["timing_control"]:
+                continue
             self.assertEqual(row["in_mcs_qlike"], row["mcs_qlike_p"] >= lab.MCS_SIZE, row["key"])
+            self.assertEqual(row["in_mcs_mse"], row["mcs_mse_p"] >= lab.MCS_SIZE, row["key"])
         self.assertEqual({r["key"] for r in board["models"]}, set(lab.MODEL_KEYS))
+
+    def test_timing_control_is_in_no_model_set_or_test_field(self):
+        board = self.report["leaderboard"]
+        self.assertEqual(board["mcs_excludes"], list(lab.TIMING_CONTROLS))
+        self.assertEqual({r["key"] for r in board["models"] if r["timing_control"]}, set(lab.TIMING_CONTROLS))
+        robustness = board["mcs_robustness_qlike"]
+        sets = [board["mcs_qlike_included"], board["mcs_mse_included"], board["mcs_qlike_range_proxy_included"],
+                *board["mcs_qlike_by_grid"].values(), board["spa_qlike_vs_har_iv"]["models"],
+                self.report["oos_selection"]["candidates"],
+                *(v["included"] if isinstance(v, dict) else v for v in robustness.values())]
+        for members in sets:
+            self.assertFalse(set(members) & set(lab.TIMING_CONTROLS), members)
+        self.assertNotIn(self.report["config"]["challenger"], lab.TIMING_CONTROLS)
+        for row in board["models"]:
+            if row["timing_control"]:
+                for key in ("mcs_qlike_p", "in_mcs_qlike", "mcs_mse_p", "in_mcs_mse", "in_mcs_qlike_grids",
+                            "in_mcs_qlike_range_proxy"):
+                    self.assertIsNone(row[key], key)
+                self.assertIsNotNone(row["dm_qlike_vs_har_iv"])                 # still reported
 
     def test_champion_matches_the_production_validator(self):
         champ = next(r for r in self.report["leaderboard"]["models"] if r["key"] == lab.CHAMPION)

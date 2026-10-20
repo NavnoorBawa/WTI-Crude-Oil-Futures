@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 
 try:
-    from hypothesis import HealthCheck, given, settings
+    from hypothesis import HealthCheck, assume, given, settings
     from hypothesis import strategies as st
     from hypothesis.extra import numpy as hnp
 except ImportError:  # pragma: no cover - a dev dependency (requirements-dev.txt)
@@ -337,6 +337,11 @@ MARKETS = st.tuples(SEED, st.dates(min_value=date(2001, 1, 1), max_value=date(20
                     st.floats(min_value=0.0, max_value=0.3))
 
 
+# The full-bar measure (the range-based target) and the part of it known at the settlement (the
+# decision day's term in the features) share the overnight term, the roll handling and the fallback.
+RANGE_MEASURES = (lab.range_variance, lab.settlement_range_variance)
+
+
 class RangeVarianceProperties(unittest.TestCase):
     @PROPERTY
     @given(MARKETS)
@@ -344,11 +349,12 @@ class RangeVarianceProperties(unittest.TestCase):
         """Catches: the Rogers-Satchell term used unclipped (negative on an inconsistent bar)."""
         seed, start, n, unusable, inconsistent = market
         dates, ohlc, r, blank = _market(np.random.default_rng(seed), start, n, unusable, inconsistent)
-        for given_dates in (None, dates):
-            v = lab.range_variance(ohlc, r, given_dates)
-            self.assertTrue(np.isfinite(v).all())
-            self.assertTrue((v >= 0).all(), v.min())
-            np.testing.assert_array_equal(v[blank], r[blank] ** 2)
+        for measure in RANGE_MEASURES:
+            for given_dates in (None, dates):
+                v = measure(ohlc, r, given_dates)
+                self.assertTrue(np.isfinite(v).all())
+                self.assertTrue((v >= 0).all(), v.min())
+                np.testing.assert_array_equal(v[blank], r[blank] ** 2)
 
     @PROPERTY
     @given(MARKETS, POW2)
@@ -356,8 +362,8 @@ class RangeVarianceProperties(unittest.TestCase):
         """Catches: the estimator computed on price levels instead of log prices."""
         seed, start, n, unusable, inconsistent = market
         dates, ohlc, r, _ = _market(np.random.default_rng(seed), start, n, unusable, inconsistent)
-        np.testing.assert_allclose(lab.range_variance(ohlc * c, r, dates), lab.range_variance(ohlc, r, dates),
-                                   rtol=1e-9, atol=1e-15)
+        for measure in RANGE_MEASURES:
+            np.testing.assert_allclose(measure(ohlc * c, r, dates), measure(ohlc, r, dates), rtol=1e-9, atol=1e-15)
 
     @PROPERTY
     @given(MARKETS, st.data())
@@ -371,8 +377,38 @@ class RangeVarianceProperties(unittest.TestCase):
         moved, r2 = ohlc.copy(), r.copy()
         moved.iloc[t + 1:, :] = moved.iloc[t + 1:, :].to_numpy() * rng.uniform(0.5, 2.0, (n - t - 1, 4))
         r2[t + 1:] = rng.normal(0, 0.1, n - t - 1)
-        np.testing.assert_array_equal(lab.range_variance(ohlc, r, dates)[: t + 1],
-                                      lab.range_variance(moved, r2, dates)[: t + 1])
+        for measure in RANGE_MEASURES:
+            np.testing.assert_array_equal(measure(ohlc, r, dates)[: t + 1], measure(moved, r2, dates)[: t + 1])
+
+    @PROPERTY
+    @given(MARKETS, SEED)
+    def test_settlement_part_never_reads_the_high_or_low(self, market, seed2):
+        """Catches: the Rogers-Satchell term of the decision day's own bar, whose High and Low run to
+        the 17:00 ET close, after the 14:30 ET settlement."""
+        seed, start, n, unusable, inconsistent = market
+        dates, ohlc, r, _ = _market(np.random.default_rng(seed), start, n, unusable, inconsistent)
+        stretch = np.exp(np.abs(np.random.default_rng(seed2).normal(0, 0.05, n)))
+        wide = ohlc.assign(High=ohlc["High"] * stretch, Low=ohlc["Low"] / stretch)
+        np.testing.assert_array_equal(lab.settlement_range_variance(wide, r, dates),
+                                      lab.settlement_range_variance(ohlc, r, dates))
+
+    @PROPERTY
+    @given(MARKETS, st.data())
+    def test_range_features_at_t_ignore_session_ts_high_and_low(self, market, data):
+        """Catches: the range features built from the full-bar measure through day t (the look-ahead
+        this construction removes)."""
+        seed, start, n, unusable, inconsistent = market
+        dates, ohlc, r, _ = _market(np.random.default_rng(seed), start, n, unusable, inconsistent)
+        assume(n > 66)
+        t = data.draw(st.integers(min_value=65, max_value=n - 1), label="t")
+        wide = ohlc.copy()
+        wide.iloc[t, wide.columns.get_loc("High")] *= 1.5
+        wide.iloc[t, wide.columns.get_loc("Low")] /= 1.5
+
+        def features(bars):
+            return lab.range_features(lab.range_variance(bars, r, dates), lab.settlement_range_variance(bars, r, dates), t)
+
+        self.assertEqual(features(wide), features(ohlc))
 
 
 class RollDayProperties(unittest.TestCase):

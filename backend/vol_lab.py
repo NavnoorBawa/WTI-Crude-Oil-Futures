@@ -1,16 +1,20 @@
 """Volatility research lab: benchmark field, forecast evaluation, risk backtests, conformal bands.
 
 The production forecaster (backend/vol_forecast.py, HAR-IV) was specified first and is the model of
-record. This module asks the questions a risk desk would ask of it, on the SAME out-of-sample grid
-(every model forecasts the same 5-session target at the same weekly test points, with the same
-purge, from information available at the close of the test day):
+record. This module asks the questions a risk desk would ask of it, on the SAME out-of-sample days
+(every model forecasts the same 5-session target on every out-of-sample day, with the same purge,
+from information available at the test day's 14:30 ET settlement, the decision time; the one
+exception is a timing control, below):
 
   1. Benchmarks. Persistence, raw implied vol (OVX as the forecast), EWMA (RiskMetrics),
      GARCH(1,1)-t and GJR-GARCH(1,1)-t (arch), HAR-RV (Corsi 2009), HAR-RV with a downside
      semivolatility term (Patton-Sheppard 2015), HAR on a range-based realized measure
-     (Rogers-Satchell + overnight, Yang-Zhang 2000 style), an implied-vol-only regression, HAR-IV,
-     HAR-IV with OVX lagged one session (strictly entry-time clean), HAR-IV on the range measure, a
-     gradient-boosted tree model (LightGBM) on the same features, and an equal-weight combination.
+     (Rogers-Satchell + overnight, Yang-Zhang 2000 style; the test day's own bar enters only up to
+     its settlement), an implied-vol-only regression, HAR-IV (OVX lagged one session), HAR-IV on
+     the range measure, a gradient-boosted tree model (LightGBM) on the same features, and an
+     equal-weight combination. A timing control, HAR-IV with the test day's own OVX close (which
+     settles at 16:15 ET, after the decision), is reported but kept out of every Model Confidence
+     Set, the SPA test and the model selection: it could not have been made at the decision time.
   2. Evaluation. QLIKE and MSE on variances, the two losses that rank forecasts consistently under a
      noisy volatility proxy (Patton 2011), plus the realized utility of a volatility-targeting investor
      (Bollerslev, Hood, Huss and Pedersen 2018), applied to VARIANCE-CONSISTENT forecasts: a
@@ -24,7 +28,7 @@ purge, from information available at the close of the test day):
      Direction accuracy (will next week's realized vol exceed this week's?) is reported only next to
      its noise floor: in a constant-volatility world, where nothing is forecastable, the same pipeline
      scores ~75%, because the 5-session realized vol it compares against is itself noisy.
-  3. Honest model choice. A forecaster chosen each week by its trailing out-of-sample loss (only
+  3. Honest model choice. A forecaster chosen each day by its trailing out-of-sample loss (only
      outcomes already observed), so the benefit of picking a model is measured without hindsight.
   4. Risk use. Weekly 95% and 99% Value-at-Risk from each volatility forecast, with normal and
      filtered-historical-simulation quantiles, against unconditional historical simulation;
@@ -126,7 +130,8 @@ MODELS = [
     ModelSpec("gjr", "GJR-GARCH(1,1)-t", "time-series", "Asymmetric (leverage) GARCH, Student-t, refit weekly."),
     ModelSpec("har_rv", "HAR-RV", "HAR", "Log-HAR on 5/22/66-session close-to-close realized vol (Corsi 2009)."),
     ModelSpec("har_rs", "HAR-RV + semivariance", "HAR", "HAR-RV plus 5-session downside semivolatility (Patton-Sheppard 2015)."),
-    ModelSpec("har_range", "HAR-range", "HAR", "Log-HAR on a range-based measure: Rogers-Satchell plus squared overnight return."),
+    ModelSpec("har_range", "HAR-range", "HAR", "Log-HAR on a range-based measure: Rogers-Satchell plus squared overnight "
+              "return, with the test day's own bar taken only to its settlement."),
     ModelSpec("ovx_only", "Implied-vol regression", "implied", "Log-regression of next-week realized vol on OVX alone."),
     ModelSpec("har_iv", "HAR-IV (model of record)", "HAR", "Log-HAR on 5/22/66-session realized vol plus OVX; the production model."),
     ModelSpec("har_iv_sameday", "HAR-IV, same-day OVX (v1 timing)", "HAR",
@@ -137,6 +142,11 @@ MODELS = [
               "Equal-weight pool of the variances of HAR-IV, GJR-GARCH-t and the implied-vol regression."),
 ]
 MODEL_KEYS = [m.key for m in MODELS]
+# Models that read information published after the decision: reported (losses, DM) as controls,
+# never in a Model Confidence Set, the SPA field or the selection candidates, whose results depend
+# on the field they are computed over.
+TIMING_CONTROLS = ("har_iv_sameday",)
+FEASIBLE = [m for m in MODEL_KEYS if m not in TIMING_CONTROLS]
 LOG_MODELS = ("har_rv", "har_rs", "har_range", "ovx_only", "har_iv", "har_iv_sameday", "har_iv_range", "lgbm")
 COMBO_MEMBERS = ("har_iv", "gjr", "ovx_only")
 NOISE_FLOOR_SIMS = 10
@@ -165,16 +175,10 @@ def roll_days(dates: pd.DatetimeIndex) -> np.ndarray:
     return mask
 
 
-def range_variance(ohlc: pd.DataFrame, returns: np.ndarray, dates: pd.DatetimeIndex | None = None) -> np.ndarray:
-    """Daily variance proxy from the bar: Rogers-Satchell (drift-robust) plus the squared overnight
-    (previous close to open) return, i.e. the open-to-close and close-to-open parts of a Yang-Zhang
-    style estimator. On roll days (when `dates` is given) the overnight gap is the calendar spread,
-    so it is replaced by the median squared overnight return of the previous ROLL_OVERNIGHT_WINDOW
-    non-roll sessions. Where the bar is unusable (no positive open/high/low) the squared
-    close-to-close return is used instead. Element t uses only session t's bar and earlier data.
-    """
-    o, h, low, c = (np.log(ohlc[k].to_numpy(dtype=float)) for k in ("Open", "High", "Low", "Close"))
-    rs = (h - c) * (h - o) + (low - c) * (low - o)
+def _overnight_variance(o: np.ndarray, c: np.ndarray, dates: pd.DatetimeIndex | None) -> np.ndarray:
+    """Squared overnight (previous close to open) log return. On roll days (when `dates` is given)
+    the gap is the calendar spread, so it is replaced by the median squared overnight return of the
+    previous ROLL_OVERNIGHT_WINDOW non-roll sessions."""
     prev_c = np.r_[np.nan, c[:-1]]
     j2 = np.where(np.isfinite(o - prev_c), (o - prev_c) ** 2, 0.0)
     if dates is not None:
@@ -182,9 +186,50 @@ def range_variance(ohlc: pd.DataFrame, returns: np.ndarray, dates: pd.DatetimeIn
         clean = pd.Series(np.where(roll, np.nan, j2))
         proxy = clean.rolling(ROLL_OVERNIGHT_WINDOW, min_periods=20).median().shift(1).to_numpy()
         j2 = np.where(roll, np.where(np.isfinite(proxy), proxy, 0.0), j2)
-    var = np.clip(rs, 0.0, None) + j2
+    return j2
+
+
+def _log_bar(ohlc: pd.DataFrame, *keys: str) -> list[np.ndarray]:
+    return [np.log(ohlc[k].to_numpy(dtype=float)) for k in keys]
+
+
+def range_variance(ohlc: pd.DataFrame, returns: np.ndarray, dates: pd.DatetimeIndex | None = None) -> np.ndarray:
+    """Daily variance proxy from the full bar: Rogers-Satchell (drift-robust) plus the squared
+    overnight return (roll-safe when `dates` is given, see _overnight_variance), i.e. the
+    open-to-close and close-to-open parts of a Yang-Zhang style estimator. Where the bar is unusable
+    (no positive open/high/low) the squared close-to-close return is used instead. Element t uses
+    only session t's bar and earlier data.
+
+    Session t's High and Low run to the 17:00 ET Globex close, 2.5 hours after the 14:30 ET
+    settlement (the Close) at which a forecast is made, so element t is known only after the
+    decision of day t. It is the realized proxy for sessions after the decision (the range-based
+    target) and enters the features only for sessions before it (see range_features).
+    """
+    o, h, low, c = _log_bar(ohlc, "Open", "High", "Low", "Close")
+    rs = (h - c) * (h - o) + (low - c) * (low - o)
+    var = np.clip(rs, 0.0, None) + _overnight_variance(o, c, dates)
     r2 = np.asarray(returns, dtype=float) ** 2
     return np.where(np.isfinite(var), var, r2)
+
+
+def settlement_range_variance(ohlc: pd.DataFrame, returns: np.ndarray,
+                              dates: pd.DatetimeIndex | None = None) -> np.ndarray:
+    """The part of session t's range variance known at its own 14:30 ET settlement, the decision
+    time: the squared overnight return (as in range_variance) plus the squared open-to-settlement
+    return (log Close - log Open; the Open is the session's first trade, the evening before). The
+    High and Low are not read: they cover the session to 17:00 ET, after the settlement. Where there
+    is no usable open, the squared close-to-close return is used instead."""
+    o, c = _log_bar(ohlc, "Open", "Close")
+    var = _overnight_variance(o, c, dates) + (c - o) ** 2
+    r2 = np.asarray(returns, dtype=float) ** 2
+    return np.where(np.isfinite(var), var, r2)
+
+
+def range_features(v_range: np.ndarray, v_settle: np.ndarray, t: int) -> list[float]:
+    """Range-based RV5, RV22 and RV66 (annualized) as known at day t's settlement: the full-bar
+    variance of each earlier session (every such bar closed before day t's session opened) and only
+    the settlement part of day t's own bar."""
+    return [float(np.sqrt((np.sum(v_range[t - w + 1: t]) + v_settle[t]) / w * ANNUAL)) for w in (5, 22, 66)]
 
 
 @dataclass
@@ -195,10 +240,11 @@ class Design:
     y: np.ndarray                  # next-5-session realized vol (annualized)
     tdate: pd.DatetimeIndex        # test-day date of each row
     pos: np.ndarray                # index into r of each row's test day
-    XR: np.ndarray                 # range-based RV5, RV22, RV66
-    v_range: np.ndarray            # daily range-based variance (roll-safe), all sessions
+    XR: np.ndarray                 # range-based RV5, RV22, RV66 as known at the test day's settlement
+    v_range: np.ndarray            # daily full-bar range variance (roll-safe), all sessions: the target proxy
+    v_settle: np.ndarray           # the part of each session's range variance known at its settlement
     lev: np.ndarray                # 5-session downside semivol
-    ovx_same: np.ndarray           # the test day's own OVX close (v1 timing, robustness only)
+    ovx_same: np.ndarray           # the test day's own OVX close (the timing control only)
     ends: list[int] = field(default_factory=list)   # OOS row indices (every day from MIN_TRAIN on)
 
 
@@ -208,16 +254,18 @@ def build_design(r: np.ndarray, dates: pd.DatetimeIndex, ovx: np.ndarray, ohlc: 
 
     `ovx` is the SAME-DAY aligned OVX series; the design uses it lagged by vf.OVX_LAG_SESSIONS (the
     entry-time-clean convention of the production model) and keeps the same-day value per row only
-    for the v1-timing robustness model.
+    for the timing control. The range features read the test day's own bar only up to its
+    settlement (range_features); the full bar of the sessions after it is the range-based target.
     """
     ovx = np.asarray(ovx, float)
     X, y, tdate, pos = vf._build_matrix(r, dates, vf.lag_ovx(ovx), return_positions=True)
     v = range_variance(ohlc, r, dates)
-    XR = np.array([[np.sqrt(np.mean(v[t - w + 1: t + 1]) * ANNUAL) for w in (5, 22, 66)] for t in pos])
+    v_settle = settlement_range_variance(ohlc, r, dates)
+    XR = np.array([range_features(v, v_settle, t) for t in pos])
     lev = np.array([max(vf._downside_semivol(r[t - 4: t + 1]), 1e-4) for t in pos])
     ovx_same = np.array([ovx[t] if np.isfinite(ovx[t]) and ovx[t] > 0 else X[i, 3] for i, t in enumerate(pos)])
     ends = list(range(vf.MIN_TRAIN + offset, len(X)))        # every out-of-sample day
-    return Design(r, dates, X, y, tdate, pos, XR, v, lev, ovx_same, ends)
+    return Design(r, dates, X, y, tdate, pos, XR, v, v_settle, lev, ovx_same, ends)
 
 
 # ----------------------------------------------------------------------------------------------
@@ -299,15 +347,16 @@ def _regression_designs(X: np.ndarray, XR: np.ndarray, lev: np.ndarray, ovx_same
 
 def walk_forward(d: Design, *, include_slow: bool = True, progress: Progress | None = None) -> pd.DataFrame:
     """One row per OOS day: the realized target, the persistence / mean-reversion references, the
-    5-session forward return (for VaR), the weekday grid the row belongs to (`grid`, 0-4; grid 0 is
-    the production validator's), and for every model its variance-consistent forecast (column
-    `<model>`, used for losses and risk) and its median forecast (column `<model>__med`, used for the
-    direction call and the intervals). Both are annualized vols.
+    5-session forward log return (`ret5`, for VaR), the weekday grid the row belongs to (`grid`,
+    0-4; grid 0 is the production validator's), and for every model its variance-consistent
+    forecast (column `<model>`, used for losses and risk) and its median forecast (column
+    `<model>__med`, used for the direction call and the intervals). Both are annualized vols.
 
     Each forecast at row `end` uses training rows [0, end - (H - 1)) for the regression models (the
     purge: no training target overlaps the test target) and returns up to and including the test
-    day for the time-series models, so nothing after the test day's close is ever used. GARCH is
-    re-estimated on grid-0 days and filtered daily; the tree model is retrained every quarter.
+    day for the time-series models, so nothing after the test day's settlement is used (except the
+    test day's OVX close by the timing control). GARCH is re-estimated on grid-0 days and filtered
+    daily; the tree model is retrained every quarter.
     """
     X, XR, y = d.X, d.XR, d.y
     designs = _regression_designs(X, XR, d.lev, d.ovx_same)
@@ -362,7 +411,7 @@ def walk_forward(d: Design, *, include_slow: bool = True, progress: Progress | N
             "rv5": float(X[end, 0]),
             "rv66": float(X[end, 2]),
             "ovx": float(X[end, 3]) / 100.0,
-            "ret5": float(np.sum(d.r[t + 1: t + 1 + vf.H])),
+            "ret5": float(np.sum(d.r[t + 1: t + 1 + vf.H])),    # sum of the next 5 daily log returns
             "b_const": float(beta[0]), "b_rv5": float(beta[1]), "b_rv22": float(beta[2]),
             "b_rv66": float(beta[3]), "b_ovx": float(beta[4]), "smear": smear,
             "actual_range": float(np.sqrt(np.mean(d.v_range[t + 1: t + 1 + vf.H]) * ANNUAL)),
@@ -376,15 +425,15 @@ def walk_forward(d: Design, *, include_slow: bool = True, progress: Progress | N
 def live_model_forecast(key: str, r: np.ndarray, dates: pd.DatetimeIndex, ovx_same: np.ndarray,
                         ohlc: pd.DataFrame) -> dict[str, Any]:
     """Today's forecast from any model in MODELS, fitted on every matured row (the production
-    challenger uses this, so it is computed by exactly the definition that was benchmarked)."""
+    challenger uses this, so it is computed by exactly the definition that was benchmarked,
+    including the range features' settlement-time construction for today's bar)."""
     if key not in MODEL_KEYS:
         raise ValueError(f"unknown model {key!r}")
     d = build_design(r, dates, ovx_same, ohlc)
     t = len(r) - 1
-    v = range_variance(ohlc, r, dates)
     ovx_l = cast("np.ndarray", vf.lag_ovx(np.asarray(ovx_same, float)))
     x_now = np.array([[vf._rvol(r[t - 4: t + 1]), vf._rvol(r[t - 21: t + 1]), vf._rvol(r[t - 65: t + 1]), ovx_l[t]]])
-    xr_now = np.array([[np.sqrt(np.mean(v[t - w + 1: t + 1]) * ANNUAL) for w in (5, 22, 66)]])
+    xr_now = np.array([range_features(d.v_range, d.v_settle, t)])
     lev_now = np.array([max(vf._downside_semivol(r[t - 4: t + 1]), 1e-4)])
     if not (np.isfinite(x_now).all() and x_now[0, 3] > 0):
         raise RuntimeError("no lagged OVX print for a live forecast")
@@ -507,41 +556,45 @@ def spa_vs_champion(losses: pd.DataFrame, block: int = MCS_BLOCK, reps: int = SP
     record, after accounting for having searched over all of them? Small p: some model beats it."""
     from arch.bootstrap import SPA
 
-    others = losses.drop(columns=[CHAMPION, "har_iv_sameday"], errors="ignore")
+    others = losses.drop(columns=[CHAMPION, *TIMING_CONTROLS], errors="ignore")
     spa = SPA(losses[CHAMPION], others, block_size=block, reps=reps, bootstrap="stationary", seed=seed)
     spa.compute()
     pv = spa.pvalues
     return {"p_consistent": round(float(pv["consistent"]), 4), "p_lower": round(float(pv["lower"]), 4),
             "p_upper": round(float(pv["upper"]), 4), "models": list(others.columns),
-            "note": "excludes the same-day-OVX variant, which uses information the model of record may not"}
+            "note": "excludes the timing control (same-day OVX), which uses information published after the decision"}
 
 
 def leaderboard(frame: pd.DataFrame) -> dict[str, Any]:
-    """Every model on every OOS day, plus the same comparison on each weekday grid on its own."""
+    """Every model on every OOS day, plus the same comparison on each weekday grid on its own. Every
+    Model Confidence Set is computed over the FEASIBLE models; the timing controls keep their losses
+    and DM tests, with null MCS fields."""
     y = frame["actual"].to_numpy()
     LQ, LM = _losses(frame)
-    mcs_q = model_confidence_set(LQ, block=MCS_BLOCK)
-    mcs_m = model_confidence_set(LM, block=MCS_BLOCK)
+    mcs_q = model_confidence_set(LQ[FEASIBLE], block=MCS_BLOCK)
+    mcs_m = model_confidence_set(LM[FEASIBLE], block=MCS_BLOCK)
     grids = {}
     for g in range(vf.STEP):
         mask = (frame["grid"] == g).to_numpy()
         LQg = LQ[mask].reset_index(drop=True)
-        grids[g] = {"mcs": model_confidence_set(LQg, block=MCS_BLOCK_WEEKLY)["included"],
+        grids[g] = {"mcs": model_confidence_set(LQg[FEASIBLE], block=MCS_BLOCK_WEEKLY)["included"],
                     "dm": {m: dm_test(LQg[CHAMPION], LQg[m]) for m in MODEL_KEYS if m != CHAMPION},
                     "qlike": {m: float(LQg[m].mean()) for m in MODEL_KEYS}}
     mr = _mr_hit(frame)
     U = pd.DataFrame({m: realized_utility(y, frame[m].to_numpy()) for m in MODEL_KEYS})
     LQr, _ = _losses(frame, "actual_range")
-    mcs_range = model_confidence_set(LQr, block=MCS_BLOCK)
-    rows = []
+    mcs_range = model_confidence_set(LQr[FEASIBLE], block=MCS_BLOCK)
+    rows: list[dict[str, Any]] = []
     for spec in MODELS:
         m = spec.key
+        control = m in TIMING_CONTROLS
         hit = _hit(frame, m)
         z_dir, _ = hac_z(hit - mr)
         mz = mincer_zarnowitz(y, frame[m].to_numpy(), maxlags=10)
         dm_grid = [grids[g]["dm"][m]["stat"] for g in range(vf.STEP)] if m != CHAMPION else None
         rows.append({
             "key": m, "label": spec.label, "family": spec.family, "description": spec.description,
+            "timing_control": control,
             "qlike": round(float(LQ[m].mean()), 4),
             "qlike_median_forecast": (round(float(qlike(y, frame[f"{m}__med"].to_numpy()).mean()), 4)
                                       if m in LOG_MODELS or m == "combo" else None),
@@ -550,7 +603,7 @@ def leaderboard(frame: pd.DataFrame) -> dict[str, Any]:
             "realized_utility_pct": round(float(U[m].mean()) * 100, 3),
             "dm_utility_vs_har_iv": None if m == CHAMPION else dm_test(-U[CHAMPION], -U[m], horizon=vf.H),
             "qlike_range_proxy": round(float(LQr[m].mean()), 4),
-            "in_mcs_qlike_range_proxy": m in mcs_range["included"],
+            "in_mcs_qlike_range_proxy": None if control else m in mcs_range["included"],
             "dm_qlike_vs_har_iv": None if m == CHAMPION else dm_test(LQ[CHAMPION], LQ[m], horizon=vf.H),
             "dm_qlike_vs_har_iv_by_grid": None if m == CHAMPION else [round(v, 2) for v in cast("list[float]", dm_grid)],
             "dm_mse_vs_har_iv": None if m == CHAMPION else dm_test(LM[CHAMPION], LM[m], horizon=vf.H),
@@ -558,23 +611,30 @@ def leaderboard(frame: pd.DataFrame) -> dict[str, Any]:
             "direction_z_vs_mean_reversion": None if m == "persistence" else round(float(z_dir), 2),
             "mean_ratio_actual_to_forecast": round(float(np.mean(y / frame[m].to_numpy())), 3),
             "mincer_zarnowitz": {k: round(v, 4) for k, v in mz.items()},
-            "mcs_qlike_p": mcs_q["p_values"][m], "in_mcs_qlike": m in mcs_q["included"],
-            "mcs_mse_p": mcs_m["p_values"][m], "in_mcs_mse": m in mcs_m["included"],
-            "in_mcs_qlike_grids": int(sum(m in grids[g]["mcs"] for g in range(vf.STEP))),
+            "mcs_qlike_p": None if control else mcs_q["p_values"][m],
+            "in_mcs_qlike": None if control else m in mcs_q["included"],
+            "mcs_mse_p": None if control else mcs_m["p_values"][m],
+            "in_mcs_mse": None if control else m in mcs_m["included"],
+            "in_mcs_qlike_grids": None if control else int(sum(m in grids[g]["mcs"] for g in range(vf.STEP))),
         })
     rows.sort(key=lambda r: r["qlike"])
     for rank, row in enumerate(rows, 1):
         row["rank_qlike"] = rank
-    robustness = {f"block_{b}": model_confidence_set(LQ, block=b)["included"] for b in (10, 40)}
+    robustness = {f"block_{b}": model_confidence_set(LQ[FEASIBLE], block=b)["included"] for b in (10, 40)}
     for start, end in (("2008-01-01", "2016-12-31"), ("2017-01-01", "2099-12-31")):
         mask = ((frame["date"] >= start) & (frame["date"] <= end)).to_numpy()
         label = f"{start[:4]}-{min(int(end[:4]), int(frame['date'].max().year))}"
         robustness[label] = {"n_days": int(mask.sum()),
-                             "included": model_confidence_set(LQ[mask].reset_index(drop=True),
+                             "included": model_confidence_set(LQ[FEASIBLE][mask].reset_index(drop=True),
                                                               block=MCS_BLOCK)["included"]}
     up = (frame["actual"] > frame["rv5"]).to_numpy()
     return {"models": rows, "mcs_qlike_included": mcs_q["included"], "mcs_mse_included": mcs_m["included"],
             "mcs_qlike_range_proxy_included": mcs_range["included"],
+            "mcs_excludes": list(TIMING_CONTROLS),
+            "mcs_note": ("Every Model Confidence Set is computed over the feasible models only. har_iv_sameday "
+                         "reads the test day's OVX close (16:15 ET), published after the 14:30 ET decision, and "
+                         "MCS p-values depend on the whole field, so it would push feasible models out; its "
+                         "losses and DM tests are reported as a timing control."),
             "spa_qlike_vs_har_iv": spa_vs_champion(LQ),
             "realized_utility_max_pct": round(UTILITY_SR ** 2 / (2 * UTILITY_GAMMA) * 100, 3),
             "mcs_qlike_by_grid": {str(g): grids[g]["mcs"] for g in range(vf.STEP)},
@@ -587,7 +647,7 @@ def oos_selection(frame: pd.DataFrame) -> dict[str, Any]:
     """Each day, use the model with the lowest trailing QLIKE over the previous SELECTION_WINDOW weeks
     of MATURED outcomes (rows at least H sessions old); HAR-IV until a year of them exists. Measures
     the value of choosing among the models without hindsight."""
-    cands = [m for m in MODEL_KEYS if m not in ("persistence", "har_iv_sameday")]
+    cands = [m for m in FEASIBLE if m != "persistence"]
     y = frame["actual"].to_numpy()
     L = np.column_stack([qlike(y, frame[m].to_numpy()) for m in cands])
     window, warm = SELECTION_WINDOW * vf.STEP, WARMUP * vf.STEP
@@ -623,7 +683,7 @@ def var_backtest(frame: pd.DataFrame,
     tests need non-overlapping outcomes). q is the normal quantile, or (filtered historical
     simulation) the empirical quantile of the grid's PAST standardized outcomes ret5 / sigma_5d
     (after WARMUP weeks). Unconditional historical simulation (trailing quantile of past 5-session
-    returns, no volatility model) is the benchmark. Every method is scored on the same weeks."""
+    log returns, no volatility model) is the benchmark. Every method is scored on the same weeks."""
     out: dict[str, dict[str, Any]] = {"grids": {}, "summary": {}}
     for g in range(vf.STEP):
         wk = frame[frame["grid"] == g].reset_index(drop=True)
@@ -677,13 +737,13 @@ def _var_scores(key: str, model: str | None, kind: str, p: float, ret: np.ndarra
 
 
 def choose_challenger(frame: pd.DataFrame) -> str:
-    """The challenger: the lowest-QLIKE model in the 90% Model Confidence Set other than the model of
-    record and its v1-timing variant (or the lowest-QLIKE eligible model if the set holds none). The
+    """The challenger: the lowest-QLIKE model in the 90% Model Confidence Set of the feasible models,
+    other than the model of record (or the lowest-QLIKE eligible model if the set holds none). The
     choice is made on the full 2008-present sample, so the challenger's historical edge is in-sample to
     the choice; its forward live record is the clean test (see the promotion rule in the README)."""
     LQ, _ = _losses(frame)
-    eligible = set(MODEL_KEYS) - {CHAMPION, "har_iv_sameday"}
-    included = set(model_confidence_set(LQ, block=MCS_BLOCK)["included"]) & eligible
+    eligible = set(FEASIBLE) - {CHAMPION}
+    included = set(model_confidence_set(LQ[FEASIBLE], block=MCS_BLOCK)["included"]) & eligible
     pool: set[str] = included or eligible
     return min(pool, key=lambda m: (float(cast(Any, LQ[m].mean())), m))
 
@@ -768,7 +828,7 @@ def chart_series(frame: pd.DataFrame, conf: dict[str, dict[str, Any]], challenge
         "har_iv": pct(wk[CHAMPION]), "har_iv_median": pct(med),
         "challenger": pct(wk[challenger]),
         "lo80": pct(med * np.exp(lo)), "hi80": pct(med * np.exp(hi)),
-        "ret5": pct(wk["ret5"]),
+        "ret5": pct(wk["ret5"]),                  # 5-session log return: the sum of the daily log returns
         "var95": pct(-q95 * s5), "var99": pct(-q99 * s5),
         "ovx_elasticity": [round(float(v), 3) for v in wk["b_ovx"]],
         "rv_elasticity": [round(float(a + b + c), 3) for a, b, c in zip(wk["b_rv5"], wk["b_rv22"], wk["b_rv66"])],
@@ -803,7 +863,8 @@ def build_report(snapshot: market_data.MarketSnapshot, *, include_slow: bool = T
                           "alpha": CONFORMAL_ALPHA, "gamma": CONFORMAL_GAMMA, "window_days": CONFORMAL_WINDOW},
             "selection_window_weeks": SELECTION_WINDOW, "warmup_weeks": WARMUP,
             "champion": CHAMPION, "challenger": challenger, "combo_members": list(COMBO_MEMBERS),
-            "forecasts": ("losses and VaR use variance-consistent forecasts (log models scaled by exp(s^2)); "
+            "forecasts": ("losses and VaR use variance-consistent forecasts (each log model's median scaled by "
+                          "sqrt(mean(exp(2e))) over its own residuals e: Duan's smearing estimator); "
                           "direction and intervals use median forecasts"),
         },
         "sample": {"n_days": int(len(frame)), "n_weeks": int(len(grid0)),
