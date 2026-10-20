@@ -65,8 +65,9 @@ warn_unreachable = true
 pretty = true
 
 [[tool.mypy.overrides]]
-# Third-party libraries without type information.
-module = ["arch", "arch.*", "lightgbm", "lightgbm.*", "statsmodels", "statsmodels.*", "yfinance", "yfinance.*"]
+# Third-party libraries that ship no type information (arch and lightgbm do; numpy, pandas and
+# scipy are typed by numpy itself, pandas-stubs and scipy-stubs).
+module = ["statsmodels", "statsmodels.*", "yfinance", "yfinance.*"]
 ignore_missing_imports = true
 
 # ------------------------------------------------------------------------------------------------
