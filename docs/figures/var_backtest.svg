@@ -320,7 +320,7 @@ L 548.104531 20.798437
      </g>
     </g>
     <g id="text_19">
-     <text style="font-size: 9px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #57606a" x="14.038594" y="101.186437" transform="rotate(-90 14.038594 101.186437)">5-session return (%)</text>
+     <text style="font-size: 9px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #57606a" x="14.038594" y="101.186437" transform="rotate(-90 14.038594 101.186437)">5-session log return (%)</text>
     </g>
    </g>
    <g id="PathCollection_1">
@@ -2968,27 +2968,27 @@ z
      </g>
     </g>
     <g id="text_21">
-     <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: start" x="75.504531" y="172.710687" transform="rotate(-0 75.504531 172.710687)">5-session return</text>
+     <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: start" x="75.504531" y="172.710687" transform="rotate(-0 75.504531 172.710687)">5-session log return</text>
     </g>
     <g id="PathCollection_4">
      <g>
-      <use xlink:href="#m9f50e0453f" x="164.092031" y="170.610687" style="fill: #cf222e"/>
+      <use xlink:href="#m9f50e0453f" x="178.830781" y="170.610687" style="fill: #cf222e"/>
      </g>
     </g>
     <g id="text_22">
-     <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: start" x="178.492031" y="172.710687" transform="rotate(-0 178.492031 172.710687)">breach</text>
+     <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: start" x="193.230781" y="172.710687" transform="rotate(-0 193.230781 172.710687)">breach</text>
     </g>
     <g id="line2d_39">
-     <path d="M 221.973281 169.910687 
-L 225.973281 169.910687 
-L 225.973281 169.910687 
-L 233.973281 169.910687 
-L 233.973281 169.910687 
-L 237.973281 169.910687 
+     <path d="M 236.712031 169.910687 
+L 240.712031 169.910687 
+L 240.712031 169.910687 
+L 248.712031 169.910687 
+L 248.712031 169.910687 
+L 252.712031 169.910687 
 " style="fill: none; stroke: #1f6feb; stroke-linecap: square"/>
     </g>
     <g id="text_23">
-     <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: start" x="244.373281" y="172.710687" transform="rotate(-0 244.373281 172.710687)">−VaR 99% (HAR-IV + filtered historical simulation)</text>
+     <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: start" x="259.112031" y="172.710687" transform="rotate(-0 259.112031 172.710687)">−VaR 99% (HAR-IV + filtered historical simulation)</text>
     </g>
    </g>
   </g>

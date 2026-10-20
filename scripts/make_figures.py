@@ -17,6 +17,7 @@ import matplotlib as mpl
 
 mpl.use("Agg")
 import matplotlib.dates as mdates  # noqa: E402
+import matplotlib.patches as mpatches  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -84,25 +85,37 @@ def model_field() -> None:
     board = lab["leaderboard"]
     champion, challenger = lab["config"]["champion"], lab["config"]["challenger"]
     models = sorted(board["models"], key=lambda m: -m["qlike"])
+    feasible = [m for m in models if not m.get("timing_control")]
     cap = 0.5
+    outside = "#AFB8C1"
     fig, ax = plt.subplots(figsize=(9, 4.4))
     for i, m in enumerate(models):
-        color = MODEL if m["in_mcs_qlike"] else "#AFB8C1"
         value = min(m["qlike"], cap)
-        ax.barh(i, value, color=color, height=0.62)
+        if m.get("timing_control"):
+            # Not a member or a non-member: the timing control is left out of every confidence set.
+            ax.barh(i, value, color="white", edgecolor=MUTED, hatch="////", linewidth=0.8, height=0.62)
+        else:
+            ax.barh(i, value, color=MODEL if m["in_mcs_qlike"] else outside, height=0.62)
         label = f"{m['qlike']:.3f}" + ("  (off scale)" if m["qlike"] > cap else "")
         ax.text(value + 0.004, i, label, va="center", fontsize=8, color=INK)
     names = []
     for m in models:
-        tag = "  ◆ model of record" if m["key"] == champion else ("  ◆ challenger" if m["key"] == challenger else "")
+        tag = ("  ◆ model of record" if m["key"] == champion else "  ◆ challenger" if m["key"] == challenger
+               else "  (timing control)" if m.get("timing_control") else "")
         names.append(m["label"].replace(" (model of record)", "") + tag)
     ax.set_yticks(range(len(models)))
     ax.set_yticklabels(names, fontsize=8.5)
     ax.set_xlim(0.3, cap + 0.06)
     ax.set_xlabel("QLIKE on variance-consistent forecasts, every out-of-sample day (lower is better)")
     ax.grid(axis="y", visible=False)
-    ax.set_title(f"Benchmark field: blue = in the 90% Model Confidence Set "
-                 f"({len(board['mcs_qlike_included'])} of {len(models)} models)")
+    handles = [mpatches.Patch(color=MODEL, label=f"in the 90% MCS ({len(board['mcs_qlike_included'])} of "
+                                                   f"{len(feasible)} feasible models)"),
+               mpatches.Patch(color=outside, label="outside the MCS")]
+    if len(feasible) < len(models):
+        handles.append(mpatches.Patch(facecolor="white", edgecolor=MUTED, hatch="////",
+                                      label="timing control (excluded from the MCS)"))
+    ax.legend(handles=handles, loc="upper right", fontsize=8)
+    ax.set_title("Benchmark field: out-of-sample QLIKE")
     _save(fig, "model_field.svg")
 
 
@@ -115,14 +128,14 @@ def var_backtest() -> None:
     fig, ax = plt.subplots(figsize=(9, 2.9))
     breach = [v99 is not None and r < -v99 for r, v99 in zip(ret, var99)]
     ax.scatter([d for d, b in zip(x, breach) if not b], [r for r, b in zip(ret, breach) if not b],
-               s=3, color="#8C959F", linewidths=0, label="5-session return")
+               s=3, color="#8C959F", linewidths=0, label="5-session log return")
     ax.scatter([d for d, b in zip(x, breach) if b], [r for r, b in zip(ret, breach) if b],
                s=18, color=NEG, linewidths=0, zorder=3, label="breach")
     ax.plot(x, [-v for v in _arr(var99)], color=MODEL, linewidth=1.0, drawstyle="steps-mid",
             label="−VaR 99% (HAR-IV + filtered historical simulation)")
     ax.axhline(0, color=RULE, linewidth=0.6)
     ax.set_ylim(-45, 30)
-    ax.set_ylabel("5-session return (%)")
+    ax.set_ylabel("5-session log return (%)")
     ax.xaxis.set_major_locator(mdates.YearLocator(2))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
     summary = lab["var_backtest"]["summary"][f"{lab['config']['champion']}:fhs@0.01"]
