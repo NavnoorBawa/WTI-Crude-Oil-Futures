@@ -141,7 +141,7 @@ export default function LeakPanel({ data, research, researchStatus }) {
         />
         {anatomy?.experiments.length > 0 && (
         <DataTable
-          caption={`Leak anatomy: direction accuracy and Sharpe (${anatomy.sharpeBasis.experiments}) without and with the purge, against the no-skill accuracy`}
+          caption={`Leak anatomy: direction accuracy and Sharpe, ${anatomy.sharpeBasis.experiments}, without and with the purge, against the no-skill accuracy`}
           rowKey={(row) => row.key}
           dense
           columns={[

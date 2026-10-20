@@ -292,6 +292,7 @@ def run(snapshot=None) -> dict:
     nn_syn = synthetic["nearest_neighbour"]
     rf_syn = synthetic["random_forest"]
     nn_shuf = shuffled["nearest_neighbour"]
+    dt_shuf = shuffled.get("decision_tree")
     retracted = retracted_reference()
     conclusion = (
         f"Under a pure random walk the newest leaked training label agrees in sign with the test label "
@@ -310,10 +311,14 @@ def run(snapshot=None) -> dict:
         f"{rf_syn['purged']['accuracy_pct_mean']:.1f}%. Block-shuffled real CL=F returns give the same picture "
         f"({nn_shuf['unpurged_leaked']['accuracy_pct_mean']:.1f}% leaked vs "
         f"{nn_shuf['purged']['accuracy_pct_mean']:.1f}% purged). Real {HORIZON}-session returns rise {up_share:.1f}% "
-        f"of the time, so the no-skill accuracy there is each run's base rate, not 50%: "
+        f"of the time, so the no-skill accuracy there is each run's base rate, not 50%. Against it, the "
+        f"1-nearest-neighbour model's runs beat their own base rate at 5% in "
         f"{nn_shuf['unpurged_leaked']['runs_beating_base_rate_5pct']} of {nn_shuf['unpurged_leaked']['n_runs']} "
-        f"leaked runs and {nn_shuf['purged']['runs_beating_base_rate_5pct']} of {nn_shuf['purged']['n_runs']} "
-        "purged runs beat their own base rate at 5%. The shuffled runs reuse the same returns, so they are not "
+        f"leaked and {nn_shuf['purged']['runs_beating_base_rate_5pct']} of {nn_shuf['purged']['n_runs']} purged runs"
+        + (f"; the decision tree's in {dt_shuf['unpurged_leaked']['runs_beating_base_rate_5pct']} of "
+           f"{dt_shuf['unpurged_leaked']['n_runs']} and {dt_shuf['purged']['runs_beating_base_rate_5pct']} of "
+           f"{dt_shuf['purged']['n_runs']}" if dt_shuf else "")
+        + ". The shuffled runs reuse the same returns, so they are not "
         "independent samples and their pooled tests overstate the evidence. The retracted Sharpe was the label "
         "overlap, not a forecast."
     )

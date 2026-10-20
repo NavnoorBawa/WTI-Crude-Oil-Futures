@@ -238,12 +238,12 @@ export default function StudiesPanel({ data, research }) {
             {hasStudy && study.conclusion && (
               <p className="prose-note">
                 {(() => {
-                  // The baseline sentence, the groups that pass only the unmatched placebo, and the
-                  // caveats: the per-group numbers are in the table.
+                  // The baseline sentence, the groups that pass only one of the two placebo tests (in
+                  // either direction), and the caveats: the per-group numbers are in the table.
                   const sentences = study.conclusion.split(/(?<=\.)\s/);
                   return [
                     sentences[0],
-                    ...sentences.slice(1).filter((sentence) => /not the year-matched/i.test(sentence)),
+                    ...sentences.slice(1).filter((sentence) => /not the (year-matched|unmatched) one/i.test(sentence)),
                     sentences.find((sentence) => /^caveat/i.test(sentence)),
                   ].filter(Boolean).join(" ");
                 })()}

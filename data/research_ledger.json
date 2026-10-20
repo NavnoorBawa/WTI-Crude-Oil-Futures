@@ -520,7 +520,7 @@
       "id": "leak_forest_noise_unpurged",
       "date": "2026-10-20",
       "family": "leak anatomy",
-      "hypothesis": "Walk-forward without the purge, a 20-tree random forest on i.i.d. random walks (no signal exists) scores above 50% direction accuracy.",
+      "hypothesis": "Walk-forward without the purge, a 20-tree random forest on i.i.d. random walks (no signal exists by construction) scores above 50% direction accuracy.",
       "test": "one-sided exact binomial test on all decisions pooled over seeds (independent runs; labels never overlap within a run)",
       "statistic": {
         "name": "mean accuracy %",
@@ -563,7 +563,7 @@
       "id": "leak_forest_noise_purged",
       "date": "2026-10-20",
       "family": "leak anatomy",
-      "hypothesis": "Walk-forward with the purge, a 20-tree random forest on i.i.d. random walks (no signal exists) scores above 50% direction accuracy.",
+      "hypothesis": "Walk-forward with the purge, a 20-tree random forest on i.i.d. random walks (no signal exists by construction) scores above 50% direction accuracy.",
       "test": "one-sided exact binomial test on all decisions pooled over seeds (independent runs; labels never overlap within a run)",
       "statistic": {
         "name": "mean accuracy %",
@@ -606,7 +606,7 @@
       "id": "leak_nn_shuffled_cl_unpurged",
       "date": "2026-10-20",
       "family": "leak anatomy",
-      "hypothesis": "Walk-forward without the purge, a 1-nearest-neighbour model on block-shuffled CL=F returns (no signal exists) beats its base rate, the accuracy of always calling the more frequent direction, in every run.",
+      "hypothesis": "Walk-forward without the purge, a 1-nearest-neighbour model on block-shuffled CL=F returns (20-session blocks permuted, so structure longer than a block is destroyed and little or no signal is expected) beats its base rate, the accuracy of always calling the more frequent direction, in every run.",
       "test": "one-sided exact binomial test of each run's accuracy against that run's base rate; p is the largest of the per-run p-values (intersection-union test, valid however the runs depend on one another)",
       "statistic": {
         "name": "mean accuracy %",
@@ -658,7 +658,7 @@
       "id": "leak_nn_shuffled_cl_purged",
       "date": "2026-10-20",
       "family": "leak anatomy",
-      "hypothesis": "Walk-forward with the purge, a 1-nearest-neighbour model on block-shuffled CL=F returns (no signal exists) beats its base rate, the accuracy of always calling the more frequent direction, in every run.",
+      "hypothesis": "Walk-forward with the purge, a 1-nearest-neighbour model on block-shuffled CL=F returns (20-session blocks permuted, so structure longer than a block is destroyed and little or no signal is expected) beats its base rate, the accuracy of always calling the more frequent direction, in every run.",
       "test": "one-sided exact binomial test of each run's accuracy against that run's base rate; p is the largest of the per-run p-values (intersection-union test, valid however the runs depend on one another)",
       "statistic": {
         "name": "mean accuracy %",

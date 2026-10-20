@@ -607,11 +607,19 @@ def study_conclusion(comparison):
     if robust:
         parts.append("Other groups with a peak above placebo at 5% on both tests (unadjusted for the number "
                      "of groups): " + ", ".join(f"{g['name']} (n={g['n']})" for g in robust) + ".")
+    year_only = [g for g in comparison["groups"] if g["key"] not in ("supply_lost", "threat_only")
+                 and g["p_value_vs_year_matched_placebo"]["peak"] < ALPHA <= g["p_value_vs_placebo"]["peak"]
+                 and g["excess_peak_vs_placebo_pct"] > 0]
     if fragile:
         parts.append("Above the unmatched placebo at 5% but not the year-matched one: "
                      + ", ".join(f"{g['name']} (n={g['n']}, peak p = {g['p_value_vs_placebo']['peak']:.4f} vs "
                                  f"{g['p_value_vs_year_matched_placebo']['peak']:.4f} year-matched)"
                                  for g in fragile) + ".")
+    if year_only:
+        parts.append("Above the year-matched placebo at 5% but not the unmatched one: "
+                     + ", ".join(f"{g['name']} (n={g['n']}, peak p = {g['p_value_vs_placebo']['peak']:.4f} vs "
+                                 f"{g['p_value_vs_year_matched_placebo']['peak']:.4f} year-matched)"
+                                 for g in year_only) + ".")
     pairs = comparison["overlapping_events"]["pairs"]
     shared = ("; some events are close enough that their windows share sessions ("
               + "; ".join(f"{pr['events'][0]} and {pr['events'][1]}, {pr['sessions_apart']} sessions apart"

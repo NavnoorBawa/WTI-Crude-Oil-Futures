@@ -303,7 +303,7 @@ class _GarchState:
                 # and moved published GJR figures (direction accuracy, an MCS p-value). Converging
                 # tightly keeps every figure within REPRO_REL_TOL relative or one unit of its last
                 # published decimal (compare_reports), measured with 4 BLAS threads and with one. A
-                # rounded figure can still move by that one unit: the one-thread rebuild gives
+                # rounded figure can still move by that one unit: a rebuild on the unpinned AVX-512 kernels gives
                 # yearly[18] gjr_qlike 0.5471 against the committed 0.5472.
                 res = model.fit(disp="off", starting_values=self.params, show_warning=False, tol=GARCH_TOL)
                 self.params = res.params.to_numpy()

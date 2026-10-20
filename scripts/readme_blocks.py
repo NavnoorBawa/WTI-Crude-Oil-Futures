@@ -278,7 +278,8 @@ def abstract() -> str:
                     f"record ({_level(spa)}), so the variant runs live as a challenger under a promotion test "
                     f"fixed in advance.")
     dir_row = _ledger_row(ledger, "vol_dir_vs_noise_floor")
-    direction = (f"Next-week direction accuracy ({k['dir_acc']}% on the production grid) is "
+    direction = (f"Next-week volatility-direction accuracy (whether next week's realized volatility exceeds this "
+                 f"week's: {k['dir_acc']}% on the production grid) is "
                  + ("not evidence of skill" if dir_row["status"] != "supported" else "above its noise floor")
                  + f": the same pipeline, run as HAR without OVX on simulated i.i.d. returns with nothing to "
                    f"forecast, scores {k['prod_noise_floor']}%.")
@@ -390,7 +391,7 @@ def results_at_a_glance() -> str:
                 f"{_fmt(vrp['mean_premium_variance_pts'], 0)} (95% CI {_fmt(ci[0], 0)} to {_fmt(ci[1], 0)}); short "
                 f"vol-swap Sharpe {vrp['short_vol_swap_sharpe']} (one-sided {_peq(swap['p_value_one_sided'])}, "
                 f"non-normal test) | production run |")
-    rows.append(f"| Is direction accuracy evidence of skill? | {direction} | {k['dir_acc']}% observed vs "
+    rows.append(f"| Is volatility-direction accuracy evidence of skill? | {direction} | {k['dir_acc']}% observed vs "
                 f"{k['prod_noise_floor']}% for HAR without OVX on simulated returns with nothing to forecast | "
                 f"production run |")
     rows.append(f"| Was the original direction model's Sharpe real? | No, a look-ahead leak | Leaked label agrees in "
@@ -574,7 +575,8 @@ def coefficients_table() -> str:
         rows.append(f"| {t['term']} | {_fmt(t['coef'], 3, True)} | {_fmt(t['t_hac'], 2, True)} |")
     rows.append("")
     rows.append(f"Full-sample fit of the model of record: {c['n_rows']:,} daily rows, R² {c['r2_log']} on log "
-                f"realized vol, Newey-West t with {c['hac_lags']} lags (the five-session targets overlap). Source: lab.")
+                f"realized vol, Newey-West t with {c['hac_lags']} lags (the five-session targets overlap). Units: "
+                f"realized volatility annualized as a decimal, OVX in index points. Source: lab.")
     return "\n".join(rows)
 
 
@@ -605,9 +607,14 @@ def coefficients_reading() -> str:
                     f"month's and the past quarter's volatility, not as a level.")
     raw = _model(lab, "raw_ovx")
     ratio = raw["mean_ratio_actual_to_forecast"]
+    const = terms["const"]["coef"]
+    units = -ovx["coef"] * math.log(100.0)
+    text.append(f"Most of the constant is a change of units: OVX enters in index points and realized volatility as a "
+                f"decimal, which accounts for {_fmt(units, 3, True)} of the {_fmt(const, 3, True)}; with OVX as a decimal "
+                f"the constant is {_fmt(const - units, 3, True)}.")
     text.append(f"Used directly, OVX {'overstates' if ratio < 1 else 'understates'} realized volatility: realized "
-                f"averages {_fmt(ratio)} times the previous session's OVX. The constant absorbs that gap: the variance "
-                f"risk premium (section 2.5) and OVX's basis to the front-month future.")
+                f"averages {_fmt(ratio)} times the previous session's OVX, the variance risk premium (section 2.5) plus "
+                f"OVX's basis to the front-month future. The remaining constant and the realized terms carry that gap.")
     return " ".join(text)
 
 

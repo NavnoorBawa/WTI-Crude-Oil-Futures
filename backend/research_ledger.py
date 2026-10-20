@@ -282,14 +282,15 @@ def _leak_rows() -> list[Row]:
                "This test replaced the pooled one after the runs were seen, so the row is not marked pre-specified.")
     rows = []
     for rid, block, desc, pooled in (
-        ("leak_forest_noise", "synthetic_random_walk.random_forest", "a 20-tree random forest on i.i.d. random walks",
-         True),
+        ("leak_forest_noise", "synthetic_random_walk.random_forest",
+         "a 20-tree random forest on i.i.d. random walks (no signal exists by construction)", True),
         ("leak_nn_shuffled_cl", "block_shuffled_cl.nearest_neighbour",
-         "a 1-nearest-neighbour model on block-shuffled CL=F returns", False),
+         "a 1-nearest-neighbour model on block-shuffled CL=F returns (20-session blocks permuted, so structure "
+         "longer than a block is destroyed and little or no signal is expected)", False),
     ):
         for purged in (False, True):
             b = f"{block}.{'purged' if purged else 'unpurged_leaked'}"
-            setting = f"Walk-forward {'with' if purged else 'without'} the purge, {desc} (no signal exists)"
+            setting = f"Walk-forward {'with' if purged else 'without'} the purge, {desc}"
             if pooled:
                 claim = dict(
                     hypothesis=f"{setting} scores above 50% direction accuracy.",

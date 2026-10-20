@@ -139,7 +139,7 @@ export const stabilityAssertion = (yearly, { champion, challenger, bench, labels
   }
   if (challenger) {
     const { wins, total } = yearsBetter(yearly, challenger, champion);
-    if (total) parts.push(`the challenger beat it in ${wins}`);
+    if (total) parts.push(`the challenger beat ${name(champion)} in ${wins}`);
   }
   return parts.length ? join(parts) : null;
 };

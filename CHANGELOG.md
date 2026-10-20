@@ -20,7 +20,7 @@ backs the new one.
   within one unit of the last decimal it is published with (`vol_lab.compare_reports`). The
   GARCH-family refits converge to a 1e-9 tolerance, so across BLAS thread counts and CPU kernels
   every figure stays within that bound; a rounded figure can still move by one unit in its last
-  decimal (a one-thread rebuild gives one yearly GJR-GARCH QLIKE as 0.5471 against 0.5472). The unit
+  decimal (a rebuild on the default, unpinned AVX-512 BLAS and NumPy kernels gives one yearly GJR-GARCH QLIKE as 0.5471 against 0.5472). The unit
   suite rebuilds the carry and supply-shock studies from committed EIA files, the research ledger,
   and a subset of the leak anatomy's runs. The production validation
   (`data/vol_forecast_validation.json`) and the direction post-mortem (`data/wf_*.json`) are records
