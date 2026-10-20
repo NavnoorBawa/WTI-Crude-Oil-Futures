@@ -1,0 +1,1142 @@
+{
+  "question": "Was the retracted direction model's 2.4 Sharpe (67% accuracy) mechanical?",
+  "design": {
+    "label": "sign of the 5-session forward log return",
+    "purge_rows": 4,
+    "step": 5,
+    "train_window": 378,
+    "min_train": 200,
+    "n_days_per_run": 1300,
+    "features": "log price and its 5/10/20-session moving averages, standardized on the training window",
+    "models": {
+      "nearest_neighbour": "1-nearest-neighbour classifier (scikit-learn KNeighborsClassifier, k=1)",
+      "decision_tree": "fully grown decision tree (scikit-learn DecisionTreeClassifier)",
+      "random_forest": "20-tree random forest (scikit-learn RandomForestClassifier), the closest of the three to the retracted tree ensemble"
+    },
+    "sharpe": "gross, direction x 5-session log return, annualized by sqrt(252/5)",
+    "synthetic_returns": "i.i.d. normal, daily sd 0.02",
+    "shuffled_returns": "CL=F close-to-close log returns (data/market/cl_f_daily.csv), 20-session blocks permuted, first 1300 returns",
+    "real_window": [
+      "2021-06-21",
+      "2026-06-19"
+    ]
+  },
+  "analytic": {
+    "formula": "P(same sign) = 1/2 + arcsin(rho)/pi for jointly normal labels with correlation rho",
+    "leaked_label_correlation": 0.8,
+    "p_sign_agree_leaked_pct": 79.52,
+    "by_training_row": [
+      {
+        "training_row": "t-1",
+        "shared_daily_returns": 4,
+        "label_correlation": 0.8,
+        "p_sign_agree_pct": 79.52,
+        "label_known_at_decision": false
+      },
+      {
+        "training_row": "t-2",
+        "shared_daily_returns": 3,
+        "label_correlation": 0.6,
+        "p_sign_agree_pct": 70.48,
+        "label_known_at_decision": false
+      },
+      {
+        "training_row": "t-3",
+        "shared_daily_returns": 2,
+        "label_correlation": 0.4,
+        "p_sign_agree_pct": 63.1,
+        "label_known_at_decision": false
+      },
+      {
+        "training_row": "t-4",
+        "shared_daily_returns": 1,
+        "label_correlation": 0.2,
+        "p_sign_agree_pct": 56.41,
+        "label_known_at_decision": false
+      },
+      {
+        "training_row": "t-5",
+        "shared_daily_returns": 0,
+        "label_correlation": 0.0,
+        "p_sign_agree_pct": 50.0,
+        "label_known_at_decision": true
+      }
+    ],
+    "monte_carlo": {
+      "seed": 20261020,
+      "gaussian": {
+        "draws": 1000000,
+        "p_sign_agree_leaked_t_minus_1_pct": 79.49,
+        "p_sign_agree_purged_pct": 50.06
+      },
+      "student_t_3df": {
+        "draws": 1000000,
+        "p_sign_agree_leaked_t_minus_1_pct": 80.11,
+        "p_sign_agree_purged_pct": 50.04
+      }
+    }
+  },
+  "synthetic_random_walk": {
+    "nearest_neighbour": {
+      "unpurged_leaked": {
+        "n_runs": 10,
+        "seeds": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "decisions_per_run": [
+          216
+        ],
+        "accuracy_pct_mean": 72.36,
+        "accuracy_pct_range": [
+          68.06,
+          77.78
+        ],
+        "sharpe_mean": 3.669,
+        "sharpe_range": [
+          2.978,
+          4.648
+        ],
+        "pooled_accuracy_pct": 72.36,
+        "pooled_binomial_p_value_vs_50": 1.8719162449959263e-99,
+        "t_stat_vs_50": 24.29,
+        "t_test_p_value_vs_50": 8.139799205126763e-10,
+        "nearest_is_newest_row_pct_mean": 59.5,
+        "accuracy_when_nearest_is_newest_pct_mean": 82.58,
+        "runs": [
+          {
+            "seed": 0,
+            "accuracy_pct": 74.07,
+            "sharpe_gross": 3.92,
+            "n_decisions": 216
+          },
+          {
+            "seed": 1,
+            "accuracy_pct": 74.07,
+            "sharpe_gross": 4.648,
+            "n_decisions": 216
+          },
+          {
+            "seed": 2,
+            "accuracy_pct": 73.61,
+            "sharpe_gross": 3.929,
+            "n_decisions": 216
+          },
+          {
+            "seed": 3,
+            "accuracy_pct": 74.07,
+            "sharpe_gross": 3.879,
+            "n_decisions": 216
+          },
+          {
+            "seed": 4,
+            "accuracy_pct": 71.76,
+            "sharpe_gross": 3.834,
+            "n_decisions": 216
+          },
+          {
+            "seed": 5,
+            "accuracy_pct": 70.83,
+            "sharpe_gross": 2.978,
+            "n_decisions": 216
+          },
+          {
+            "seed": 6,
+            "accuracy_pct": 70.37,
+            "sharpe_gross": 3.245,
+            "n_decisions": 216
+          },
+          {
+            "seed": 7,
+            "accuracy_pct": 77.78,
+            "sharpe_gross": 3.834,
+            "n_decisions": 216
+          },
+          {
+            "seed": 8,
+            "accuracy_pct": 68.98,
+            "sharpe_gross": 3.438,
+            "n_decisions": 216
+          },
+          {
+            "seed": 9,
+            "accuracy_pct": 68.06,
+            "sharpe_gross": 2.989,
+            "n_decisions": 216
+          }
+        ]
+      },
+      "purged": {
+        "n_runs": 10,
+        "seeds": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "decisions_per_run": [
+          216
+        ],
+        "accuracy_pct_mean": 50.41,
+        "accuracy_pct_range": [
+          44.44,
+          56.94
+        ],
+        "sharpe_mean": -0.08,
+        "sharpe_range": [
+          -1.301,
+          0.754
+        ],
+        "pooled_accuracy_pct": 50.42,
+        "pooled_binomial_p_value_vs_50": 0.35726853015570664,
+        "t_stat_vs_50": 0.41,
+        "t_test_p_value_vs_50": 0.3454613515732362,
+        "nearest_is_newest_row_pct_mean": 22.5,
+        "accuracy_when_nearest_is_newest_pct_mean": 48.27,
+        "runs": [
+          {
+            "seed": 0,
+            "accuracy_pct": 51.85,
+            "sharpe_gross": -0.198,
+            "n_decisions": 216
+          },
+          {
+            "seed": 1,
+            "accuracy_pct": 48.15,
+            "sharpe_gross": -0.134,
+            "n_decisions": 216
+          },
+          {
+            "seed": 2,
+            "accuracy_pct": 49.07,
+            "sharpe_gross": 0.048,
+            "n_decisions": 216
+          },
+          {
+            "seed": 3,
+            "accuracy_pct": 51.85,
+            "sharpe_gross": -0.145,
+            "n_decisions": 216
+          },
+          {
+            "seed": 4,
+            "accuracy_pct": 50.0,
+            "sharpe_gross": -0.017,
+            "n_decisions": 216
+          },
+          {
+            "seed": 5,
+            "accuracy_pct": 44.44,
+            "sharpe_gross": -1.301,
+            "n_decisions": 216
+          },
+          {
+            "seed": 6,
+            "accuracy_pct": 51.85,
+            "sharpe_gross": 0.17,
+            "n_decisions": 216
+          },
+          {
+            "seed": 7,
+            "accuracy_pct": 56.94,
+            "sharpe_gross": 0.754,
+            "n_decisions": 216
+          },
+          {
+            "seed": 8,
+            "accuracy_pct": 50.0,
+            "sharpe_gross": 0.023,
+            "n_decisions": 216
+          },
+          {
+            "seed": 9,
+            "accuracy_pct": 50.0,
+            "sharpe_gross": 0.004,
+            "n_decisions": 216
+          }
+        ]
+      }
+    },
+    "decision_tree": {
+      "unpurged_leaked": {
+        "n_runs": 10,
+        "seeds": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "decisions_per_run": [
+          216
+        ],
+        "accuracy_pct_mean": 65.09,
+        "accuracy_pct_range": [
+          61.57,
+          71.3
+        ],
+        "sharpe_mean": 2.378,
+        "sharpe_range": [
+          1.802,
+          3.238
+        ],
+        "pooled_accuracy_pct": 65.09,
+        "pooled_binomial_p_value_vs_50": 1.5051340738154843e-45,
+        "t_stat_vs_50": 15.53,
+        "t_test_p_value_vs_50": 4.178023728371366e-08,
+        "runs": [
+          {
+            "seed": 0,
+            "accuracy_pct": 64.81,
+            "sharpe_gross": 2.212,
+            "n_decisions": 216
+          },
+          {
+            "seed": 1,
+            "accuracy_pct": 63.89,
+            "sharpe_gross": 2.275,
+            "n_decisions": 216
+          },
+          {
+            "seed": 2,
+            "accuracy_pct": 68.06,
+            "sharpe_gross": 3.026,
+            "n_decisions": 216
+          },
+          {
+            "seed": 3,
+            "accuracy_pct": 71.3,
+            "sharpe_gross": 3.238,
+            "n_decisions": 216
+          },
+          {
+            "seed": 4,
+            "accuracy_pct": 62.5,
+            "sharpe_gross": 1.802,
+            "n_decisions": 216
+          },
+          {
+            "seed": 5,
+            "accuracy_pct": 61.57,
+            "sharpe_gross": 2.063,
+            "n_decisions": 216
+          },
+          {
+            "seed": 6,
+            "accuracy_pct": 66.67,
+            "sharpe_gross": 2.802,
+            "n_decisions": 216
+          },
+          {
+            "seed": 7,
+            "accuracy_pct": 66.67,
+            "sharpe_gross": 2.689,
+            "n_decisions": 216
+          },
+          {
+            "seed": 8,
+            "accuracy_pct": 63.43,
+            "sharpe_gross": 1.864,
+            "n_decisions": 216
+          },
+          {
+            "seed": 9,
+            "accuracy_pct": 62.04,
+            "sharpe_gross": 1.812,
+            "n_decisions": 216
+          }
+        ]
+      },
+      "purged": {
+        "n_runs": 10,
+        "seeds": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "decisions_per_run": [
+          216
+        ],
+        "accuracy_pct_mean": 50.51,
+        "accuracy_pct_range": [
+          45.37,
+          56.02
+        ],
+        "sharpe_mean": -0.024,
+        "sharpe_range": [
+          -0.719,
+          0.866
+        ],
+        "pooled_accuracy_pct": 50.51,
+        "pooled_binomial_p_value_vs_50": 0.325694225020993,
+        "t_stat_vs_50": 0.52,
+        "t_test_p_value_vs_50": 0.30762713454513346,
+        "runs": [
+          {
+            "seed": 0,
+            "accuracy_pct": 50.93,
+            "sharpe_gross": -0.105,
+            "n_decisions": 216
+          },
+          {
+            "seed": 1,
+            "accuracy_pct": 45.37,
+            "sharpe_gross": -0.719,
+            "n_decisions": 216
+          },
+          {
+            "seed": 2,
+            "accuracy_pct": 49.54,
+            "sharpe_gross": -0.2,
+            "n_decisions": 216
+          },
+          {
+            "seed": 3,
+            "accuracy_pct": 50.46,
+            "sharpe_gross": -0.117,
+            "n_decisions": 216
+          },
+          {
+            "seed": 4,
+            "accuracy_pct": 50.0,
+            "sharpe_gross": -0.295,
+            "n_decisions": 216
+          },
+          {
+            "seed": 5,
+            "accuracy_pct": 50.93,
+            "sharpe_gross": -0.197,
+            "n_decisions": 216
+          },
+          {
+            "seed": 6,
+            "accuracy_pct": 50.0,
+            "sharpe_gross": 0.083,
+            "n_decisions": 216
+          },
+          {
+            "seed": 7,
+            "accuracy_pct": 56.02,
+            "sharpe_gross": 0.866,
+            "n_decisions": 216
+          },
+          {
+            "seed": 8,
+            "accuracy_pct": 47.22,
+            "sharpe_gross": -0.139,
+            "n_decisions": 216
+          },
+          {
+            "seed": 9,
+            "accuracy_pct": 54.63,
+            "sharpe_gross": 0.579,
+            "n_decisions": 216
+          }
+        ]
+      }
+    },
+    "random_forest": {
+      "unpurged_leaked": {
+        "n_runs": 3,
+        "seeds": [
+          0,
+          1,
+          2
+        ],
+        "decisions_per_run": [
+          216
+        ],
+        "accuracy_pct_mean": 66.67,
+        "accuracy_pct_range": [
+          65.74,
+          68.06
+        ],
+        "sharpe_mean": 2.847,
+        "sharpe_range": [
+          2.58,
+          3.141
+        ],
+        "pooled_accuracy_pct": 66.67,
+        "pooled_binomial_p_value_vs_50": 7.600805293903258e-18,
+        "t_stat_vs_50": 23.5,
+        "t_test_p_value_vs_50": 0.000902908367397385,
+        "runs": [
+          {
+            "seed": 0,
+            "accuracy_pct": 68.06,
+            "sharpe_gross": 2.58,
+            "n_decisions": 216
+          },
+          {
+            "seed": 1,
+            "accuracy_pct": 66.2,
+            "sharpe_gross": 3.141,
+            "n_decisions": 216
+          },
+          {
+            "seed": 2,
+            "accuracy_pct": 65.74,
+            "sharpe_gross": 2.819,
+            "n_decisions": 216
+          }
+        ]
+      },
+      "purged": {
+        "n_runs": 3,
+        "seeds": [
+          0,
+          1,
+          2
+        ],
+        "decisions_per_run": [
+          216
+        ],
+        "accuracy_pct_mean": 50.77,
+        "accuracy_pct_range": [
+          47.69,
+          53.7
+        ],
+        "sharpe_mean": -0.085,
+        "sharpe_range": [
+          -0.394,
+          0.369
+        ],
+        "pooled_accuracy_pct": 50.77,
+        "pooled_binomial_p_value_vs_50": 0.36185175294962146,
+        "t_stat_vs_50": 0.45,
+        "t_test_p_value_vs_50": 0.3498348849487382,
+        "runs": [
+          {
+            "seed": 0,
+            "accuracy_pct": 50.93,
+            "sharpe_gross": -0.394,
+            "n_decisions": 216
+          },
+          {
+            "seed": 1,
+            "accuracy_pct": 53.7,
+            "sharpe_gross": 0.369,
+            "n_decisions": 216
+          },
+          {
+            "seed": 2,
+            "accuracy_pct": 47.69,
+            "sharpe_gross": -0.229,
+            "n_decisions": 216
+          }
+        ]
+      }
+    }
+  },
+  "block_shuffled_cl": {
+    "nearest_neighbour": {
+      "unpurged_leaked": {
+        "n_runs": 10,
+        "seeds": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "decisions_per_run": [
+          216
+        ],
+        "accuracy_pct_mean": 72.87,
+        "accuracy_pct_range": [
+          69.44,
+          77.78
+        ],
+        "sharpe_mean": 3.213,
+        "sharpe_range": [
+          2.408,
+          3.872
+        ],
+        "pooled_accuracy_pct": 72.87,
+        "pooled_binomial_p_value_vs_50": 4.0664383757967025e-104,
+        "t_stat_vs_50": 29.61,
+        "t_test_p_value_vs_50": 1.3947306549816036e-10,
+        "nearest_is_newest_row_pct_mean": 65.3,
+        "accuracy_when_nearest_is_newest_pct_mean": 81.56,
+        "runs": [
+          {
+            "seed": 0,
+            "accuracy_pct": 72.69,
+            "sharpe_gross": 3.421,
+            "n_decisions": 216
+          },
+          {
+            "seed": 1,
+            "accuracy_pct": 69.91,
+            "sharpe_gross": 3.373,
+            "n_decisions": 216
+          },
+          {
+            "seed": 2,
+            "accuracy_pct": 73.15,
+            "sharpe_gross": 2.512,
+            "n_decisions": 216
+          },
+          {
+            "seed": 3,
+            "accuracy_pct": 73.61,
+            "sharpe_gross": 3.638,
+            "n_decisions": 216
+          },
+          {
+            "seed": 4,
+            "accuracy_pct": 72.22,
+            "sharpe_gross": 2.59,
+            "n_decisions": 216
+          },
+          {
+            "seed": 5,
+            "accuracy_pct": 72.69,
+            "sharpe_gross": 3.658,
+            "n_decisions": 216
+          },
+          {
+            "seed": 6,
+            "accuracy_pct": 77.78,
+            "sharpe_gross": 3.872,
+            "n_decisions": 216
+          },
+          {
+            "seed": 7,
+            "accuracy_pct": 75.46,
+            "sharpe_gross": 3.624,
+            "n_decisions": 216
+          },
+          {
+            "seed": 8,
+            "accuracy_pct": 69.44,
+            "sharpe_gross": 3.036,
+            "n_decisions": 216
+          },
+          {
+            "seed": 9,
+            "accuracy_pct": 71.76,
+            "sharpe_gross": 2.408,
+            "n_decisions": 216
+          }
+        ]
+      },
+      "purged": {
+        "n_runs": 10,
+        "seeds": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "decisions_per_run": [
+          216
+        ],
+        "accuracy_pct_mean": 49.68,
+        "accuracy_pct_range": [
+          43.98,
+          55.09
+        ],
+        "sharpe_mean": 0.037,
+        "sharpe_range": [
+          -0.791,
+          0.872
+        ],
+        "pooled_accuracy_pct": 49.68,
+        "pooled_binomial_p_value_vs_50": 0.6265529559160934,
+        "t_stat_vs_50": -0.25,
+        "t_test_p_value_vs_50": 0.5959925645095681,
+        "nearest_is_newest_row_pct_mean": 25.4,
+        "accuracy_when_nearest_is_newest_pct_mean": 53.17,
+        "runs": [
+          {
+            "seed": 0,
+            "accuracy_pct": 53.24,
+            "sharpe_gross": 0.775,
+            "n_decisions": 216
+          },
+          {
+            "seed": 1,
+            "accuracy_pct": 43.98,
+            "sharpe_gross": -0.11,
+            "n_decisions": 216
+          },
+          {
+            "seed": 2,
+            "accuracy_pct": 46.3,
+            "sharpe_gross": -0.151,
+            "n_decisions": 216
+          },
+          {
+            "seed": 3,
+            "accuracy_pct": 47.22,
+            "sharpe_gross": -0.791,
+            "n_decisions": 216
+          },
+          {
+            "seed": 4,
+            "accuracy_pct": 47.69,
+            "sharpe_gross": -0.12,
+            "n_decisions": 216
+          },
+          {
+            "seed": 5,
+            "accuracy_pct": 55.09,
+            "sharpe_gross": 0.452,
+            "n_decisions": 216
+          },
+          {
+            "seed": 6,
+            "accuracy_pct": 54.17,
+            "sharpe_gross": 0.872,
+            "n_decisions": 216
+          },
+          {
+            "seed": 7,
+            "accuracy_pct": 53.7,
+            "sharpe_gross": 0.347,
+            "n_decisions": 216
+          },
+          {
+            "seed": 8,
+            "accuracy_pct": 50.0,
+            "sharpe_gross": -0.493,
+            "n_decisions": 216
+          },
+          {
+            "seed": 9,
+            "accuracy_pct": 45.37,
+            "sharpe_gross": -0.414,
+            "n_decisions": 216
+          }
+        ]
+      }
+    },
+    "decision_tree": {
+      "unpurged_leaked": {
+        "n_runs": 10,
+        "seeds": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "decisions_per_run": [
+          216
+        ],
+        "accuracy_pct_mean": 65.05,
+        "accuracy_pct_range": [
+          60.19,
+          70.83
+        ],
+        "sharpe_mean": 2.041,
+        "sharpe_range": [
+          1.242,
+          2.868
+        ],
+        "pooled_accuracy_pct": 65.05,
+        "pooled_binomial_p_value_vs_50": 2.8094901854566904e-45,
+        "t_stat_vs_50": 15.34,
+        "t_test_p_value_vs_50": 4.641749551554251e-08,
+        "runs": [
+          {
+            "seed": 0,
+            "accuracy_pct": 64.35,
+            "sharpe_gross": 2.235,
+            "n_decisions": 216
+          },
+          {
+            "seed": 1,
+            "accuracy_pct": 60.19,
+            "sharpe_gross": 1.869,
+            "n_decisions": 216
+          },
+          {
+            "seed": 2,
+            "accuracy_pct": 66.2,
+            "sharpe_gross": 1.89,
+            "n_decisions": 216
+          },
+          {
+            "seed": 3,
+            "accuracy_pct": 63.43,
+            "sharpe_gross": 2.501,
+            "n_decisions": 216
+          },
+          {
+            "seed": 4,
+            "accuracy_pct": 67.59,
+            "sharpe_gross": 1.242,
+            "n_decisions": 216
+          },
+          {
+            "seed": 5,
+            "accuracy_pct": 68.06,
+            "sharpe_gross": 2.316,
+            "n_decisions": 216
+          },
+          {
+            "seed": 6,
+            "accuracy_pct": 70.83,
+            "sharpe_gross": 2.868,
+            "n_decisions": 216
+          },
+          {
+            "seed": 7,
+            "accuracy_pct": 62.96,
+            "sharpe_gross": 2.251,
+            "n_decisions": 216
+          },
+          {
+            "seed": 8,
+            "accuracy_pct": 63.43,
+            "sharpe_gross": 1.976,
+            "n_decisions": 216
+          },
+          {
+            "seed": 9,
+            "accuracy_pct": 63.43,
+            "sharpe_gross": 1.262,
+            "n_decisions": 216
+          }
+        ]
+      },
+      "purged": {
+        "n_runs": 10,
+        "seeds": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "decisions_per_run": [
+          216
+        ],
+        "accuracy_pct_mean": 47.55,
+        "accuracy_pct_range": [
+          39.35,
+          52.78
+        ],
+        "sharpe_mean": -0.117,
+        "sharpe_range": [
+          -0.728,
+          0.489
+        ],
+        "pooled_accuracy_pct": 47.55,
+        "pooled_binomial_p_value_vs_50": 0.9893508891524967,
+        "t_stat_vs_50": -1.79,
+        "t_test_p_value_vs_50": 0.9467915751858829,
+        "runs": [
+          {
+            "seed": 0,
+            "accuracy_pct": 51.85,
+            "sharpe_gross": 0.489,
+            "n_decisions": 216
+          },
+          {
+            "seed": 1,
+            "accuracy_pct": 45.83,
+            "sharpe_gross": -0.406,
+            "n_decisions": 216
+          },
+          {
+            "seed": 2,
+            "accuracy_pct": 52.78,
+            "sharpe_gross": 0.055,
+            "n_decisions": 216
+          },
+          {
+            "seed": 3,
+            "accuracy_pct": 45.37,
+            "sharpe_gross": -0.204,
+            "n_decisions": 216
+          },
+          {
+            "seed": 4,
+            "accuracy_pct": 49.07,
+            "sharpe_gross": 0.08,
+            "n_decisions": 216
+          },
+          {
+            "seed": 5,
+            "accuracy_pct": 50.0,
+            "sharpe_gross": 0.058,
+            "n_decisions": 216
+          },
+          {
+            "seed": 6,
+            "accuracy_pct": 51.39,
+            "sharpe_gross": 0.26,
+            "n_decisions": 216
+          },
+          {
+            "seed": 7,
+            "accuracy_pct": 47.22,
+            "sharpe_gross": -0.172,
+            "n_decisions": 216
+          },
+          {
+            "seed": 8,
+            "accuracy_pct": 42.59,
+            "sharpe_gross": -0.728,
+            "n_decisions": 216
+          },
+          {
+            "seed": 9,
+            "accuracy_pct": 39.35,
+            "sharpe_gross": -0.602,
+            "n_decisions": 216
+          }
+        ]
+      }
+    }
+  },
+  "real_cl_5y_window": {
+    "n_returns": 1256,
+    "nearest_neighbour": {
+      "unpurged_leaked": {
+        "n_runs": 1,
+        "seeds": [
+          0
+        ],
+        "decisions_per_run": [
+          207
+        ],
+        "accuracy_pct_mean": 73.43,
+        "accuracy_pct_range": [
+          73.43,
+          73.43
+        ],
+        "sharpe_mean": 3.195,
+        "sharpe_range": [
+          3.195,
+          3.195
+        ],
+        "pooled_accuracy_pct": 73.43,
+        "pooled_binomial_p_value_vs_50": 5.2459225257645465e-12,
+        "nearest_is_newest_row_pct_mean": 57.5,
+        "accuracy_when_nearest_is_newest_pct_mean": 83.19,
+        "runs": [
+          {
+            "seed": 0,
+            "accuracy_pct": 73.43,
+            "sharpe_gross": 3.195,
+            "n_decisions": 207
+          }
+        ]
+      },
+      "purged": {
+        "n_runs": 1,
+        "seeds": [
+          0
+        ],
+        "decisions_per_run": [
+          207
+        ],
+        "accuracy_pct_mean": 46.38,
+        "accuracy_pct_range": [
+          46.38,
+          46.38
+        ],
+        "sharpe_mean": -0.462,
+        "sharpe_range": [
+          -0.462,
+          -0.462
+        ],
+        "pooled_accuracy_pct": 46.38,
+        "pooled_binomial_p_value_vs_50": 0.8669696858764865,
+        "nearest_is_newest_row_pct_mean": 11.1,
+        "accuracy_when_nearest_is_newest_pct_mean": 56.52,
+        "runs": [
+          {
+            "seed": 0,
+            "accuracy_pct": 46.38,
+            "sharpe_gross": -0.462,
+            "n_decisions": 207
+          }
+        ]
+      }
+    },
+    "decision_tree": {
+      "unpurged_leaked": {
+        "n_runs": 1,
+        "seeds": [
+          0
+        ],
+        "decisions_per_run": [
+          207
+        ],
+        "accuracy_pct_mean": 59.9,
+        "accuracy_pct_range": [
+          59.9,
+          59.9
+        ],
+        "sharpe_mean": 1.517,
+        "sharpe_range": [
+          1.517,
+          1.517
+        ],
+        "pooled_accuracy_pct": 59.9,
+        "pooled_binomial_p_value_vs_50": 0.002653166847966564,
+        "runs": [
+          {
+            "seed": 0,
+            "accuracy_pct": 59.9,
+            "sharpe_gross": 1.517,
+            "n_decisions": 207
+          }
+        ]
+      },
+      "purged": {
+        "n_runs": 1,
+        "seeds": [
+          0
+        ],
+        "decisions_per_run": [
+          207
+        ],
+        "accuracy_pct_mean": 53.14,
+        "accuracy_pct_range": [
+          53.14,
+          53.14
+        ],
+        "sharpe_mean": 0.032,
+        "sharpe_range": [
+          0.032,
+          0.032
+        ],
+        "pooled_accuracy_pct": 53.14,
+        "pooled_binomial_p_value_vs_50": 0.2021536873450568,
+        "runs": [
+          {
+            "seed": 0,
+            "accuracy_pct": 53.14,
+            "sharpe_gross": 0.032,
+            "n_decisions": 207
+          }
+        ]
+      }
+    },
+    "random_forest": {
+      "unpurged_leaked": {
+        "n_runs": 1,
+        "seeds": [
+          0
+        ],
+        "decisions_per_run": [
+          207
+        ],
+        "accuracy_pct_mean": 62.8,
+        "accuracy_pct_range": [
+          62.8,
+          62.8
+        ],
+        "sharpe_mean": 1.639,
+        "sharpe_range": [
+          1.639,
+          1.639
+        ],
+        "pooled_accuracy_pct": 62.8,
+        "pooled_binomial_p_value_vs_50": 0.00014050059598472687,
+        "runs": [
+          {
+            "seed": 0,
+            "accuracy_pct": 62.8,
+            "sharpe_gross": 1.639,
+            "n_decisions": 207
+          }
+        ]
+      },
+      "purged": {
+        "n_runs": 1,
+        "seeds": [
+          0
+        ],
+        "decisions_per_run": [
+          207
+        ],
+        "accuracy_pct_mean": 44.93,
+        "accuracy_pct_range": [
+          44.93,
+          44.93
+        ],
+        "sharpe_mean": -0.777,
+        "sharpe_range": [
+          -0.777,
+          -0.777
+        ],
+        "pooled_accuracy_pct": 44.93,
+        "pooled_binomial_p_value_vs_50": 0.93698289732911,
+        "runs": [
+          {
+            "seed": 0,
+            "accuracy_pct": 44.93,
+            "sharpe_gross": -0.777,
+            "n_decisions": 207
+          }
+        ]
+      }
+    }
+  },
+  "retracted_reference": {
+    "artifact": "data/wf_5y_unpurged_LEAKED.json",
+    "n": 198,
+    "accuracy_pct": 67.17,
+    "sharpe": 2.466
+  },
+  "data": {
+    "cl_daily_sha256": "2e0c57f697484b466eac5945c755a76cf26aeb3a1cdf2af96622f7ab3da7949b",
+    "sessions_through": "2026-10-19"
+  },
+  "conclusion": "Under a pure random walk the newest leaked training label agrees in sign with the test label 79.5% of the time (1/2 + arcsin(0.8)/pi), with no information about the future. On synthetic i.i.d. returns a 1-nearest-neighbour model trained without the purge scores 72.4% (Sharpe 3.67); its nearest neighbour is the newest row in 60% of decisions, and on those it scores 82.6% (a little above the unconditional 79.5%: the newest row is nearest when its one unshared return is small, which makes the two labels even more alike). A 20-tree random forest scores 66.7% with Sharpe 2.85 on noise, against the retracted model's 67.2% and 2.47. With the purge the same models score 50.4% and 50.8%. Block-shuffled real CL=F returns give the same picture (72.9% leaked vs 49.7% purged). The retracted Sharpe was the label overlap, not a forecast.",
+  "generated_at": "2026-10-20T12:13:13.067621+00:00"
+}
