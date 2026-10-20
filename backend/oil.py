@@ -1,18 +1,18 @@
 """
-WTI crude oil data, feature and forecasting engine behind the dashboard payload
-===============================================================================
-Ingests real market data (Yahoo's CL=F front-month quote and history plus cross-asset context)
-and, where they are actually used, external sources (the NewsAPI news-flow regime for the payload;
-EIA/FRED/Alpha Vantage/Finnhub/USDA/NOAA only when external model features are enabled), engineers
-features, and runs the 6-model ensemble.
+WTI crude oil market data for the dashboard, and the retracted price-direction model
+====================================================================================
+Production path (what backend/server.py and freeze.py call):
+  get_current_wti_contract()  the CL=F front-month quote and the contract it belongs to
+  get_historical_data()       the CL=F chart history (daily and hourly bars, then the quote)
+Both use Yahoo market data only. Neither trains a model or calls a news or keyed data provider.
 
-Status of the direction forecast: RETRACTED. After the purge/embargo fix removed a look-ahead leak,
-the 1-week direction ensemble is a coin flip out of sample (backend/backtest_walk_forward.py, README),
-so the dashboard's desk reads RETRACTED (no stance, no sizing, raw output hidden). The project's
-validated forecast is the realized-volatility model in backend/vol_forecast.py.
+PremiumWTIPredictor (the 6-model, 1-week price-DIRECTION ensemble) is RETRACTED and is not run in
+production: after the purge/embargo fix removed a look-ahead leak it is a coin flip out of sample.
+It is kept intact, with its external-source fetchers (NewsAPI, EIA, FRED, Alpha Vantage, Finnhub,
+USDA, NOAA), only so backend/backtest_walk_forward.py reproduces the post-mortem (research.json).
+The project's validated forecast is the realized-volatility model in backend/vol_forecast.py.
 
-No synthetic or random inputs are used. Fallbacks and weak horizons are labeled explicitly so the
-API can distinguish them from qualified forecasts.
+No synthetic or random inputs are used.
 """
 
 import pandas as pd
@@ -25,7 +25,6 @@ import re
 import statistics
 import threading
 import warnings
-from contextlib import nullcontext
 from datetime import date, datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from io import StringIO
@@ -305,8 +304,8 @@ def ml_regime_caveat(geo_data: dict) -> Optional[str]:
     return None
 
 
-# Contract discovery cache avoids repeated CL=F fetches within a short window (the server's price
-# thread polls every 30 s).
+# Contract discovery cache avoids repeated CL=F fetches within a short window (the local server
+# re-renders /data on every poll).
 CONTRACT_CACHE_TTL_SECONDS = max(30, int(os.getenv('CONTRACT_CACHE_TTL_SECONDS', '90')))
 _contract_cache = {
     'fetched_at': 0.0,
@@ -649,7 +648,12 @@ def get_current_wti_contract(force_refresh: bool = False):
 
 
 class PremiumWTIPredictor:
-    """Premium WTI Oil Price Prediction Engine - REAL DATA ONLY"""
+    """The 1-week price-direction ensemble: RETRACTED, never constructed on the production path.
+
+    Kept unchanged so backend/backtest_walk_forward.py (which trains this class) reproduces the
+    post-mortem, purged and leaked, and so the tests can keep proving the live configuration was the
+    backtested one.
+    """
     
     def __init__(self):
         """Initialize the premium prediction engine"""
@@ -5154,390 +5158,112 @@ class PremiumWTIPredictor:
             'rolling_mae_20': rolling_mae_20,
         }
 
-# Global predictor instance
-premium_predictor_instance = None
-_premium_predictor_lock = threading.Lock()
 
-def get_premium_predictor():
-    """Get or create the shared predictor instance.
+# ---------------------------------------------------------------------------------------------------
+# Production path. The dashboard reads only the quote (get_current_wti_contract above) and the chart
+# history below; neither constructs PremiumWTIPredictor, trains anything or calls a news/keyed provider.
+# ---------------------------------------------------------------------------------------------------
 
-    Double-checked locking: the server's price, prediction and request threads can all ask for it
-    at startup, and a second concurrent construction would build a separate set of stores.
-    """
-    global premium_predictor_instance
-    instance = premium_predictor_instance
-    if instance is None:
-        with _premium_predictor_lock:
-            instance = premium_predictor_instance
-            if instance is None:
-                instance = PremiumWTIPredictor()
-                premium_predictor_instance = instance
-    return instance
+CHART_SYMBOL = 'CL=F'          # the same continuous, unadjusted front-month series the quote comes from
+CHART_DAILY_PERIOD = '10y'
+CHART_HOURLY_PERIOD = '1mo'
+CHART_MAX_POINTS = 3600
+# The local server re-renders /data on every poll; the bars change at most once a minute.
+CHART_CACHE_TTL_SECONDS = max(10, int(os.getenv('CHART_CACHE_TTL_SECONDS', '60')))
+_chart_cache: Dict[tuple, tuple] = {}
+_chart_cache_lock = threading.Lock()
 
-def get_multi_horizon_wti_predictions():
-    """Get multi-horizon WTI predictions using premium ML system - NO SHORTCUTS"""
-    logger.info("🎯 Getting multi-horizon WTI predictions...")
-    predictor = get_premium_predictor()
-    if predictor.strict_premium_api_required:
-        logger.info("🚨 STRICT ML MODE - all premium external APIs required")
-    else:
-        logger.info("🟢 FREE API MODE - using available real sources with quality gating")
-    
-    try:
-        # ALWAYS use full ML system - NO FALLBACKS ALLOWED
-        result = predictor.get_multi_horizon_predictions()
-        logger.info(f"✅ Full ML predictions generated with {result['model_count']} models")
-        
-        # Convert to expected format for server.py compatibility  
-        return {
-            'prediction_1h': result['predictions']['1h'],
-            'prediction_1d': result['predictions']['1d'], 
-            'prediction_1w': result['predictions']['1w'],
-            'prediction_intervals': result.get('prediction_intervals', {}),
-            'horizon_confidence': result.get('horizon_confidence', {}),
-            'horizon_drift_scores': result.get('horizon_drift_scores', {}),
-            'horizon_backtests': result.get('horizon_backtests', {}),
-            'current_price': result['current_price'],
-            'processing_time': result['processing_time'],
-            'feature_count': result['feature_count'],
-            'data_quality_score': result['data_quality_score'],
-            'is_real_prediction': result['is_real_prediction'],
-            'is_full_real_prediction': result.get('is_full_real_prediction', result['is_real_prediction']),
-            'fallbacks': result.get('fallbacks', {}),
-            'horizon_quality': result.get('horizon_quality', {}),
-            'quality_qualified_horizons': result.get('quality_qualified_horizons', []),
-            'premium_features': result['premium_features'],
-            'model_count': result['model_count'],
-            'external_data_sources': result['external_data_sources'],
-            'pipeline_timings': result.get('pipeline_timings', {}),
-            'cache_stats': result.get('cache_stats', {}),
-            'market_data_sources': result.get('market_data_sources', {}),
-            'contract_metadata': result.get('contract_metadata', {}),
-            'geopolitical_risk': result.get('geopolitical_risk', {}),
-            'ml_caveat': result.get('ml_caveat'),
-            'market_regime': result.get('market_regime'),
-            'model_configuration': result.get('model_configuration', {}),
-            'timestamp': result['timestamp']
-        }
-        
-    except Exception as e:
-        logger.error("❌ ML prediction system failed (%s)", type(e).__name__)
-        logger.error("❌ NO SHORTCUTS ALLOWED - System refuses to bypass ML logic")
-        # STRICT POLICY: Fail completely rather than use shortcuts
-        raise RuntimeError("ML prediction system failed - no shortcuts permitted") from e
 
-def get_prediction_accuracy_metrics():
-    """Get prediction accuracy metrics"""
-    predictor = get_premium_predictor()
-    return predictor.calculate_prediction_accuracy()
+def _chart_bars(period, interval):
+    """CL=F bars for the chart (Yahoo, retried on rate limits), cached for CHART_CACHE_TTL_SECONDS."""
+    key = (period, interval)
+    now_ts = time.time()
+    with _chart_cache_lock:
+        entry = _chart_cache.get(key)
+        if entry is not None and now_ts - entry[0] <= CHART_CACHE_TTL_SECONDS:
+            return entry[1]
+    frame = _yf_history_with_retry(CHART_SYMBOL, period=period, interval=interval, timeout=15)
+    if frame is not None and not frame.empty:
+        with _chart_cache_lock:
+            _chart_cache[key] = (now_ts, frame)
+    return frame
 
-def store_actual_price_update(price, volume=None):
-    """Store actual price update with optional volume snapshot."""
-    predictor = get_premium_predictor()
-    predictor.store_actual_price(price, volume=volume)
 
-def get_historical_data(limit=50):
-    """Get historical stored data for chart display"""
-    predictor = get_premium_predictor()
-    backend_timezone = getattr(predictor, 'storage_timezone', None) or datetime.now().astimezone().tzinfo or timezone.utc
-
-    # Keep enough points for smooth charting even when callers request fewer.
-    max_points = max(int(limit or 0), 3600)
-
-    def _normalized_chart_datetime(timestamp_value):
-        try:
-            parsed = pd.Timestamp(timestamp_value)
-        except Exception:
-            parsed = predictor._safe_parse_iso(str(timestamp_value))
-            if parsed is None:
-                return None
-            parsed = pd.Timestamp(parsed)
-
-        try:
-            if parsed.tzinfo is not None:
-                parsed = parsed.tz_convert('UTC').tz_localize(None)
-            else:
-                parsed = parsed.tz_localize(backend_timezone).tz_convert('UTC').tz_localize(None)
-        except (TypeError, ValueError) as exc:
-            logger.debug(
-                "chart_timezone_normalization_failed error_type=%s",
-                type(exc).__name__,
-            )
-            return None
-
-        try:
-            return parsed.to_pydatetime()
-        except Exception:
-            return None
-
-    def _normalize_chart_timestamp(timestamp_value):
-        try:
-            parsed = pd.Timestamp(timestamp_value)
-        except Exception:
-            parsed = predictor._safe_parse_iso(str(timestamp_value))
-            if parsed is None:
-                return None
-            parsed = pd.Timestamp(parsed)
-
-        try:
-            if parsed.tzinfo is None:
-                parsed = parsed.tz_localize(backend_timezone)
-            else:
-                parsed = parsed.tz_convert('UTC')
-            return parsed.tz_convert('UTC').isoformat().replace('+00:00', 'Z')
-        except (TypeError, ValueError) as exc:
-            logger.debug(
-                "chart_timestamp_fallback_used error_type=%s",
-                type(exc).__name__,
-            )
-
-        try:
-            return parsed.to_pydatetime().isoformat()
-        except Exception:
-            return None
-
-    def _datetime_to_chart_timestamp(datetime_value):
-        if datetime_value is None:
-            return None
-        if getattr(datetime_value, 'tzinfo', None) is None:
-            normalized = datetime_value.replace(tzinfo=timezone.utc)
-        else:
-            normalized = datetime_value.astimezone(timezone.utc)
-        return normalized.isoformat().replace('+00:00', 'Z')
-
-    def _chart_sort_key(timestamp_value):
-        normalized = _normalized_chart_datetime(timestamp_value)
-        return normalized.timestamp() if normalized is not None else float('-inf')
-
-    actual_point_map = {}
-
-    # Each point says what it is ('1d' daily bar, '1h' hourly bar, 'live' stored quote whose volume
-    # is the session's running total), so the chart never has to infer it from the spacing.
-    def _store_actual_point(timestamp_value, price_value, volume_value=0, kind='live'):
-        price_numeric = pd.to_numeric(price_value, errors='coerce')
-        if pd.isna(price_numeric) or float(price_numeric) <= 0:
-            return
-
-        normalized_timestamp = _normalize_chart_timestamp(timestamp_value)
-        if normalized_timestamp is None:
-            return
-
-        volume_numeric = pd.to_numeric(volume_value, errors='coerce')
-        actual_point_map[normalized_timestamp] = {
-            'timestamp': normalized_timestamp,
-            'price': float(price_numeric),
-            'volume': int(volume_numeric) if not pd.isna(volume_numeric) and float(volume_numeric) > 0 else 0,
-            'kind': kind,
-        }
-
-    broad_history = None
-    intraday_history = None
-
-    try:
-        broad_history = predictor.get_wti_historical_data(period="10y", interval="1d")
-    except Exception as e:
-        logger.warning(f"Daily chart history unavailable: {e}")
-
-    try:
-        intraday_history = predictor.get_wti_historical_data(period="1mo", interval="1h")
-    except Exception as e:
-        logger.warning(f"Intraday chart history unavailable: {e}")
-
-    intraday_start = None
-    if intraday_history is not None and not intraday_history.empty:
-        try:
-            intraday_start = _normalized_chart_datetime(intraday_history.index[0])
-        except Exception:
-            intraday_start = None
-
-    if broad_history is not None and not broad_history.empty:
-        for idx, row in broad_history.iterrows():
-            point_time = _normalized_chart_datetime(idx)
-            if intraday_start is not None and point_time is not None and point_time >= intraday_start:
-                continue
-            _store_actual_point(idx, row.get('Close'), row.get('Volume'), kind='1d')
-
-    if intraday_history is not None and not intraday_history.empty:
-        for idx, row in intraday_history.iterrows():
-            _store_actual_point(idx, row.get('Close'), row.get('Volume'), kind='1h')
-
-    # Iterate over snapshots: the price thread keeps writing to the live stores meanwhile.
-    store_lock = getattr(predictor, '_store_lock', None)
-    with store_lock if store_lock is not None else nullcontext():
-        actual_prices_snapshot = dict(predictor.stored_actual_prices)
-        stored_predictions_snapshot = dict(predictor.stored_predictions)
-
-    # Overlay the freshest stored live points so the chart reaches the current session.
-    sorted_prices = sorted(
-        actual_prices_snapshot.items(),
-        key=lambda item: _chart_sort_key(item[0]),
-    )
-    for timestamp, data in sorted_prices:
-        if isinstance(data, dict):
-            _store_actual_point(timestamp, data.get('price'), data.get('volume'), kind='live')
-
-    sorted_actual_points = sorted(
-        actual_point_map.values(),
-        key=lambda item: _chart_sort_key(item.get('timestamp')),
-    )
-    if len(sorted_actual_points) > max_points:
-        step = max(1, len(sorted_actual_points) // max_points)
-        sampled_points = sorted_actual_points[::step]
-        if sampled_points and sampled_points[-1]['timestamp'] != sorted_actual_points[-1]['timestamp']:
-            sampled_points.append(sorted_actual_points[-1])
-        sorted_actual_points = sampled_points[-max_points:]
-
-    actual_values = [round(point['price'], 4) for point in sorted_actual_points]
-    actual_timestamps = [point['timestamp'] for point in sorted_actual_points]
-    actual_volumes = [point['volume'] for point in sorted_actual_points]
-    actual_kinds = [point['kind'] for point in sorted_actual_points]
-    last_actual_time = _normalized_chart_datetime(actual_timestamps[-1]) if actual_timestamps else None
-
-    # Get stored predictions sorted by timestamp
-    sorted_predictions = sorted(
-        stored_predictions_snapshot.items(),
-        key=lambda item: _chart_sort_key(item[0]),
-    )
-    prediction_points = max(int(limit or 0), 180)
-    recent_predictions = sorted_predictions[-prediction_points:]
-
-    def _chart_target_time(issue_time, horizon):
-        """Naive-UTC maturity time, on the same business-day clock as the accuracy scoring."""
-        return horizon_target_time(issue_time.replace(tzinfo=timezone.utc), horizon).replace(tzinfo=None)
-
-    historical_by_horizon = {
-        '1h': {'values': [], 'timestamps': [], 'issue_timestamps': [], 'target_timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
-        '1d': {'values': [], 'timestamps': [], 'issue_timestamps': [], 'target_timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
-        '1w': {'values': [], 'timestamps': [], 'issue_timestamps': [], 'target_timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
-    }
-    issued_by_horizon = {
-        '1h': {'values': [], 'timestamps': [], 'issue_timestamps': [], 'target_timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
-        '1d': {'values': [], 'timestamps': [], 'issue_timestamps': [], 'target_timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
-        '1w': {'values': [], 'timestamps': [], 'issue_timestamps': [], 'target_timestamps': [], 'upper_bound': [], 'lower_bound': [], 'current_prices': []},
-    }
-
-    for timestamp, pred_data in recent_predictions:
-        if not isinstance(pred_data, dict) or 'predictions' not in pred_data:
+def _bar_points(frame, kind, before=None):
+    """(time, close, volume, kind) for each finite positive close of a Yahoo frame, earlier than `before`."""
+    if frame is None or frame.empty or 'Close' not in frame.columns:
+        return []
+    volumes = frame['Volume'] if 'Volume' in frame.columns else pd.Series(0, index=frame.index)
+    points = []
+    for index_value, close, volume in zip(frame.index, frame['Close'], volumes):
+        moment = _as_utc_datetime(index_value)
+        price = _finite_float(close)
+        if moment is None or price is None or price <= 0 or (before is not None and moment >= before):
             continue
+        shares = _finite_float(volume)
+        points.append((moment, price, int(shares) if shares is not None and shares > 0 else 0, kind))
+    return points
 
-        prediction_intervals = pred_data.get('prediction_intervals', {}) if isinstance(pred_data, dict) else {}
-        current_price = pred_data.get('current_price')
-        issue_time = _normalized_chart_datetime(timestamp)
 
-        for horizon in ['1h', '1d', '1w']:
-            pred_value = pred_data.get('predictions', {}).get(horizon)
-            if pred_value is None:
-                continue
+def get_historical_data(live_quote=None):
+    """The dashboard's price chart (payload unified_data): {'actual': {values, timestamps, volumes, kinds}}.
 
-            target_time = None
-            if issue_time is not None:
-                target_time = _chart_target_time(issue_time, horizon)
+    CL=F daily bars for the last ten years up to where the hourly window starts, the last month of
+    hourly bars, then the quote. Every point says what it is ('1d' daily bar, '1h' hourly bar, 'live'
+    the quote, whose volume is the session's running total), so the chart never infers it from the
+    spacing. `live_quote` is (time, price, volume): it is appended only when it is newer than the
+    newest bar, so a quote never displaces or interleaves with exchange bars. A failed download leaves
+    its part out (logged by error type only); the deploy validator rejects a chart without bars.
+    """
+    daily = hourly = None
+    try:
+        daily = _chart_bars(CHART_DAILY_PERIOD, '1d')
+    except Exception as exc:
+        logger.warning("Daily chart history unavailable error_type=%s", type(exc).__name__)
+    try:
+        hourly = _chart_bars(CHART_HOURLY_PERIOD, '1h')
+    except Exception as exc:
+        logger.warning("Hourly chart history unavailable error_type=%s", type(exc).__name__)
 
-            horizon_interval = prediction_intervals.get(horizon, {}) if isinstance(prediction_intervals, dict) else {}
-            normalized_issue_timestamp = _datetime_to_chart_timestamp(issue_time) if issue_time is not None else (_normalize_chart_timestamp(timestamp) or timestamp)
-            normalized_target_timestamp = _datetime_to_chart_timestamp(target_time) if target_time is not None else normalized_issue_timestamp
-            issued_by_horizon[horizon]['values'].append(float(pred_value))
-            issued_by_horizon[horizon]['timestamps'].append(normalized_issue_timestamp)
-            issued_by_horizon[horizon]['issue_timestamps'].append(normalized_issue_timestamp)
-            issued_by_horizon[horizon]['target_timestamps'].append(normalized_target_timestamp)
-            issued_by_horizon[horizon]['upper_bound'].append(horizon_interval.get('upper'))
-            issued_by_horizon[horizon]['lower_bound'].append(horizon_interval.get('lower'))
-            issued_by_horizon[horizon]['current_prices'].append(float(current_price) if current_price is not None else None)
+    hourly_points = _bar_points(hourly, '1h')
+    hourly_start = min((point[0] for point in hourly_points), default=None)
+    by_time = {point[0]: point for point in _bar_points(daily, '1d', before=hourly_start)}
+    by_time.update((point[0], point) for point in hourly_points)
+    points = sorted(by_time.values(), key=lambda point: point[0])
 
-            if target_time is not None and last_actual_time is not None and target_time > last_actual_time:
-                continue
+    if live_quote is not None:
+        stamp, price, volume = live_quote
+        moment, price, shares = _as_utc_datetime(stamp), _finite_float(price), _finite_float(volume)
+        if (moment is not None and price is not None and price > 0
+                and (not points or moment > points[-1][0])):
+            points.append((moment, price, int(shares) if shares is not None and shares > 0 else 0, 'live'))
 
-            historical_by_horizon[horizon]['values'].append(float(pred_value))
-            historical_by_horizon[horizon]['timestamps'].append(normalized_target_timestamp)
-            historical_by_horizon[horizon]['issue_timestamps'].append(normalized_issue_timestamp)
-            historical_by_horizon[horizon]['target_timestamps'].append(normalized_target_timestamp)
-            historical_by_horizon[horizon]['upper_bound'].append(horizon_interval.get('upper'))
-            historical_by_horizon[horizon]['lower_bound'].append(horizon_interval.get('lower'))
-            historical_by_horizon[horizon]['current_prices'].append(float(current_price) if current_price is not None else None)
+    if len(points) > CHART_MAX_POINTS:
+        step = max(1, len(points) // CHART_MAX_POINTS)
+        sampled = points[::step]
+        if sampled[-1] is not points[-1]:
+            sampled.append(points[-1])
+        points = sampled[-CHART_MAX_POINTS:]
 
-    predicted_values = historical_by_horizon['1h']['values']
-    predicted_timestamps = historical_by_horizon['1h']['timestamps']
-    predicted_upper = historical_by_horizon['1h']['upper_bound']
-    predicted_lower = historical_by_horizon['1h']['lower_bound']
-
-    future_values = []
-    future_timestamps = []
-    future_upper = []
-    future_lower = []
-    future_by_horizon = {}
-    if sorted_predictions:
-        latest_ts, latest_pred = sorted_predictions[-1]
-        if isinstance(latest_pred, dict):
-            preds = latest_pred.get('predictions', {}) or {}
-            intervals = latest_pred.get('prediction_intervals', {}) or {}
-            base_time = _normalized_chart_datetime(latest_ts) or datetime.now(timezone.utc).replace(tzinfo=None)
-            for horizon in ['1h', '1d', '1w']:
-                pred_val = preds.get(horizon)
-                if pred_val is None:
-                    continue
-                horizon_time = _chart_target_time(base_time, horizon)
-                horizon_interval = intervals.get(horizon, {}) if isinstance(intervals, dict) else {}
-                normalized_horizon_timestamp = _datetime_to_chart_timestamp(horizon_time) or horizon_time.isoformat()
-                future_values.append(float(pred_val))
-                future_timestamps.append(normalized_horizon_timestamp)
-                future_upper.append(horizon_interval.get('upper'))
-                future_lower.append(horizon_interval.get('lower'))
-                future_by_horizon[horizon] = {
-                    'value': float(pred_val),
-                    'timestamp': normalized_horizon_timestamp,
-                    'upper': horizon_interval.get('upper'),
-                    'lower': horizon_interval.get('lower'),
-                }
-    
     return {
         'actual': {
-            'values': actual_values,
-            'timestamps': actual_timestamps,
-            'volumes': actual_volumes,
-            'kinds': actual_kinds,
-        },
-        'predicted': {
-            'historical': {
-                'values': predicted_values,
-                'timestamps': predicted_timestamps,
-                'upper_bound': predicted_upper,
-                'lower_bound': predicted_lower,
-            },
-            'historical_by_horizon': historical_by_horizon,
-            'issued_by_horizon': issued_by_horizon,
-            'future': {
-                'values': future_values,
-                'timestamps': future_timestamps,
-                'upper_bound': future_upper,
-                'lower_bound': future_lower,
-                'by_horizon': future_by_horizon,
-            }
+            'values': [round(point[1], 4) for point in points],
+            'timestamps': [_iso_utc(point[0]) for point in points],
+            'volumes': [point[2] for point in points],
+            'kinds': [point[3] for point in points],
         }
     }
 
+
 def main():
-    """Main function for testing premium system"""
-    try:
-        logger.info("Testing Premium WTI Prediction System...")
-        
-        # Test contract detection
-        contract_info = get_current_wti_contract()
-        logger.info(f"✅ Contract: {contract_info['symbol']} @ ${contract_info['current_price']:.2f}")
-        
-        # Test predictions
-        predictions = get_multi_horizon_wti_predictions()
-        logger.info(f"✅ Predictions: 1H=${predictions['prediction_1h']:.2f}, "
-                   f"1D=${predictions['prediction_1d']:.2f}, 1W=${predictions['prediction_1w']:.2f}")
-        
-        # Test accuracy calculation
-        accuracy = get_prediction_accuracy_metrics()
-        logger.info(f"✅ Accuracy: {accuracy['overall']['direction_accuracy']:.1f}%")
-        
-        logger.info("✅ Premium WTI system test completed successfully")
-        
-    except Exception as e:
-        logger.error(f"❌ Premium system test failed: {e}")
-        raise
+    """Smoke test of the production path: the contract quote and the chart history."""
+    contract_info = get_current_wti_contract()
+    logger.info("Contract: %s @ $%.2f (%s)", contract_info['symbol'], contract_info['current_price'],
+                contract_info.get('market_time'))
+    actual = get_historical_data()['actual']
+    logger.info("Chart: %d points, newest %s", len(actual['values']),
+                actual['timestamps'][-1] if actual['timestamps'] else None)
+
 
 if __name__ == '__main__':
     main()

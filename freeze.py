@@ -1,45 +1,78 @@
 #!/usr/bin/env python3
 """
-Freeze the live API payload into static JSON for GitHub Pages hosting.
+Freeze the dashboard payload into static JSON for GitHub Pages hosting.
 
-This is the "frozen Flask" pattern: instead of running a live server, we render the
-/data endpoint in-memory with Flask's test client and write the output to a static
-file. A GitHub Actions cron re-runs this on a schedule, so the static site always
-serves the most recent snapshot with zero running infrastructure.
+This is the "frozen Flask" pattern: instead of running a live server, we render the /data endpoint
+in-memory with Flask's test client and write the output to static files. A GitHub Actions cron re-runs
+this on a schedule, so the static site always serves the most recent snapshot with zero running
+infrastructure. The files follow docs/DATA_CONTRACT.md:
 
-The React frontend (built with VITE_STATIC_DATA=true) fetches this file directly,
-so no backend server is needed at runtime.
+  data.json      the live snapshot (schema_version 3). The volatility forecast is REQUIRED: without
+                 it the freeze fails, nothing is written, and the previous good site stays live.
+  research.json  the reproducible research, copied from committed artifacts
+                 (scripts/build_research_bundle.py)
+  price.json     a same-origin baseline quote for the live-price overlay
+
+The React frontend (built with VITE_STATIC_DATA=true) fetches these files directly, so no backend
+server is needed at runtime.
 
 Usage:
-    python freeze.py                 # writes public/data.json
-    python freeze.py --out public     # custom output directory
+    python freeze.py                 # writes public/data.json, public/research.json, public/price.json
+    python freeze.py --out public     # the output directory (it must be public)
 """
 
 import argparse
+import importlib.util
 import json
-import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.safe_paths import public_output_directory
 
-# Must be set BEFORE importing the server so the module-level flag is read as eager.
-# Eager warmup makes initialize_oil_system() generate predictions synchronously instead
-# of deferring them to a background thread (which a one-shot freeze job cannot wait on).
-os.environ.setdefault("EAGER_ML_WARMUP", "true")
+RESEARCH_BUILDER = Path(__file__).resolve().parent / "scripts" / "build_research_bundle.py"
+
+
+def _research_builder():
+    """scripts/build_research_bundle.py as a module (standard library only; loaded by path so no
+    installed package named `scripts` can stand in for it)."""
+    spec = importlib.util.spec_from_file_location("build_research_bundle", RESEARCH_BUILDER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _volatility_forecast(data: dict) -> dict:
+    """The validated volatility block: the one /data already built, else one more build here.
+
+    Raises SystemExit when there is none: the forecast is the product, so a snapshot without it
+    must never replace the published one.
+    """
+    bundle = data.get("vol_forecast")
+    if not bundle:
+        try:
+            from backend import vol_forecast
+            bundle = vol_forecast.forecast_bundle()
+        except Exception as exc:
+            raise SystemExit(
+                f"vol_forecast unavailable (error_type={type(exc).__name__}); "
+                "refusing to publish a snapshot without the volatility forecast"
+            ) from exc
+    if not isinstance(bundle, dict) or not isinstance(bundle.get("live"), dict) \
+            or not isinstance(bundle.get("validation"), dict):
+        raise SystemExit("vol_forecast is incomplete; refusing to publish it")
+    return bundle
 
 
 def freeze(out_dir: Path) -> dict:
     from backend import server
 
     # Synchronous init. Unlike the threaded startup_initialization(), initialize_oil_system()
-    # RAISES on failure — so a rate-limited / data-unavailable run fails the CI job visibly
-    # and the previous good snapshot stays live, rather than publishing an empty page.
-    print("Initializing oil system (synchronous warmup)...", flush=True)
+    # RAISES when there is no quote, so a rate-limited / data-unavailable run fails the CI job
+    # visibly and the previous good snapshot stays live, rather than publishing an empty page.
+    print("Initializing (contract quote + volatility forecast)...", flush=True)
     server.initialize_oil_system()
     server._startup_ready.set()
-    server.system_state["ml_ready"] = True
 
     client = server.app.test_client()
 
@@ -54,35 +87,25 @@ def freeze(out_dir: Path) -> dict:
     if not data or data.get("error"):
         raise SystemExit(f"/data returned an error payload: {(data or {}).get('error')}")
 
+    bundle = _volatility_forecast(data)
+    data["vol_forecast"] = bundle
+    print(f"   vol_forecast: next-week {bundle['live'].get('direction')} "
+          f"@ {bundle['live'].get('forecast_next_week_vol_annualized_pct')}% "
+          f"(as of {bundle['live'].get('as_of')}, validation n={bundle['validation'].get('n')})",
+          flush=True)
+
     # Stamp when this snapshot was frozen so the UI can show an honest "data as of" label, and say
     # what it is: a periodic snapshot, not a live feed.
     frozen_at = datetime.now(timezone.utc).isoformat()
     data["frozen_at"] = frozen_at
     data["feed_status"] = "SNAPSHOT"
 
-    # Attach the validated volatility forecast (the project's real signal). Guarded so a vol-model
-    # or data hiccup can never fail the deploy — the dashboard simply omits the card if absent.
-    # One download feeds both the live forecast and its validation, and the block is attached only
-    # once it is complete, so a failure can never publish a half-built card.
-    try:
-        from backend import vol_forecast
-        # /data already carries it when the server could build it; otherwise try once more here.
-        bundle = data.get("vol_forecast") or vol_forecast.forecast_bundle()
-        print(f"   vol_forecast: next-week {bundle['live']['direction']} "
-              f"@ {bundle['live']['forecast_next_week_vol_annualized_pct']}% "
-              f"(OOS dir acc {bundle['validation']['har_dir_acc_pct']}%, n={bundle['validation']['n']})",
-              flush=True)
-        data["vol_forecast"] = bundle
-    except Exception as exc:  # pragma: no cover - never block the deploy on the vol add-on
-        data.pop("vol_forecast", None)
-        print(
-            "   vol_forecast unavailable "
-            f"(error_type={type(exc).__name__}) — dashboard will omit the card",
-            flush=True,
-        )
-
+    # research.json first: write() validates the bundle before writing it, so a broken committed
+    # artifact fails the freeze before data.json is touched.
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "data.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+    research_path = _research_builder().write(out_dir)
+    data_path = out_dir / "data.json"
+    data_path.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
 
     # Bake a baseline price.json into the same output dir. Vite copies public/* into
     # dist/, so the dashboard always has a same-origin fallback with this freeze's
@@ -116,7 +139,8 @@ def freeze(out_dir: Path) -> dict:
         f"✅ Froze snapshot @ {frozen_at}\n"
         f"   contract={symbol}  price=${data.get('current_price')}  "
         f"feed={data.get('feed_status')}\n"
-        f"   -> {out_dir / 'data.json'} ({(out_dir / 'data.json').stat().st_size} bytes)",
+        f"   -> {data_path} ({data_path.stat().st_size} bytes)\n"
+        f"   -> {research_path} ({research_path.stat().st_size} bytes)",
         flush=True,
     )
     return data
