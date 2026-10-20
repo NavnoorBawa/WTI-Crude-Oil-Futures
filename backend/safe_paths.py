@@ -130,6 +130,16 @@ def public_json_path(value: str | os.PathLike[str]) -> Path:
     raise ValueError("public path must be public/data.json")
 
 
+def research_payload_path(value: str | os.PathLike[str]) -> Path:
+    """public/research.json, or the tracked research fixture; any other path is refused."""
+    normalized = _normalized_argument(value)
+    if normalized in {"research.json", "public/research.json", "./public/research.json"}:
+        return _trusted_file(PUBLIC_ROOT, "research.json")
+    if normalized in {"tests/fixtures/research.json", "./tests/fixtures/research.json"}:
+        return _trusted_file(FIXTURE_ROOT, "research.json")
+    raise ValueError("research path must be public/research.json or the tracked test fixture")
+
+
 def fixture_json_path(value: str | os.PathLike[str]) -> Path:
     normalized = _normalized_argument(value)
     if normalized in {

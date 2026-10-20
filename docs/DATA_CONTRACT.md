@@ -56,15 +56,17 @@ Every statistic on the page is read from these files. Nothing is hardcoded in th
                        interval_80_coverage_pct, interval_80_n, ovx_lag_sessions, ... */ },
     "economic": { "returns": {}, "vol_target_overlay": {}, "variance_risk_premium": {} },
     "recent_oos": { "date": [], "actual": [], "forecast": [], "median": [], "rv5": [], "lo80": [], "hi80": [] },
-    "live_record": {                                  // backend/vol_record.py summary (see below)
-      "started": "2026-10-20", "n_recorded": 0, "n_resolved": 0, "n_pending": 0, "n_skipped_roll": 0, "n_independent": 0,
+    "recent_closes": { "date": [], "close": [] },     // the last 40 finished-session CL=F closes (the record scores on these)
+    "live_record": {                                  // backend/vol_record.py summary, added after the freeze
+      "started": "2026-10-20", "n_recorded": 0, "n_resolved": 0, "n_pending": 0, "n_skipped_roll": 0,
+      "n_expired": 0, "n_independent": 0,
       "champion": { "model_version": "har-iv/2", "qlike": null, "interval_80_coverage_pct": null,
                     "direction_hit_pct": null, "mean_forecast_pct": null, "mean_realized_pct": null },
-      "challenger": { "key": "har_iv_range", "qlike": null },
+      "challenger": { "key": "har_iv_range", "qlike": null, "n": 0, "champion_qlike": null },
       "recent": [ { "as_of": "...", "issued_at": "...", "target_start": "...", "target_end": "...",
                     "forecast_pct": 47.6, "median_pct": 40.0, "lo80_pct": 23.3, "hi80_pct": 63.9,
-                    "challenger_pct": 45.1, "realized_pct": null, "status": "pending|resolved|skipped_roll" } ],
-      "promotion_rule": "..."
+                    "challenger_pct": 45.1, "realized_pct": null, "status": "pending|resolved|skipped_roll|expired" } ],
+      "promotion_rule": "...", "note": "the scoring-window rule", "direction_note": "the direction noise floor"
     }
   },
   "supply_shock_playbook": { /* backend/supply_shock_playbook.py get_playbook_for_api() */ },

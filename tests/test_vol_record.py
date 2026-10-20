@@ -237,6 +237,16 @@ class BarsTest(unittest.TestCase):
         # Bars after the cutoff are the session still trading.
         self.assertEqual(set(vr.completed_closes(data, D("2026-11-04"))), {D("2026-11-03"), D("2026-11-04")})
 
+    def test_forecaster_closes_take_priority_and_chart_bars_fill_gaps(self):
+        data = payload(None, {"2026-11-03": 80.0, "2026-11-04": 81.0})
+        data["vol_forecast"] = {"recent_closes": {"date": ["2026-11-04", "2026-11-05", "2026-11-26", "bad"],
+                                                  "close": [81.2, 82.0, 79.0, 70.0]}}
+        got = vr.completed_closes(data, D("2026-11-30"))
+        # The forecaster's own close wins over the chart bar for 11-04; the chart fills 11-03; the
+        # holiday and the malformed date are dropped.
+        self.assertEqual(got, {D("2026-11-03"): 80.0, D("2026-11-04"): 81.2, D("2026-11-05"): 82.0})
+        self.assertEqual(set(vr.completed_closes(data, D("2026-11-04"))), {D("2026-11-03"), D("2026-11-04")})
+
     def test_bars_without_kinds_are_not_trusted(self):
         data = payload(None, {"2026-11-03": 80.0})
         del data["unified_data"]["actual"]["kinds"]

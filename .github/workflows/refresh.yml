@@ -153,7 +153,7 @@ jobs:
       # own exchange time catches a provider that silently serves a stale series (4 days covers
       # a holiday weekend).
       - name: Validate frozen payload invariants
-        run: python scripts/validate_frozen_payload.py public/data.json --max-age-minutes 30 --max-market-age-days 4
+        run: python scripts/validate_frozen_payload.py public/data.json --max-age-minutes 30 --max-market-age-days 4 --research public/research.json
 
       # Appends this snapshot's vol forecast (one per session, first issuance wins), settles the
       # forecasts whose target week has closed, and writes the summary into public/data.json
@@ -304,6 +304,7 @@ jobs:
           set -euo pipefail
           mkdir -p public
           cp dist/data.json public/data.json
+          cp dist/research.json public/research.json
           cp "${RUNNER_TEMP}/runtime-state/vol_track_record.json" data/vol_track_record.json
           PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python -c \
             'from backend.vol_record import load_record; load_record()'
@@ -350,7 +351,7 @@ jobs:
           # The live site's own snapshot time; unreadable counts as unknown (nothing to protect).
           published_at="$(git show "origin/${PAGES_BRANCH}:data.json" 2>/dev/null \
             | python -c 'import json, sys; print(json.load(sys.stdin).get("frozen_at") or "")')" || published_at=""
-          checks=(--max-age-minutes 240)
+          checks=(--max-age-minutes 240 --research public/research.json)
           if [ -n "$published_at" ]; then
             checks+=(--not-older-than "$published_at")
           fi

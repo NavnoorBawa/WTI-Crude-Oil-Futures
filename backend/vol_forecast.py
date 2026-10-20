@@ -98,6 +98,7 @@ VRP_STEPS = 4
 # Forecast intervals: adaptive conformal inference on the out-of-sample log errors (Gibbs-Candes 2021).
 INTERVAL_ALPHA = 0.20      # 80% intervals
 RECENT_OOS_WEEKS = 156     # out-of-sample weeks shipped to the dashboard (3 years)
+RECENT_CLOSES = 40         # finished-session closes shipped for the live track record
 # v1 (2026-06): log-OLS on RV5, RV22, RV66 and the same day's OVX; published the median forecast.
 # v2: OVX lagged one session (entry-time clean); losses and risk use the variance-consistent mean.
 MODEL_VERSION = "har-iv/2"
@@ -162,7 +163,11 @@ def _load_data_full(period: str = HISTORY_PERIOD, now: datetime | None = None):
     # Non-positive closes are dropped: the 2020-04-20 negative settlement artifact.
     close = _completed(df["Close"], now)
     logret = np.log(close).diff().dropna()
-    meta: dict = {"ovx_source": None, "ovx_as_of": None, "ohlc": None}
+    tail = close.iloc[-RECENT_CLOSES:]
+    meta: dict = {"ovx_source": None, "ovx_as_of": None, "ohlc": None,
+                  # The live track record (backend/vol_record.py) scores forecasts on these closes.
+                  "recent_closes": {"date": [str(d.date()) for d in tail.index],
+                                    "close": [round(float(v), 4) for v in tail.to_numpy()]}}
     try:
         try:
             from .market_data import clean_ohlc
@@ -905,6 +910,7 @@ def forecast_bundle(period: str = HISTORY_PERIOD) -> dict:
         "validation": validation,
         "economic": report.get("economic", {}),
         "recent_oos": _recent_series(frame) if use_ovx else None,
+        "recent_closes": meta.get("recent_closes"),
     }
 
 

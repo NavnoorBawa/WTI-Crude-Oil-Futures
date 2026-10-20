@@ -223,7 +223,15 @@ class WorkflowGuardTest(unittest.TestCase):
             step = source[source.index(f"- name: {name}"):]
             step = step[:step.index("\n      - name:")]
             with self.subTest(step=name):
-                self.assertEqual(set(re.findall(r"\b\w+\.json\b", step)) - {"data.json"}, {"vol_track_record.json"})
+                site_files = {"data.json", "research.json"}          # deployed payloads, not state
+                self.assertEqual(set(re.findall(r"\b\w+\.json\b", step)) - site_files, {"vol_track_record.json"})
+
+    def test_both_jobs_validate_the_research_bundle(self):
+        source = (WORKFLOW_DIRECTORY / "refresh.yml").read_text(encoding="utf-8")
+        jobs = _jobs(source)
+        self.assertIn("--research public/research.json", jobs["build"])
+        self.assertIn("cp dist/research.json public/research.json", jobs["publish"])
+        self.assertIn("--research public/research.json", jobs["publish"])
 
     def test_record_step_runs_after_validation_and_before_the_site_build(self):
         source = (WORKFLOW_DIRECTORY / "refresh.yml").read_text(encoding="utf-8")

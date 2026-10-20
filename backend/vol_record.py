@@ -32,7 +32,8 @@ Rules (conservative by construction; sessions are CME business days, see contrac
   existed (the record is committed after the site deploys, normally within a quarter of an
   hour), so that commit precedes the settlement that opens the window it is scored on. The record
   stores k0 as `base_session` and the scored return sessions as `target_start` .. `target_end`.
-- Closes are completed daily ("1d") bars from the payload's chart history
+- Closes come from `vol_forecast.recent_closes` (the finished-session closes the forecaster itself
+  used) and, for any session it lacks, from the payload's completed daily ("1d") chart bars
   (unified_data.actual), dated by their session. A bar newer than the last finished session
   (contract_calendar.last_completed_bar_date, evaluated at the payload's freeze time and again
   BAR_FETCH_MARGIN earlier, since the bars are fetched before the freeze is stamped) or dated on
@@ -429,7 +430,31 @@ def record_forecast(record: dict, payload: dict, now: datetime) -> str:
 
 
 def completed_closes(payload: dict, cutoff: date) -> dict[date, float]:
-    """Session -> close for the payload's completed daily ("1d") bars up to `cutoff`."""
+    """Session -> close of completed sessions up to `cutoff`.
+
+    The primary source is `vol_forecast.recent_closes` (the finished-session CL=F closes the
+    forecaster itself used, one per session); the chart's daily ("1d") bars fill in any session it
+    lacks. Both are filtered to business days on or before `cutoff`.
+    """
+    closes: dict[date, float] = {}
+    recent = _dict(_dict(_dict(payload).get("vol_forecast")).get("recent_closes"))
+    days, prices = recent.get("date"), recent.get("close")
+    if isinstance(days, list) and isinstance(prices, list) and len(days) == len(prices):
+        for day, value in zip(days, prices):
+            price = _positive(value)
+            try:
+                session = date.fromisoformat(str(day))
+            except ValueError:
+                continue
+            if price is not None and session <= cutoff and is_business_day(session):
+                closes[session] = price
+    for session, price in _chart_closes(payload, cutoff).items():
+        closes.setdefault(session, price)
+    return closes
+
+
+def _chart_closes(payload: dict, cutoff: date) -> dict[date, float]:
+    """Session -> close for the payload's completed daily ("1d") chart bars up to `cutoff`."""
     actual = _dict(_dict(_dict(payload).get("unified_data")).get("actual"))
     values, stamps, kinds = actual.get("values"), actual.get("timestamps"), actual.get("kinds")
     if not (isinstance(values, list) and isinstance(stamps, list) and isinstance(kinds, list)

@@ -24,7 +24,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 # Both modules are standard library only (needs the path above).
 from backend.contract_calendar import business_days_between, trading_date  # noqa: E402
-from backend.safe_paths import FIXTURE_ROOT, PUBLIC_ROOT, _trusted_file, dashboard_payload_path  # noqa: E402
+from backend.safe_paths import dashboard_payload_path, research_payload_path  # noqa: E402
 
 
 SCHEMA_VERSION = 3
@@ -295,16 +295,6 @@ def validate_research(bundle: Any) -> list[str]:
     except (AttributeError, KeyError, TypeError, ValueError) as exc:
         return [f"research.json: malformed ({type(exc).__name__})"]
     return [f"research.json: {problem}" for problem in problems]
-
-
-def research_payload_path(value: str) -> Path:
-    """public/research.json, or the tracked research fixture; any other path is refused."""
-    normalized = str(value).replace("\\", "/")
-    if normalized in {"research.json", "public/research.json", "./public/research.json"}:
-        return _trusted_file(PUBLIC_ROOT, "research.json")
-    if normalized in {"tests/fixtures/research.json", "./tests/fixtures/research.json"}:
-        return _trusted_file(FIXTURE_ROOT, "research.json")
-    raise ValueError("research path must be public/research.json or the tracked test fixture")
 
 
 def _read_json(resolve, value: str, label: str) -> Any:
