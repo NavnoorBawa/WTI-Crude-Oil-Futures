@@ -503,8 +503,8 @@ def design_block() -> str:
         f"- **Sample.** {smp['n_days']:,} out-of-sample days, {smp['first']} to {smp['last']}. Losses and "
         f"tests use every day. Each of the five weekday sampling grids ({smp['n_weeks']} non-overlapping weeks) "
         f"is also scored on its own, and VaR is scored only there, since it needs independent outcomes.",
-        f"- **Forecasts.** Losses, VaR and risk use the variance-consistent forecast (the median times a Duan "
-        f"smearing factor). The direction call and the intervals use the median.",
+        "- **Forecasts.** Losses, VaR and risk use the variance-consistent forecast (the median times a Duan "
+        "smearing factor). The direction call and the intervals use the median.",
         f"- **Inference.** Model Confidence Set at {100 - mcs['size'] * 100:g}% ({mcs['statistic']} statistic, "
         f"{mcs['reps']:,} {mcs['bootstrap']}-bootstrap replications, blocks of {mcs['block_daily']} days or "
         f"{mcs['block_weekly']} weeks, seed {mcs['seed']}); Diebold-Mariano with Newey-West variance and the "
