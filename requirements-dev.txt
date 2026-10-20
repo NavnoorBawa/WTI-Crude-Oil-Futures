@@ -1,0 +1,18 @@
+# Development and CI tooling, pinned exactly (each release at least two weeks old when pinned).
+# Install next to the runtime pins: pip install -r requirements.txt -r requirements-dev.txt
+# The Tests workflow installs both and audits both; Dependabot proposes upgrades for this file too.
+
+# Static typing (mypy strict scope is set in pyproject.toml)
+mypy==2.4.0
+pandas-stubs==3.0.5.260914
+scipy-stubs==1.18.1.1
+types-requests==2.33.0.20260906
+
+# Property-based tests (tests/test_properties.py) and coverage
+hypothesis==6.168.3
+coverage==7.16.2
+
+# Lint, security scan and dependency audit (the same versions the Tests workflow gates on)
+ruff==0.15.18
+bandit==1.9.4
+pip-audit==2.10.1

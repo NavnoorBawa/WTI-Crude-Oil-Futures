@@ -53,10 +53,19 @@ import json
 import warnings
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
 from scipy import stats
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+
+    import numpy.typing as npt
+    from arch.univariate.base import ARCHModelFixedResult, ARCHModelResult
+
+    Progress = Callable[[int, int], object]
 
 try:
     from . import market_data
@@ -66,12 +75,13 @@ try:
                                 kupiec, mincer_zarnowitz, model_confidence_set, mse_var, qlike)
     from .safe_paths import data_json_path
 except ImportError:  # Direct invocation from backend/
-    import market_data
-    import vol_forecast as vf
-    from contract_calendar import last_trade_date
-    from forecast_eval import (basel_zone, delayed_aci, christoffersen, dm_test, dq_test, hac_z,
-                               kupiec, mincer_zarnowitz, model_confidence_set, mse_var, qlike)
-    from safe_paths import data_json_path
+    import market_data  # type: ignore[import-not-found, no-redef]
+    import vol_forecast as vf  # type: ignore[import-not-found, no-redef]
+    from contract_calendar import last_trade_date  # type: ignore[import-not-found, no-redef]
+    from forecast_eval import (  # type: ignore[import-not-found, no-redef]
+        basel_zone, delayed_aci, christoffersen, dm_test, dq_test, hac_z,
+        kupiec, mincer_zarnowitz, model_confidence_set, mse_var, qlike)
+    from safe_paths import data_json_path  # type: ignore[import-not-found, no-redef]
 
 ARTIFACT = "vol_lab.json"
 ANNUAL = 252.0
@@ -142,7 +152,7 @@ def roll_days(dates: pd.DatetimeIndex) -> np.ndarray:
     mask = np.zeros(len(days), dtype=bool)
     year, month = days[0].year, days[0].month
     while (year, month) <= (days[-1].year + 1, days[-1].month):
-        expiry = pd.Timestamp(last_trade_date(year, month))
+        expiry: Any = pd.Timestamp(last_trade_date(year, month))     # numpy's stubs reject a Timestamp
         i = int(np.searchsorted(days, expiry, side="right"))
         if 0 < i < len(days):
             mask[i] = True
@@ -184,7 +194,7 @@ class Design:
     v_range: np.ndarray            # daily range-based variance (roll-safe), all sessions
     lev: np.ndarray                # 5-session downside semivol
     ovx_same: np.ndarray           # the test day's own OVX close (v1 timing, robustness only)
-    ends: list = field(default_factory=list)   # OOS row indices (every day from MIN_TRAIN on)
+    ends: list[int] = field(default_factory=list)   # OOS row indices (every day from MIN_TRAIN on)
 
 
 def build_design(r: np.ndarray, dates: pd.DatetimeIndex, ovx: np.ndarray, ohlc: pd.DataFrame,
@@ -219,14 +229,15 @@ class _GarchState:
     """Re-estimated weekly (warm-started), filtered daily with the latest estimates. Deterministic:
     the same inputs give the same refit path and the same forecasts."""
 
-    def __init__(self, asymmetric: bool):
+    def __init__(self, asymmetric: bool) -> None:
         self.o = 1 if asymmetric else 0
-        self.params = None
+        self.params: np.ndarray | None = None
 
     def forecast(self, returns: np.ndarray, horizon: int, refit: bool = True) -> float:
         from arch import arch_model
 
         model = arch_model(returns * GARCH_SCALE, mean="Constant", vol="GARCH", p=1, o=self.o, q=1, dist="t")
+        res: ARCHModelResult | ARCHModelFixedResult
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             if refit or self.params is None:
@@ -238,7 +249,7 @@ class _GarchState:
         return float(np.sqrt(np.mean(var) * ANNUAL) / GARCH_SCALE)
 
 
-def _lgbm():
+def _lgbm() -> Any:
     import lightgbm as lgb
 
     return lgb.LGBMRegressor(n_estimators=300, learning_rate=0.03, num_leaves=15, min_child_samples=40,
@@ -262,7 +273,7 @@ def _median_mean(beta: np.ndarray, smear: float, x: np.ndarray) -> tuple[float, 
     return float(np.exp(mu)), float(np.exp(mu) * np.sqrt(smear))
 
 
-def _regression_designs(X: np.ndarray, XR: np.ndarray, lev: np.ndarray, ovx_same: np.ndarray) -> dict:
+def _regression_designs(X: np.ndarray, XR: np.ndarray, lev: np.ndarray, ovx_same: np.ndarray) -> dict[str, np.ndarray]:
     """Feature matrix of every log-regression model (rows aligned with X). Works on 2-D designs and
     on a single 1-row design built for the live forecast."""
     return {
@@ -276,7 +287,7 @@ def _regression_designs(X: np.ndarray, XR: np.ndarray, lev: np.ndarray, ovx_same
     }
 
 
-def walk_forward(d: Design, *, include_slow: bool = True, progress=None) -> pd.DataFrame:
+def walk_forward(d: Design, *, include_slow: bool = True, progress: Progress | None = None) -> pd.DataFrame:
     """One row per OOS day: the realized target, the persistence / mean-reversion references, the
     5-session forward return (for VaR), the weekday grid the row belongs to (`grid`, 0-4; grid 0 is
     the production validator's), and for every model its variance-consistent forecast (column
@@ -310,7 +321,7 @@ def walk_forward(d: Design, *, include_slow: bool = True, progress=None) -> pd.D
         for key, value in (("persistence", float(X[end, 0])), ("raw_ovx", float(X[end, 3]) / 100.0),
                            ("ewma", float(np.sqrt(ewma_s / ewma_w * ANNUAL)))):
             f[key] = f[f"{key}__med"] = value
-        coef_har_iv = None
+        coef_har_iv: tuple[np.ndarray, float] | None = None
         for key, Z in designs.items():
             beta, smear = _fit_log(Z[:train_end], y[:train_end])
             f[f"{key}__med"], f[key] = _median_mean(beta, smear, Z[end])
@@ -333,7 +344,7 @@ def walk_forward(d: Design, *, include_slow: bool = True, progress=None) -> pd.D
             # Linear pool of the members' variance forecasts (a geometric pool of means is biased low).
             f["combo"] = float(np.sqrt(np.mean([f[m] ** 2 for m in COMBO_MEMBERS])))
             f["combo__med"] = float(np.exp(np.mean([np.log(f[f"{m}__med"]) for m in COMBO_MEMBERS])))
-        beta, smear = coef_har_iv
+        beta, smear = cast("tuple[np.ndarray, float]", coef_har_iv)
         rows.append({
             "date": d.tdate[end],
             "grid": int(grid),
@@ -353,7 +364,7 @@ def walk_forward(d: Design, *, include_slow: bool = True, progress=None) -> pd.D
 
 
 def live_model_forecast(key: str, r: np.ndarray, dates: pd.DatetimeIndex, ovx_same: np.ndarray,
-                        ohlc: pd.DataFrame) -> dict:
+                        ohlc: pd.DataFrame) -> dict[str, Any]:
     """Today's forecast from any model in MODELS, fitted on every matured row (the production
     challenger uses this, so it is computed by exactly the definition that was benchmarked)."""
     if key not in MODEL_KEYS:
@@ -361,7 +372,7 @@ def live_model_forecast(key: str, r: np.ndarray, dates: pd.DatetimeIndex, ovx_sa
     d = build_design(r, dates, ovx_same, ohlc)
     t = len(r) - 1
     v = range_variance(ohlc, r, dates)
-    ovx_l = vf.lag_ovx(np.asarray(ovx_same, float))
+    ovx_l = cast("np.ndarray", vf.lag_ovx(np.asarray(ovx_same, float)))
     x_now = np.array([[vf._rvol(r[t - 4: t + 1]), vf._rvol(r[t - 21: t + 1]), vf._rvol(r[t - 65: t + 1]), ovx_l[t]]])
     xr_now = np.array([[np.sqrt(np.mean(v[t - w + 1: t + 1]) * ANNUAL) for w in (5, 22, 66)]])
     lev_now = np.array([max(vf._downside_semivol(r[t - 4: t + 1]), 1e-4)])
@@ -405,7 +416,7 @@ def live_model_forecast(key: str, r: np.ndarray, dates: pd.DatetimeIndex, ovx_sa
             "forecast_median_pct": round(median * 100, 1), "as_of": str(dates[-1].date())}
 
 
-def noise_floor(r: np.ndarray, dates: pd.DatetimeIndex, sims: int = NOISE_FLOOR_SIMS) -> dict:
+def noise_floor(r: np.ndarray, dates: pd.DatetimeIndex, sims: int = NOISE_FLOOR_SIMS) -> dict[str, Any]:
     """Direction accuracy when there is nothing to forecast: i.i.d. Student-t(5) returns with the
     sample's volatility, run through the identical feature builder and walk-forward (HAR, no OVX)."""
     sd = float(np.std(r))
@@ -426,7 +437,7 @@ def noise_floor(r: np.ndarray, dates: pd.DatetimeIndex, sims: int = NOISE_FLOOR_
                      "below its median is right with probability E[max(U, 1-U)] = 75%.")}
 
 
-def coefficient_report(d: Design) -> dict:
+def coefficient_report(d: Design) -> dict[str, Any]:
     """Full-sample HAR-IV log regression with Newey-West t-statistics (overlapping 5-session targets
     on daily rows, so 10 lags)."""
     import statsmodels.api as sm
@@ -456,12 +467,12 @@ def coefficient_report(d: Design) -> dict:
 def _hit(frame: pd.DataFrame, key: str) -> np.ndarray:
     """Direction hits of a model's MEDIAN forecast: P(next > current) > 1/2 iff median > current."""
     up = (frame["actual"] > frame["rv5"]).to_numpy()
-    return ((frame[f"{key}__med"] > frame["rv5"]).to_numpy() == up).astype(float)
+    return cast("np.ndarray", ((frame[f"{key}__med"] > frame["rv5"]).to_numpy() == up).astype(float))
 
 
 def _mr_hit(frame: pd.DataFrame) -> np.ndarray:
     up = (frame["actual"] > frame["rv5"]).to_numpy()
-    return ((frame["rv66"] > frame["rv5"]).to_numpy() == up).astype(float)
+    return cast("np.ndarray", ((frame["rv66"] > frame["rv5"]).to_numpy() == up).astype(float))
 
 
 def _losses(frame: pd.DataFrame, target: str = "actual") -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -471,16 +482,17 @@ def _losses(frame: pd.DataFrame, target: str = "actual") -> tuple[pd.DataFrame, 
     return LQ, LM
 
 
-def realized_utility(actual: np.ndarray, forecast: np.ndarray, sr: float = UTILITY_SR,
+def realized_utility(actual: npt.ArrayLike, forecast: npt.ArrayLike, sr: float = UTILITY_SR,
                      gamma: float = UTILITY_GAMMA) -> np.ndarray:
     """Per-period realized utility of a mean-variance investor who sizes a position by the vol
     forecast (Bollerslev, Hood, Huss and Pedersen 2018): (SR^2 / gamma) * (y/f - (y/f)^2 / 2), in
     annualized units. Maximized at f = y (SR^2 / (2 gamma)); free of the noise in realized returns."""
     ratio = np.asarray(actual, float) / np.asarray(forecast, float)
-    return (sr ** 2 / gamma) * (ratio - 0.5 * ratio ** 2)
+    return cast("np.ndarray", (sr ** 2 / gamma) * (ratio - 0.5 * ratio ** 2))
 
 
-def spa_vs_champion(losses: pd.DataFrame, block: int = MCS_BLOCK, reps: int = SPA_REPS, seed: int = SEED) -> dict:
+def spa_vs_champion(losses: pd.DataFrame, block: int = MCS_BLOCK, reps: int = SPA_REPS,
+                    seed: int = SEED) -> dict[str, Any]:
     """Hansen (2005) Superior Predictive Ability: is ANY model in the field better than the model of
     record, after accounting for having searched over all of them? Small p: some model beats it."""
     from arch.bootstrap import SPA
@@ -494,7 +506,7 @@ def spa_vs_champion(losses: pd.DataFrame, block: int = MCS_BLOCK, reps: int = SP
             "note": "excludes the same-day-OVX variant, which uses information the model of record may not"}
 
 
-def leaderboard(frame: pd.DataFrame) -> dict:
+def leaderboard(frame: pd.DataFrame) -> dict[str, Any]:
     """Every model on every OOS day, plus the same comparison on each weekday grid on its own."""
     y = frame["actual"].to_numpy()
     LQ, LM = _losses(frame)
@@ -530,7 +542,7 @@ def leaderboard(frame: pd.DataFrame) -> dict:
             "qlike_range_proxy": round(float(LQr[m].mean()), 4),
             "in_mcs_qlike_range_proxy": m in mcs_range["included"],
             "dm_qlike_vs_har_iv": None if m == CHAMPION else dm_test(LQ[CHAMPION], LQ[m], horizon=vf.H),
-            "dm_qlike_vs_har_iv_by_grid": None if m == CHAMPION else [round(v, 2) for v in dm_grid],
+            "dm_qlike_vs_har_iv_by_grid": None if m == CHAMPION else [round(v, 2) for v in cast("list[float]", dm_grid)],
             "dm_mse_vs_har_iv": None if m == CHAMPION else dm_test(LM[CHAMPION], LM[m], horizon=vf.H),
             "direction_acc_pct": None if m == "persistence" else round(float(hit.mean()) * 100, 1),
             "direction_z_vs_mean_reversion": None if m == "persistence" else round(float(z_dir), 2),
@@ -561,7 +573,7 @@ def leaderboard(frame: pd.DataFrame) -> dict:
             "mean_reversion_acc_pct": round(float(mr.mean()) * 100, 1)}
 
 
-def oos_selection(frame: pd.DataFrame) -> dict:
+def oos_selection(frame: pd.DataFrame) -> dict[str, Any]:
     """Each day, use the model with the lowest trailing QLIKE over the previous SELECTION_WINDOW weeks
     of MATURED outcomes (rows at least H sessions old); HAR-IV until a year of them exists. Measures
     the value of choosing among the models without hindsight."""
@@ -579,8 +591,8 @@ def oos_selection(frame: pd.DataFrame) -> dict:
             lo = max(0, hi - window)
             j = int(np.argmin((csum[hi] - csum[lo]) / (hi - lo)))
         picks.append(cands[j])
-        chosen[i] = frame[cands[j]].iat[i]
-        chosen_med[i] = frame[f"{cands[j]}__med"].iat[i]
+        chosen[i] = cast(float, frame[cands[j]].iat[i])
+        chosen_med[i] = cast(float, frame[f"{cands[j]}__med"].iat[i])
     lq_sel = qlike(y, chosen)
     lq_champ = qlike(y, frame[CHAMPION].to_numpy())
     counts = pd.Series(picks).value_counts()
@@ -595,13 +607,14 @@ def oos_selection(frame: pd.DataFrame) -> dict:
     }
 
 
-def var_backtest(frame: pd.DataFrame, models=("har_iv", "gjr", "ewma", "raw_ovx")) -> dict:
+def var_backtest(frame: pd.DataFrame,
+                 models: tuple[str, ...] = ("har_iv", "gjr", "ewma", "raw_ovx")) -> dict[str, Any]:
     """Weekly (5-session) VaR for a long position, VaR = -q * sigma_5d, on each weekday grid (VaR
     tests need non-overlapping outcomes). q is the normal quantile, or (filtered historical
     simulation) the empirical quantile of the grid's PAST standardized outcomes ret5 / sigma_5d
     (after WARMUP weeks). Unconditional historical simulation (trailing quantile of past 5-session
     returns, no volatility model) is the benchmark. Every method is scored on the same weeks."""
-    out = {"grids": {}, "summary": {}}
+    out: dict[str, dict[str, Any]] = {"grids": {}, "summary": {}}
     for g in range(vf.STEP):
         wk = frame[frame["grid"] == g].reset_index(drop=True)
         ret = wk["ret5"].to_numpy()
@@ -639,7 +652,8 @@ def var_backtest(frame: pd.DataFrame, models=("har_iv", "gjr", "ewma", "raw_ovx"
     return out
 
 
-def _var_scores(key, model, kind, p, ret, var, idx, frame) -> dict:
+def _var_scores(key: str, model: str | None, kind: str, p: float, ret: np.ndarray, var: np.ndarray,
+                idx: np.ndarray, frame: pd.DataFrame) -> dict[str, Any]:
     exceed = ret[idx] < -var[idx]
     last = exceed[-250:]
     return {
@@ -660,14 +674,14 @@ def choose_challenger(frame: pd.DataFrame) -> str:
     LQ, _ = _losses(frame)
     eligible = set(MODEL_KEYS) - {CHAMPION, "har_iv_sameday"}
     included = set(model_confidence_set(LQ, block=MCS_BLOCK)["included"]) & eligible
-    pool = included or eligible
-    return min(pool, key=lambda m: (float(LQ[m].mean()), m))
+    pool: set[str] = included or eligible
+    return min(pool, key=lambda m: (float(cast(Any, LQ[m].mean())), m))
 
 
 
 
-def conformal_report(frame: pd.DataFrame, challenger: str) -> dict:
-    out = {}
+def conformal_report(frame: pd.DataFrame, challenger: str) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
     years = frame["date"].dt.year.to_numpy()
     for m in dict.fromkeys((CHAMPION, challenger)):
         e = np.log(frame["actual"].to_numpy()) - np.log(frame[f"{m}__med"].to_numpy())
@@ -692,9 +706,9 @@ def conformal_report(frame: pd.DataFrame, challenger: str) -> dict:
     return out
 
 
-def yearly(frame: pd.DataFrame, challenger: str) -> list:
+def yearly(frame: pd.DataFrame, challenger: str) -> list[dict[str, Any]]:
     """Per calendar year, over every OOS day: direction hit rates and QLIKE."""
-    out = []
+    out: list[dict[str, Any]] = []
     for year, g in frame.groupby(frame["date"].dt.year):
         up = (g["actual"] > g["rv5"]).to_numpy()
         row = {"year": int(year), "n_days": int(len(g)),
@@ -707,7 +721,7 @@ def yearly(frame: pd.DataFrame, challenger: str) -> list:
     return out
 
 
-def vol_cone(r: np.ndarray, dates: pd.DatetimeIndex, ovx_last: float | None) -> dict:
+def vol_cone(r: np.ndarray, dates: pd.DatetimeIndex, ovx_last: float | None) -> dict[str, Any]:
     """Distribution of annualized close-to-close realized vol over rolling windows of each length
     (all overlapping windows in the snapshot), with the latest value of each."""
     s = pd.Series(np.asarray(r, float) ** 2, index=dates)
@@ -722,10 +736,10 @@ def vol_cone(r: np.ndarray, dates: pd.DatetimeIndex, ovx_last: float | None) -> 
             "implied_ovx": None if ovx_last is None else round(float(ovx_last), 1)}
 
 
-def chart_series(frame: pd.DataFrame, conf: dict, challenger: str) -> dict:
+def chart_series(frame: pd.DataFrame, conf: dict[str, dict[str, Any]], challenger: str) -> dict[str, list[Any]]:
     """Compact weekly arrays (grid 0, the production grid) for the dashboard: percent units with 1
     decimal; elasticities with 3. VaR uses the grid's own filtered-historical-simulation quantiles."""
-    def pct(a):
+    def pct(a: Any) -> list[float | None]:
         return [None if not np.isfinite(v) else round(float(v) * 100, 1) for v in np.asarray(a, float)]
 
     mask = (frame["grid"] == 0).to_numpy()
@@ -751,7 +765,9 @@ def chart_series(frame: pd.DataFrame, conf: dict, challenger: str) -> dict:
     }
 
 
-def build_report(snapshot: market_data.MarketSnapshot, *, include_slow: bool = True, progress=None) -> dict:
+def build_report(snapshot: market_data.MarketSnapshot, *, include_slow: bool = True,
+                 progress: Progress | None = None) -> dict[str, Any]:
+    ovx: np.ndarray | None
     r, dates, ovx, ohlc = market_data.research_inputs(snapshot)
     ovx = vf._pick_ovx(ovx)
     if ovx is None:
@@ -797,7 +813,7 @@ def build_report(snapshot: market_data.MarketSnapshot, *, include_slow: bool = T
     return report
 
 
-def _jsonable(obj):
+def _jsonable(obj: Any) -> Any:
     if isinstance(obj, dict):
         return {str(k): _jsonable(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
@@ -812,7 +828,7 @@ def _jsonable(obj):
     return obj
 
 
-def main(argv=None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Volatility research lab (benchmarks, MCS, VaR, conformal).")
     parser.add_argument("--refresh", action="store_true", help="download a new data snapshot first")
     parser.add_argument("--out", default="data/vol_lab.json", help="artifact path (allowlisted)")

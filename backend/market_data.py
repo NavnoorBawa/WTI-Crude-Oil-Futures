@@ -24,6 +24,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -33,9 +34,9 @@ try:
     from .contract_calendar import last_completed_bar_date
     from .safe_paths import DATA_ROOT
 except ImportError:  # Direct invocation from backend/
-    import vol_forecast as vf
-    from contract_calendar import last_completed_bar_date
-    from safe_paths import DATA_ROOT
+    import vol_forecast as vf  # type: ignore[import-not-found, no-redef]
+    from contract_calendar import last_completed_bar_date  # type: ignore[import-not-found, no-redef]
+    from safe_paths import DATA_ROOT  # type: ignore[import-not-found, no-redef]
 
 SNAPSHOT_DIR = DATA_ROOT / "market"
 MANIFEST_NAME = "MANIFEST.json"
@@ -63,7 +64,7 @@ class MarketSnapshot:
     cl: pd.DataFrame            # Open, High, Low, Close, Volume on a tz-naive date index
     ovx_yahoo: pd.Series
     ovx_fred: pd.Series
-    manifest: dict
+    manifest: dict[str, Any]
 
 
 def _sha256(path: Path) -> str:
@@ -74,7 +75,7 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def clean_ohlc(frame: pd.DataFrame, now: datetime | None = None) -> tuple[pd.DataFrame, dict]:
+def clean_ohlc(frame: pd.DataFrame, now: datetime | None = None) -> tuple[pd.DataFrame, dict[str, int]]:
     """Finished sessions with a positive close, and a consistent bar wherever the bar is usable.
 
     The sessions kept are exactly the production forecaster's (vol_forecast._completed: finished,
@@ -88,7 +89,7 @@ def clean_ohlc(frame: pd.DataFrame, now: datetime | None = None) -> tuple[pd.Dat
     close = vf._completed(frame["Close"], now)
     px = frame.copy()
     if getattr(px.index, "tz", None) is not None:
-        px.index = px.index.tz_localize(None)
+        px.index = cast("pd.DatetimeIndex", px.index).tz_localize(None)
     px.index = pd.DatetimeIndex(px.index).normalize()
     px = px[~px.index.duplicated(keep="last")].reindex(close.index)
     px["Close"] = close
@@ -125,7 +126,7 @@ def _fetch_fred_ovx(timeout: float = 30.0) -> pd.Series:
     return series[series > 0].rename("OVXCLS")
 
 
-def download(now: datetime | None = None) -> tuple[MarketSnapshot, dict]:
+def download(now: datetime | None = None) -> tuple[MarketSnapshot, dict[str, int]]:
     """Fetch every source fresh. Returns the snapshot (unsaved) and the CL data-quality report."""
     import yfinance as yf  # deferred: keeps the module importable offline
 
@@ -150,13 +151,13 @@ def _write_csv(frame: pd.DataFrame | pd.Series, path: Path) -> None:
     path.write_text(out.to_csv(float_format=FLOAT_FORMAT, lineterminator="\n"), encoding="utf-8")
 
 
-def write_snapshot(snapshot: MarketSnapshot, quality: dict, now: datetime | None = None,
-                   directory: Path = SNAPSHOT_DIR) -> dict:
+def write_snapshot(snapshot: MarketSnapshot, quality: dict[str, int], now: datetime | None = None,
+                   directory: Path = SNAPSHOT_DIR) -> dict[str, Any]:
     """Write the CSVs and a manifest pinning their SHA-256 digests. Returns the manifest."""
     now = now or datetime.now(timezone.utc)
     directory.mkdir(parents=True, exist_ok=True)
-    frames = {"cl_daily": snapshot.cl, "ovx_yahoo": snapshot.ovx_yahoo, "ovx_fred": snapshot.ovx_fred}
-    files = {}
+    frames: dict[str, pd.DataFrame | pd.Series] = {"cl_daily": snapshot.cl, "ovx_yahoo": snapshot.ovx_yahoo, "ovx_fred": snapshot.ovx_fred}
+    files: dict[str, dict[str, Any]] = {}
     for key, frame in frames.items():
         path = directory / FILES[key]
         _write_csv(frame, path)
@@ -198,7 +199,8 @@ def load_snapshot(directory: Path = SNAPSHOT_DIR, verify: bool = True) -> Market
     return MarketSnapshot(cl, ovx_yahoo, ovx_fred, manifest)
 
 
-def research_inputs(snapshot: MarketSnapshot, ovx_source: str = "yahoo"):
+def research_inputs(snapshot: MarketSnapshot,
+                    ovx_source: str = "yahoo") -> tuple[np.ndarray, pd.DatetimeIndex, np.ndarray, pd.DataFrame]:
     """(returns, dates, ovx, ohlc) aligned exactly as vol_forecast._load_data aligns live data.
 
     Returns are close-to-close log returns of finished sessions; `ohlc` is the cleaned bar for the
@@ -212,7 +214,7 @@ def research_inputs(snapshot: MarketSnapshot, ovx_source: str = "yahoo"):
     return logret.to_numpy(dtype=float), pd.DatetimeIndex(logret.index), ovx, ohlc
 
 
-def ovx_source_agreement(snapshot: MarketSnapshot) -> dict:
+def ovx_source_agreement(snapshot: MarketSnapshot) -> dict[str, Any]:
     """How closely the production OVX (Yahoo) matches the official series redistributed by FRED."""
     joined = pd.concat([snapshot.ovx_yahoo.rename("yahoo"), snapshot.ovx_fred.rename("fred")],
                        axis=1, join="inner").dropna()
@@ -222,10 +224,10 @@ def ovx_source_agreement(snapshot: MarketSnapshot) -> dict:
         "common_days": int(len(joined)),
         "share_within_0_05_pts": round(float((diff <= 0.05).mean()), 4),
         "max_abs_diff_pts": round(float(diff.max()), 2),
-        "correlation": round(float(joined.corr().iloc[0, 1]), 6),
+        "correlation": round(float(cast(float, joined.corr().iloc[0, 1])), 6),
         "largest_differences": [
-            {"date": day.strftime("%Y-%m-%d"), "yahoo": round(float(joined.at[day, "yahoo"]), 2),
-             "fred": round(float(joined.at[day, "fred"]), 2)}
+            {"date": day.strftime("%Y-%m-%d"), "yahoo": round(float(cast(float, joined.at[day, "yahoo"])), 2),
+             "fred": round(float(cast(float, joined.at[day, "fred"])), 2)}
             for day in worst.index
         ],
     }

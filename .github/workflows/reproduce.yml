@@ -1,0 +1,190 @@
+name: Reproduce research artifact
+
+# Rebuilds data/vol_lab.json from the pinned market-data snapshot (data/market/, SHA-256 digests in
+# MANIFEST.json) and requires it to equal the committed artifact. The rebuild is offline: nothing is
+# downloaded after the dependency install. It runs when anything the artifact is computed from
+# changes, weekly (a new runner image or a dependency's numerics must not silently move the
+# published results), and on demand. Read-only token; no secrets.
+
+on:
+  pull_request:
+    paths:
+      - 'backend/vol_lab.py'
+      - 'backend/forecast_eval.py'
+      - 'backend/market_data.py'
+      - 'backend/vol_forecast.py'
+      - 'backend/contract_calendar.py'
+      - 'data/market/**'
+      - 'data/vol_lab.json'
+      - 'requirements*.txt'
+      - 'tests/test_vol_lab.py'
+      - '.github/workflows/reproduce.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/vol_lab.py'
+      - 'backend/forecast_eval.py'
+      - 'backend/market_data.py'
+      - 'backend/vol_forecast.py'
+      - 'backend/contract_calendar.py'
+      - 'data/market/**'
+      - 'data/vol_lab.json'
+      - 'requirements*.txt'
+      - 'tests/test_vol_lab.py'
+      - '.github/workflows/reproduce.yml'
+  schedule:
+    - cron: '47 6 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reproduce-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  reproduce:
+    name: Rebuild data/vol_lab.json
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      # A pinned numeric environment. The GARCH refits are iterative optimizations, so a last-bit
+      # difference in a BLAS or vectorized-math result (BLAS thread count, CPU-specific kernel)
+      # moves later digits of the GARCH-family results: measured up to ~1e-3 relative, enough to
+      # move a few published figures in their last digit (no model set, flag or challenger). One thread
+      # everywhere, OpenBLAS's AVX2 kernel and NumPy's AVX2 code paths run the same instructions
+      # on every x86-64-v3 runner host (Intel with AVX-512 and AMD without), so the comparison
+      # can be exact. data/vol_lab.json must be generated under these same variables.
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_CORETYPE: Haswell
+      NPY_DISABLE_CPU_FEATURES: X86_V4 AVX512_ICL AVX512_SPR
+      PYTHONHASHSEED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONPATH: .
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --retries 5 --timeout 60 -r requirements.txt
+          python -m pip check
+
+      - name: Record the numeric environment
+        run: |
+          set -euo pipefail
+          grep -m1 'model name' /proc/cpuinfo || true
+          python - <<'PY'
+          import platform
+
+          import numpy as np
+          import scipy
+          import scipy.linalg  # noqa: F401 - loads SciPy's own OpenBLAS so it is listed too
+          from threadpoolctl import threadpool_info
+
+          print("python", platform.python_version(), "numpy", np.__version__, "scipy", scipy.__version__)
+          for pool in threadpool_info():
+              print({key: pool.get(key) for key in ("internal_api", "prefix", "version", "architecture", "num_threads")})
+          PY
+
+      - name: Verify the snapshot digests
+        run: python -B -c "from backend.market_data import load_snapshot; load_snapshot()"
+
+      - name: Rebuild the artifact and compare
+        id: reproduce
+        env:
+          RUN_SLOW: '1'
+        run: python -B -m unittest -v tests.test_vol_lab.ArtifactContractTest.test_artifact_reproduces_bit_for_bit
+
+      - name: Diagnose a mismatch
+        # Only after a failed comparison: rebuild once more and say how large the difference is and
+        # whether any conclusion (model sets, flags, labels) moved, or only trailing digits.
+        if: ${{ failure() && steps.reproduce.outcome == 'failure' }}
+        run: |
+          set -euo pipefail
+          python -B - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json
+
+          from backend import market_data as md
+          from backend import vol_lab as lab
+
+          rebuilt = json.loads(json.dumps(lab._jsonable(lab.build_report(md.load_snapshot()))))
+          committed = json.loads(open("data/vol_lab.json", encoding="utf-8").read())
+          numeric, other = [], []
+
+          def walk(a, b, path):
+              if isinstance(a, dict) and isinstance(b, dict):
+                  for key in sorted(set(a) | set(b)):
+                      if key in a and key in b:
+                          walk(a[key], b[key], f"{path}/{key}")
+                      else:
+                          other.append(f"{path}/{key}: present on one side only")
+              elif isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
+                  for i, (x, y) in enumerate(zip(a, b)):
+                      walk(x, y, f"{path}[{i}]")
+              elif (isinstance(a, (int, float)) and isinstance(b, (int, float))
+                    and not isinstance(a, bool) and not isinstance(b, bool)):
+                  if a != b:
+                      numeric.append((abs(a - b) / max(abs(a), abs(b)), path, a, b))
+              elif a != b:
+                  other.append(f"{path}: {a!r} != {b!r}")
+
+          walk(committed, rebuilt, "")
+          numeric.sort(reverse=True)
+          print("### Reproduction mismatch")
+          print(f"- numbers that differ: {len(numeric)}; largest relative difference: "
+                f"{numeric[0][0]:.2e}" if numeric else "- no numeric difference")
+          print(f"- non-numeric differences (sets, flags, labels): {len(other)}")
+          for rel, path, a, b in numeric[:10]:
+              print(f"  - `{path}`: committed {a!r}, rebuilt {b!r} (rel {rel:.1e})")
+          for line in other[:20]:
+              print(f"  - `{line}`")
+          PY
+
+      - name: Summarize the artifact
+        if: ${{ !cancelled() }}
+        env:
+          OUTCOME: ${{ steps.reproduce.outcome }}
+        run: |
+          set -euo pipefail
+          python -B - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import os
+
+          report = json.loads(open("data/vol_lab.json", encoding="utf-8").read())
+          snapshot = report["generated_from"]
+          sample = report["sample"]
+          board = report["leaderboard"]
+          verdict = {"success": "reproduced exactly", "failure": "DID NOT reproduce",
+                     "skipped": "not run"}.get(os.environ.get("OUTCOME", ""), "not run")
+
+          print(f"### data/vol_lab.json: {verdict}")
+          print()
+          print(f"Snapshot retrieved {snapshot['retrieved_at']}, sessions through {snapshot['sessions_through']}.")
+          print()
+          print("| Input | Rows | First | Last | SHA-256 |")
+          print("|---|---:|---|---|---|")
+          for entry in snapshot["files"].values():
+              print(f"| `{entry['file']}` | {entry['rows']} | {entry['first']} | {entry['last']} | `{entry['sha256']}` |")
+          print()
+          print("| Result | Value |")
+          print("|---|---|")
+          print(f"| Out-of-sample sample | {sample['n_days']} days, {sample['n_weeks']} weeks, "
+                f"{sample['first']} to {sample['last']} |")
+          print(f"| Model of record | `{report['config']['champion']}` |")
+          print(f"| 90% MCS (QLIKE) | {', '.join(f'`{m}`' for m in board['mcs_qlike_included'])} |")
+          print(f"| 90% MCS (MSE) | {', '.join(f'`{m}`' for m in board['mcs_mse_included'])} |")
+          print(f"| Challenger | `{report['config']['challenger']}` |")
+          PY
