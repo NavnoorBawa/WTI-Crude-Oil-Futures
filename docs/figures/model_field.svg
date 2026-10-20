@@ -452,37 +452,37 @@ L 734.600313 264.734437
    </g>
    <g id="legend_1">
     <g id="patch_19">
-     <path d="M 449.764375 234.407484 
-L 464.764375 234.407484 
-L 464.764375 229.157484 
-L 449.764375 229.157484 
+     <path d="M 539.332813 34.077187 
+L 555.332813 34.077187 
+L 555.332813 28.477187 
+L 539.332813 28.477187 
 z
 " style="fill: #1f6feb; stroke: #1f6feb; stroke-linejoin: miter"/>
     </g>
     <g id="text_37">
-     <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start" x="470.764375" y="234.407484" transform="rotate(-0 470.764375 234.407484)">in the 90% Model Confidence Set (4 of 13 feasible models)</text>
+     <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: start" x="561.732813" y="34.077187" transform="rotate(-0 561.732813 34.077187)">in the 90% MCS (4 of 13 feasible models)</text>
     </g>
     <g id="patch_20">
-     <path d="M 449.764375 245.416078 
-L 464.764375 245.416078 
-L 464.764375 240.166078 
-L 449.764375 240.166078 
+     <path d="M 539.332813 45.819687 
+L 555.332813 45.819687 
+L 555.332813 40.219687 
+L 539.332813 40.219687 
 z
 " style="fill: #afb8c1; stroke: #afb8c1; stroke-linejoin: miter"/>
     </g>
     <g id="text_38">
-     <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start" x="470.764375" y="245.416078" transform="rotate(-0 470.764375 245.416078)">outside the set</text>
+     <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: start" x="561.732813" y="45.819687" transform="rotate(-0 561.732813 45.819687)">outside the MCS</text>
     </g>
     <g id="patch_21">
-     <path d="M 449.764375 256.424672 
-L 464.764375 256.424672 
-L 464.764375 251.174672 
-L 449.764375 251.174672 
+     <path d="M 539.332813 57.562187 
+L 555.332813 57.562187 
+L 555.332813 51.962187 
+L 539.332813 51.962187 
 z
 " style="fill: url(#h2dbc0f0480); stroke: #57606a; stroke-linejoin: miter"/>
     </g>
     <g id="text_39">
-     <text style="font-size: 7.5px; font-family: 'DejaVu Sans'; text-anchor: start" x="470.764375" y="256.424672" transform="rotate(-0 470.764375 256.424672)">timing control: uses data published after the decision; not in any set</text>
+     <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: start" x="561.732813" y="57.562187" transform="rotate(-0 561.732813 57.562187)">timing control (excluded from the MCS)</text>
     </g>
    </g>
   </g>

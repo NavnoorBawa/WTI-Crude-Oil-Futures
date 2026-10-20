@@ -1,1 +1,1 @@
-"""Backend package for the WTI crude oil prediction system."""
+"""Backend package: WTI crude oil volatility research, the live forecast and the dashboard payload."""

@@ -14,9 +14,12 @@ abstract: >-
   Out-of-sample evaluation of next-week realized-volatility forecasts for front-month NYMEX WTI
   crude oil on free data: fourteen models (GARCH family, HAR family, implied volatility, gradient
   boosting, combinations) compared with QLIKE, the Model Confidence Set and Hansen's SPA test;
-  weekly Value-at-Risk backtests; adaptive conformal intervals; a live, git-timestamped forward
-  record; and the post-mortem of a retracted price-direction model whose backtest was a look-ahead
-  leak. Every result reproduces offline from a hash-pinned data snapshot, checked in CI.
+  weekly Value-at-Risk backtests; adaptive conformal intervals; a live forward record that scores
+  only forecasts sealed in git before their scoring window opens; and the post-mortem of a retracted
+  price-direction model whose backtest was a look-ahead leak. The benchmark evaluation is rebuilt in
+  CI from a hash-pinned data snapshot, and the carry and supply-shock studies from committed EIA
+  files; the production validation and the post-mortem backtests are committed records of runs on
+  downloaded data and are not regenerated in CI.
 keywords:
   - realized volatility
   - HAR model

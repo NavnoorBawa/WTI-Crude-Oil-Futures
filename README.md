@@ -251,7 +251,7 @@ Sized on the forecast, the book's realized volatility lands on the target (34.9%
 - **In vol points the premium is there.** OVX exceeded the realized volatility of the following 20 sessions in 73.5% of 200 non-overlapping periods, by 2.5 points on average.
 - **In variance units, the units an option seller is paid in, it is not significant.** The mean premium is −263.3 variance points (95% Newey-West CI −1083 to 556): the few periods where realized volatility explodes (from 2020-04-13, −158.8 vol pts; from 2020-02-13, −84.5 vol pts; from 2020-03-13, −57.3 vol pts) outweigh the many small gains.
 - **Harvesting it.** A short vol-swap proxy has an annualized Sharpe ratio of 0.52, but its period returns are skewed (−4.95) and fat-tailed (excess kurtosis 39.7); the one-sided test of a positive Sharpe ratio with the Mertens (2002) / Opdyke (2007) standard error, which allows for both, gives p = 0.070 (significant at 10% but not at 5%). The convex short-variance position has a Sharpe ratio of 0.0 (p = 0.503; 0.71 without 2020).
-- **Timing it with the forecast does not help.** Regressing short-variance P&L on OVX minus the forecast: slope 0.80, HAC t 0.78, p = 0.435 (n = 188); selling only when OVX is above the forecast against selling only when it is below: p = 0.235.
+- **Timing it with the forecast does not help.** Regressing short-variance P&L on OVX minus the forecast: slope 0.80, HAC t 0.78, p = 0.435 (n = 188); short-variance P&L in periods when OVX minus the forecast is above its trailing median against the other periods (one-sided Welch t-test): p = 0.235.
 
 Source: production run (`data/vol_forecast_validation.json`).
 <!-- [[[end]]] -->
@@ -506,7 +506,7 @@ Source: `data/research_ledger.json`, rebuilt from the artifacts by `python -m ba
 
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("ledger_reading") ]]] -->
 
-Both supported leak demonstrations survive every adjustment: some of the project's most robust findings are about how its own first result was wrong. The block-shuffled one pools ten runs that permute the same returns, so its p-value overstates the evidence (section 4). The 8 retracted rows stay in the multiplicity count: they were tested.
+Both supported leak demonstrations survive every adjustment, so some of the project's strongest results are about how its own first result was wrong. The block-shuffled one pools 10 runs that permute the same returns, so its p-value overstates the evidence (section 4); the synthetic runs draw independent returns. The 8 retracted rows stay in the multiplicity count: they were tested.
 <!-- [[[end]]] -->
 
 ## 7. Reproduce

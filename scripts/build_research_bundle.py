@@ -2,16 +2,21 @@
 """Compose public/research.json, the dashboard's research payload, from committed artifacts.
 
 The dashboard loads two files: data.json (the live snapshot, rebuilt every refresh) and
-research.json (this file: the reproducible research, rebuilt only when an artifact changes). Every
-number in research.json is copied from a committed artifact, never computed here, so the page can
-never show a figure the repository cannot reproduce:
+research.json (this file: the research, copied from committed artifacts). Every number in
+research.json is copied from a committed artifact, never computed here, so the page shows exactly
+what the repository records. How each artifact is checked differs (docs/METHODOLOGY.md, section 1):
 
-  vol_lab      data/vol_lab.json (backend/vol_lab.py on the pinned data/market snapshot)
-  postmortem   data/wf_5y_purged.json, data/wf_5y_unpurged_LEAKED.json and the 10-year pair
-  carry        data/carry_signal_test.json
-  leak_anatomy data/leak_anatomy.json (why the leaked backtest looked skilled on a random walk)
-  supply_study data/supply_shock_study.json (event study against a placebo of ordinary dates)
-  ledger       data/research_ledger.json (every hypothesis tested, with multiplicity adjustments)
+  vol_lab      data/vol_lab.json (backend/vol_lab.py on the pinned data/market snapshot; rebuilt and
+               compared in CI by the Reproduce workflow)
+  postmortem   data/wf_5y_purged.json, data/wf_5y_unpurged_LEAKED.json and the 10-year pair (records
+               of backtests run on data downloaded from Yahoo Finance; not regenerated in CI)
+  carry        data/carry_signal_test.json (from the committed EIA curve; rebuilt by the unit suite)
+  leak_anatomy data/leak_anatomy.json (why the leaked backtest looked skilled on a random walk; the
+               unit suite re-runs a subset)
+  supply_study data/supply_shock_study.json (event study against a placebo of ordinary dates, from the
+               committed EIA spot series; rebuilt by the unit suite)
+  ledger       data/research_ledger.json (every hypothesis tested, with multiplicity adjustments;
+               rebuilt by the unit suite)
 
 Standard library only (it runs in any job). Usage: python scripts/build_research_bundle.py [--out public]
 """

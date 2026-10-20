@@ -163,12 +163,6 @@ def _worse_than_record(lab: dict, alpha: float = ALPHA) -> list[dict]:
             and m["dm_qlike_vs_har_iv"]["p_value"] < alpha]
 
 
-def _better_than_record(lab: dict, alpha: float = ALPHA) -> list[dict]:
-    return [m for m in _feasible(lab)
-            if m["dm_qlike_vs_har_iv"] and m["dm_qlike_vs_har_iv"]["stat"] > 0
-            and m["dm_qlike_vs_har_iv"]["p_value"] < alpha]
-
-
 def _gloss(lab: dict, model: dict) -> str:
     return GLOSS.get(model["key"], model["description"].rstrip(".").lower())
 

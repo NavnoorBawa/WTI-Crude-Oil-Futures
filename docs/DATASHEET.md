@@ -5,10 +5,16 @@ After Gebru et al. (2021), *Datasheets for Datasets*. Generated facts come from
 
 ## Motivation
 
-The volatility research must reproduce offline, years from now. Yahoo Finance revises
-history (holiday-dated partial bars come and go, and past closes of the continuous series have
-changed between downloads), so the research runs on a frozen copy whose SHA-256 digests are pinned
+The benchmark field (`data/vol_lab.json`) must reproduce offline, years from now. Yahoo Finance
+revises history (holiday-dated partial bars come and go, and past closes of the continuous series
+have changed between downloads), so the lab runs on a frozen copy whose SHA-256 digests are pinned
 in `MANIFEST.json`. `backend/market_data.load_snapshot()` refuses any file that does not match.
+
+The snapshot covers the Yahoo and FRED market data only. The EIA files that the carry and
+supply-shock studies read (`data/eia_wti_futures_curve.json`, `data/eia_wti_spot_daily.json`) are
+committed separately and are not in the manifest. The production validation
+(`data/vol_forecast_validation.json`) and the live pipeline download fresh data and do not read
+this snapshot.
 
 ## Composition
 
@@ -24,7 +30,9 @@ in `MANIFEST.json`. `backend/market_data.load_snapshot()` refuses any file that 
 - `cl_f_daily.csv`: Date, Open, High, Low, Close (USD per barrel), Volume (contracts). One row per
   finished NYMEX session; `CL=F` is Yahoo's continuous front-month series, **unadjusted**: it
   switches contracts the session after each last trade date and books the calendar spread as a
-  return on that day.
+  return on that day. The Close is the 14:30 ET settlement; the High and Low cover the session to
+  its 17:00 ET close, after the settlement; the Open is the session's first trade, the evening
+  before.
 - `ovx_yahoo_daily.csv`: the CBOE Crude Oil ETF Volatility Index close (annualized percent), the
   series the production model uses.
 - `ovxcls_fred.csv`: the same index as redistributed by FRED, used only as an independent check.
@@ -44,16 +52,28 @@ in `MANIFEST.json`. `backend/market_data.load_snapshot()` refuses any file that 
 - Bars dated on exchange holidays are partial sessions and are dropped.
 - The 2020-04-20 settlement (−$37.63) is dropped because log returns need positive prices.
 - Range-based variance on roll days replaces the overnight gap (the calendar spread) with the
-  median overnight move of the previous 250 non-roll sessions (`backend/vol_lab.range_variance`).
+  median squared overnight return of the previous 250 non-roll sessions
+  (`backend/vol_lab.range_variance`).
+- **Decision-time use of the bar.** A forecast is made at session *t*'s 14:30 ET settlement, before
+  its high and low are final. The lab's range-based features therefore use the full bar of earlier
+  sessions and, for session *t*, only the overnight return and the open-to-settlement return
+  (`backend/vol_lab.range_features`, `settlement_range_variance`). The full-bar range variance of
+  later sessions is used only as the second realized-volatility proxy, never as a feature.
 
 ## Uses
 
-Research only: `backend/vol_lab.py` and its tests. The live pipeline downloads fresh data every
-refresh; this snapshot does not feed the dashboard's live numbers.
+Research only, offline:
+
+- `backend/vol_lab.py` and its tests (all three files): the benchmark field, `data/vol_lab.json`.
+- `backend/leak_anatomy.py` and its tests (`cl_f_daily.csv`): the block-shuffled and real-window
+  `CL=F` returns of the leak demonstration, `data/leak_anatomy.json`.
+
+The live pipeline downloads fresh data every refresh; this snapshot does not feed the dashboard's
+live numbers.
 
 ## Distribution and maintenance
 
 Committed to the repository (about 0.6 MB). `python -m backend.vol_lab --refresh` downloads a new
-snapshot (free sources, no API keys) and rewrites the manifest; the research artifact is then
+snapshot (free sources, no API keys) and rewrites the manifest; the research artifacts are then
 regenerated and the change is reviewed like code. Terms: Yahoo Finance data is for personal use;
 FRED series are public; CBOE owns the OVX index.

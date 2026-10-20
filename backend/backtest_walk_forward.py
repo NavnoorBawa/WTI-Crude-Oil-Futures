@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """
-Walk-forward backtest for WTI forecasts with baseline comparison.
+Walk-forward backtest for the retracted WTI direction model, with baseline comparison.
 
-This script evaluates the existing daily (1d, 1w) model pipeline using an
-expanding-window walk-forward procedure and compares against simple baselines.
+This script evaluates the direction model's daily (1d, 1w) pipeline with a purged walk-forward: by
+default a rolling 378-bar training window (the direction model's production window, about 18
+months; --train-window 0 gives an expanding window), a decision every --step rows, and the last
+horizon - 1 training rows purged at every step so that no training label matures after its decision
+(--no-purge reproduces the look-ahead leak, and its --output file name must then contain LEAKED).
+Results are compared against simple baselines. It downloads its data from Yahoo Finance (and
+FRED/EIA with --features all), so the committed data/wf_*.json files are records of runs, not
+reproducible bit for bit.
 """
 
 import argparse
