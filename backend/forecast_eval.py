@@ -19,12 +19,19 @@ two functions that need them), each checked against cases with a known answer in
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any, cast
+
 import numpy as np
 import pandas as pd
 from scipy import stats
 
+if TYPE_CHECKING:
+    import numpy.typing as npt
 
-def newey_west_lrv(x: np.ndarray, lags: int | None = None) -> tuple[float, int]:
+    FloatArray = npt.NDArray[np.float64]
+
+
+def newey_west_lrv(x: npt.ArrayLike, lags: int | None = None) -> tuple[float, int]:
     """Bartlett-kernel long-run variance of a series around its mean, with the Newey-West (1994)
     automatic bandwidth floor(4 (n/100)^(2/9)) when lags is None. Returns (variance, lags)."""
     arr = np.asarray(x, dtype=float)
@@ -41,7 +48,7 @@ def newey_west_lrv(x: np.ndarray, lags: int | None = None) -> tuple[float, int]:
     return max(lrv, 0.0), lags
 
 
-def hac_z(x: np.ndarray, null_mean: float = 0.0) -> tuple[float, int]:
+def hac_z(x: npt.ArrayLike, null_mean: float = 0.0) -> tuple[float, int]:
     """z-statistic for mean(x) > null_mean with a Newey-West standard error."""
     arr = np.asarray(x, dtype=float)
     lrv, lags = newey_west_lrv(arr)
@@ -50,18 +57,18 @@ def hac_z(x: np.ndarray, null_mean: float = 0.0) -> tuple[float, int]:
     return float((arr.mean() - null_mean) / np.sqrt(lrv / arr.size)), lags
 
 
-def qlike(actual: np.ndarray, forecast: np.ndarray) -> np.ndarray:
+def qlike(actual: npt.ArrayLike, forecast: npt.ArrayLike) -> FloatArray:
     """QLIKE on variances (Patton 2011): zero iff forecast == actual, robust to proxy noise."""
     ratio = (np.asarray(actual, float) / np.asarray(forecast, float)) ** 2
-    return ratio - np.log(ratio) - 1.0
+    return cast("FloatArray", ratio - np.log(ratio) - 1.0)
 
 
-def mse_var(actual: np.ndarray, forecast: np.ndarray) -> np.ndarray:
+def mse_var(actual: npt.ArrayLike, forecast: npt.ArrayLike) -> FloatArray:
     """Squared error on annualized variances (the other Patton-robust loss)."""
-    return (np.asarray(actual, float) ** 2 - np.asarray(forecast, float) ** 2) ** 2
+    return cast("FloatArray", (np.asarray(actual, float) ** 2 - np.asarray(forecast, float) ** 2) ** 2)
 
 
-def dm_test(loss_a: np.ndarray, loss_b: np.ndarray, horizon: int = 1) -> dict:
+def dm_test(loss_a: npt.ArrayLike, loss_b: npt.ArrayLike, horizon: int = 1) -> dict[str, Any]:
     """Diebold-Mariano test of equal expected loss, d = loss_a - loss_b (positive: b is better).
 
     Newey-West long-run variance (automatic bandwidth) and the Harvey-Leybourne-Newbold (1997)
@@ -79,7 +86,7 @@ def dm_test(loss_a: np.ndarray, loss_b: np.ndarray, horizon: int = 1) -> dict:
             "mean_diff": float(diff.mean()), "lags": int(lags)}
 
 
-def mincer_zarnowitz(actual: np.ndarray, forecast: np.ndarray, maxlags: int = 6) -> dict:
+def mincer_zarnowitz(actual: npt.ArrayLike, forecast: npt.ArrayLike, maxlags: int = 6) -> dict[str, float]:
     """Regress realized variance on forecast variance; an unbiased, efficient forecast has
     intercept 0 and slope 1. HAC (Newey-West) Wald test of both; also R^2."""
     import statsmodels.api as sm
@@ -93,7 +100,7 @@ def mincer_zarnowitz(actual: np.ndarray, forecast: np.ndarray, maxlags: int = 6)
 
 
 def model_confidence_set(losses: pd.DataFrame, block: int = 10, size: float = 0.10,
-                         reps: int = 5000, seed: int = 20261020) -> dict:
+                         reps: int = 5000, seed: int = 20261020) -> dict[str, Any]:
     """Hansen-Lunde-Nason Model Confidence Set: range statistic, arch's stationary bootstrap with
     mean block length `block`. Returns MCS p-values and the set retained at confidence 1 - size."""
     from arch.bootstrap import MCS
@@ -105,7 +112,7 @@ def model_confidence_set(losses: pd.DataFrame, block: int = 10, size: float = 0.
             "p_values": {m: round(float(p), 4) for m, p in pvals.items()}}
 
 
-def kupiec(exceed: np.ndarray, p: float) -> dict:
+def kupiec(exceed: npt.ArrayLike, p: float) -> dict[str, Any]:
     """Kupiec (1995) proportion-of-failures likelihood-ratio test."""
     x = np.asarray(exceed, bool)
     n, k = x.size, int(x.sum())
@@ -117,14 +124,14 @@ def kupiec(exceed: np.ndarray, p: float) -> dict:
             "p_value": float(stats.chi2.sf(lr, 1))}
 
 
-def christoffersen(exceed: np.ndarray, p: float) -> dict:
+def christoffersen(exceed: npt.ArrayLike, p: float) -> dict[str, Any]:
     """Christoffersen (1998) independence and conditional-coverage likelihood-ratio tests."""
     x = np.asarray(exceed, int)
     a, b = x[:-1], x[1:]
     n00, n01 = int(((a == 0) & (b == 0)).sum()), int(((a == 0) & (b == 1)).sum())
     n10, n11 = int(((a == 1) & (b == 0)).sum()), int(((a == 1) & (b == 1)).sum())
 
-    def ll(prob, zeros, ones):
+    def ll(prob: float, zeros: int, ones: int) -> float:
         out = 0.0
         if zeros:
             out += zeros * np.log(1 - prob) if prob < 1 else -np.inf
@@ -143,7 +150,7 @@ def christoffersen(exceed: np.ndarray, p: float) -> dict:
             "consecutive_exceedances": n11}
 
 
-def dq_test(exceed: np.ndarray, var_level: np.ndarray, p: float, lags: int = 4) -> dict:
+def dq_test(exceed: npt.ArrayLike, var_level: npt.ArrayLike, p: float, lags: int = 4) -> dict[str, Any]:
     """Engle-Manganelli (2004) Dynamic Quantile test: regress Hit_t = 1{exceed} - p on a constant,
     `lags` lagged hits and the VaR itself; under correct conditional coverage every coefficient is
     zero. DQ = b' X'X b / (p (1 - p)) ~ chi2(k)."""
@@ -165,8 +172,8 @@ def basel_zone(exceed_last_250: int) -> str:
     return "green" if exceed_last_250 <= 4 else ("yellow" if exceed_last_250 <= 9 else "red")
 
 
-def adaptive_conformal(log_resid: np.ndarray, alpha: float = 0.20, gamma: float = 0.005,
-                       window: int = 156, warmup: int = 52) -> dict:
+def adaptive_conformal(log_resid: npt.ArrayLike, alpha: float = 0.20, gamma: float = 0.005,
+                       window: int = 156, warmup: int = 52) -> dict[str, Any]:
     """Adaptive conformal inference (Gibbs and Candes 2021) on log forecast errors.
 
     At week i the interval for log(actual) - log(forecast) is the [a_i/2, 1 - a_i/2] quantile range
@@ -191,8 +198,8 @@ def adaptive_conformal(log_resid: np.ndarray, alpha: float = 0.20, gamma: float 
             "next_lo": float(np.quantile(past, a_eff / 2)), "next_hi": float(np.quantile(past, 1 - a_eff / 2))}
 
 
-def delayed_aci(log_resid: np.ndarray, delay: int = 5, alpha: float = 0.20, gamma: float = 0.005,
-                window: int = 780, warmup: int = 260) -> dict:
+def delayed_aci(log_resid: npt.ArrayLike, delay: int = 5, alpha: float = 0.20, gamma: float = 0.005,
+                window: int = 780, warmup: int = 260) -> dict[str, Any]:
     """Adaptive conformal inference (Gibbs-Candes 2021) when an outcome is only observed `delay` rows
     after its forecast (here: 5 sessions). The interval at row i uses the errors of rows <= i - delay
     and the coverage feedback that has arrived by then (the miss of row i - delay)."""
