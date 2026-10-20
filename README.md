@@ -161,16 +161,18 @@ correction from recent realized volatility. The constant absorbs the variance ri
 
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("calibration_block") ]]] -->
 
-| Model | MZ intercept | MZ slope | Joint p (unbiased) | Actual / forecast | 80% coverage | Coverage by year (min to max) | Interval score |
+| Model, sample | MZ intercept | MZ slope (SE) | Joint p (unbiased) | Actual / forecast | 80% coverage | Coverage by year (min to max) | Interval score |
 |---|---:|---:|---:|---:|---:|---|---:|
-| HAR-IV (model of record) | +0.038 | 0.86 | 0.161 | 0.920 | 80.0% | 71.3% to 88.0% | 54.45 |
-| HAR-IV-range | +0.045 | 0.77 | 0.059 | 0.915 | 80.0% | 73.3% to 87.3% | 53.13 |
+| HAR-IV (model of record), every day | +0.038 | 0.86 (0.14) | 0.161 | 0.920 | 80.0% | 71.3% to 88.0% | 54.45 |
+| HAR-IV-range, every day | +0.045 | 0.77 (0.15) | 0.059 | 0.915 | 80.0% | 73.3% to 87.3% | 53.13 |
+| HAR-IV, production weekly grid (927 weeks) | −0.026 | 1.22 (0.20) | 0.543 | 0.919 | — | — | — |
 
 Mincer-Zarnowitz regression of realized on forecast variance with a HAC covariance. Intervals: adaptive conformal inference (Gibbs-Candes 2021) with 5-session delayed feedback, step 0.005, scored only after each target has settled; interval score of Gneiting and Raftery (2007), in vol points (lower is better).
 <!-- [[[end]]] -->
 
-The Mincer-Zarnowitz slope is below one, so the forecasts move a little more than outcomes do, but
-the joint test does not reject unbiasedness at 5%. The intervals cover their nominal rate over the
+No sample rejects unbiasedness at 5%. The slope itself is unstable: it falls below one on every
+day and rises above one on the production weekly grid. A regression on variances is dominated by a
+few extreme weeks, and the two samples catch different ones. The intervals cover their nominal rate over the
 full sample. Coverage by calendar year scatters around the target; with about fifty independent
 weeks a year, deviations of several points are expected.
 

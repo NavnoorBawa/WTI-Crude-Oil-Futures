@@ -307,15 +307,20 @@ def calibration_block() -> str:
     lab = _lab()
     champ_key, chall_key = lab["config"]["champion"], lab["config"]["challenger"]
     conf = lab["conformal"]
-    rows = ["| Model | MZ intercept | MZ slope | Joint p (unbiased) | Actual / forecast | 80% coverage | "
+    o = _prod()["overall"]
+    rows = ["| Model, sample | MZ intercept | MZ slope (SE) | Joint p (unbiased) | Actual / forecast | 80% coverage | "
             "Coverage by year (min to max) | Interval score |", "|---|---:|---:|---:|---:|---:|---|---:|"]
     for key in (champ_key, chall_key):
         m, c = _model(lab, key), conf[key]
         mz = m["mincer_zarnowitz"]
         years = list(c["coverage_by_year_pct"].values())
-        rows.append(f"| {m['label']} | {_fmt(mz['intercept'], 3, True)} | {_fmt(mz['slope'], 2)} | "
-                    f"{_p(mz['p_unbiased'])} | {_fmt(m['mean_ratio_actual_to_forecast'], 3)} | {c['coverage_pct']}% | "
-                    f"{min(years)}% to {max(years)}% | {c['interval_score_pct']} |")
+        rows.append(f"| {m['label']}, every day | {_fmt(mz['intercept'], 3, True)} | {_fmt(mz['slope'], 2)} "
+                    f"({_fmt(mz['slope_se'], 2)}) | {_p(mz['p_unbiased'])} | {_fmt(m['mean_ratio_actual_to_forecast'], 3)} | "
+                    f"{c['coverage_pct']}% | {min(years)}% to {max(years)}% | {c['interval_score_pct']} |")
+    mz = o["har_mincer_zarnowitz"]
+    rows.append(f"| HAR-IV, production weekly grid ({o['n']} weeks) | {_fmt(mz['intercept'], 3, True)} | "
+                f"{_fmt(mz['slope'], 2)} ({_fmt(mz['slope_se'], 2)}) | {_p(mz['p_unbiased'])} | "
+                f"{_fmt(o['har_mean_ratio_actual_to_forecast'], 3)} | — | — | — |")
     rows.append("")
     rows.append(f"Mincer-Zarnowitz regression of realized on forecast variance with a HAC covariance. Intervals: "
                 f"{lab['config']['conformal']['method']}, step {lab['config']['conformal']['gamma']}, scored only "
