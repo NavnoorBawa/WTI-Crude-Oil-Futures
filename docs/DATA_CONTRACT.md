@@ -68,6 +68,7 @@ runs `build_research_bundle.validate` on `research.json`).
       "n_recorded": 0, "n_resolved": 0, "n_pending": 0, "n_skipped_roll": 0, "n_expired": 0,
       "n_late_commit": 0,                             // entries not sealed in time: never scored
       "n_independent": 0,                             // resolved entries whose windows do not overlap
+      "next_result_due": null,                        // ISO date: earliest target_end among pending entries whose windows do not span a roll; null if none
       "champion": { "model_version": "har-iv/2", "qlike": null, "interval_80_coverage_pct": null,
                     "direction_hit_pct": null, "mean_forecast_pct": null, "mean_realized_pct": null },
       "challenger": { "key": "har_iv_range", "qlike": null, "n": 0, "champion_qlike": null },  // descriptive, all paired entries
@@ -101,6 +102,8 @@ direction model. When `live_record` is present, every count above must be a non-
 every `recent[].status` one of the five statuses, and `promotion` consistent: `accruing` with fewer
 than `required` weeks and no statistics, or a verdict on exactly `required` weeks with a mean
 difference (and a statistic with its p-value); `promote` needs a positive mean difference.
+`next_result_due` must be present: an ISO date (`YYYY-MM-DD`) or null, and null when no entry is
+pending.
 
 ### The live record file
 
@@ -140,13 +143,18 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   `{n, direction_acc_pct, p_value, sharpe, total_pnl_usd, max_drawdown_usd, mae_vs_best_baseline_pct, first, last,
   equity: [[date, cumulative_pnl_usd], ...]}`.
 - `carry`: `data/carry_signal_test.json` `{method, full_sample, pre_2007, post_2007, verdict, sign_split,
-  power_post_2007, regime_change_test, field_notes}`.
-- `leak_anatomy`: `data/leak_anatomy.json` `{analytic, experiments{<data>{<model>{unpurged, purged}}},
-  retracted_reference, conclusion}` without the per-seed runs, plus flat headline fields for the
-  synthetic random walk: `headline_model, unpurged_dir_acc_pct_mean, purged_dir_acc_pct_mean,
-  unpurged_sharpe_mean, sims, analytic_sign_agreement_pct`. Sharpe ratios are gross (no costs).
+  power_post_2007, regime_change_test, field_notes}`; each sample block carries its own
+  `sharpe_difference` test.
+- `leak_anatomy`: `data/leak_anatomy.json` `{design, analytic, experiments{<data>{<model>{unpurged,
+  purged}}}, retracted_reference, conclusion}` without the per-seed runs; each arm keeps `n_runs,
+  accuracy_pct_mean, accuracy_pct_range, sharpe_mean, sharpe_range, pooled_binomial_p_value_vs_50,
+  base_rate_pct_mean, runs_beating_base_rate_5pct` where the artifact has them. `design.sharpe` says
+  the experiments' Sharpe ratios are gross (no costs) and `retracted_reference.sharpe_basis` that the
+  retracted model's is after costs. Plus flat headline fields for the synthetic random walk:
+  `headline_model, unpurged_dir_acc_pct_mean, purged_dir_acc_pct_mean, unpurged_sharpe_mean, sims,
+  analytic_sign_agreement_pct`.
 - `supply_study`: `data/supply_shock_study.json` `{method, placebo, groups, between_groups, priced_in,
-  superseded_claims, conclusion}`.
+  overlapping_events, superseded_claims, conclusion}`.
 - `ledger`: `data/research_ledger.json` `{method, alpha, hlz_t, summary, rows[]}`; `summary` includes
   `by_status`, `by_family` and the lists of supported rows surviving each adjustment; a row is
   `{id, date, family, hypothesis, test, statistic_name, statistic_value, p_value, q_bh, p_holm,

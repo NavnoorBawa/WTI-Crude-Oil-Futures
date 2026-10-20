@@ -218,14 +218,38 @@ test("band coverage is computed from the rows drawn and names their pipeline", (
   assert.equal(bandCoverage([]).coverage, null);
 });
 
-test("live record: an estimate only when nothing is on record; none when calls exist but none pend", () => {
+/** The fixture's live record without next_result_due: a payload from before the key existed. */
+const legacyRecord = (overrides = {}) => {
+  const record = { ...data.vol_forecast.live_record, ...overrides };
+  delete record.next_result_due;
+  return record;
+};
+
+test("live record: next_result_due is the due date whenever the payload carries the key", () => {
+  const { liveRecordSummary } = m.research;
+  const record = data.vol_forecast.live_record;
+  assert.ok(Object.hasOwn(record, "next_result_due"), "the fixture follows the current contract");
+  const fixture = liveRecordSummary(record);
+  assert.equal(fixture.firstResult, record.next_result_due);
+  assert.equal(fixture.firstResultIsEstimate, false);
+  // A pending call whose window spans a roll will be skipped: the record says no result is due.
+  const rollOnly = liveRecordSummary({ ...record, next_result_due: null, recent: [{ status: "pending", target_end: "2026-10-27" }] });
+  assert.equal(rollOnly.firstResult, null);
+  // ... and an empty record carrying the key gets no estimate either.
+  assert.equal(liveRecordSummary({ ...record, next_result_due: null, recent: [], n_recorded: 0 }).firstResult, null);
+  const due = liveRecordSummary({ ...record, next_result_due: "2026-11-03", recent: [{ status: "pending", target_end: "2026-10-28" }] });
+  assert.deepEqual([due.firstResult, due.firstResultIsEstimate], ["2026-11-03", false]);
+  assert.equal(liveRecordSummary({ ...record, next_result_due: "soon" }).firstResult, null);
+});
+
+test("live record without next_result_due: an estimate only when nothing is on record; none when calls exist but none pend", () => {
   const { liveRecordSummary, estimateTargetEnd } = m.research;
   assert.equal(estimateTargetEnd("2026-10-20"), "2026-10-27");     // the first call's real target_end
   assert.equal(estimateTargetEnd("2026-10-17"), "2026-10-26");     // a Saturday start issues Monday
-  const empty = liveRecordSummary({ ...data.vol_forecast.live_record, recent: [], n_recorded: 0 });
+  const empty = liveRecordSummary(legacyRecord({ recent: [], n_recorded: 0 }));
   assert.equal(empty.firstResult, estimateTargetEnd(data.vol_forecast.live_record.started));
   assert.equal(empty.firstResultIsEstimate, true);
-  const skippedOnly = liveRecordSummary({ ...data.vol_forecast.live_record, recent: [{ status: "skipped_roll", target_end: "2026-10-27" }] });
+  const skippedOnly = liveRecordSummary(legacyRecord({ recent: [{ status: "skipped_roll", target_end: "2026-10-27" }] }));
   assert.equal(skippedOnly.firstResult, null);
   const pending = liveRecordSummary({ started: "2026-10-20", recent: [{ status: "pending", target_end: "2026-10-28" }, { status: "pending", target_end: "2026-10-27" }] });
   assert.equal(pending.firstResult, "2026-10-27");
@@ -243,7 +267,24 @@ test("research ledger, supply study, leak anatomy and vol-target selectors norma
   const lost = study.groups.find((group) => group.key === "supply_lost");
   const raw = research.supply_study.groups.find((group) => group.key === "supply_lost");
   assert.equal(lost.peakP, raw.p_value_vs_placebo.peak, "p_value_vs_placebo is an object {peak, settle}");
+  assert.equal(lost.settlePYear, raw.p_value_vs_year_matched_placebo.settle);
   assert.equal(study.placebo.peak, research.supply_study.placebo.median_peak_pct);
+  // The study's rule needs both placebo tests: its p is the larger of the two, as in the ledger.
+  for (const group of study.groups) {
+    const source = research.supply_study.groups.find((item) => item.key === group.key);
+    assert.equal(group.peakPRule, Math.max(source.p_value_vs_placebo.peak, source.p_value_vs_year_matched_placebo.peak), group.key);
+    assert.equal(group.settlePRule, Math.max(source.p_value_vs_placebo.settle, source.p_value_vs_year_matched_placebo.settle), group.key);
+    const ledgerRow = research.ledger.rows.find((row) => row.id === `shock_${group.key}_peak`);
+    if (ledgerRow) assert.equal(ledgerRow.p_value, group.peakPRule, `ledger p for ${group.key}`);
+  }
+  // Overlapping event pairs are attributed to every group that contains both events.
+  const pairs = research.supply_study.overlapping_events.pairs;
+  assert.deepEqual(study.overlapping.pairs.map((pair) => pair.events), pairs.map((pair) => pair.events));
+  for (const group of study.groups) {
+    const members = new Set(research.supply_study.groups.find((item) => item.key === group.key).event_ids);
+    assert.equal(group.overlaps.length, pairs.filter((pair) => pair.events.every((id) => members.has(id))).length, group.key);
+  }
+  assert.ok(study.groups.some((group) => group.overlaps.length > 0), "the fixture has an overlapping pair inside a group");
 
   const anatomy = m.research.leakAnatomy(research);
   assert.equal(anatomy.ladder.length, research.leak_anatomy.analytic.by_training_row.length);
@@ -251,6 +292,21 @@ test("research ledger, supply study, leak anatomy and vol-target selectors norma
   assert.equal(headline.length, 1);
   assert.equal(headline[0].unpurged, research.leak_anatomy.unpurged_dir_acc_pct_mean);
   assert.equal(m.research.leakAnatomy({}), null);
+  // Sharpe bases come from the artifact: gross for the experiments, after costs for the reference.
+  assert.equal(anatomy.sharpeBasis.experiments, research.leak_anatomy.design.sharpe.split(":")[0].trim());
+  assert.equal(anatomy.sharpeBasis.reference, research.leak_anatomy.retracted_reference.sharpe_basis);
+  // No skill is 50% on the random walk and each CL=F row's own base rate.
+  for (const row of anatomy.experiments) {
+    const arm = research.leak_anatomy.experiments[row.experiment][row.model].unpurged;
+    assert.equal(row.baseRate, arm.base_rate_pct_mean, row.key);
+    assert.equal(row.unpurgedBeatBase, arm.runs_beating_base_rate_5pct, row.key);
+    assert.equal(row.noSkill, row.experiment === "synthetic_random_walk" ? 50 : arm.base_rate_pct_mean, row.key);
+  }
+  assert.ok(anatomy.experiments.some((row) => !row.symmetric), "the fixture has CL=F rows");
+  const legacy = structuredClone(research);
+  delete legacy.leak_anatomy.design;
+  delete legacy.leak_anatomy.retracted_reference.sharpe_basis;
+  assert.deepEqual(m.research.leakAnatomy(legacy).sharpeBasis, anatomy.sharpeBasis, "older bundles keep the same labels");
 
   const risk = m.research.volTargetRisk(data.vol_forecast.economic.vol_target_overlay);
   assert.equal(risk.rows.length, Object.keys(data.vol_forecast.economic.vol_target_overlay.risk).length);
@@ -279,8 +335,15 @@ test("assertion titles state only what the numbers support", () => {
   assert.match(a.coneAssertion(research.vol_lab.vol_cone), /^Realized vol is at the \d+(st|nd|rd|th) percentile on a 5-day window/);
   assert.match(a.vrpAssertion(data.vol_forecast.economic.variance_risk_premium), /^OVX exceeded subsequent realized vol in /);
   assert.match(a.calibrationAssertion(research.vol_lab, research.vol_lab.config.champion), /which adaptive conformal targets by construction; year by year coverage ranged /);
-  assert.match(a.supplyStudyAssertion(m.research.supplyStudy(research)), /indistinguishable from one$/);
-  assert.match(a.leakAnatomyAssertion(m.research.leakAnatomy(research)), /^On a pure random walk an unpurged forest scores /);
+  const supply = a.supplyStudyAssertion(m.research.supplyStudy(research));
+  const lostGroup = research.supply_study.groups.find((group) => group.key === "supply_lost");
+  assert.match(supply, /indistinguishable from one$/);
+  assert.ok(supply.includes(`${m.format.fmtP(lostGroup.p_value_vs_placebo.peak)} vs placebo, ${m.format.fmtPValue(lostGroup.p_value_vs_year_matched_placebo.peak)} year-matched`), supply);
+  const leakTitle = a.leakAnatomyAssertion(m.research.leakAnatomy(research));
+  assert.match(leakTitle, /^On a pure random walk an unpurged forest scores /);
+  const basis = research.leak_anatomy.design.sharpe.split(":")[0].trim();
+  assert.ok(leakTitle.includes(`Sharpe of ${research.leak_anatomy.unpurged_sharpe_mean.toFixed(2)} ${basis}`), leakTitle);
+  assert.ok(leakTitle.includes(`Sharpe ${research.leak_anatomy.retracted_reference.sharpe.toFixed(2)} ${research.leak_anatomy.retracted_reference.sharpe_basis}`), leakTitle);
   assert.match(a.ledgerAssertion(m.research.researchLedger(research)), /^\d+ of \d+ supported claims survive Benjamini-Hochberg at 5%; \d+ clear t > 3$/);
   const overlay = data.vol_forecast.economic.vol_target_overlay;
   const target = a.volTargetAssertion(m.research.volTargetRisk(overlay));
@@ -291,7 +354,18 @@ test("assertion titles state only what the numbers support", () => {
 
   const studies = a.studiesAssertion(research.carry, m.research.supplyStudy(research));
   assert.doesNotMatch(studies, /threats alone did not/);
-  assert.match(studies, /threat-only events were not distinguishable from an ordinary date/);
+  assert.match(studies, /supply-removal events peaked higher than ordinary dates against both placebos; threat-only events were indistinguishable from ordinary dates$/);
+  // A group that passes only the unmatched placebo does not pass the rule.
+  const oneSided = structuredClone(research);
+  const lostRaw = oneSided.supply_study.groups.find((group) => group.key === "supply_lost");
+  lostRaw.p_value_vs_year_matched_placebo.peak = 0.2;
+  const oneStudy = m.research.supplyStudy(oneSided);
+  assert.match(a.studiesAssertion(research.carry, oneStudy), /supply-removal and threat-only peaks vs ordinary dates: p = 0.20 and p = [\d.]+, each the larger of the two placebo tests$/);
+  assert.match(a.supplyStudyAssertion(oneStudy), /^Supply removal peaks .*, significant against only one placebo \(/);
+  assert.equal(a.placeboVerdict(0.01, 0.02), "both");
+  assert.equal(a.placeboVerdict(0.01, 0.2), "one");
+  assert.equal(a.placeboVerdict(0.3, 0.2), "neither");
+  assert.equal(a.placeboVerdict(0.01, null), null);
 
   for (const builder of ["stabilityAssertion", "calibrationAssertion", "carryAssertion", "supplyStudyAssertion", "ledgerAssertion", "volTargetAssertion", "coneAssertion", "vrpAssertion", "riskAssertion", "spaAssertion"]) {
     assert.doesNotThrow(() => a[builder](null, { labels: new Map() }), builder);
@@ -393,8 +467,15 @@ test("STDY carry: the change test and the multiplicity-adjusted q are stated", (
 test("LIVE counts unscored calls as such, and reports promotion and late commits", () => {
   const { liveRecordSummary } = m.research;
   const { liveAssertion, promotionText } = m.assertions;
-  const record = liveRecordSummary({ ...data.vol_forecast.live_record, recent: [], n_recorded: 0 });
+  const record = liveRecordSummary(legacyRecord({ recent: [], n_recorded: 0 }));
   assert.match(liveAssertion(record), /nothing has resolved yet; first result due about /);
+  const noneDue = liveRecordSummary({ ...data.vol_forecast.live_record, recent: [], n_recorded: 0, next_result_due: null });
+  assert.equal(liveAssertion(noneDue), "Forward record started Oct 20, 2026; nothing has resolved yet");
+  const rollPending = liveRecordSummary({
+    ...data.vol_forecast.live_record, n_recorded: 1, n_pending: 1, n_skipped_roll: 0, next_result_due: null,
+    recent: [{ status: "pending", target_end: "2026-10-27" }],
+  });
+  assert.doesNotMatch(liveAssertion(rollPending), /first result/, "a pending call that will be skipped at a roll dates nothing");
   const skippedOnly = liveRecordSummary({
     started: "2026-10-20", n_recorded: 1, n_resolved: 0, n_pending: 0, n_skipped_roll: 1, n_expired: 0,
     recent: [{ status: "skipped_roll", target_end: "2026-10-27" }],
@@ -409,7 +490,8 @@ test("LIVE counts unscored calls as such, and reports promotion and late commits
   });
   assert.equal(mixed.lateCommit, 1);
   assert.equal(liveAssertion(mixed), "Forward record started Oct 20, 2026; 3 calls recorded: 1 pending, 1 skipped at a contract roll, "
-    + "1 sealed after its window opened (2 never scored); nothing has resolved yet; first result due Oct 28, 2026");
+    + "1 not sealed in time (2 never scored); nothing has resolved yet; first result due Oct 28, 2026");
+  assert.doesNotMatch(liveAssertion(mixed), /sealed after/, "a late commit may be sealed before its window opened");
   assert.equal(promotionText(mixed.promotion), "accruing 0/52");
   assert.equal(promotionText({ status: "keep", p: 0.41 }), "keep the model of record (one-sided p = 0.41)");
   assert.equal(promotionText({ status: "promote", p: 0.03 }), "promote the challenger (one-sided p = 0.03)");

@@ -1,6 +1,6 @@
 import DataTable from "../components/DataTable";
 import Panel, { REPRODUCE } from "../components/Panel";
-import { carryAssertion, studiesAssertion, supplyPlaybookAssertion, supplyStudyAssertion } from "../lib/assertions";
+import { ALPHA, carryAssertion, placeboVerdict, studiesAssertion, supplyPlaybookAssertion, supplyStudyAssertion } from "../lib/assertions";
 import { DASH, fmtInt, fmtNum, fmtP, fmtPValue, fmtSigned, fmtSignedPct, num } from "../lib/format";
 import { asObject, asText, researchLedger, supplyStudy } from "../lib/research";
 
@@ -61,6 +61,13 @@ export const pricedInNote = (playbook) => {
   };
 };
 
+const UNMATCHED_TITLE = "resampling test of the group median vs random placebo dates";
+const YEAR_MATCHED_TITLE = "the same test with each event's placebo dates drawn from its own calendar year";
+
+/** Whether a group passes the study's rule (both placebo tests below ALPHA) on peak or on settle. */
+const passesRule = (row) => placeboVerdict(row.peakP, row.peakPYear) === "both"
+  || placeboVerdict(row.settleP, row.settlePYear) === "both";
+
 /** The placebo-controlled event study (research.json supply_study). */
 function SupplyStudyTable({ study }) {
   const rows = [
@@ -68,35 +75,59 @@ function SupplyStudyTable({ study }) {
       key: "placebo", name: "Ordinary date (placebo)", n: study.placebo.n, peak: study.placebo.peak,
       settle: study.placebo.settle, isPlacebo: true,
     }] : []),
-    ...study.groups.slice().sort((a, b) => (a.peakP ?? 1) - (b.peakP ?? 1)),
+    ...study.groups.slice().sort((a, b) => (a.peakPRule ?? a.peakP ?? 1) - (b.peakPRule ?? b.peakP ?? 1)),
   ];
+  const pCell = (key) => (row) => (row.isPlacebo ? <span className="muted">ref.</span> : <span className="num">{fmtPValue(row[key])}</span>);
+  const overlapping = study.overlapping;
+  const anyOverlap = study.groups.some((group) => group.overlaps.length > 0);
+  const alpha = `${fmtNum(ALPHA * 100, 0)}%`;
+  const footnote = [
+    `A group differs from an ordinary date only if both p-values of a statistic are below ${alpha} (rows marked at the left edge); the ledger's p is the larger of the two.`,
+    study.between?.peakP != null
+      ? `Supply removal vs threat-only directly: peak difference ${fmtSigned(study.between.peakDiff, 1)} pts, ${fmtP(study.between.peakP)}; settle ${fmtP(study.between.settleP)}.`
+      : null,
+    anyOverlap
+      ? `† Contains events whose windows share sessions${overlapping?.definition ? ` (${overlapping.definition})` : ""}; the tests treat them as independent draws, which they are not.`
+      : null,
+    "p-values are not adjusted for the number of groups (see LEDG).",
+  ].filter(Boolean).join(" ");
   return (
     <DataTable
-      caption="Median 20-session peak and session-10 settle vs an ordinary date"
+      caption="Median 20-session peak and session-10 settle vs an ordinary date, tested against random and year-matched placebo dates"
       captionHidden
       rowKey={(row) => row.key}
-      rowClass={(row) => (row.isPlacebo ? "is-reference" : row.peakP != null && row.peakP < 0.05 ? "is-in-set" : undefined)}
+      rowClass={(row) => (row.isPlacebo ? "is-reference" : passesRule(row) ? "passes-rule" : undefined)}
       dense
       columns={[
-        { key: "name", label: "Group", rowHeader: true, className: "wrap-cell", render: (row) => <span title={row.definition ?? undefined}>{row.name}</span> },
-        { key: "n", label: "n", align: "right", render: (row) => fmtInt(row.n) },
+        { key: "name", label: "Group", rowHeader: true, className: "wrap-cell is-narrow", render: (row) => <span title={row.definition ?? undefined}>{row.name}</span> },
         {
-          key: "peak", label: "Peak", align: "right",
+          key: "n", label: "n", align: "right",
           render: (row) => (
-            <span className="stat-cell">
+            <span className="num">
+              {fmtInt(row.n)}
+              {row.overlaps?.length > 0 && (
+                <span className="muted" title={`Windows share sessions: ${row.overlaps.map((pair) => `${pair.events.join(" and ")}${pair.apart != null ? ` (${fmtInt(pair.apart)} sessions apart)` : ""}`).join("; ")}`}>†</span>
+              )}
+            </span>
+          ),
+        },
+        {
+          key: "peak", label: "Peak", title: "Median 20-session peak, with its 95% bootstrap interval", align: "right",
+          render: (row) => (
+            <span className="stat-cell is-stacked">
               <span className="num">{fmtSignedPct(row.peak)}</span>
               {row.ciPeak?.length === 2 && row.ciPeak.every((v) => v != null) && <span className="stat-range num">[{fmtNum(row.ciPeak[0], 1)}, {fmtNum(row.ciPeak[1], 1)}]</span>}
             </span>
           ),
         },
-        { key: "peakP", label: "p (peak)", title: "Resampling test vs placebo dates", align: "right", render: (row) => (row.isPlacebo ? <span className="muted">ref.</span> : <span className="num">{fmtPValue(row.peakP)}</span>) },
-        { key: "settle", label: "Settle", align: "right", render: (row) => <span className="num">{fmtSignedPct(row.settle)}</span> },
-        { key: "settleP", label: "p (settle)", align: "right", render: (row) => (row.isPlacebo ? <span className="muted">ref.</span> : <span className="num">{fmtPValue(row.settleP)}</span>) },
+        { key: "peakP", label: "vs placebo", title: `Peak p: ${UNMATCHED_TITLE}`, align: "right", className: "wrap-head", render: pCell("peakP") },
+        { key: "peakPYear", label: "year-matched", title: `Peak p: ${YEAR_MATCHED_TITLE}`, align: "right", className: "wrap-head", render: pCell("peakPYear") },
+        { key: "settle", label: "Settle", title: "Median move to the session-10 close", align: "right", render: (row) => <span className="num">{fmtSignedPct(row.settle)}</span> },
+        { key: "settleP", label: "vs placebo", title: `Settle p: ${UNMATCHED_TITLE}`, align: "right", className: "wrap-head", render: pCell("settleP") },
+        { key: "settlePYear", label: "year-matched", title: `Settle p: ${YEAR_MATCHED_TITLE}`, align: "right", className: "wrap-head", render: pCell("settlePYear") },
       ]}
       rows={rows}
-      footnote={study.between?.peakP != null
-        ? `Supply removal vs threat-only directly: peak difference ${fmtSigned(study.between.peakDiff, 1)} pts, ${fmtP(study.between.peakP)}; settle ${fmtP(study.between.settleP)}. p-values are not adjusted for the number of groups (see LEDG).`
-        : null}
+      footnote={footnote}
     />
   );
 }
@@ -207,9 +238,14 @@ export default function StudiesPanel({ data, research }) {
             {hasStudy && study.conclusion && (
               <p className="prose-note">
                 {(() => {
-                  // The baseline sentence and the caveats: the per-group numbers are in the table.
+                  // The baseline sentence, the groups that pass only the unmatched placebo, and the
+                  // caveats: the per-group numbers are in the table.
                   const sentences = study.conclusion.split(/(?<=\.)\s/);
-                  return [sentences[0], sentences.find((sentence) => /^caveat/i.test(sentence))].filter(Boolean).join(" ");
+                  return [
+                    sentences[0],
+                    ...sentences.slice(1).filter((sentence) => /not the year-matched/i.test(sentence)),
+                    sentences.find((sentence) => /^caveat/i.test(sentence)),
+                  ].filter(Boolean).join(" ");
                 })()}
               </p>
             )}

@@ -72,11 +72,15 @@ Rules (conservative by construction; sessions are CME business days, see contrac
   Diebold-Mariano test of the QLIKE differences, model of record minus challenger (positive
   favours the challenger): the mean difference over its standard error, from the plain sample
   variance with an n - 1 denominator and no autocovariance terms, as for one-step-ahead forecasts,
-  since the windows do not overlap (this equals the Harvey-Leybourne-Newbold-corrected statistic
-  for one step), with the p-value from the standard normal. The verdict is "promote" if the mean
-  difference is positive and p < PROMOTION_ALPHA, else "keep"; "accruing" until the sample is
-  full. Entries added later never change it (a single look). Applying a "promote" verdict, i.e.
-  swapping the models, is a maintainer's change to the code.
+  since the windows do not overlap. For one step this equals the Harvey-Leybourne-Newbold (1997)
+  corrected statistic, and as they recommend its p-value is from Student's t with n - 1 = 51
+  degrees of freedom (student_t_sf), not the standard normal: the normal's 10% critical value,
+  1.2816, is below t(51)'s 1.2984, and rejecting above it has a size of about 10.3% under t(51). The
+  verdict is "promote" if the mean difference is positive and p < PROMOTION_ALPHA, else "keep";
+  "accruing" until the sample is full. Entries added later never change it (a single look).
+  Applying a "promote" verdict, i.e. swapping the models, is a maintainer's change to the code.
+- NEXT RESULT (summary["next_result_due"]): the earliest target_end among pending entries whose
+  windows do not span a roll (the same spans_roll test resolution applies), or null.
 
 The summary is written into the payload at vol_forecast.live_record (docs/DATA_CONTRACT.md).
 
@@ -132,7 +136,8 @@ PROMOTION_WEEKS = 52
 PROMOTION_ALPHA = 0.10
 PROMOTION_RULE = (f"The challenger replaces the model of record if, on the first {PROMOTION_WEEKS} independent "
                   f"resolved weeks where both were forecast, its mean QLIKE is lower with a one-sided "
-                  f"Diebold-Mariano p below {PROMOTION_ALPHA:.2f}. The test is run once, on that fixed sample; "
+                  f"Diebold-Mariano p below {PROMOTION_ALPHA:.2f} (Harvey-Leybourne-Newbold, Student t with "
+                  f"{PROMOTION_WEEKS - 1} degrees of freedom). The test is run once, on that fixed sample; "
                   f"a maintainer applies the verdict.")
 WINDOW_NOTE = ("Each forecast is scored on the realized volatility of the five settlement-to-settlement "
                "returns after the first CL settlement (14:30 ET) at least an hour after it was issued and "
@@ -653,13 +658,52 @@ def promotion_sample(entries: list[dict], model_version, challenger_key) -> list
     return chosen
 
 
+def student_t_sf(t: float, df: int) -> float:
+    """P(T > t) for Student's t with a positive integer number of degrees of freedom `df`.
+
+    The closed-form finite series of Abramowitz & Stegun 26.7.3 (odd df) and 26.7.4 (even df) for
+    A = P(|T| <= |t|), with theta = atan(|t| / sqrt(df)), evaluated as the two-tailed complement
+    1 - A. For odd df that is (2/pi) [atan(sqrt(df) / |t|) - sin cos (1 + 2/3 cos^2 + ...)], the
+    series ending at cos^(df-3) (empty for df = 1); for even df, 1 - sin (1 + 1/2 cos^2 +
+    1*3/(2*4) cos^4 + ...), ending at cos^(df-2). Standard library only. The complement is formed by
+    subtraction, so it is accurate in absolute terms (about 1e-15), which is what a p-value reported
+    to six decimals needs, not in relative terms far in the tail.
+    """
+    if isinstance(df, bool) or not isinstance(df, int) or df < 1:
+        raise ValueError(f"df must be a positive integer, got {df!r}")
+    if math.isnan(t):
+        raise ValueError("t must be a number")
+    x = abs(t)
+    if math.isinf(x):
+        two_tailed = 0.0
+    else:
+        root = math.sqrt(df)
+        hyp = math.hypot(x, root)
+        sin, cos = x / hyp, root / hyp
+        cos2 = cos * cos
+        series, term = 0.0, 1.0
+        if df % 2:
+            for k in range(1, (df - 1) // 2 + 1):
+                series += term
+                term *= cos2 * (2 * k) / (2 * k + 1)
+            two_tailed = 2.0 / math.pi * (math.atan2(root, x) - sin * cos * series)
+        else:
+            for k in range(1, df // 2 + 1):
+                series += term
+                term *= cos2 * (2 * k - 1) / (2 * k)
+            two_tailed = 1.0 - sin * series
+        two_tailed = min(max(two_tailed, 0.0), 1.0)
+    return 0.5 * two_tailed if t >= 0 else 1.0 - 0.5 * two_tailed
+
+
 def promotion_test(entries: list[dict], model_version, challenger_key) -> dict:
     """The promotion rule (PROMOTION_RULE), computed once on its fixed sample (module docstring).
 
     The loss difference is QLIKE(model of record) - QLIKE(challenger), so a positive mean favours the
     challenger. The Diebold-Mariano statistic is the mean over its standard error from the sample
     variance (n - 1 denominator), with no autocovariance terms because the windows do not overlap;
-    the one-sided p-value is P(Z >= stat) for a standard normal Z.
+    for one-step forecasts that is the Harvey-Leybourne-Newbold statistic, and the one-sided p-value
+    is P(T >= stat) for T ~ Student t(n - 1), as they recommend.
     """
     sample = promotion_sample(entries, model_version, challenger_key)
     result = {"status": "accruing", "n_independent_paired": len(sample), "required": PROMOTION_WEEKS,
@@ -675,11 +719,22 @@ def promotion_test(entries: list[dict], model_version, challenger_key) -> dict:
     promote = False
     if variance > 0:                     # zero only if every difference is identical: nothing to test
         stat = mean / math.sqrt(variance / n)
-        p_value = 0.5 * math.erfc(stat / math.sqrt(2.0))
+        p_value = student_t_sf(stat, n - 1)
         result["dm_stat"], result["p_value"] = round(stat, 4), round(p_value, 6)
         promote = mean > 0 and p_value < PROMOTION_ALPHA
     result["status"] = "promote" if promote else "keep"
     return result
+
+
+def next_result_due(entries: list[dict]) -> str | None:
+    """The earliest target_end (ISO date) of a pending entry that resolution will score, or None.
+
+    Pending entries whose windows span a roll are left out: resolution skips them with the same
+    spans_roll test.
+    """
+    due = [e["target_end"] for e in entries if e["status"] == "pending"
+           and not spans_roll(_iso_date(e["base_session"]), _iso_date(e["target_end"]))]
+    return min(due) if due else None
 
 
 def _recent(entry: dict) -> dict:
@@ -709,8 +764,9 @@ def summarize(record: dict, noise_floor_pct=None) -> dict:
 
     Every statistic is over the resolved entries and stays null until one exists. The challenger is
     compared with the current model of record (the newest entry's model_version) on the entries
-    where both were forecast; `promotion` is the promotion rule's single test. `recent` lists up to
-    RECENT_ENTRIES entries, newest first.
+    where both were forecast; `promotion` is the promotion rule's single test. `next_result_due` is
+    the date the next score can arrive (next_result_due()). `recent` lists up to RECENT_ENTRIES
+    entries, newest first.
     """
     entries = record["entries"]
     resolved = [e for e in entries if e["status"] == "resolved"]
@@ -728,6 +784,7 @@ def summarize(record: dict, noise_floor_pct=None) -> dict:
         "n_expired": sum(e["status"] == "expired" for e in entries),
         "n_late_commit": sum(e["status"] == "late_commit" for e in entries),
         "n_independent": len(independent_entries(resolved)),
+        "next_result_due": next_result_due(entries),
         "champion": {
             "model_version": model_version,
             "qlike": _mean([qlike(e["realized_pct"], e["forecast_pct"]) for e in resolved], 4),
@@ -829,7 +886,7 @@ def main(argv: list[str] | None = None, now: datetime | None = None) -> int:
     if isinstance(block, dict):
         if block.get("live_record") != summary:
             block["live_record"] = summary
-            _atomic_write(data_path, json.dumps(payload, indent=2))
+            _atomic_write(data_path, json.dumps(payload, separators=(",", ":")))    # compact, as freeze.py writes it
     else:
         print("vol_record: the payload has no vol_forecast block; summary not attached")
     champion, promotion = summary["champion"], summary["promotion"]

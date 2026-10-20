@@ -229,8 +229,9 @@ export const promotionText = (promotion) => {
 };
 
 /**
- * LIVE: forward record status. Calls skipped at a contract roll, sealed after their window opened
- * (late_commit) or expired are never scored; they are counted as such, never as "not resolved yet".
+ * LIVE: forward record status. Calls skipped at a contract roll, not sealed in time (late_commit:
+ * sealed less than five minutes before the settlement that opens their window, or never sealed) or
+ * expired are never scored; they are counted as such, never as "not resolved yet".
  */
 export const liveAssertion = (summary) => {
   if (!summary) return null;
@@ -244,7 +245,7 @@ export const liveAssertion = (summary) => {
     const breakdown = [
       summary.pending > 0 ? `${fmtInt(summary.pending)} pending` : null,
       skipped > 0 ? `${fmtInt(skipped)} skipped at a contract roll` : null,
-      late > 0 ? `${fmtInt(late)} sealed after ${late === 1 ? "its" : "their"} window opened` : null,
+      late > 0 ? `${fmtInt(late)} not sealed in time` : null,
       expired > 0 ? `${fmtInt(expired)} expired` : null,
     ].filter(Boolean);
     const unscored = skipped + late + expired;
@@ -317,8 +318,22 @@ export const carryAssertion = (carry, ledger = null) => {
 };
 
 /**
+ * The supply study's rule for one statistic of a group: it differs from an ordinary date only if the
+ * test against random placebo dates and the year-matched one both reject at ALPHA. "both", "one"
+ * or "neither" reject; null without both p-values.
+ */
+export const placeboVerdict = (p, pYear) => {
+  if (p == null || pYear == null) return null;
+  if (Math.max(p, pYear) < ALPHA) return "both";
+  return Math.min(p, pYear) < ALPHA ? "one" : "neither";
+};
+
+const placeboPs = (p, pYear) => `${fmtP(p)} vs placebo, ${fmtPValue(pYear)} year-matched`;
+
+/**
  * STDY supply study (research.json supply_study): which event groups differ from an ordinary
- * (placebo) date. Uses the groups keyed supply_lost and threat_only when present.
+ * (placebo) date under the study's rule (both placebo tests below ALPHA). Uses the groups keyed
+ * supply_lost and threat_only when present.
  */
 export const supplyStudyAssertion = (study) => {
   if (!study?.placebo || !study.groups.length) return null;
@@ -326,27 +341,41 @@ export const supplyStudyAssertion = (study) => {
   const threat = study.groups.find((group) => group.key === "threat_only");
   const placeboPeak = fmtSigned(study.placebo.peak, 1, "%");
   const parts = [];
-  if (lost?.peak != null && lost.peakP != null) {
-    parts.push(lost.peakP < ALPHA
-      ? `Supply removal peaks ${fmtSigned(lost.peak, 1, "%")} vs ${placeboPeak} on an ordinary date (${fmtP(lost.peakP)})`
-      : `Supply removal peaks ${fmtSigned(lost.peak, 1, "%")}, not distinguishable from ${placeboPeak} on an ordinary date (${fmtP(lost.peakP)})`);
+  const lostVerdict = placeboVerdict(lost?.peakP, lost?.peakPYear);
+  if (lost?.peak != null && lostVerdict) {
+    const peak = fmtSigned(lost.peak, 1, "%");
+    const ps = placeboPs(lost.peakP, lost.peakPYear);
+    parts.push({
+      both: `Supply removal peaks ${peak} vs ${placeboPeak} on an ordinary date (${ps})`,
+      one: `Supply removal peaks ${peak} vs ${placeboPeak} on an ordinary date, significant against only one placebo (${ps})`,
+      neither: `Supply removal peaks ${peak}, not distinguishable from ${placeboPeak} on an ordinary date (${ps})`,
+    }[lostVerdict]);
   }
-  if (threat?.peak != null && threat.peakP != null) {
-    parts.push(threat.peakP >= ALPHA
-      ? `threat-only events (${fmtSigned(threat.peak, 1, "%")}) are indistinguishable from one`
-      : `threat-only events differ (${fmtSigned(threat.peak, 1, "%")}, ${fmtP(threat.peakP)})`);
+  const threatVerdict = placeboVerdict(threat?.peakP, threat?.peakPYear);
+  if (threat?.peak != null && threatVerdict) {
+    const peak = fmtSigned(threat.peak, 1, "%");
+    const ps = placeboPs(threat.peakP, threat.peakPYear);
+    parts.push({
+      both: `threat-only events differ (${peak}, ${ps})`,
+      one: `threat-only events (${peak}) differ from one against only one placebo (${ps})`,
+      neither: `threat-only events (${peak}) are indistinguishable from one`,
+    }[threatVerdict]);
   }
   return parts.length ? join(parts) : null;
 };
 
-/** LEAK anatomy: the same leak on pure noise reproduces the retracted model's numbers. */
+/**
+ * LEAK anatomy: the same leak on pure noise reproduces the retracted model's numbers. The noise
+ * experiments' Sharpe is gross and the retracted model's is after costs, so each is labelled.
+ */
 export const leakAnatomyAssertion = (anatomy) => {
   const headline = anatomy?.experiments.find((row) => row.isHeadline);
   const reference = anatomy?.reference;
   if (!headline || headline.unpurged == null || headline.purged == null) return null;
-  const sharpe = headline.unpurgedSharpe != null ? `, Sharpe ${fmtNum(headline.unpurgedSharpe, 2)}` : "";
+  const basis = (key) => (anatomy.sharpeBasis?.[key] ? ` ${anatomy.sharpeBasis[key]}` : "");
+  const sharpe = headline.unpurgedSharpe != null ? ` with a Sharpe of ${fmtNum(headline.unpurgedSharpe, 2)}${basis("experiments")}` : "";
   const versus = reference?.accuracy != null
-    ? ` (the retracted model: ${fmtPct(reference.accuracy)}${reference.sharpe != null ? `, ${fmtNum(reference.sharpe, 2)}` : ""})`
+    ? `, against the retracted model's ${fmtPct(reference.accuracy)}${reference.sharpe != null ? ` and Sharpe ${fmtNum(reference.sharpe, 2)}${basis("reference")}` : ""}`
     : "";
   return `On a pure random walk an unpurged ${headline.modelLabel.toLowerCase()} scores ${fmtPct(headline.unpurged)}${sharpe}${versus}; purged, ${fmtPct(headline.purged)}`;
 };
@@ -419,11 +448,14 @@ export const studiesAssertion = (carry, study) => {
   }
   const lost = study?.groups.find((group) => group.key === "supply_lost");
   const threat = study?.groups.find((group) => group.key === "threat_only");
-  const supplyPart = lost?.peakP != null && threat?.peakP != null
-    ? lost.peakP < ALPHA && threat.peakP >= ALPHA
-      ? "supply removal moved price beyond an ordinary date; threat-only events were not distinguishable from an ordinary date"
-      : `supply-removal and threat-only peaks vs placebo: ${fmtP(lost.peakP)} and ${fmtP(threat.peakP)}`
-    : null;
+  const lostVerdict = placeboVerdict(lost?.peakP, lost?.peakPYear);
+  const threatVerdict = placeboVerdict(threat?.peakP, threat?.peakPYear);
+  let supplyPart = null;
+  if (lostVerdict && threatVerdict) {
+    supplyPart = lostVerdict === "both" && threatVerdict === "neither"
+      ? "supply-removal events peaked higher than ordinary dates against both placebos; threat-only events were indistinguishable from ordinary dates"
+      : `supply-removal and threat-only peaks vs ordinary dates: ${fmtP(lost.peakPRule)} and ${fmtP(threat.peakPRule)}, each the larger of the two placebo tests`;
+  }
   return capitalize(join([carryPart, supplyPart]));
 };
 

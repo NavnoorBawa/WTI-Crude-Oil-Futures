@@ -17,8 +17,10 @@ backs the new one.
   that rebuilds `data/vol_lab.json` from it, and a CI workflow (Reproduce) that runs that test under
   a pinned numeric environment on changes to the lab's inputs and every week. A rebuild matches when
   every model set, flag, label and count is identical and every number is within 1e-4 relative or
-  within one unit of the last decimal it is published with; the GARCH-family refits converge to a
-  1e-9 tolerance, so BLAS thread counts and CPU kernels do not move published figures. The unit
+  within one unit of the last decimal it is published with (`vol_lab.compare_reports`). The
+  GARCH-family refits converge to a 1e-9 tolerance, so across BLAS thread counts and CPU kernels
+  every figure stays within that bound; a rounded figure can still move by one unit in its last
+  decimal (a one-thread rebuild gives one yearly GJR-GARCH QLIKE as 0.5471 against 0.5472). The unit
   suite rebuilds the carry and supply-shock studies from committed EIA files, the research ledger,
   and a subset of the leak anatomy's runs. The production validation
   (`data/vol_forecast_validation.json`) and the direction post-mortem (`data/wf_*.json`) are records
@@ -62,19 +64,31 @@ backs the new one.
   committed before the data that will score it: the window was anchored on the build job's record
   time and nothing checked the commit.
 - **Promotion.** The rule is now implemented as a single fixed-sample test
-  (`vol_record.promotion_test`) whose status and statistics the record summary publishes.
+  (`vol_record.promotion_test`) whose status and statistics the record summary publishes. Its
+  p-value is from Student's t with 51 degrees of freedom (the Harvey-Leybourne-Newbold reference for
+  52 one-step differences), not the normal, whose 10% critical value (1.2816, against 1.2984) would
+  reject with a size of about 10.3%. The summary also gives the earliest date a pending entry can
+  be scored (`next_result_due`).
 - **Carry.** The rank-correlation power uses the two-sided level of the test it describes.
 - **Leak anatomy.** The block-shuffled `CL=F` runs permute the same returns and are not
   independent, and their base rate is not 50%: both are stated, with per-run tests against each
-  run's own base rate; its Sharpe ratios are labelled gross (the retracted 2.47 is after costs).
+  run's own base rate; its Sharpe ratios are labelled gross (the retracted 2.47 is after costs). The
+  ledger's rows on those runs no longer pool them: each claims that every run beats its own base
+  rate, with the largest of the per-run p-values (an intersection-union test, valid however the runs
+  depend on one another), and is marked not pre-specified because that test replaced the pooled one
+  after the runs were seen.
 - **Supply study.** Event pairs fewer than 25 sessions apart are listed as overlapping, a stated
   caveat.
 - **Dashboard.** Headlines are conditional on the data, labelled by sample and compared with the
   strongest simple baseline (the OVX-only regression, trailing-vol targeting); the direction
   probability is demoted and labelled model-implied and uncalibrated.
-- **Documentation.** Every sentence in the README that states a number or a verdict is generated
-  from the artifacts; reproducibility is described artifact by artifact; "weekday grids" are
-  5-session sampling grids (each grid's dates fall on every weekday).
+- **Documentation.** Every table, result statistic and data-dependent verdict in the README, and
+  every table in the model card and the datasheet, is generated from the artifacts by
+  `scripts/readme_blocks.py`, and CI fails if they disagree; descriptive facts about the design (the
+  number of models, schedules, time limits) are written by hand. Reproducibility is described
+  artifact by artifact; "weekday grids" are 5-session sampling grids (each grid's dates fall on
+  every weekday). The lab's `HAR-RV + semivariance` is relabelled `HAR-RV + downside semivol`: it
+  adds one five-session downside semivolatility term to HAR-RV.
 
 ### Pipeline and dashboard
 

@@ -491,28 +491,31 @@ export function SignAgreementLadder({ rows }) {
 
 /**
  * Leaked vs purged direction accuracy for each experiment and model, as dumbbells, against the
- * coin flip and the retracted model's own (leaked) accuracy.
- * @param {{rows: {key:string,label:string,unpurged:number,purged:number,isHeadline:boolean}[],
- *   reference: {accuracy:number|null}|null}} props
+ * no-skill accuracy and the retracted model's own (leaked) accuracy. No skill is 50% only on
+ * symmetric noise (the random walk); a row on CL=F returns marks its own base rate (`noSkill`).
+ * @param {{rows: {key:string,label:string,unpurged:number,purged:number,isHeadline:boolean,
+ *   symmetric?:boolean,noSkill?:number|null}[], reference: {accuracy:number|null}|null}} props
  */
 export function LeakDumbbell({ rows, reference }) {
   const rowHeight = 22;
   const height = rows.length * rowHeight + 58;
+  const note = "50% = no skill on the random walk";
   return (
     <Frame
       height={height}
       draw={(width) => {
         const labelWidth = Math.min(170, width * 0.42);
-        const values = rows.flatMap((row) => [row.unpurged, row.purged]);
+        const values = rows.flatMap((row) => [row.unpurged, row.purged, row.symmetric ? null : row.noSkill]);
         const [lo, hi] = extent([...values, 50, reference?.accuracy ?? 50]);
         const x = scaleLinear().domain([Math.floor((lo - 2) / 5) * 5, Math.ceil((hi + 2) / 5) * 5]).range([labelWidth + 10, width - 14]);
         const bottom = rows.length * rowHeight + 18;
+        const noteFits = x(50) + note.length * MONO_CHAR_PX <= width;
         return (
           <svg width={width} height={height} className="svg-chart" role="img"
-            aria-label="Direction accuracy without and with the purge, by experiment and model">
+            aria-label="Direction accuracy without and with the purge, by experiment and model; no skill is 50% on the random walk and each run's base rate on CL=F returns">
             {x.ticks(5).map((tick) => <line key={tick} className="grid-line" x1={x(tick)} x2={x(tick)} y1={14} y2={bottom} />)}
             <line className="stroke-axis" x1={x(50)} x2={x(50)} y1={14} y2={bottom} />
-            <text className="axis-note" x={x(50)} y={height - 1} textAnchor="start">50% = coin flip</text>
+            <text className="axis-note" x={noteFits ? x(50) : width - 2} y={height - 1} textAnchor={noteFits ? "start" : "end"}>{note}</text>
             {reference?.accuracy != null && (
               <g>
                 <line className="stroke-alt2 dashed" x1={x(reference.accuracy)} x2={x(reference.accuracy)} y1={14} y2={bottom} />
@@ -528,6 +531,11 @@ export function LeakDumbbell({ rows, reference }) {
                     <title>{row.label}</title>{fitLabel(row.label, labelWidth)}
                   </text>
                   <line className="stroke-range thin-range" x1={x(row.purged)} x2={x(row.unpurged)} y1={cy} y2={cy} />
+                  {!row.symmetric && Number.isFinite(row.noSkill) && (
+                    <line className="stroke-neutral" x1={x(row.noSkill)} x2={x(row.noSkill)} y1={cy - 7} y2={cy + 7}>
+                      <title>{`${row.label}: base rate ${fmtNum(row.noSkill, 1)}%, the no-skill accuracy on these returns`}</title>
+                    </line>
+                  )}
                   <circle cx={x(row.purged)} cy={cy} r={4} className="fill-truth"><title>{`${row.label}, purged: ${fmtNum(row.purged, 1)}%`}</title></circle>
                   <circle cx={x(row.unpurged)} cy={cy} r={4} className="fill-alt2"><title>{`${row.label}, unpurged: ${fmtNum(row.unpurged, 1)}%`}</title></circle>
                 </g>

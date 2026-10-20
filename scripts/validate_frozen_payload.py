@@ -13,6 +13,7 @@ import argparse
 import importlib.util
 import json
 import math
+import re
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -39,6 +40,7 @@ LIVE_RECORD_COUNTS = ("n_recorded", "n_resolved", "n_pending", "n_skipped_roll",
 LIVE_RECORD_STATUSES = ("pending", "resolved", "skipped_roll", "expired", "late_commit")
 PROMOTION_STATUSES = ("accruing", "promote", "keep")
 PROMOTION_KEYS = ("status", "n_independent_paired", "required", "dm_stat", "p_value", "mean_qlike_difference")
+ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 # Outputs of the retracted 1-week direction model (schema_version 2 and earlier). It is not run in
 # production, so any of them in a snapshot means a stale renderer and must never be published.
 RETRACTED_MODEL_FIELDS = ("multi_horizon_predictions", "performance_metrics", "ml_prediction",
@@ -272,7 +274,10 @@ def _validate_vol_forecast(vol: Any, session: date | None) -> list[str]:
 
 
 def _validate_live_record(record: Any) -> list[str]:
-    """The live record (backend/vol_record.py) is optional, but when present it must be well formed."""
+    """The live record (backend/vol_record.py) is optional, but when present it must be well formed.
+
+    next_result_due is required: the dashboard dates the next result from it, and null (nothing
+    pending that will be scored) must be said explicitly rather than by a missing key."""
     if not isinstance(record, dict):
         return ["vol_forecast.live_record must be an object"]
     errors = [f"vol_forecast.live_record.{key} must be a non-negative integer"
@@ -282,8 +287,19 @@ def _validate_live_record(record: Any) -> list[str]:
         errors.append("vol_forecast.live_record.recent must be a list of objects")
     elif any(row.get("status") not in LIVE_RECORD_STATUSES for row in recent):
         errors.append(f"vol_forecast.live_record.recent statuses must be one of {', '.join(LIVE_RECORD_STATUSES)}")
+    if "next_result_due" not in record:
+        errors.append("vol_forecast.live_record.next_result_due is required (an ISO date or null)")
+    elif record["next_result_due"] is not None and not _strict_iso_date(record["next_result_due"]):
+        errors.append("vol_forecast.live_record.next_result_due must be an ISO date (YYYY-MM-DD) or null")
+    elif record["next_result_due"] is not None and record.get("n_pending") == 0:
+        errors.append("vol_forecast.live_record.next_result_due must be null with no pending entry")
     errors.extend(_validate_promotion(record.get("promotion")))
     return errors
+
+
+def _strict_iso_date(value: Any) -> bool:
+    """YYYY-MM-DD only: date.fromisoformat alone also accepts forms such as 20261027 and 2026-W44-2."""
+    return isinstance(value, str) and ISO_DATE.fullmatch(value) is not None and _parse_date(value) is not None
 
 
 def _validate_promotion(block: Any) -> list[str]:

@@ -15,7 +15,7 @@ const STATUS_LABEL = {
 };
 const STATUS_TITLE = {
   skipped_roll: "The target window spans a contract roll; never scored",
-  late_commit: "Sealed after its target window opened; never scored",
+  late_commit: "Not sealed in time (less than five minutes before the settlement that opens its window, or never); never scored",
   expired: "No settlement data arrived in time; never scored",
 };
 
@@ -63,7 +63,7 @@ export default function LiveRecordPanel({ data }) {
       <Facts className="facts--row" items={[
         { label: "Pending", value: fmtInt(summary.pending ?? 0) },
         { label: "Skipped at rolls", value: fmtInt(summary.skipped ?? 0), note: summary.skipped ? "never scored" : null },
-        summary.lateCommit != null && { label: "Sealed late", value: fmtInt(summary.lateCommit), note: summary.lateCommit ? "never scored" : null },
+        summary.lateCommit != null && { label: "Not sealed in time", value: fmtInt(summary.lateCommit), note: summary.lateCommit ? "never scored" : null },
         summary.expired != null && { label: "Expired", value: fmtInt(summary.expired) },
         promotion && {
           label: "Promotion test",

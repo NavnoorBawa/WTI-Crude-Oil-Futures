@@ -5,7 +5,7 @@ import LazyMount from "../components/LazyMount";
 import Panel, { REPRODUCE } from "../components/Panel";
 import Segmented from "../components/Segmented";
 import { ALPHA, leakAnatomyAssertion, leakAssertion } from "../lib/assertions";
-import { fmtDate, fmtInt, fmtNum, fmtP, fmtPValue, fmtPct, fmtSignedUsd, fmtSpan, num } from "../lib/format";
+import { DASH, fmtDate, fmtInt, fmtNum, fmtP, fmtPValue, fmtPct, fmtSignedUsd, fmtSpan, num } from "../lib/format";
 import { asObject, asText, getLab, leakAnatomy, postmortemWindow } from "../lib/research";
 import { Facts, Legend, ResearchUnavailable } from "./common";
 
@@ -17,20 +17,28 @@ const WINDOWS = [
 /**
  * research.json leak_anatomy: the same unpurged pipeline on data with nothing to forecast. The
  * analytic ladder shows why (a training label shares returns with the test label); the
- * experiments show the result (leaked accuracy on noise matches the retracted model's).
+ * experiments show the result (leaked accuracy on noise matches the retracted model's). The
+ * experiments' Sharpe ratios are gross and the retracted model's is after costs, so every Sharpe
+ * shown carries its basis.
  */
 function LeakAnatomy({ anatomy }) {
   if (!anatomy || (!anatomy.ladder.length && !anatomy.experiments.length)) return null;
   const Ladder = getSignAgreementLadder();
   const Dumbbell = getLeakDumbbell();
   const headline = anatomy.experiments.find((row) => row.isHeadline);
+  const basis = anatomy.sharpeBasis;
+  const gross = (value) => (value != null ? `Sharpe ${fmtNum(value, 2)}, ${basis.experiments}` : null);
+  const hasBaseRate = anatomy.experiments.some((row) => !row.symmetric && row.noSkill != null);
   return (
     <div className="subsection anatomy">
       <h3 className="study-title">{leakAnatomyAssertion(anatomy) ?? "Anatomy of the leak"}</h3>
       <Facts className="facts--row" items={[
-        headline && { label: "Unpurged, on noise", value: fmtPct(headline.unpurged), note: headline.unpurgedSharpe != null ? `Sharpe ${fmtNum(headline.unpurgedSharpe, 2)}` : null },
-        headline && { label: "Purged, on noise", value: fmtPct(headline.purged), note: headline.purgedSharpe != null ? `Sharpe ${fmtNum(headline.purgedSharpe, 2)}` : null },
-        anatomy.reference && { label: "Retracted model", value: fmtPct(anatomy.reference.accuracy), note: anatomy.reference.sharpe != null ? `Sharpe ${fmtNum(anatomy.reference.sharpe, 2)}, n ${fmtInt(anatomy.reference.n)}` : null },
+        headline && { label: "Unpurged, on noise", value: fmtPct(headline.unpurged), note: gross(headline.unpurgedSharpe) },
+        headline && { label: "Purged, on noise", value: fmtPct(headline.purged), note: gross(headline.purgedSharpe) },
+        anatomy.reference && {
+          label: "Retracted model", value: fmtPct(anatomy.reference.accuracy),
+          note: anatomy.reference.sharpe != null ? `Sharpe ${fmtNum(anatomy.reference.sharpe, 2)} ${basis.reference}, n ${fmtInt(anatomy.reference.n)}` : null,
+        },
         anatomy.signAgreement != null && { label: "Sign agreement, t−1", value: fmtPct(anatomy.signAgreement), note: "analytic, random walk" },
       ]} />
       <div className="split">
@@ -49,14 +57,15 @@ function LeakAnatomy({ anatomy }) {
             <Legend items={[
               { tone: "alt2", label: "unpurged", shape: "dot" },
               { tone: "truth", label: "purged", shape: "dot" },
-            ]} />
+              hasBaseRate && { tone: "median", label: "base rate: no skill on CL=F", shape: "tick" },
+            ].filter(Boolean)} />
             <LazyMount minHeight={anatomy.experiments.length * 22 + 58} label="experiment chart">
               <Dumbbell rows={anatomy.experiments} reference={anatomy.reference} />
             </LazyMount>
           </div>
         )}
       </div>
-      {anatomy.conclusion && <p className="prose-note">{anatomy.conclusion.split(/(?<=\.)\s/).slice(-1)[0]}</p>}
+      {anatomy.conclusion && <p className="prose-note">{anatomy.conclusion}</p>}
     </div>
   );
 }
@@ -132,17 +141,27 @@ export default function LeakPanel({ data, research, researchStatus }) {
         />
         {anatomy?.experiments.length > 0 && (
         <DataTable
-          caption="Leak anatomy: direction accuracy and Sharpe without and with the purge"
+          caption={`Leak anatomy: direction accuracy and Sharpe (${anatomy.sharpeBasis.experiments}) without and with the purge, against the no-skill accuracy`}
           rowKey={(row) => row.key}
           dense
           columns={[
             { key: "label", label: "Data · model", rowHeader: true },
             { key: "runs", label: "Runs", align: "right", render: (row) => fmtInt(row.runs) },
             { key: "unpurged", label: "Unpurged acc.", align: "right", render: (row) => fmtPct(row.unpurged) },
-            { key: "unpurgedSharpe", label: "Sharpe", align: "right", render: (row) => fmtNum(row.unpurgedSharpe, 2) },
+            { key: "unpurgedSharpe", label: "Sharpe", title: `Mean Sharpe across runs, ${anatomy.sharpeBasis.experiments}`, align: "right", render: (row) => fmtNum(row.unpurgedSharpe, 2) },
             { key: "purged", label: "Purged acc.", align: "right", render: (row) => fmtPct(row.purged) },
-            { key: "purgedSharpe", label: "Sharpe", align: "right", render: (row) => fmtNum(row.purgedSharpe, 2) },
-            { key: "purgedP", label: "p vs 50%", align: "right", render: (row) => fmtPValue(row.purgedP) },
+            { key: "purgedSharpe", label: "Sharpe", title: `Mean Sharpe across runs, ${anatomy.sharpeBasis.experiments}`, align: "right", render: (row) => fmtNum(row.purgedSharpe, 2) },
+            {
+              key: "noSkill", label: "No skill", title: "50% on symmetric random-walk returns; on CL=F returns, the mean of each run's base rate (the share of the more common sign)", align: "right",
+              render: (row) => (row.noSkill != null ? `${fmtPct(row.noSkill)}${row.symmetric ? "" : " base rate"}` : DASH),
+            },
+            {
+              key: "beatBase", label: "Runs > base rate", title: "Runs whose accuracy beats their own base rate at 5% (binomial), unpurged · purged", align: "right",
+              render: (row) => (row.unpurgedBeatBase != null && row.purgedBeatBase != null
+                ? `${fmtInt(row.unpurgedBeatBase)}/${fmtInt(row.runs)} · ${fmtInt(row.purgedBeatBase)}/${fmtInt(row.purgedRuns ?? row.runs)}`
+                : DASH),
+            },
+            { key: "purgedP", label: "Purged p vs 50%", title: "Pooled binomial test of the purged runs against 50%, the no-skill accuracy only on the random walk. The block-shuffled runs reuse the same returns, so their pooled test overstates the evidence", align: "right", render: (row) => fmtPValue(row.purgedP) },
           ]}
           rows={anatomy.experiments}
         />

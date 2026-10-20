@@ -11,7 +11,7 @@
       "retracted": 8,
       "inconclusive": 5
     },
-    "pre_specified_rows": 5,
+    "pre_specified_rows": 3,
     "supported": [
       "leak_forest_noise_unpurged",
       "leak_nn_shuffled_cl_unpurged",
@@ -190,8 +190,8 @@
           "sharpe_after_costs": "results.1w.pnl_metrics.sharpe_ratio_annualized"
         }
       },
-      "q_value_bh": 1.4376422258409e-05,
-      "p_holm": 0.00010427698278099328,
+      "q_value_bh": 1.6430196866753145e-05,
+      "p_holm": 0.00010581046782189024,
       "t_equivalent": 4.81,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -230,8 +230,8 @@
           "sharpe_after_costs": "results.1w.pnl_metrics.sharpe_ratio_annualized"
         }
       },
-      "q_value_bh": 2.8828850433455663e-09,
-      "p_holm": 1.8565779679145447e-08,
+      "q_value_bh": 3.3633658839031605e-09,
+      "p_holm": 1.88348489498577e-08,
       "t_equivalent": 6.32,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -509,8 +509,8 @@
           "ess": "ess_bartlett_L5"
         }
       },
-      "q_value_bh": 0.00020999999999999998,
-      "p_holm": 0.001848,
+      "q_value_bh": 0.00023333333333333333,
+      "p_holm": 0.001876,
       "t_equivalent": 4.19,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -521,7 +521,7 @@
       "date": "2026-10-20",
       "family": "leak anatomy",
       "hypothesis": "Walk-forward without the purge, a 20-tree random forest on i.i.d. random walks (no signal exists) scores above 50% direction accuracy.",
-      "test": "one-sided exact binomial test on all decisions pooled over seeds (labels never overlap within a run)",
+      "test": "one-sided exact binomial test on all decisions pooled over seeds (independent runs; labels never overlap within a run)",
       "statistic": {
         "name": "mean accuracy %",
         "value": 66.67
@@ -552,8 +552,8 @@
           "runs_beating_base_rate": "synthetic_random_walk.random_forest.unpurged_leaked.runs_beating_base_rate_5pct"
         }
       },
-      "q_value_bh": 2.8503019852137217e-16,
-      "p_holm": 1.0945159623220693e-15,
+      "q_value_bh": 3.800402646951629e-16,
+      "p_holm": 1.1097175729098758e-15,
       "t_equivalent": 8.53,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -564,7 +564,7 @@
       "date": "2026-10-20",
       "family": "leak anatomy",
       "hypothesis": "Walk-forward with the purge, a 20-tree random forest on i.i.d. random walks (no signal exists) scores above 50% direction accuracy.",
-      "test": "one-sided exact binomial test on all decisions pooled over seeds (labels never overlap within a run)",
+      "test": "one-sided exact binomial test on all decisions pooled over seeds (independent runs; labels never overlap within a run)",
       "statistic": {
         "name": "mean accuracy %",
         "value": 50.77
@@ -606,8 +606,8 @@
       "id": "leak_nn_shuffled_cl_unpurged",
       "date": "2026-10-20",
       "family": "leak anatomy",
-      "hypothesis": "Walk-forward without the purge, a 1-nearest-neighbour model on block-shuffled CL=F returns (no signal exists) scores above 50% direction accuracy.",
-      "test": "one-sided exact binomial test on all decisions pooled over seeds (labels never overlap within a run)",
+      "hypothesis": "Walk-forward without the purge, a 1-nearest-neighbour model on block-shuffled CL=F returns (no signal exists) beats its base rate, the accuracy of always calling the more frequent direction, in every run.",
+      "test": "one-sided exact binomial test of each run's accuracy against that run's base rate; p is the largest of the per-run p-values (intersection-union test, valid however the runs depend on one another)",
       "statistic": {
         "name": "mean accuracy %",
         "value": 72.87
@@ -618,18 +618,27 @@
         "base_rate_pct_mean": 52.82,
         "runs_beating_base_rate": 10
       },
-      "p_value": 4.0664383757967025e-104,
+      "p_value": 1.9453422977149598e-05,
       "sided": "one",
-      "p_two_sided": 8.132876751593405e-104,
-      "pre_specified": true,
+      "p_two_sided": 3.8906845954299195e-05,
+      "pre_specified": false,
       "status": "supported",
       "retraction_reason": null,
-      "note": "Predicted analytically before the simulation: 1/2 + arcsin(0.8)/pi = 79.5% for the newest leaked label. The shuffled runs permute the same CL=F returns, so their pooled decisions are not independent and this p overstates the evidence; real 5-session returns rise more often than they fall, so each run is also tested against its own base rate (runs_beating_base_rate).",
+      "note": "Predicted analytically before the simulation: 1/2 + arcsin(0.8)/pi = 79.5% for the newest leaked label. The shuffled runs permute the same CL=F returns, so they are not independent samples and a test pooled over them (pooled_binomial_p_value_vs_50) would overstate the evidence; real 5-session returns rise more often than they fall, so each run's no-skill accuracy is its base rate, not 50%. The p-value is therefore the largest of the runs' own binomial p-values against their base rates. This test replaced the pooled one after the runs were seen, so the row is not marked pre-specified.",
       "artifact": {
         "path": "data/leak_anatomy.json",
         "statistic_field": "block_shuffled_cl.nearest_neighbour.unpurged_leaked.accuracy_pct_mean",
         "p_value_fields": {
-          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.pooled_binomial_p_value_vs_50": 4.0664383757967025e-104
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[0].binomial_p_value_vs_base_rate": 8.101339118711735e-09,
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[1].binomial_p_value_vs_base_rate": 1.9453422977149598e-05,
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[2].binomial_p_value_vs_base_rate": 8.625849526662148e-12,
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[3].binomial_p_value_vs_base_rate": 7.993938860157898e-12,
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[4].binomial_p_value_vs_base_rate": 5.987399810725669e-11,
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[5].binomial_p_value_vs_base_rate": 3.186854835525418e-07,
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[6].binomial_p_value_vs_base_rate": 6.828449129341197e-14,
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[7].binomial_p_value_vs_base_rate": 5.605605036206197e-12,
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[8].binomial_p_value_vs_base_rate": 1.709995629436001e-06,
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[9].binomial_p_value_vs_base_rate": 3.584047189227809e-10
         },
         "context_fields": {
           "gross_sharpe_mean": "block_shuffled_cl.nearest_neighbour.unpurged_leaked.sharpe_mean",
@@ -638,9 +647,9 @@
           "runs_beating_base_rate": "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs_beating_base_rate_5pct"
         }
       },
-      "q_value_bh": 6.099657563695054e-102,
-      "p_holm": 6.099657563695054e-102,
-      "t_equivalent": 21.64,
+      "q_value_bh": 0.0002652739496884036,
+      "p_holm": 0.0025302457384919577,
+      "t_equivalent": 4.11,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
       "clears_hlz_t3": true
@@ -649,8 +658,8 @@
       "id": "leak_nn_shuffled_cl_purged",
       "date": "2026-10-20",
       "family": "leak anatomy",
-      "hypothesis": "Walk-forward with the purge, a 1-nearest-neighbour model on block-shuffled CL=F returns (no signal exists) scores above 50% direction accuracy.",
-      "test": "one-sided exact binomial test on all decisions pooled over seeds (labels never overlap within a run)",
+      "hypothesis": "Walk-forward with the purge, a 1-nearest-neighbour model on block-shuffled CL=F returns (no signal exists) beats its base rate, the accuracy of always calling the more frequent direction, in every run.",
+      "test": "one-sided exact binomial test of each run's accuracy against that run's base rate; p is the largest of the per-run p-values (intersection-union test, valid however the runs depend on one another)",
       "statistic": {
         "name": "mean accuracy %",
         "value": 49.68
@@ -661,18 +670,27 @@
         "base_rate_pct_mean": 52.82,
         "runs_beating_base_rate": 0
       },
-      "p_value": 0.6265529559160934,
+      "p_value": 0.9998505874443484,
       "sided": "one",
       "p_two_sided": 1.0,
-      "pre_specified": true,
+      "pre_specified": false,
       "status": "rejected",
       "retraction_reason": null,
-      "note": "Predicted analytically before the simulation: 1/2 + arcsin(0.8)/pi = 79.5% for the newest leaked label. The shuffled runs permute the same CL=F returns, so their pooled decisions are not independent and this p overstates the evidence; real 5-session returns rise more often than they fall, so each run is also tested against its own base rate (runs_beating_base_rate).",
+      "note": "Predicted analytically before the simulation: 1/2 + arcsin(0.8)/pi = 79.5% for the newest leaked label. The shuffled runs permute the same CL=F returns, so they are not independent samples and a test pooled over them (pooled_binomial_p_value_vs_50) would overstate the evidence; real 5-session returns rise more often than they fall, so each run's no-skill accuracy is its base rate, not 50%. The p-value is therefore the largest of the runs' own binomial p-values against their base rates. This test replaced the pooled one after the runs were seen, so the row is not marked pre-specified.",
       "artifact": {
         "path": "data/leak_anatomy.json",
         "statistic_field": "block_shuffled_cl.nearest_neighbour.purged.accuracy_pct_mean",
         "p_value_fields": {
-          "block_shuffled_cl.nearest_neighbour.purged.pooled_binomial_p_value_vs_50": 0.6265529559160934
+          "block_shuffled_cl.nearest_neighbour.purged.runs[0].binomial_p_value_vs_base_rate": 0.5816933722516302,
+          "block_shuffled_cl.nearest_neighbour.purged.runs[1].binomial_p_value_vs_base_rate": 0.9998505874443484,
+          "block_shuffled_cl.nearest_neighbour.purged.runs[2].binomial_p_value_vs_base_rate": 0.9020002329352897,
+          "block_shuffled_cl.nearest_neighbour.purged.runs[3].binomial_p_value_vs_base_rate": 0.876345177227228,
+          "block_shuffled_cl.nearest_neighbour.purged.runs[4].binomial_p_value_vs_base_rate": 0.811799095688608,
+          "block_shuffled_cl.nearest_neighbour.purged.runs[5].binomial_p_value_vs_base_rate": 0.6349574734625216,
+          "block_shuffled_cl.nearest_neighbour.purged.runs[6].binomial_p_value_vs_base_rate": 0.4195428640304018,
+          "block_shuffled_cl.nearest_neighbour.purged.runs[7].binomial_p_value_vs_base_rate": 0.4195082849860192,
+          "block_shuffled_cl.nearest_neighbour.purged.runs[8].binomial_p_value_vs_base_rate": 0.8768671145598074,
+          "block_shuffled_cl.nearest_neighbour.purged.runs[9].binomial_p_value_vs_base_rate": 0.9556009890290038
         },
         "context_fields": {
           "gross_sharpe_mean": "block_shuffled_cl.nearest_neighbour.purged.sharpe_mean",
@@ -1338,8 +1356,8 @@
           "mean_premium_vol_pts": "economic.variance_risk_premium.mean_premium_vol_pts"
         }
       },
-      "q_value_bh": 2.5693471235553225e-10,
-      "p_holm": 1.4388343891909808e-09,
+      "q_value_bh": 3.083216548266387e-10,
+      "p_holm": 1.4593891661794232e-09,
       "t_equivalent": 6.7,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -1496,8 +1514,8 @@
           "z_hac": "overall.har_dir_z_score_hac"
         }
       },
-      "q_value_bh": 1.291394634493588e-45,
-      "p_holm": 2.5483520787340138e-45,
+      "q_value_bh": 2.582789268987176e-45,
+      "p_holm": 2.582789268987176e-45,
       "t_equivalent": 14.43,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -1578,8 +1596,8 @@
           "noise_floor_mean_reversion_pct": "overall.direction_noise_floor.mean_reversion_dir_acc_pct_mean"
         }
       },
-      "q_value_bh": 0.0001979996663064052,
-      "p_holm": 0.0015919173171034977,
+      "q_value_bh": 0.00022274962459470585,
+      "p_holm": 0.0016156772770602665,
       "t_equivalent": 4.23,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -1617,8 +1635,8 @@
           "qlike_har_iv": "leaderboard.models[key=har_iv].qlike"
         }
       },
-      "q_value_bh": 2.6752782632059994e-11,
-      "p_holm": 1.2662983779175064e-10,
+      "q_value_bh": 3.344097829007499e-11,
+      "p_holm": 1.2841335663388797e-10,
       "t_equivalent": 7.05,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -1656,8 +1674,8 @@
           "qlike_har_iv": "leaderboard.models[key=har_iv].qlike"
         }
       },
-      "q_value_bh": 0.00026138902257148326,
-      "p_holm": 0.00249190868184814,
+      "q_value_bh": 0.0002652739496884036,
+      "p_holm": 0.0025302457384919577,
       "t_equivalent": 4.12,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -2113,8 +2131,8 @@
         },
         "context_fields": {}
       },
-      "q_value_bh": 3.727146766137699e-38,
-      "p_holm": 1.088326855712208e-37,
+      "q_value_bh": 5.590720149206548e-38,
+      "p_holm": 1.103235442776759e-37,
       "t_equivalent": 13.16,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,

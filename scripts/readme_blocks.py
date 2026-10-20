@@ -1,11 +1,13 @@
 """Markdown blocks for README.md and docs/, generated from the committed artifacts.
 
-Every table, key number and data-dependent verdict in the README, the model card and the datasheet is
-produced here from data/*.json and inserted with cog (https://nedbatchelder.com/code/cog):
-`cog -r README.md` regenerates the blocks and `cog --check README.md` (run in CI) fails if a committed
-artifact and the page disagree. A sentence that states a number, a direction ("above one"), a
-significance verdict or a quantifier ("every", "none") is written here, conditional on the data, so it
-cannot contradict the artifact it describes. No statistic is typed by hand. Standard library only.
+Every table, result statistic and data-dependent verdict in the README, and every table in the model
+card and the datasheet, is produced here from data/*.json and inserted with cog
+(https://nedbatchelder.com/code/cog): `cog -r README.md` regenerates the blocks and `cog --check
+README.md` (run in CI) fails if a committed artifact and the page disagree. A sentence that states a
+result, a direction ("above one"), a significance verdict or a quantifier ("every", "none") is written
+here, conditional on the data, so it cannot contradict the artifact it describes; descriptive facts
+about the design (the number of models, schedules) stay in the hand-written prose. Standard library
+only.
 
 Sources. data/vol_lab.json is rebuilt from the pinned snapshot (data/market) and checked in CI;
 data/vol_forecast_validation.json and data/wf_*.json are records of runs on downloaded data, not
@@ -16,6 +18,7 @@ from __future__ import annotations
 
 import ast
 import json
+import math
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -292,7 +295,8 @@ def abstract() -> str:
         f"{len(mcs)} ({_names(mcs)}){control_text}. {record} {chall['label']}, {_gloss(lab, chall)}, {rank} "
         f"({_fmt(k['chall_qlike'])}, DM {_peq(k['chall_dm_p'])}) and {in_set}"
         f"{_count(chall['in_mcs_qlike_grids'], 5)} grids. {spa_text} The model of record's 80% adaptive conformal "
-        f"intervals cover {k['coverage']}% of outcomes, and its weekly 99% Value-at-Risk breaches "
+        f"intervals cover {k['coverage']}% of outcomes (the method steers long-run coverage to its target), and its "
+        f"weekly 99% Value-at-Risk breaches "
         f"{var99['exceedances_by_grid'][0]} times against {var99['expected']} expected on the production grid, with "
         f"breaches that pass the independence test on {var99['independence_pass_grids']}/5 grids against "
         f"{hs99['independence_pass_grids']}/5 for historical simulation. In the production validation (a recorded "
@@ -371,7 +375,8 @@ def results_at_a_glance() -> str:
                 f"90% MCS (p = {_fmt(champ['mcs_qlike_p'])}); SPA p = {_fmt(k['spa_p'])} after the search; "
                 f"challenger on the live record | lab |")
     rows.append(f"| Are the forecasts calibrated? | {calibrated} | Mincer-Zarnowitz slope {_fmt(mz['slope'], 2)} "
-                f"(joint p = {_p(mz['p_unbiased'])}); 80% intervals cover {k['coverage']}% | lab |")
+                f"(joint p = {_p(mz['p_unbiased'])}); 80% intervals cover {k['coverage']}% (adaptive conformal: on "
+                f"target by construction) | lab |")
     rows.append(f"| Does it make a better weekly VaR? | {var_answer} | Breach independence passes on "
                 f"{var95['independence_pass_grids']}/5 grids at 95% and {var99['independence_pass_grids']}/5 at 99%, "
                 f"vs {hs95['independence_pass_grids']}/5 and {hs99['independence_pass_grids']}/5 for historical "
@@ -663,7 +668,9 @@ def calibration_reading() -> str:
     target = c["target_coverage_pct"]
     se = (target / 100 * (1 - target / 100) / 50) ** 0.5 * 100
     text.append(f"The model of record's intervals cover {c['coverage_pct']}% of the {c['n_days']:,} scored days "
-                f"against a target of {target:g}%. Coverage by calendar year ranges {min(years)}% to {max(years)}%; "
+                f"against a target of {target:g}%. Adaptive conformal inference steers long-run coverage to its target "
+                f"whatever the model, so that figure checks the method; the yearly coverage and the interval score "
+                f"are what differ between models. Coverage by calendar year ranges {min(years)}% to {max(years)}%; "
                 f"with about fifty independent weeks a year, one year's coverage has a standard error of about "
                 f"{se:.0f} points, so deviations of that size are expected.")
     return " ".join(text)
@@ -1002,20 +1009,31 @@ def leak_table() -> str:
             rows.append(f"| {dname} | {names.get(mkey, mkey)} | {u['n_runs']} | {u['accuracy_pct_mean']:.1f}% → "
                         f"**{p['accuracy_pct_mean']:.1f}%** | {_fmt(u['sharpe_mean'], 2)} → **{_fmt(p['sharpe_mean'], 2)}** |")
     ref = a["retracted_reference"]
+    ledger_rows = [r for r in _ledger()["rows"] if r["family"] == "leak anatomy" and "block-shuffled" in r["hypothesis"]]
+    ledger_note = (" The ledger's block-shuffled rows test each run against its own base rate and take the largest "
+                   "of the per-run p-values (section 6)." if ledger_rows and all(map(_per_run_p, ledger_rows)) else "")
     shuffled = [(names.get(mkey, mkey), block) for mkey, block in a["block_shuffled_cl"].items()
                 if isinstance(block, dict) and "purged" in block]
     beat_u = _join([f"{b['unpurged_leaked']['runs_beating_base_rate_5pct']} of {b['unpurged_leaked']['n_runs']} "
                     f"({name.lower()})" for name, b in shuffled])
     beat_p = _join([f"{b['purged']['runs_beating_base_rate_5pct']} of {b['purged']['n_runs']}" for _, b in shuffled])
+    real = [block for block in a["real_cl_5y_window"].values() if isinstance(block, dict) and "purged" in block]
+    real_note = ""
+    if real and all("runs_beating_base_rate_5pct" in b[arm] for b in real for arm in ("unpurged_leaked", "purged")):
+        real_u = sum(b["unpurged_leaked"]["runs_beating_base_rate_5pct"] > 0 for b in real)
+        real_p = sum(b["purged"]["runs_beating_base_rate_5pct"] > 0 for b in real)
+        real_note = (f" On the real 5-year window (one run per model) the leaked run beats its base rate for {real_u} "
+                     f"of {len(real)} models and the purged run for {real_p} of {len(real)}.")
     rows.append("")
     rows.append(f"Sharpe ratios here are gross (no transaction costs); the retracted model's {ref['sharpe']:.2f} is "
                 f"{ref['sharpe_basis']}, so the two are not like for like, and costs would only lower these. For "
                 f"comparison, the retracted model: {ref['accuracy_pct']:.1f}% over {ref['n']} weeks. Same walk-forward, "
                 f"same five-session labels, the purge switched off and on. The block-shuffled runs permute the same "
-                f"CL=F returns, so they are not independent samples and their pooled tests overstate the evidence. "
+                f"CL=F returns, so they are not independent samples, and a test that pools their decisions would "
+                f"overstate the evidence. "
                 f"Real 5-session CL=F returns rise {a['design']['cl_5_session_up_share_pct']}% of the time, so the "
                 f"no-skill accuracy on them is each run's own base rate, not 50%: leaked runs beating their base rate "
-                f"at 5%: {beat_u}; purged: {beat_p}. Source: leak anatomy.")
+                f"at 5%: {beat_u}; purged: {beat_p}.{ledger_note}{real_note} Source: leak anatomy.")
     return "\n".join(rows)
 
 
@@ -1183,6 +1201,12 @@ def ledger_block() -> str:
     return "\n".join(out)
 
 
+def _per_run_p(row: dict) -> bool:
+    """Whether a ledger row's p-value is the largest of per-run p-values rather than a pooled test."""
+    fields = (row.get("artifact") or {}).get("p_value_fields") or {}
+    return len(fields) > 1 and all(".runs[" in path for path in fields)
+
+
 def ledger_reading() -> str:
     led = _ledger()
     s = led["summary"]
@@ -1196,9 +1220,16 @@ def ledger_reading() -> str:
                     f"wrong.")
     shuffled = [r for r in leak if "block-shuffled" in r["hypothesis"]]
     if shuffled:
-        runs = shuffled[0].get("context", {}).get("runs")
-        text.append(f"The block-shuffled one pools {runs} runs that permute the same returns, so its p-value "
-                    f"overstates the evidence (section 4); the synthetic runs draw independent returns.")
+        row = shuffled[0]
+        runs = row.get("context", {}).get("runs")
+        if _per_run_p(row):
+            text.append(f"The block-shuffled demonstration does not pool its {runs} runs, which permute the same "
+                        f"returns: it claims that every run beats its own base rate, and its p-value is the largest of "
+                        f"the {runs} per-run p-values (an intersection-union test, valid however the runs depend on one "
+                        f"another; section 4). The synthetic one pools runs on independent returns.")
+        else:
+            text.append(f"The block-shuffled one pools {runs} runs that permute the same returns, so its p-value "
+                        f"overstates the evidence (section 4); the synthetic runs draw independent returns.")
     retracted = s["by_status"]["retracted"]
     text.append(f"The {retracted} retracted rows stay in the multiplicity count: they were tested.")
     return " ".join(text)
@@ -1212,12 +1243,52 @@ def promotion_rule() -> str:
     return f"> {PROMOTION_RULE}"
 
 
+def _t_critical(alpha: float, df: int) -> float:
+    """The upper-alpha quantile of Student's t(df), by bisection on vol_record.student_t_sf (the
+    function the promotion test takes its p-value from)."""
+    from backend.vol_record import student_t_sf
+
+    lo, hi = 0.0, 1.0
+    while student_t_sf(hi, df) > alpha:
+        hi *= 2.0
+    for _ in range(100):
+        mid = 0.5 * (lo + hi)
+        lo, hi = (mid, hi) if student_t_sf(mid, df) > alpha else (lo, mid)
+    return 0.5 * (lo + hi)
+
+
+def _noncentral_t_sf(c: float, df: int, delta: float, steps: int = 2000) -> float:
+    """P(T > c) for T noncentral t(df, delta) = (Z + delta) / S, S = sqrt(chi2(df) / df): the mean over
+    S of P(Z > c S - delta), by Simpson's rule over S's density on mean +- 12 sd (S has mean ~1, sd
+    ~1 / sqrt(2 df)). Agrees with scipy.stats.nct to ~1e-12 at the degrees of freedom used here."""
+    from statistics import NormalDist
+
+    z = NormalDist()
+    sd = (2.0 * df) ** -0.5
+    lo, hi = max(0.0, 1.0 - 12.0 * sd), 1.0 + 12.0 * sd
+    log_const = math.log(2.0) + df / 2 * math.log(df / 2) - math.lgamma(df / 2)
+
+    def integrand(s: float) -> float:
+        if s <= 0.0:
+            density = math.sqrt(2.0 / math.pi) if df == 1 else 0.0
+        else:
+            density = math.exp(log_const + (df - 1) * math.log(s) - df * s * s / 2)
+        return density * (1.0 - z.cdf(c * s - delta))
+
+    h = (hi - lo) / steps
+    inner = sum((4 if i % 2 else 2) * integrand(lo + i * h) for i in range(1, steps))
+    return (integrand(lo) + inner + integrand(hi)) * h / 3
+
+
 def promotion_power(min_weeks: int = 52, alpha: float = 0.10) -> str:
     """Power of the promotion test if the challenger's historical edge is its true edge.
 
-    The per-grid Diebold-Mariano statistics are on ~n_weeks non-overlapping weeks, so the expected
-    statistic after w independent weeks is about stat * sqrt(w / n_weeks)."""
-    from statistics import NormalDist, median
+    The per-grid Diebold-Mariano statistics are on n_weeks non-overlapping weeks, so the edge per
+    week, the mean loss difference over its standard deviation, is about stat / sqrt(n_weeks). With
+    normal weekly differences the test's statistic on w weeks is then noncentral t with w - 1 degrees
+    of freedom and noncentrality stat * sqrt(w / n_weeks), and the test rejects above the t(w - 1)
+    critical value, as vol_record.promotion_test does."""
+    from statistics import median
 
     from backend.vol_record import PROMOTION_ALPHA, PROMOTION_WEEKS
 
@@ -1227,15 +1298,37 @@ def promotion_power(min_weeks: int = 52, alpha: float = 0.10) -> str:
     chall = _chall(lab)
     n_weeks = lab["sample"]["n_weeks"]
     stat = median(chall["dm_qlike_vs_har_iv_by_grid"])
-    z = NormalDist()
-    crit = z.inv_cdf(1 - alpha)
-    power = 1 - z.cdf(crit - stat * (min_weeks / n_weeks) ** 0.5)
-    weeks_80 = n_weeks * ((crit + z.inv_cdf(0.80)) / stat) ** 2
-    return (f"How much the single test can tell: on the sampling grids the challenger's historical edge is a "
-            f"Diebold-Mariano statistic of about {stat:.1f} over {n_weeks} weeks. If that is its true edge, the test "
-            f"on {min_weeks} independent weeks promotes it with probability {power * 100:.0f}%; a fixed-sample test "
-            f"with 80% power would need about {weeks_80:,.0f} weeks ({weeks_80 / 52:.0f} years). The rule is built "
-            f"not to promote on luck. A keep verdict on that sample does not show the challenger is worse.")
+    crit = _t_critical(alpha, min_weeks - 1)
+    edge = (f"How much the single test can tell: on the five sampling grids the challenger's Diebold-Mariano "
+            f"statistic against the model of record has a median of {_fmt(stat, 1)}, each over {n_weeks} "
+            f"non-overlapping weeks.")
+    size = (f"If the challenger is no better, the test promotes it with probability at most {alpha * 100:.0f}%, "
+            f"its size.")
+    if stat <= 0:
+        return f"{edge} That is no edge, so the test promotes it with probability at most its size, {alpha * 100:.0f}%."
+
+    def power(weeks: int) -> float:
+        return _noncentral_t_sf(_t_critical(alpha, weeks - 1), weeks - 1, stat * (weeks / n_weeks) ** 0.5)
+
+    cap = 52 * 100                       # a century of weeks: past that, say so instead of searching on
+    lo, hi = 2, min_weeks
+    while power(hi) < 0.80 and hi < cap:
+        lo, hi = hi, min(hi * 2, cap)
+    if power(hi) < 0.80:
+        weeks_80 = "more than a century of weeks"
+    else:
+        while hi - lo > 1:
+            mid = (lo + hi) // 2
+            lo, hi = (mid, hi) if power(mid) < 0.80 else (lo, mid)
+        weeks_80 = f"about {hi:,} weeks ({hi / 52:.0f} years)"
+    p52 = power(min_weeks)
+    reading = (f"With {p52 * 100:.0f}% power, a keep verdict on that sample does not show that the challenger is no "
+               f"better than the model of record." if p52 < 0.80 else
+               f"With {p52 * 100:.0f}% power, a keep verdict on that sample is evidence against that edge.")
+    return (f"{edge} If that is its true edge, the test on {min_weeks} independent weeks promotes it with "
+            f"probability {p52 * 100:.0f}%, and a fixed-sample test with 80% power would need {weeks_80}. This treats the weekly loss differences as normal, so the statistic is "
+            f"noncentral t with {min_weeks - 1} degrees of freedom, compared with the test's own critical value, "
+            f"t({min_weeks - 1})'s {crit:.3f}. {size} {reading}")
 
 
 def print_block(name: str) -> None:

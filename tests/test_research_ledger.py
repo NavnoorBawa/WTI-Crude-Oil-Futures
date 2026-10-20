@@ -130,6 +130,31 @@ class RowDefinitionTest(unittest.TestCase):
                 self.assertTrue(any("year_matched" in path for path in fields))
                 self.assertEqual(row["p_value"], max(fields.values()))
 
+    def test_runs_on_cl_returns_are_never_pooled(self):
+        # Block-shuffled (and real) CL=F runs reuse the same returns and have a base rate above 50%:
+        # their rows take the largest per-run p against each run's base rate, over every run.
+        leak = [r for r in self.rows.values() if r["family"] == "leak anatomy"]
+        on_cl = [r for r in leak if r["artifact"]["statistic_field"].startswith(("block_shuffled_cl", "real_cl"))]
+        self.assertEqual({r["id"] for r in on_cl}, {"leak_nn_shuffled_cl_unpurged", "leak_nn_shuffled_cl_purged"})
+        doc = rl.load_artifact("leak_anatomy.json")
+        for row in on_cl:
+            with self.subTest(row=row["id"]):
+                fields = row["artifact"]["p_value_fields"]
+                self.assertEqual(len(fields), row["context"]["runs"])
+                self.assertTrue(all(path.endswith("].binomial_p_value_vs_base_rate") for path in fields))
+                self.assertEqual(row["p_value"], max(fields.values()))
+                self.assertIn("largest of the per-run p-values", row["test"])
+                self.assertFalse(row["pre_specified"])                    # the test was replaced after the runs
+                block = rl.resolve(doc, row["artifact"]["statistic_field"].rsplit(".", 1)[0])
+                self.assertEqual(sorted(fields.values()),
+                                 sorted(run["binomial_p_value_vs_base_rate"] for run in block["runs"]))
+        self.assertEqual(self.rows["leak_nn_shuffled_cl_unpurged"]["status"], "supported")
+        self.assertEqual(self.rows["leak_nn_shuffled_cl_purged"]["status"], "rejected")
+        # Synthetic random-walk runs are independent with a 50% no-skill rate: pooled.
+        for rid in ("leak_forest_noise_unpurged", "leak_forest_noise_purged"):
+            (path,) = self.rows[rid]["artifact"]["p_value_fields"]
+            self.assertTrue(path.startswith("synthetic_random_walk.") and path.endswith("pooled_binomial_p_value_vs_50"))
+
     def test_sharpe_rows_use_the_non_normal_standard_error(self):
         for rid in ("vrp_short_vol_swap_sharpe", "vrp_short_variance_sharpe"):
             (path,) = self.rows[rid]["artifact"]["p_value_fields"]
@@ -163,6 +188,16 @@ class ResolveTest(unittest.TestCase):
         self.assertEqual(rl.resolve(self.DOC, "a.list[key=x,level=0.01].v"), 2)
         self.assertEqual(rl.resolve(self.DOC, "a.list[1].v"), 2)
         self.assertEqual(rl.resolve(self.DOC, "a.0.k"), 3)
+
+    def test_largest_over_runs_is_the_intersection_union_p(self):
+        doc = {"x": {"runs": [{"p": 0.01}, {"p": 0.2}, {"p": 0.003}]}, "empty": {"runs": []}}
+        p, used = rl.LargestOverRuns("x.runs", "p")(doc)
+        self.assertEqual(p, 0.2)
+        self.assertEqual(used, {"x.runs[0].p": 0.01, "x.runs[1].p": 0.2, "x.runs[2].p": 0.003})
+        for bad in (rl.LargestOverRuns("empty.runs", "p"), rl.LargestOverRuns("x", "p"),
+                    rl.LargestOverRuns("x.runs", "missing")):
+            with self.subTest(source=bad), self.assertRaises(rl.FieldError):
+                bad(doc)
 
     def test_missing_or_ambiguous_fields_fail_loudly(self):
         for path in ("a.missing", "a.list[key=x].v", "a.list[key=y].v", "a.list[9].v"):

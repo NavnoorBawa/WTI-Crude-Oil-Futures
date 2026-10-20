@@ -138,12 +138,50 @@ test("late commits and the promotion status render, and degrade when absent", ()
   const { html, text } = render(payload, research);
   const live = html.match(/<section id="live"[\s\S]*?<\/section>/)[0];
   assert.match(live, /chip--status-late_commit"[^>]*>late commit</);
+  assert.match(live, /title="Not sealed in time \(less than five minutes before the settlement that opens its window, or never\); never scored"/);
   assert.ok(visibleText(live).includes("promotion accruing 0/52"));
-  assert.ok(text.includes("1 sealed after its window opened (never scored)"));
+  assert.ok(text.includes("1 not sealed in time (never scored)"));
+  assert.doesNotMatch(text, /sealed after/);
   assert.ok(text.includes("promotion accruing 0/52 "), "the verdict tile carries the promotion status");
-  const plain = render(data, research);
+  const withoutPromotion = structuredClone(data);
+  delete withoutPromotion.vol_forecast.live_record.promotion;
+  const plain = render(withoutPromotion, research);
+  assert.deepEqual(plain.errors, []);
   assert.ok(!/promotion accruing/.test(plain.text), "no promotion block, no promotion status");
   assert.ok(plain.text.includes("13:30 CT"), "the scoring note's ET time also reads in CT");
+});
+
+test("LEAK labels each Sharpe with its basis and shows the anatomy's caveats", () => {
+  const { html } = render(data, research);
+  const leak = visibleText(html.match(/<section id="leak"[\s\S]*?<\/section>/)[0]);
+  const anatomy = research.leak_anatomy;
+  const gross = anatomy.design.sharpe.split(":")[0].trim();
+  assert.ok(leak.includes(`Sharpe ${anatomy.unpurged_sharpe_mean.toFixed(2)}, ${gross}`), "the noise tile is gross");
+  assert.ok(leak.includes(`Sharpe ${anatomy.retracted_reference.sharpe.toFixed(2)} ${anatomy.retracted_reference.sharpe_basis}`), "the retracted tile is after costs");
+  assert.ok(leak.includes(anatomy.conclusion), "the artifact's conclusion, caveats included");
+  // CL=F rows mark their own base rate; 50% is named as the random walk's no-skill line only.
+  const svgSource = m.svg.LeakDumbbell.toString();
+  assert.match(svgSource, /50% = no skill on the random walk/);
+  assert.doesNotMatch(svgSource, /coin flip/);
+});
+
+test("STDY shows both placebo tests and highlights a group only when both reject", () => {
+  const { html } = render(data, research);
+  const stdy = html.match(/<section id="stdy"[\s\S]*?<\/section>/)[0];
+  const text = visibleText(stdy);
+  assert.equal((stdy.match(/<th scope="col" class="align-right wrap-head" title="(Peak|Settle) p: [^"]*">vs placebo</g) ?? []).length, 2, "peak and settle, unmatched placebo");
+  assert.equal((stdy.match(/<th scope="col" class="align-right wrap-head" title="(Peak|Settle) p: [^"]*">year-matched</g) ?? []).length, 2, "peak and settle, year-matched placebo");
+  const study = m.research.supplyStudy(research);
+  const passing = study.groups.filter((group) => m.assertions.placeboVerdict(group.peakP, group.peakPYear) === "both"
+    || m.assertions.placeboVerdict(group.settleP, group.settlePYear) === "both");
+  assert.ok(passing.length > 0, "the fixture has a group that passes both placebos");
+  assert.equal((stdy.match(/<tr class="passes-rule"/g) ?? []).length, passing.length);
+  const unmatchedOnly = study.groups.find((group) => m.assertions.placeboVerdict(group.peakP, group.peakPYear) === "one");
+  assert.ok(unmatchedOnly, "the fixture has a group that passes one placebo only");
+  const sentence = research.supply_study.conclusion.split(/(?<=\.)\s/).find((item) => /not the year-matched/.test(item));
+  assert.ok(sentence && text.includes(sentence), "the groups that pass only the unmatched placebo are named");
+  assert.ok(text.includes(research.supply_study.overlapping_events.definition), "the overlap caveat");
+  assert.match(stdy, /title="Windows share sessions: /);
 });
 
 test("canvas charts carry an accessible summary of what they draw", async () => {
@@ -179,10 +217,16 @@ test("without research.json every panel still renders, with an explicit note", (
 
 test("an empty live record says when the first result is due instead of showing a blank table", () => {
   const empty = structuredClone(data);
-  Object.assign(empty.vol_forecast.live_record, { n_recorded: 0, n_skipped_roll: 0, recent: [] });
+  Object.assign(empty.vol_forecast.live_record, { n_recorded: 0, n_skipped_roll: 0, recent: [], next_result_due: null });
+  const none = render(empty, research).text;
+  assert.ok(none.includes("No calls recorded yet"));
+  assert.ok(none.includes("Results appear once the first target window closes."), "next_result_due null: no date");
+  assert.doesNotMatch(none, /first result due/);
+  empty.vol_forecast.live_record.next_result_due = "2026-10-27";
+  assert.match(render(empty, research).text, /first result due Oct 27, 2026/, "the record's own date, not an estimate");
+  delete empty.vol_forecast.live_record.next_result_due;
   const { text } = render(empty, research);
-  assert.ok(text.includes("No calls recorded yet"));
-  assert.match(text, /first result due about [A-Z][a-z]{2} \d+, \d{4}/);
+  assert.match(text, /first result due about [A-Z][a-z]{2} \d+, \d{4}/, "older payloads: estimated from the start date");
   const missing = structuredClone(data);
   delete missing.vol_forecast.live_record;
   assert.ok(render(missing, research).text.includes("No live record is in this snapshot"));
@@ -223,7 +267,8 @@ test("every headline statistic moves with the payload (none is hardcoded)", () =
     `purged accuracy ${pm.purged.direction_acc_pct}%`,
     `Sharpe of ${pm.leaked.sharpe.toFixed(2)}`,
     `${research.supply_study.placebo.median_peak_pct}% on an ordinary date`,
-    `${research.leak_anatomy.unpurged_dir_acc_pct_mean.toFixed(1)}%`,
+    // The computed anatomy title (the artifact's conclusion prose, also shown, quotes the same figure).
+    `unpurged forest scores ${research.leak_anatomy.unpurged_dir_acc_pct_mean.toFixed(1)}%`,
     `${research.ledger.summary.supported_surviving_bh_5pct.length} of ${research.ledger.summary.supported.length} supported claims`,
   ];
   const original = render(data, research).text;

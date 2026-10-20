@@ -5,8 +5,9 @@ One row per tested hypothesis, each stated as the claim (the alternative) the pr
 examined. Every statistic and p-value is READ from a committed artifact by its JSON field path, or
 computed by a standard formula from fields read the same way (an exact binomial test from a stored
 accuracy and sample size, a normal p-value from a stored z, the larger of two stored p-values when a
-claim needs both tests); nothing is typed in by hand. The row records which fields it used, so each
-number can be checked against its artifact.
+claim needs both tests, the largest of the per-run p-values when runs share their data and so cannot
+be pooled); nothing is typed in by hand. The row records which fields it used, so each number can be
+checked against its artifact.
 
 Status, from the test as the project ran it (one- or two-sided as recorded in `sided`):
   supported      p < 0.05 and the estimate points the way the hypothesis says
@@ -160,6 +161,24 @@ class LargestOf:
 
 
 @dataclass(frozen=True)
+class LargestOverRuns:
+    """Intersection-union test (Berger 1982) that every run beats its own null: the largest of the
+    runs' stored p-values, `{runs}[i].{p}` for each run. Its level holds however the runs depend on
+    one another, so it fits runs that reuse the same data, which a pooled test would count as
+    independent samples."""
+    runs: str
+    p: str
+
+    def __call__(self, doc):
+        runs = resolve(doc, self.runs)
+        if not isinstance(runs, list) or not runs:
+            raise FieldError(f"{self.runs}: not a non-empty list of runs")
+        paths = [f"{self.runs}[{i}].{self.p}" for i in range(len(runs))]
+        used = {path: resolve(doc, path) for path in paths}
+        return max(float(v) for v in used.values()), used
+
+
+@dataclass(frozen=True)
 class SignTest:
     """One-sided exact sign test that a share of periods (percent) exceeds one half."""
     share_pct: str
@@ -251,29 +270,49 @@ def _direction_rows() -> list[Row]:
 
 
 def _leak_rows() -> list[Row]:
+    """Synthetic random-walk runs draw independent returns with a 50% no-skill rate, so they are pooled.
+    Runs on CL=F returns (block-shuffled permutations of the same series) are not independent, and real
+    5-session returns rise more often than they fall, so their no-skill rate is each run's base rate:
+    those rows take the largest of the runs' own p-values against their base rates."""
     analytic = "Predicted analytically before the simulation: 1/2 + arcsin(0.8)/pi = 79.5% for the newest leaked label."
-    shuffled = (" The shuffled runs permute the same CL=F returns, so their pooled decisions are not independent "
-                "and this p overstates the evidence; real 5-session returns rise more often than they fall, so "
-                "each run is also tested against its own base rate (runs_beating_base_rate).")
+    per_run = (" The shuffled runs permute the same CL=F returns, so they are not independent samples and a test "
+               "pooled over them (pooled_binomial_p_value_vs_50) would overstate the evidence; real 5-session "
+               "returns rise more often than they fall, so each run's no-skill accuracy is its base rate, not 50%. "
+               "The p-value is therefore the largest of the runs' own binomial p-values against their base rates. "
+               "This test replaced the pooled one after the runs were seen, so the row is not marked pre-specified.")
     rows = []
-    for rid, block, desc, extra in (
-        ("leak_forest_noise", "synthetic_random_walk.random_forest", "a 20-tree random forest on i.i.d. random walks", ""),
+    for rid, block, desc, pooled in (
+        ("leak_forest_noise", "synthetic_random_walk.random_forest", "a 20-tree random forest on i.i.d. random walks",
+         True),
         ("leak_nn_shuffled_cl", "block_shuffled_cl.nearest_neighbour",
-         "a 1-nearest-neighbour model on block-shuffled CL=F returns", shuffled),
+         "a 1-nearest-neighbour model on block-shuffled CL=F returns", False),
     ):
         for purged in (False, True):
-            key = "purged" if purged else "unpurged_leaked"
+            b = f"{block}.{'purged' if purged else 'unpurged_leaked'}"
+            setting = f"Walk-forward {'with' if purged else 'without'} the purge, {desc} (no signal exists)"
+            if pooled:
+                claim = dict(
+                    hypothesis=f"{setting} scores above 50% direction accuracy.",
+                    test=("one-sided exact binomial test on all decisions pooled over seeds (independent runs; "
+                          "labels never overlap within a run)"),
+                    p=Field(f"{b}.pooled_binomial_p_value_vs_50"), expects=ABOVE_50, note=analytic)
+            else:
+                claim = dict(
+                    hypothesis=(f"{setting} beats its base rate, the accuracy of always calling the more frequent "
+                                "direction, in every run."),
+                    test=("one-sided exact binomial test of each run's accuracy against that run's base rate; p is "
+                          "the largest of the per-run p-values (intersection-union test, valid however the runs "
+                          "depend on one another)"),
+                    p=LargestOverRuns(f"{b}.runs", "binomial_p_value_vs_base_rate"),
+                    beats=f"{b}.base_rate_pct_mean", note=analytic + per_run)
             rows.append(Row(
                 id=f"{rid}_{'purged' if purged else 'unpurged'}", family="leak anatomy",
-                hypothesis=(f"Walk-forward {'with' if purged else 'without'} the purge, {desc} (no signal "
-                            "exists) scores above 50% direction accuracy."),
-                test="one-sided exact binomial test on all decisions pooled over seeds (labels never overlap within a run)",
-                source=LEAK, statistic=("mean accuracy %", f"{block}.{key}.accuracy_pct_mean"),
-                p=Field(f"{block}.{key}.pooled_binomial_p_value_vs_50"), sided="one", expects=ABOVE_50,
-                pre_specified=True, note=analytic + extra,
-                context={"gross_sharpe_mean": f"{block}.{key}.sharpe_mean", "runs": f"{block}.{key}.n_runs",
-                         "base_rate_pct_mean": f"{block}.{key}.base_rate_pct_mean",
-                         "runs_beating_base_rate": f"{block}.{key}.runs_beating_base_rate_5pct"},
+                source=LEAK, statistic=("mean accuracy %", f"{b}.accuracy_pct_mean"), sided="one",
+                pre_specified=pooled,
+                context={"gross_sharpe_mean": f"{b}.sharpe_mean", "runs": f"{b}.n_runs",
+                         "base_rate_pct_mean": f"{b}.base_rate_pct_mean",
+                         "runs_beating_base_rate": f"{b}.runs_beating_base_rate_5pct"},
+                **claim,
             ))
     return rows
 

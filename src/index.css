@@ -530,16 +530,20 @@ button { font: inherit; color: inherit; }
   text-transform: uppercase;
   color: var(--text-3);
   border-bottom: 1px solid var(--rule-strong);
+  vertical-align: bottom;
 }
+.data-table thead th.wrap-head { white-space: normal; }
 .data-table tbody th { font-weight: 500; color: var(--text-1); }
 .data-table tbody tr:hover > * { background: var(--bg-2); }
 .data-table .align-right { text-align: right; }
 .data-table .align-center { text-align: center; }
 .data-table .muted-cell { color: var(--text-3); }
 .data-table .wrap-cell { white-space: normal; min-width: 200px; }
+.data-table .wrap-cell.is-narrow { min-width: 140px; }
 .data-table tr.is-record > :first-child { box-shadow: inset 2px 0 0 var(--s-model); padding-left: var(--sp-2); }
 .data-table tr.is-challenger > :first-child { box-shadow: inset 2px 0 0 var(--s-alt); padding-left: var(--sp-2); }
 .data-table tr.is-flagged > :first-child { box-shadow: inset 2px 0 0 var(--warn); padding-left: var(--sp-2); }
+.data-table tr.passes-rule > :first-child { box-shadow: inset 2px 0 0 var(--text-2); padding-left: var(--sp-2); }
 .sort-button {
   display: inline-flex;
   align-items: center;
@@ -566,6 +570,7 @@ button { font: inherit; color: inherit; }
 .model-cell { display: inline-flex; align-items: center; gap: var(--sp-2); }
 .model-name { color: var(--text-1); }
 .stat-cell { display: inline-flex; align-items: baseline; gap: 6px; }
+.stat-cell.is-stacked { flex-direction: column; align-items: flex-end; gap: 0; }
 .stat-range { font-size: var(--fs-11); color: var(--text-3); }
 .inline-bar { display: flex; align-items: center; gap: var(--sp-2); min-width: 150px; }
 .bar-track { flex: 1; min-width: 60px; height: 6px; background: var(--bg-2); }

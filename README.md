@@ -26,7 +26,7 @@ production weekly grid. Log scale.*
 
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("abstract") ]]] -->
 
-This project forecasts the realized volatility of front-month NYMEX WTI crude oil over the next five sessions from free data, and keeps a public forward record of its live forecasts that scores only entries sealed in git before the settlement that opens their window. Over 4,634 out-of-sample days (2008–2026), a heterogeneous autoregressive model with lagged implied volatility (HAR-IV, the model of record) has a QLIKE loss of 0.370, against 0.952 for a random-walk forecast. It is significantly better than GJR-GARCH(1,1)-t, GARCH(1,1)-t, HAR-RV, HAR-RV + semivariance, EWMA (RiskMetrics) and LightGBM (Diebold-Mariano p < 0.05 each). Most of that skill is the options market's: the elasticity on OVX is 1.03, and a regression on OVX alone (0.368, DM p = 0.641) is statistically tied with the full model. Of the 13 models that use only information available at the decision, the 90% Model Confidence Set keeps 4 (HAR-IV-range, Combination, Implied-vol regression and Implied vol (raw OVX)); the 14th, a timing control that reads OVX after the decision, is excluded. The model of record is outside it (MCS p = 0.037), and inside it on 2 of the 5 five-session sampling grids. HAR-IV-range, a range-based variant of the model of record, has the lowest loss of all 14 models (0.353, DM p = 0.002) and is in the set over the full sample and on all 5 grids. Hansen's SPA test gives p = 0.072 against the null that no model beats the model of record (significant at 10% but not at 5%), so the variant runs live as a challenger under a promotion test fixed in advance. The model of record's 80% adaptive conformal intervals cover 80.0% of outcomes, and its weekly 99% Value-at-Risk breaches 14 times against 8.8 expected on the production grid, with breaches that pass the independence test on 5/5 grids against 1/5 for historical simulation. In the production validation (a recorded run on downloaded data), sizing a 35% volatility target on the forecast over 800 weeks keeps realized volatility at 34.9%, cuts excess kurtosis from 58.18 to 1.82, and does not change the Sharpe ratio detectably (difference −0.12 vs buy-and-hold, p = 0.408). Next-week direction accuracy (74.4% on the production grid) is not evidence of skill: the same pipeline, run as HAR without OVX on simulated i.i.d. returns with nothing to forecast, scores 75.5%.
+This project forecasts the realized volatility of front-month NYMEX WTI crude oil over the next five sessions from free data, and keeps a public forward record of its live forecasts that scores only entries sealed in git before the settlement that opens their window. Over 4,634 out-of-sample days (2008–2026), a heterogeneous autoregressive model with lagged implied volatility (HAR-IV, the model of record) has a QLIKE loss of 0.370, against 0.952 for a random-walk forecast. It is significantly better than GJR-GARCH(1,1)-t, GARCH(1,1)-t, HAR-RV, HAR-RV + downside semivol, EWMA (RiskMetrics) and LightGBM (Diebold-Mariano p < 0.05 each). Most of that skill is the options market's: the elasticity on OVX is 1.03, and a regression on OVX alone (0.368, DM p = 0.641) is statistically tied with the full model. Of the 13 models that use only information available at the decision, the 90% Model Confidence Set keeps 4 (HAR-IV-range, Combination, Implied-vol regression and Implied vol (raw OVX)); the 14th, a timing control that reads OVX after the decision, is excluded. The model of record is outside it (MCS p = 0.037), and inside it on 2 of the 5 five-session sampling grids. HAR-IV-range, a range-based variant of the model of record, has the lowest loss of all 14 models (0.353, DM p = 0.002) and is in the set over the full sample and on all 5 grids. Hansen's SPA test gives p = 0.072 against the null that no model beats the model of record (significant at 10% but not at 5%), so the variant runs live as a challenger under a promotion test fixed in advance. The model of record's 80% adaptive conformal intervals cover 80.0% of outcomes (the method steers long-run coverage to its target), and its weekly 99% Value-at-Risk breaches 14 times against 8.8 expected on the production grid, with breaches that pass the independence test on 5/5 grids against 1/5 for historical simulation. In the production validation (a recorded run on downloaded data), sizing a 35% volatility target on the forecast over 800 weeks keeps realized volatility at 34.9%, cuts excess kurtosis from 58.18 to 1.82, and does not change the Sharpe ratio detectably (difference −0.12 vs buy-and-hold, p = 0.408). Next-week direction accuracy (74.4% on the production grid) is not evidence of skill: the same pipeline, run as HAR without OVX on simulated i.i.d. returns with nothing to forecast, scores 75.5%.
 
 The project began as a machine-learning direction model whose backtest Sharpe ratio of 2.47 after costs was a look-ahead leak; purged, it is −0.98. The same leak gives a 20-tree random forest a gross (before costs) Sharpe ratio of 2.85 on a pure random walk. All 75 hypotheses the project has tested are listed in a research ledger with multiplicity adjustments: 10 of the 19 supported ones survive Benjamini-Hochberg at 5%, and 8 are retracted.
 <!-- [[[end]]] -->
@@ -40,7 +40,7 @@ The project began as a machine-learning direction model whose backtest Sharpe ra
 | Is next-week WTI volatility forecastable from free data? | Yes | QLIKE 0.370 vs 0.952 for persistence (DM p < 0.001); 7 of the 12 feasible benchmarks significantly worse | lab |
 | Does it add to implied volatility? | Not detectably | OVX regression 0.368 (DM p = 0.641), raw OVX 0.374 (DM p = 0.620); OVX elasticity 1.03 (HAC t 13.2) | lab |
 | Is anything better? | Possibly: HAR-IV-range | HAR-IV-range QLIKE 0.353 (DM p = 0.002); model of record outside the 90% MCS (p = 0.037); SPA p = 0.072 after the search; challenger on the live record | lab |
-| Are the forecasts calibrated? | Unbiasedness not rejected | Mincer-Zarnowitz slope 0.86 (joint p = 0.161); 80% intervals cover 80.0% | lab |
+| Are the forecasts calibrated? | Unbiasedness not rejected | Mincer-Zarnowitz slope 0.86 (joint p = 0.161); 80% intervals cover 80.0% (adaptive conformal: on target by construction) | lab |
 | Does it make a better weekly VaR? | Yes: its breaches do not cluster | Breach independence passes on 5/5 grids at 95% and 5/5 at 99%, vs 0/5 and 1/5 for historical simulation; 99%: 14 breaches vs 8.8 expected on the production grid (Kupiec passes 5/5) | lab |
 | Does it make money as a vol target? | No, it controls risk | Sharpe difference vs buy-and-hold −0.12 (p = 0.408); excess kurtosis 1.82 vs 58.18 | production run |
 | Is there a variance risk premium? | In vol points, yes; in variance, not significant; as a short vol-swap return, not significant | IV above next-month RV in 73.5% of periods; mean variance premium −263 (95% CI −1083 to 556); short vol-swap Sharpe 0.52 (one-sided p = 0.070, non-normal test) | production run |
@@ -50,10 +50,11 @@ The project began as a machine-learning direction model whose backtest Sharpe ra
 Source: *lab*: `data/vol_lab.json`, rebuilt from the pinned snapshot and checked in CI. *production run*: `data/vol_forecast_validation.json`, a recorded run on data downloaded from Yahoo Finance and FRED, not rebuilt in CI (Yahoo revises history). *leak anatomy*: `data/leak_anatomy.json`, offline from the pinned snapshot and synthetic returns (the unit suite re-runs a subset). *recorded runs*: the direction post-mortem's `data/wf_*.json`, also runs on downloaded data.
 <!-- [[[end]]] -->
 
-The tables and statistics on this page are generated from the committed artifacts in
-[`data/`](data) by [`scripts/readme_blocks.py`](scripts/readme_blocks.py), not typed by hand, and
-CI fails if the page and the artifacts disagree (`cog --check`). That check is about consistency,
-not reproduction, and reproduction differs by artifact:
+Every table, result statistic and data-dependent verdict on this page is generated from the
+committed artifacts in [`data/`](data) by [`scripts/readme_blocks.py`](scripts/readme_blocks.py),
+and CI fails if the page and the artifacts disagree (`cog --check`). Descriptive facts about the
+design (the number of models, schedules, time limits) are written by hand. The check is about
+consistency, not reproduction, and reproduction differs by artifact:
 
 - **Rebuilt in CI from committed inputs.** `data/vol_lab.json`, the benchmark field, is rebuilt in
   full from a hash-pinned snapshot of the Yahoo and FRED data by the Reproduce workflow, on every
@@ -140,7 +141,7 @@ published after the decision and is excluded from the set.*
 | GJR-GARCH(1,1)-t | time-series | 0.417 | −3.17 (0.002) | −3.10 to −2.13 | 0.00 | no (0/5) | 3.15 |
 | GARCH(1,1)-t | time-series | 0.423 | −3.72 (< 0.001) | −3.45 to −2.79 | 0.00 | no (0/5) | 3.13 |
 | HAR-RV | HAR | 0.431 | −4.12 (< 0.001) | −4.33 to −3.21 | 0.00 | no (0/5) | 3.11 |
-| HAR-RV + semivariance | HAR | 0.431 | −4.00 (< 0.001) | −4.06 to −3.22 | 0.00 | no (0/5) | 3.11 |
+| HAR-RV + downside semivol | HAR | 0.431 | −4.00 (< 0.001) | −4.06 to −3.22 | 0.00 | no (0/5) | 3.11 |
 | EWMA (RiskMetrics) | time-series | 0.443 | −4.30 (< 0.001) | −3.86 to −3.30 | 0.00 | no (0/5) | 3.06 |
 | LightGBM | machine learning | 0.457 | −5.61 (< 0.001) | −4.66 to −3.34 | 0.00 | no (0/5) | 3.08 |
 | Persistence (RV5) | naive | 0.952 | −7.07 (< 0.001) | −5.72 to −4.43 | 0.00 | no (0/5) | 1.51 |
@@ -150,7 +151,7 @@ QLIKE on variance-consistent forecasts over every out-of-sample day; DM = Diebol
 
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("field_findings") ]]] -->
 
-The 90% Model Confidence Set keeps 4 of the 13 feasible models (HAR-IV-range, Combination, Implied-vol regression and Implied vol (raw OVX)), and every one of them uses implied volatility (HAR-IV-range also uses the daily range). The model of record is outside it (MCS p = 0.037; the ledger counts this as supported, but it does not survive the Benjamini-Hochberg adjustment) and is inside it on 2 of the 5 sampling grids. Every forecaster built from close-to-close returns alone (GJR-GARCH(1,1)-t, GARCH(1,1)-t, HAR-RV, HAR-RV + semivariance, EWMA (RiskMetrics) and Persistence (RV5)) is significantly worse than the model of record (DM p < 0.05 each). So is LightGBM (DM p < 0.001), although it is given every input the HAR models use: the HAR terms, OVX, the range-based terms and the downside semivolatility. The model of record and the implied-vol regression are statistically indistinguishable (p = 0.641): the options market already prices most of what the realized-volatility terms know.
+The 90% Model Confidence Set keeps 4 of the 13 feasible models (HAR-IV-range, Combination, Implied-vol regression and Implied vol (raw OVX)), and every one of them uses implied volatility (HAR-IV-range also uses the daily range). The model of record is outside it (MCS p = 0.037; the ledger counts this as supported, but it does not survive the Benjamini-Hochberg adjustment) and is inside it on 2 of the 5 sampling grids. Every forecaster built from close-to-close returns alone (GJR-GARCH(1,1)-t, GARCH(1,1)-t, HAR-RV, HAR-RV + downside semivol, EWMA (RiskMetrics) and Persistence (RV5)) is significantly worse than the model of record (DM p < 0.05 each). So is LightGBM (DM p < 0.001), although it is given every input the HAR models use: the HAR terms, OVX, the range-based terms and the downside semivolatility. The model of record and the implied-vol regression are statistically indistinguishable (p = 0.641): the options market already prices most of what the realized-volatility terms know.
 
 HAR-IV-range has the lowest QLIKE and the highest realized utility in the field, and beats the model of record on both (DM p = 0.002 on QLIKE, p = 0.002 on utility). On MSE, which a few extreme weeks dominate, nothing is distinguishable: the MSE confidence set keeps all 13 feasible models, and the challenger's MSE difference from the model of record has DM p = 0.702. The variant was also found by searching this sample, which is what the SPA test discounts for (p = 0.072, significant at 10% but not at 5%). That is why it competes live rather than replacing the model of record on its historical record.
 <!-- [[[end]]] -->
@@ -190,7 +191,7 @@ Mincer-Zarnowitz regression of realized on forecast variance with a HAC covarian
 
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("calibration_reading") ]]] -->
 
-No sample rejects unbiasedness at 5% (joint p 0.161, 0.142, 0.543). The model of record's slope is unstable: it is below one on the every-day sample (0.86) and above one on the production weekly grid (1.22). A regression on variances is dominated by a few extreme weeks, and the two samples catch different ones. The model of record's intervals cover 80.0% of the 4,370 scored days against a target of 80%. Coverage by calendar year ranges 71.3% to 88.0%; with about fifty independent weeks a year, one year's coverage has a standard error of about 6 points, so deviations of that size are expected.
+No sample rejects unbiasedness at 5% (joint p 0.161, 0.142, 0.543). The model of record's slope is unstable: it is below one on the every-day sample (0.86) and above one on the production weekly grid (1.22). A regression on variances is dominated by a few extreme weeks, and the two samples catch different ones. The model of record's intervals cover 80.0% of the 4,370 scored days against a target of 80%. Adaptive conformal inference steers long-run coverage to its target whatever the model, so that figure checks the method; the yearly coverage and the interval score are what differ between models. Coverage by calendar year ranges 71.3% to 88.0%; with about fifty independent weeks a year, one year's coverage has a standard error of about 6 points, so deviations of that size are expected.
 <!-- [[[end]]] -->
 
 ### 2.4 Use as a risk input
@@ -278,8 +279,8 @@ For any continuous i.i.d. series, calling 'up' exactly when the current 5-sessio
 The first version of this project reported its direction accuracy, against a base rate near 50%, as
 the headline evidence of skill. It is not evidence of skill, and it is retracted
 ([errata](CHANGELOG.md#errata-published-numbers-that-were-wrong)). The live record reports
-direction accuracy only beside this floor. The dashboard shows the model-implied probability that
-volatility rises last among its headline figures, labelled uncalibrated.
+direction accuracy only beside this floor. Among the dashboard's headline figures, the
+model-implied probability that volatility rises is shown last and labelled uncalibrated.
 
 ### 2.7 Robustness
 
@@ -334,22 +335,28 @@ record summary:
 
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("promotion_rule") ]]] -->
 
-> The challenger replaces the model of record if, on the first 52 independent resolved weeks where both were forecast, its mean QLIKE is lower with a one-sided Diebold-Mariano p below 0.10. The test is run once, on that fixed sample; a maintainer applies the verdict.
+> The challenger replaces the model of record if, on the first 52 independent resolved weeks where both were forecast, its mean QLIKE is lower with a one-sided Diebold-Mariano p below 0.10 (Harvey-Leybourne-Newbold, Student t with 51 degrees of freedom). The test is run once, on that fixed sample; a maintainer applies the verdict.
 <!-- [[[end]]] -->
 
 The test is a single look at a fixed sample. In record order it takes the resolved entries on which
 both the current model of record and the current challenger were forecast, keeps those whose
 windows do not overlap, and stops at the first such entry still pending; the first entries up to
 the required number are the sample. On it, a one-sided Diebold-Mariano test of the QLIKE
-differences (model of record minus challenger), with the plain sample variance because the windows
-do not overlap. The status is `accruing` until the sample is full, then `promote` or `keep`, and
-later entries never change it. Applying a `promote` verdict, which swaps the models in code, is a
-maintainer's change. The record summary publishes the status, the paired independent weeks so far,
-the number required, the statistic, its p-value and the mean QLIKE difference.
+differences (model of record minus challenger). Because the windows do not overlap, the standard
+error comes from the plain sample variance, with no autocovariance terms; for one-step forecasts
+that statistic equals Harvey, Leybourne and Newbold's corrected one, and, as they recommend, its
+p-value is from Student's t with n − 1 degrees of freedom (`vol_record.student_t_sf`) rather than
+the normal, whose 10% critical value is lower. The status is `accruing` until the sample is full,
+then `promote` or `keep`, and later entries never change it. Applying a `promote` verdict, which
+swaps the models in code, is a maintainer's change. The record summary publishes the status, the
+paired independent weeks so far, the number required, the statistic, its p-value and the mean
+QLIKE difference; for the record as a whole it also gives the earliest date a pending entry can be
+scored (`next_result_due`: the earliest window end among pending entries whose windows do not span
+a roll).
 
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("promotion_power") ]]] -->
 
-How much the single test can tell: on the sampling grids the challenger's historical edge is a Diebold-Mariano statistic of about 2.6 over 927 weeks. If that is its true edge, the test on 52 independent weeks promotes it with probability 25%; a fixed-sample test with 80% power would need about 618 weeks (12 years). The rule is built not to promote on luck. A keep verdict on that sample does not show the challenger is worse.
+How much the single test can tell: on the five sampling grids the challenger's Diebold-Mariano statistic against the model of record has a median of 2.6, each over 927 non-overlapping weeks. If that is its true edge, the test on 52 independent weeks promotes it with probability 25%, and a fixed-sample test with 80% power would need about 619 weeks (12 years). This treats the weekly loss differences as normal, so the statistic is noncentral t with 51 degrees of freedom, compared with the test's own critical value, t(51)'s 1.298. If the challenger is no better, the test promotes it with probability at most 10%, its size. With 25% power, a keep verdict on that sample does not show that the challenger is no better than the model of record.
 <!-- [[[end]]] -->
 
 ## 4. Post-mortem: the direction model
@@ -396,12 +403,12 @@ The leak is easy to demonstrate on data with no signal at all. With jointly norm
 | Real CL=F, 5-year window | Decision tree | 1 | 59.9% → **53.1%** | 1.52 → **0.03** |
 | Real CL=F, 5-year window | Random forest (20 trees) | 1 | 62.8% → **44.9%** | 1.64 → **−0.78** |
 
-Sharpe ratios here are gross (no transaction costs); the retracted model's 2.47 is after transaction costs, so the two are not like for like, and costs would only lower these. For comparison, the retracted model: 67.2% over 198 weeks. Same walk-forward, same five-session labels, the purge switched off and on. The block-shuffled runs permute the same CL=F returns, so they are not independent samples and their pooled tests overstate the evidence. Real 5-session CL=F returns rise 53.6% of the time, so the no-skill accuracy on them is each run's own base rate, not 50%: leaked runs beating their base rate at 5%: 10 of 10 (1-nearest neighbour) and 9 of 10 (decision tree); purged: 0 of 10 and 0 of 10. Source: leak anatomy.
+Sharpe ratios here are gross (no transaction costs); the retracted model's 2.47 is after transaction costs, so the two are not like for like, and costs would only lower these. For comparison, the retracted model: 67.2% over 198 weeks. Same walk-forward, same five-session labels, the purge switched off and on. The block-shuffled runs permute the same CL=F returns, so they are not independent samples, and a test that pools their decisions would overstate the evidence. Real 5-session CL=F returns rise 53.6% of the time, so the no-skill accuracy on them is each run's own base rate, not 50%: leaked runs beating their base rate at 5%: 10 of 10 (1-nearest neighbour) and 9 of 10 (decision tree); purged: 0 of 10 and 0 of 10. The ledger's block-shuffled rows test each run against its own base rate and take the largest of the per-run p-values (section 6). On the real 5-year window (one run per model) the leaked run beats its base rate for 3 of 3 models and the purged run for 0 of 3. Source: leak anatomy.
 <!-- [[[end]]] -->
 
 The fix is the purge of López de Prado (2018): drop the last horizon − 1 training rows at every
 step. It is now the default in the backtest engine, and an engine-level test drives the walk-forward
-with a recording model to prove that no training label matures after its decision. The retracted
+with a recording model to check that no training label matures after its decision. The retracted
 model no longer runs in production. Its artifacts stay in the repository as a record of the
 retraction: the two unpurged walk-forward runs are named `*_LEAKED.json`, and the three studies
 measured on the leaked model (`data/macro_leakage_test.json`, `data/timing_leakage_test.json` and
@@ -470,7 +477,9 @@ Every hypothesis the project has tested, the retracted ones included, is a row i
 [`data/research_ledger.json`](data/research_ledger.json), with its test statistic read from the
 artifact that produced it. The rows are adjusted for multiplicity: Benjamini-Hochberg, Holm, and the
 t > 3 hurdle that Harvey, Liu and Zhu (2016) propose for factor research. A claim that needs two
-tests to pass, such as a supply-shock group against both placebos, takes the larger p-value.
+tests to pass, such as a supply-shock group against both placebos, takes the larger p-value, and a
+claim about runs that reuse the same data, such as the block-shuffled leak runs, takes the largest
+of the per-run p-values rather than a pooled one.
 
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("ledger_block") ]]] -->
 
@@ -491,7 +500,7 @@ The supported hypotheses that survive Benjamini-Hochberg at 5%:
 | Claim | p | BH q | Clears t > 3 |
 |---|---:|---:|:---:|
 | Walk-forward without the purge, a 20-tree random forest on i.i.d. random walks (no signal exists) scores above 50% direction accuracy. | < 0.001 | < 0.001 | yes |
-| Walk-forward without the purge, a 1-nearest-neighbour model on block-shuffled CL=F returns (no signal exists) scores above 50% direction accuracy. | < 0.001 | < 0.001 | yes |
+| Walk-forward without the purge, a 1-nearest-neighbour model on block-shuffled CL=F returns (no signal exists) beats its base rate, the accuracy of always calling the more frequent direction, in every run. | < 0.001 | < 0.001 | yes |
 | Carry rank-correlates positively with the next cycle's return (1990-2006). | 0.004 | 0.018 | no |
 | OVX exceeds the realized vol of the following month more often than not. | < 0.001 | < 0.001 | yes |
 | HAR-IV beats persistence (last week's realized vol) on QLIKE. | < 0.001 | < 0.001 | yes |
@@ -506,7 +515,7 @@ Source: `data/research_ledger.json`, rebuilt from the artifacts by `python -m ba
 
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("ledger_reading") ]]] -->
 
-Both supported leak demonstrations survive every adjustment, so some of the project's strongest results are about how its own first result was wrong. The block-shuffled one pools 10 runs that permute the same returns, so its p-value overstates the evidence (section 4); the synthetic runs draw independent returns. The 8 retracted rows stay in the multiplicity count: they were tested.
+Both supported leak demonstrations survive every adjustment, so some of the project's strongest results are about how its own first result was wrong. The block-shuffled demonstration does not pool its 10 runs, which permute the same returns: it claims that every run beats its own base rate, and its p-value is the largest of the 10 per-run p-values (an intersection-union test, valid however the runs depend on one another; section 4). The synthetic one pools runs on independent returns. The 8 retracted rows stay in the multiplicity count: they were tested.
 <!-- [[[end]]] -->
 
 ## 7. Reproduce
@@ -543,7 +552,9 @@ same numeric environment the rebuild is bit for bit. Across BLAS thread counts a
 iterative GARCH fits differ in the last bits. The Reproduce workflow therefore pins a numeric
 environment, and `vol_lab.compare_reports` defines a match: every model set, flag, label and count
 identical, and every number within 1e-4 relative or within one unit of the last decimal it is
-published with. The workflow runs on pull requests and pushes that change the lab's inputs, every
+published with. Rebuilds with four BLAS threads and with one both match by that definition; the
+one-thread rebuild moves one rounded figure (a yearly GJR-GARCH QLIKE) by one unit in its last
+decimal. The workflow runs on pull requests and pushes that change the lab's inputs, every
 week, and on demand. The Tests workflow's unit suite rebuilds the carry, supply-shock and ledger
 artifacts and part of the leak anatomy; its `cog --check` and figure check confirm only that the
 docs match the committed artifacts. Nothing in CI regenerates the production validation or the
@@ -627,19 +638,21 @@ VITE_STATIC_DATA=true npm run build && (cd dist && python -m http.server 8000)
 
 - **Daily data only.** Realized volatility from five daily returns is a noisy proxy. Intraday data
   would sharpen both the forecasts and their evaluation, but it is not free over this history. The
-  range-based measure is the best free substitute, and it is the challenger's input.
+  range-based measure is the free substitute used here (range estimators are several times more
+  efficient than squared daily returns), and it is the challenger's input.
 - **OVX is not a CL options index.** It is computed from options on the USO ETF, so it carries a
-  basis to the front-month future. It is also the dominant input.
+  basis to the front-month future, and section 2.2 shows how much the model relies on it.
 - **One sample, one search.** The field, the challenger and every robustness check were chosen
   while looking at the 2008–2026 sample. The SPA test, the ledger's multiplicity adjustments and the
   forward record are the defences, and only the forward record is fully clean.
 - **Not everything is rebuilt.** The production validation and the direction post-mortem are
   records of runs on downloaded data, which CI does not regenerate and which Yahoo has since been
-  free to revise. The rest is rebuilt in CI from committed inputs (section 7).
+  free to revise. The benchmark field, the side studies and the ledger are rebuilt in CI from
+  committed inputs, and part of the leak anatomy is re-run (section 7).
 - **Roll gaps after 2024.** EIA stopped publishing its futures curve in April 2024. Later
   same-contract corrections are not possible from free data, so the live record skips roll windows.
-- **2020.** Negative prices and record volatility dominate several statistics, the variance risk
-  premium above all. Results without 2020 are reported where it changes a conclusion.
+- **2020.** Negative prices and record volatility weigh heavily on several statistics, the variance
+  risk premium most; section 2.5 also reports it without 2020.
 - **Free schedules.** GitHub runs scheduled workflows on a best-effort basis, so updates can arrive
   hours late. The dashboard shows data ages rather than assuming a cadence.
 - **Not investment advice.** A research project; the data's terms of use (Yahoo Finance's in

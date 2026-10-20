@@ -179,7 +179,7 @@ L -3.5 0
       </g>
      </g>
      <g id="text_11">
-      <text style="font-size: 8.5px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #57606a" x="225.400313" y="202.982558" transform="rotate(-0 225.400313 202.982558)">HAR-RV + semivariance</text>
+      <text style="font-size: 8.5px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #57606a" x="225.400313" y="202.982558" transform="rotate(-0 225.400313 202.982558)">HAR-RV + downside semivol</text>
      </g>
     </g>
     <g id="ytick_5">

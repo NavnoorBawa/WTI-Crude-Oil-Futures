@@ -41,16 +41,18 @@ Sampling. Forecasts are made EVERY out-of-sample day (about 4,600) for the same 
 consecutive targets overlap; inference uses Newey-West variances and block bootstraps long enough to
 cover the overlap. The weekly test grid used by the production validator samples one day in five,
 and conclusions drawn on one sampling grid can differ from the next (the QLIKE gap between two models
-moved from p = 0.39 to p = 0.003 when the grid moved by one day), so every comparison is also run on
-each of the five 5-session sampling grids (offsets 0-4) separately and the report says on how many it
-holds. VaR tests, which need non-overlapping outcomes, run on each sampling grid.
+moved from p = 0.39 to p = 0.003 when the grid moved by one day), so the QLIKE comparisons (each
+model's loss, its Diebold-Mariano test against the model of record and its Model Confidence Set
+membership) are also run on each of the five 5-session sampling grids (offsets 0-4) separately, and
+the report says on how many a result holds. VaR tests, which need non-overlapping outcomes, run only
+on the sampling grids.
 
 Every input comes from the pinned snapshot in data/market (backend/market_data.py), so the artifact
 data/vol_lab.json reproduces from it offline: `python -m backend.vol_lab` (or `--refresh` to download a
 new snapshot first). Under the same numeric environment the rebuild is bit for bit; across BLAS
 thread counts and CPU kernels the iterative GARCH fits differ in the last bits, so `compare_reports`
-defines agreement: every model set, flag, label and count identical, every number equal to 1e-4
-relative or to the last decimal it is published with.
+defines agreement: every model set, flag, label and count identical, every number within 1e-4
+relative or within one unit of the last decimal it is published with.
 """
 
 from __future__ import annotations
@@ -129,7 +131,7 @@ MODELS = [
     ModelSpec("garch", "GARCH(1,1)-t", "time-series", "Student-t GARCH(1,1), refit weekly on all returns since 2000."),
     ModelSpec("gjr", "GJR-GARCH(1,1)-t", "time-series", "Asymmetric (leverage) GARCH, Student-t, refit weekly."),
     ModelSpec("har_rv", "HAR-RV", "HAR", "Log-HAR on 5/22/66-session close-to-close realized vol (Corsi 2009)."),
-    ModelSpec("har_rs", "HAR-RV + semivariance", "HAR", "HAR-RV plus 5-session downside semivolatility (Patton-Sheppard 2015)."),
+    ModelSpec("har_rs", "HAR-RV + downside semivol", "HAR", "HAR-RV plus 5-session downside semivolatility (Patton-Sheppard 2015)."),
     ModelSpec("har_range", "HAR-range", "HAR", "Log-HAR on a range-based measure: Rogers-Satchell plus squared overnight "
               "return, with the test day's own bar taken only to its settlement."),
     ModelSpec("ovx_only", "Implied-vol regression", "implied", "Log-regression of next-week realized vol on OVX alone."),
@@ -152,7 +154,7 @@ COMBO_MEMBERS = ("har_iv", "gjr", "ovx_only")
 NOISE_FLOOR_SIMS = 10
 SPA_REPS = 5000
 UTILITY_SR, UTILITY_GAMMA = 0.4, 2.0   # Bollerslev-Hood-Huss-Pedersen (2018) baseline investor
-ROLL_OVERNIGHT_WINDOW = 250            # trailing non-roll sessions for the roll-day overnight proxy
+ROLL_OVERNIGHT_WINDOW = 250            # trailing sessions (roll days left out) for the roll-day overnight proxy
 
 
 # ----------------------------------------------------------------------------------------------
@@ -178,7 +180,9 @@ def roll_days(dates: pd.DatetimeIndex) -> np.ndarray:
 def _overnight_variance(o: np.ndarray, c: np.ndarray, dates: pd.DatetimeIndex | None) -> np.ndarray:
     """Squared overnight (previous close to open) log return. On roll days (when `dates` is given)
     the gap is the calendar spread, so it is replaced by the median squared overnight return of the
-    previous ROLL_OVERNIGHT_WINDOW non-roll sessions."""
+    non-roll sessions among the previous ROLL_OVERNIGHT_WINDOW sessions (a trailing window that ends
+    the session before, roll days left out; at least 20 such sessions, else zero). A gap that cannot
+    be computed (no usable open) counts as zero."""
     prev_c = np.r_[np.nan, c[:-1]]
     j2 = np.where(np.isfinite(o - prev_c), (o - prev_c) ** 2, 0.0)
     if dates is not None:
@@ -297,8 +301,10 @@ class _GarchState:
                 # Each refit is warm-started from the last, so with the default tolerance a last-bit
                 # difference in a BLAS result (thread count, CPU kernel) carried through ~930 refits
                 # and moved published GJR figures (direction accuracy, an MCS p-value). Converging
-                # tightly keeps two machines' artifacts within ~2e-5 relative (measured: 4 BLAS
-                # threads vs one thread on the Haswell kernel), with every rounded figure equal.
+                # tightly keeps every figure within REPRO_REL_TOL relative or one unit of its last
+                # published decimal (compare_reports), measured with 4 BLAS threads and with one. A
+                # rounded figure can still move by that one unit: the one-thread rebuild gives
+                # yearly[18] gjr_qlike 0.5471 against the committed 0.5472.
                 res = model.fit(disp="off", starting_values=self.params, show_warning=False, tol=GARCH_TOL)
                 self.params = res.params.to_numpy()
             else:

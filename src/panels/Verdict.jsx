@@ -163,7 +163,7 @@ export default function Verdict({ data, research, researchStatus }) {
     const status = (record.resolved ?? 0) === 0
       ? (record.firstResult
         ? `first result ${record.firstResultIsEstimate ? "≈ " : ""}${fmtDate(record.firstResult)}`
-        : `${fmtInt(record.recorded ?? 0)} recorded · ${fmtInt(record.skipped ?? 0)} skipped at roll${record.lateCommit ? ` · ${fmtInt(record.lateCommit)} sealed late` : ""}`)
+        : `${fmtInt(record.recorded ?? 0)} recorded · ${fmtInt(record.skipped ?? 0)} skipped at roll${record.lateCommit ? ` · ${fmtInt(record.lateCommit)} not sealed in time` : ""}`)
       : `${fmtInt(record.independent)} independent · QLIKE ${fmtNum(record.champion?.qlike, 3)}`;
     liveFoot = promotion ? `${status} · promotion ${promotion}` : status;
   }

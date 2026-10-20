@@ -74,6 +74,28 @@ class FreezeTest(unittest.TestCase):
         self.assertEqual(research["schema_version"], 1)
         self.assertEqual(validate_research(research), [])
 
+    def test_research_json_carries_the_caveats_the_dashboard_states(self):
+        research = json.loads(self._freeze(FIXTURE)["research.json"])
+        artifact = json.loads((ROOT / "data" / "leak_anatomy.json").read_text(encoding="utf-8"))
+        anatomy = research["leak_anatomy"]
+        # Gross Sharpe on the noise experiments vs after costs on the retracted model.
+        self.assertEqual(anatomy["design"]["sharpe"], artifact["design"]["sharpe"])
+        self.assertEqual(anatomy["retracted_reference"]["sharpe_basis"],
+                         artifact["retracted_reference"]["sharpe_basis"])
+        for experiment, models in anatomy["experiments"].items():
+            for model, arms in models.items():
+                for arm, block in arms.items():
+                    source = artifact[experiment][model]["unpurged_leaked" if arm == "unpurged" else "purged"]
+                    with self.subTest(experiment=experiment, model=model, arm=arm):
+                        self.assertEqual(block["base_rate_pct_mean"], source["base_rate_pct_mean"])
+                        self.assertEqual(block["runs_beating_base_rate_5pct"], source["runs_beating_base_rate_5pct"])
+                        self.assertNotIn("runs", block)
+        supply = json.loads((ROOT / "data" / "supply_shock_study.json").read_text(encoding="utf-8"))
+        self.assertEqual(research["supply_study"]["overlapping_events"], supply["overlapping_events"])
+        # The carry Sharpe-difference tests live inside each sample block.
+        self.assertNotIn("sharpe_difference", research["carry"])
+        self.assertIn("sharpe_difference", research["carry"]["full_sample"])
+
     def test_a_failed_vol_build_fails_the_freeze_and_writes_nothing(self):
         # The forecast is the product: without it the previous good site must stay live.
         payload = copy.deepcopy(FIXTURE)

@@ -95,7 +95,7 @@ def _leak_anatomy() -> dict:
 
     def arm(block: dict) -> dict:
         keep = ("n_runs", "accuracy_pct_mean", "accuracy_pct_range", "sharpe_mean", "sharpe_range",
-                "pooled_binomial_p_value_vs_50")
+                "pooled_binomial_p_value_vs_50", "base_rate_pct_mean", "runs_beating_base_rate_5pct")
         return {key: block[key] for key in keep if key in block}
 
     experiments = {}
@@ -105,6 +105,9 @@ def _leak_anatomy() -> dict:
     synthetic = experiments["synthetic_random_walk"]
     headline_model = "random_forest" if "random_forest" in synthetic else next(iter(synthetic))
     return {
+        # design.sharpe says the experiments' Sharpe ratios are gross; retracted_reference.sharpe_basis
+        # says the retracted model's is after costs. design.independence carries the base-rate caveat.
+        "design": raw["design"],
         "analytic": raw["analytic"],
         "experiments": experiments,
         "retracted_reference": raw["retracted_reference"],
@@ -144,12 +147,14 @@ def build() -> dict:
         "schema_version": SCHEMA_VERSION,
         "vol_lab": _vol_lab(),
         "postmortem": _postmortem(),
+        # Each sample block (full_sample, pre_2007, post_2007) carries its own sharpe_difference test.
         "carry": {key: carry[key] for key in ("method", "full_sample", "pre_2007", "post_2007", "verdict",
                                              "sign_split", "power_post_2007", "regime_change_test",
-                                             "sharpe_difference", "field_notes") if key in carry},
+                                             "field_notes") if key in carry},
         "leak_anatomy": _leak_anatomy(),
         "supply_study": {key: supply[key] for key in ("method", "placebo", "groups", "between_groups",
-                                                     "priced_in", "superseded_claims", "conclusion")
+                                                     "priced_in", "overlapping_events", "superseded_claims",
+                                                     "conclusion")
                          if key in supply},
         "ledger": _ledger(),
     }

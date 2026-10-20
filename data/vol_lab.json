@@ -136,7 +136,7 @@
   },
   {
    "key": "har_rs",
-   "label": "HAR-RV + semivariance",
+   "label": "HAR-RV + downside semivol",
    "family": "HAR",
    "description": "HAR-RV plus 5-session downside semivolatility (Patton-Sheppard 2015)."
   },
@@ -776,7 +776,7 @@
    },
    {
     "key": "har_rs",
-    "label": "HAR-RV + semivariance",
+    "label": "HAR-RV + downside semivol",
     "family": "HAR",
     "description": "HAR-RV plus 5-session downside semivolatility (Patton-Sheppard 2015).",
     "timing_control": false,

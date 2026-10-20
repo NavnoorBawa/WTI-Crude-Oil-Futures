@@ -20,10 +20,13 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
+
+from scipy import stats
 
 from backend import contract_calendar, safe_paths
 from backend import vol_record as vr
@@ -331,6 +334,9 @@ class ResolutionTest(unittest.TestCase):
                 now = (at(issued) + timedelta(minutes=5)).isoformat()
                 record = recorded(as_of=as_of, issued_at=issued, now=now)
                 self.assertEqual(record["entries"][0]["base_session"], base)
+                # The next result is dated only by a window resolution will score, not skip.
+                self.assertEqual(vr.summarize(record)["next_result_due"],
+                                 record["entries"][0]["target_end"] if status == "pending" else None)
                 self.resolve(record, {}, now)
                 self.assertEqual(record["entries"][0]["status"], status)
                 self.assertIsNone(record["entries"][0]["realized_pct"])
@@ -450,8 +456,8 @@ def resolved_entry(as_of, base, realized, forecast=40.0, lo=25.0, hi=55.0, direc
 
 class SummaryTest(unittest.TestCase):
     SHAPE = {"started", "n_recorded", "n_resolved", "n_pending", "n_skipped_roll", "n_expired", "n_late_commit",
-             "n_independent", "champion", "challenger", "promotion", "recent", "promotion_rule", "note",
-             "direction_note"}
+             "n_independent", "next_result_due", "champion", "challenger", "promotion", "recent", "promotion_rule",
+             "note", "direction_note"}
     PROMOTION = {"status", "n_independent_paired", "required", "dm_stat", "p_value", "mean_qlike_difference"}
     CHAMPION = {"model_version", "qlike", "interval_80_coverage_pct", "direction_hit_pct",
                 "mean_forecast_pct", "mean_realized_pct"}
@@ -469,12 +475,14 @@ class SummaryTest(unittest.TestCase):
         self.assertIsNone(summary["challenger"]["qlike"])
         self.assertEqual(summary["recent"], [])
         self.assertEqual(summary["n_late_commit"], 0)
+        self.assertIsNone(summary["next_result_due"])
         self.assertEqual(summary["promotion"], {"status": "accruing", "n_independent_paired": 0, "required": 52,
                                                 "dm_stat": None, "p_value": None, "mean_qlike_difference": None})
         self.assertEqual(summary["promotion_rule"],
                          "The challenger replaces the model of record if, on the first 52 independent resolved "
                          "weeks where both were forecast, its mean QLIKE is lower with a one-sided Diebold-Mariano "
-                         "p below 0.10. The test is run once, on that fixed sample; a maintainer applies the verdict.")
+                         "p below 0.10 (Harvey-Leybourne-Newbold, Student t with 51 degrees of freedom). The test is "
+                         "run once, on that fixed sample; a maintainer applies the verdict.")
         self.assertIn("settlement", summary["note"])
         self.assertIn("late_commit", summary["note"])
         json.dumps(summary, allow_nan=False)
@@ -482,6 +490,7 @@ class SummaryTest(unittest.TestCase):
     def test_pending_entries_leave_statistics_null(self):
         summary = vr.summarize(recorded())
         self.assertEqual((summary["n_recorded"], summary["n_pending"], summary["n_resolved"]), (1, 1, 0))
+        self.assertEqual(summary["next_result_due"], "2026-11-10")      # the pending window's last session
         self.assertEqual(summary["champion"]["model_version"], "har-iv/2")
         self.assertTrue(all(v is None for k, v in summary["champion"].items() if k != "model_version"))
         self.assertEqual(summary["challenger"]["key"], "har_iv_range")
@@ -570,6 +579,24 @@ class SummaryTest(unittest.TestCase):
         self.assertEqual(len(vr.independent_entries([first, overlapping])), 1)
         self.assertEqual(len(vr.independent_entries([])), 0)
 
+    def test_next_result_due_is_the_earliest_window_resolution_will_score(self):
+        done = resolved_entry("2026-11-02", "2026-11-03", 40.0)                 # window ends 11-10, resolved
+        rolled = as_pending(resolved_entry("2026-11-13", "2026-11-16", 40.0))   # returns 11-17 .. 11-23: the roll
+        clean = as_pending(resolved_entry("2026-11-20", "2026-11-23", 40.0))    # returns 11-24 .. 12-01
+        later = as_pending(resolved_entry("2026-11-27", "2026-11-30", 40.0))    # returns 12-01 .. 12-07
+
+        def due(*entries):
+            record = {"schema_version": 1, "started": "2026-11-03", "entries": list(entries)}
+            vr.validate_record(record)
+            return vr.summarize(record)["next_result_due"]
+
+        self.assertTrue(contract_calendar.spans_roll(D("2026-11-16"), D("2026-11-23")))
+        self.assertEqual(due(done, rolled, clean, later), "2026-12-01")
+        self.assertEqual(due(done, rolled, later), "2026-12-07")
+        self.assertIsNone(due(done, rolled))            # a skipped-to-be window dates nothing
+        self.assertIsNone(due(done))
+        self.assertEqual(vr.next_result_due([later, clean]), "2026-12-01")    # the earliest, not the first listed
+
     def test_recent_is_capped_and_newest_first(self):
         record = empty_record()
         day = D("2026-10-21")
@@ -630,8 +657,31 @@ class PromotionTest(unittest.TestCase):
         self.assertGreater(result["mean_qlike_difference"], 0)
         self.assertAlmostEqual(result["mean_qlike_difference"], statistics.mean(diffs), places=6)
         self.assertAlmostEqual(result["dm_stat"], stat, places=4)
-        self.assertAlmostEqual(result["p_value"], 1 - statistics.NormalDist().cdf(stat), places=6)
+        self.assertAlmostEqual(result["p_value"], float(stats.t.sf(stat, df=51)), places=6)
         self.assertLess(result["p_value"], 0.10)
+
+    def test_the_p_value_is_from_student_t_with_51_degrees_of_freedom(self):
+        # Harvey-Leybourne-Newbold: t(n - 1), whose 10% critical value 1.2984 is above the normal's
+        # 1.2816. Differences a + (-1)^i on 52 weeks have mean a and standard error 1/sqrt(51), so
+        # the statistic is a * sqrt(51); qlike is patched to return the forecast, which makes each
+        # difference 40 - the challenger's forecast.
+        critical = float(stats.t.isf(0.10, df=51))
+        self.assertAlmostEqual(critical, 1.2984, places=4)
+        self.assertAlmostEqual(float(stats.norm.isf(0.10)), 1.2816, places=4)
+        cases = {1.29: "keep", critical - 1e-6: "keep", critical + 1e-6: "promote", 1.31: "promote"}
+        for target, verdict in cases.items():
+            with self.subTest(stat=target):
+                entries = weekly_entries(52)
+                for i, entry in enumerate(entries):
+                    entry["challenger"]["forecast_pct"] = 40.0 - (target / math.sqrt(51) + (-1) ** i)
+                with mock.patch.object(vr, "qlike", lambda realized, forecast: forecast):
+                    result = vr.promotion_test(entries, "har-iv/2", "har_iv_range")
+                self.assertEqual(result["status"], verdict)
+                self.assertAlmostEqual(result["dm_stat"], target, places=4)
+                self.assertAlmostEqual(result["p_value"], float(stats.t.sf(target, df=51)), places=6)
+        # Between the two critical values the normal would have promoted.
+        self.assertLess(float(stats.norm.sf(1.29)), 0.10)
+        self.assertGreater(float(stats.t.sf(1.29, df=51)), 0.10)
 
     def test_no_edge_keeps_the_model_of_record(self):
         cases = {
@@ -705,6 +755,38 @@ class PromotionTest(unittest.TestCase):
         for entry in entries[:20]:
             entry["challenger"] = None
         self.assertEqual(self.promotion(entries)["n_independent_paired"], 40)
+
+
+class StudentTTest(unittest.TestCase):
+    """vol_record.student_t_sf, the standard-library Student t tail the promotion test uses."""
+
+    GRID = (0.0, 0.001, 0.1, 0.5, 1.0, 1.2816, 1.2984, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 7.5, 10.0, 30.0, 100.0, 1e4)
+
+    def test_matches_scipy(self):
+        for df in (1, 2, 3, 5, 10, 30, 51, 100):
+            for t in self.GRID + tuple(-t for t in self.GRID):
+                with self.subTest(df=df, t=t):
+                    self.assertLess(abs(vr.student_t_sf(t, df) - float(stats.t.sf(t, df))), 1e-10)
+
+    def test_closed_forms_and_limits(self):
+        # df 1 is the Cauchy distribution, df 2 has P(T > t) = (1 - t / sqrt(2 + t^2)) / 2. (scipy's t.sf
+        # returns exactly 0.5 for df 1 at t = 1e-9, about 3e-10 off, so tiny t is checked here, not there.)
+        for t in (1e-9, 0.3, 1.0, 12.0, -4.0):
+            with self.subTest(t=t):
+                self.assertAlmostEqual(vr.student_t_sf(t, 1), 0.5 - math.atan(t) / math.pi, places=14)
+                self.assertAlmostEqual(vr.student_t_sf(t, 2), 0.5 * (1 - t / math.sqrt(2 + t * t)), places=14)
+        self.assertEqual(vr.student_t_sf(0.0, 51), 0.5)
+        self.assertEqual((vr.student_t_sf(math.inf, 51), vr.student_t_sf(-math.inf, 51)), (0.0, 1.0))
+        self.assertAlmostEqual(vr.student_t_sf(1.2984, 51), 0.10, places=4)
+        # Large df approaches the normal tail.
+        self.assertAlmostEqual(vr.student_t_sf(1.2816, 100_000), statistics.NormalDist().cdf(-1.2816), places=5)
+
+    def test_bad_arguments_are_refused(self):
+        for df in (0, -1, 2.0, True, None):
+            with self.subTest(df=df), self.assertRaises(ValueError):
+                vr.student_t_sf(1.0, df)
+        with self.assertRaises(ValueError):
+            vr.student_t_sf(math.nan, 5)
 
 
 class RecordFileTest(unittest.TestCase):
@@ -885,6 +967,18 @@ class CommandLineTest(unittest.TestCase):
         self.run_main("--data", "public/data.json", now="2026-11-11T14:05:00Z")
         self.assertEqual(self.record_path.stat().st_mtime_ns, stamp - 10**9)
 
+    def test_the_payload_stays_compact(self):
+        # freeze.py writes data.json compact (about half the size of an indented one); attaching the
+        # summary must not re-indent it.
+        self.run_main("--init", now="2026-11-02T12:00:00Z")
+        self.data_path.write_text(json.dumps(payload(live()), separators=(",", ":")), encoding="utf-8")
+        self.run_main("--data", "public/data.json")
+        text = self.data_path.read_text(encoding="utf-8")
+        written = json.loads(text)
+        self.assertEqual(written["vol_forecast"]["live_record"]["n_recorded"], 1)
+        self.assertEqual(text, json.dumps(written, separators=(",", ":")))
+        self.assertNotIn("\n", text)
+
     def test_an_entry_the_seal_never_reached_is_closed_unscored(self):
         self.run_main("--init", now="2026-11-02T12:00:00Z")
         self.data_path.write_text(json.dumps(payload(live())), encoding="utf-8")
@@ -964,21 +1058,22 @@ class StandardLibraryOnlyTest(unittest.TestCase):
     def test_load_seal_and_summary_run_without_site_packages(self):
         # -I -S: no site-packages and no environment, as close to an empty interpreter as it gets (-B:
         # no bytecode left in backend/).
-        code = "\n".join((
-            "import json, os, sys, sysconfig",
-            "sys.path.insert(0, sys.argv[1])",
-            "from datetime import datetime, timezone",
-            "from backend import vol_record",
-            "record = json.loads(sys.argv[2])",
-            "vol_record.validate_record(record)",
-            "vol_record.seal_entries(record, datetime(2026, 11, 3, 13, 20, tzinfo=timezone.utc))",
-            "vol_record.validate_record(record)",
-            "vol_record.summarize(record)",
-            "roots = tuple(os.path.realpath(p) + os.sep for p in (sysconfig.get_paths()['stdlib'],",
-            "              sysconfig.get_paths()['platstdlib'], os.path.join(sys.argv[1], 'backend')))",
-            "files = [getattr(m, '__file__', None) for m in list(sys.modules.values())]",
-            "print(sorted(f for f in files if f and not os.path.realpath(f).startswith(roots)))",
-        ))
+        code = textwrap.dedent("""\
+            import json, os, sys, sysconfig
+            sys.path.insert(0, sys.argv[1])
+            from datetime import datetime, timezone
+            from backend import vol_record
+            record = json.loads(sys.argv[2])
+            vol_record.validate_record(record)
+            vol_record.seal_entries(record, datetime(2026, 11, 3, 13, 20, tzinfo=timezone.utc))
+            vol_record.validate_record(record)
+            vol_record.summarize(record)
+            vol_record.student_t_sf(1.3, 51)
+            roots = tuple(os.path.realpath(p) + os.sep for p in (sysconfig.get_paths()['stdlib'],
+                          sysconfig.get_paths()['platstdlib'], os.path.join(sys.argv[1], 'backend')))
+            files = [getattr(m, '__file__', None) for m in list(sys.modules.values())]
+            print(sorted(f for f in files if f and not os.path.realpath(f).startswith(roots)))
+            """)
         result = subprocess.run(  # nosec B603 - fixed argv: this interpreter and inline code
             [sys.executable, "-I", "-S", "-B", "-c", code, str(ROOT), json.dumps(recorded(seal_after=None))],
             capture_output=True, text=True, timeout=60, check=False)

@@ -46,8 +46,11 @@ only; numbers that depend on the data are generated into the README from the art
   open-to-close and close-to-open parts of a Yang-Zhang estimator (Rogers and Satchell 1991, Yang and
   Zhang 2000). Range estimators are several times more efficient than squared returns (Alizadeh,
   Brandt and Diebold 2002; Lyócsa, Molnár and Výrost 2021). On roll days the overnight gap is the
-  calendar spread, so it is replaced by the median squared overnight return of the previous 250
-  non-roll sessions. Where a bar has no usable open, high or low, the squared close-to-close return is used.
+  calendar spread, so it is replaced by the median squared overnight return over the non-roll
+  sessions among the previous 250 sessions (`vol_lab._overnight_variance`: a rolling 250-session
+  window ending the session before, with roll days left out of the median; at least 20 non-roll
+  sessions are required, and the term is zero before that). Where a bar has no usable open, high or
+  low, the squared close-to-close return is used.
 - **Range-based features at the decision** (`vol_lab.range_features`). Session *t*'s full bar is
   not known at its 14:30 ET settlement, because its high and low run to 17:00 ET. Range-based RV5,
   RV22 and RV66 at *t* therefore sum the full-bar variance of the *w* − 1 earlier sessions (each
@@ -93,7 +96,7 @@ Time-series models use returns up to and including *t*. The production validator
 (`backend/vol_forecast.py`) runs the same model of record on one sampling grid, a forecast every
 fifth session (`STEP = 5`): that is the production weekly grid.
 
-`tests/test_vol_lab.py` proves the no-look-ahead property on a synthetic market. It takes a
+`tests/test_vol_lab.py` checks the no-look-ahead property on a synthetic market. It takes a
 mid-sample test day *t*, replaces every return after *t* with different data, triples OVX after
 *t*, rescales every later bar, and widens day *t*'s own high and low (its trading after the
 settlement); every model's forecast for every day up to and including *t* must be unchanged, and
@@ -128,9 +131,12 @@ residuals understate its error.
 
 - **Sampling.** Forecasts are made every out-of-sample day; consecutive targets overlap by up to
   four sessions. Pooled statistics use Newey-West long-run variances (automatic bandwidth, at least
-  the overlap). Because results computed on one sampling grid can differ from the next, every
-  comparison is also run on each of the five non-overlapping 5-session sampling grids (offsets 0–4;
-  each grid's dates fall on every weekday) and the report says on how many it holds.
+  the overlap). Because results computed on one sampling grid can differ from the next, the QLIKE
+  comparisons (each model's loss, its Diebold-Mariano test against the model of record and its
+  Model Confidence Set membership) are also run on each of the five non-overlapping 5-session
+  sampling grids (offsets 0–4; each grid's dates fall on every weekday), and the report says on how
+  many a result holds. The VaR backtests (section 10) run only on the grids. Every other statistic
+  is computed over every out-of-sample day unless its section says otherwise.
 - **Diebold-Mariano** (1995) on loss differentials with the Harvey-Leybourne-Newbold (1997)
   small-sample factor and Student-t reference.
 - **Model Confidence Set** (Hansen, Lunde and Nason 2011; `arch.bootstrap.MCS`, range statistic,
@@ -231,7 +237,9 @@ data).
 - **Scoring.** QLIKE for the model of record and, on the entries where it was published, the
   challenger; 80% interval coverage; direction (reported beside its noise floor). Overlapping
   windows are reported, but `n_independent` counts only the resolved entries whose windows do not
-  overlap (greedy in time order).
+  overlap (greedy in time order). The summary's `next_result_due` is the earliest window end
+  (`target_end`) among pending entries whose windows do not span a roll, or null: the earliest date
+  a pending entry can be scored.
 - **Promotion.** One test, run once, on a fixed sample (`vol_record.promotion_test`). In record
   order, take the resolved entries on which both the current model of record and the current
   challenger were forecast, keep those whose windows do not overlap, and stop at the first such
@@ -239,13 +247,18 @@ data).
   `PROMOTION_WEEKS` (52) entries selected are the sample. On it, a one-sided Diebold-Mariano test of
   the QLIKE differences, model of record minus challenger: the mean difference over its standard
   error from the sample variance (n − 1 denominator, no autocovariance terms, because the windows do
-  not overlap; for one-step forecasts this equals the Harvey-Leybourne-Newbold statistic), with a
-  standard-normal p-value. The verdict is `promote` if the mean difference is positive and
-  p < `PROMOTION_ALPHA` (0.10), else `keep`; it is `accruing` until the sample is full, and entries
-  added later never change it. Applying a `promote` verdict, which swaps the models in code, is a
-  maintainer's change. The rule's text is `vol_record.PROMOTION_RULE`, fixed before the first live
-  forecast and published with every record summary, together with the test's status, sample size,
-  statistic, p-value and mean difference.
+  not overlap; for one-step forecasts this equals the Harvey-Leybourne-Newbold statistic). As
+  Harvey, Leybourne and Newbold (1997) recommend, the p-value is from Student's t with n − 1 = 51
+  degrees of freedom (`vol_record.student_t_sf`, a closed-form series in the standard library), not
+  the standard normal: the normal's 10% critical value, 1.2816, is below t(51)'s 1.2984, and
+  rejecting above it would have a size of about 10.3%. The verdict is `promote` if the mean
+  difference is positive and p < `PROMOTION_ALPHA` (0.10), else `keep`; it is `accruing` until the
+  sample is full, and entries added later never change it. Applying a `promote` verdict, which swaps
+  the models in code, is a maintainer's change. The rule's text is `vol_record.PROMOTION_RULE`, fixed
+  before the first live forecast and published with every record summary, together with the test's
+  status, sample size, statistic, p-value and mean difference. Its power at the challenger's
+  historical edge is computed in the README (section 3) from the noncentral t with the same 51
+  degrees of freedom.
 
 ## 13. The retracted direction model
 
@@ -276,9 +289,10 @@ Why the leak manufactures skill on data with no signal, three ways, offline and 
   levels and moving averages barely move in a day.
 - **Caveats recorded with the results.** Sharpe ratios are gross (direction times the 5-session log
   return, no costs); the retracted 2.47 is after costs. The block-shuffled runs permute the same
-  returns, so they are not independent and their pooled tests overstate the evidence. Real 5-session
-  returns rise more often than they fall, so each run is also tested against its own base rate
-  `max(p, 1 − p)`, not only against 50%.
+  returns, so they are not independent, and a test that pools their decisions would overstate the
+  evidence. Real 5-session returns rise more often than they fall, so each run is also tested
+  against its own base rate `max(p, 1 − p)` (one-sided exact binomial), not only against 50%. The
+  ledger's rows on the block-shuffled runs use those per-run tests, not the pooled one (section 17).
 
 ## 15. Term-structure carry (`backend/carry_signal_test.py`)
 
@@ -331,7 +345,11 @@ and p-value is read from a committed artifact by its JSON field path, or compute
 formula from fields read the same way (an exact binomial test from a stored accuracy and sample
 size, a normal p-value from a stored z, the larger of two stored p-values when a claim needs both);
 nothing is typed in by hand, and the unit suite rebuilds the ledger and requires it to equal the
-committed file.
+committed file. Runs that reuse the same data are not pooled: the leak anatomy's block-shuffled
+`CL=F` rows claim that every run beats its own base rate and take the largest of the per-run
+p-values, an intersection-union test (Berger 1982) whose level holds however the runs depend on one
+another. That test replaced a pooled one after the runs were seen, so those rows are not marked
+pre-specified.
 
 - **Status**, from the test as run: supported (p < 0.05 in the hypothesis's direction),
   inconclusive (0.05 ≤ p < 0.10), rejected, or retracted (the evidence was invalid when produced:
@@ -347,6 +365,7 @@ committed file.
 
 - Alizadeh, S., Brandt, M., Diebold, F. (2002). Range-based estimation of stochastic volatility models. *Journal of Finance* 57(3).
 - Benjamini, Y., Hochberg, Y. (1995). Controlling the false discovery rate: a practical and powerful approach to multiple testing. *Journal of the Royal Statistical Society B* 57(1).
+- Berger, R. L. (1982). Multiparameter hypothesis testing and acceptance sampling. *Technometrics* 24(4).
 - Bollerslev, T., Hood, B., Huss, J., Pedersen, L. H. (2018). Risk everywhere: modeling and managing volatility. *Review of Financial Studies* 31(7).
 - Christoffersen, P. (1998). Evaluating interval forecasts. *International Economic Review* 39(4).
 - Corsi, F. (2009). A simple approximate long-memory model of realized volatility. *Journal of Financial Econometrics* 7(2).

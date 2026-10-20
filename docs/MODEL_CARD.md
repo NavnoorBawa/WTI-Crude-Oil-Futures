@@ -114,9 +114,10 @@ data is for personal use).
 - OVX is built from options on the USO ETF, not on CL futures, so it carries a basis to the
   front-month contract.
 - The challenger's historical edge was found on the same sample it is evaluated on; the SPA test in
-  the table above discounts for that search. It is promoted only by a single test on its first 52
-  independent live weeks (see the promotion rule in the README), and a `keep` verdict does not show
-  it is worse.
+  the table above discounts for that search. It is promoted only by a single one-sided
+  Diebold-Mariano test on its first 52 independent live weeks, with a Student t(51) reference (see
+  the promotion rule and its power in the README, section 3). A `keep` verdict, a failure to
+  reject, does not by itself show that the challenger is no better.
 - Free daily data cannot measure intraday volatility; the range-based measure (Rogers-Satchell plus
-  the overnight return, with the test day's bar taken only to its settlement) is the best free
-  proxy and is what the challenger uses.
+  the overnight return, with the test day's bar taken only to its settlement) is the free
+  substitute used here and is what the challenger uses.

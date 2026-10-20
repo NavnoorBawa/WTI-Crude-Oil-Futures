@@ -3307,7 +3307,9 @@
    "n_pending": 0,
    "n_skipped_roll": 1,
    "n_expired": 0,
+   "n_late_commit": 0,
    "n_independent": 0,
+   "next_result_due": null,
    "champion": {
     "model_version": "har-iv/2",
     "qlike": null,
@@ -3321,6 +3323,14 @@
     "qlike": null,
     "n": 0,
     "champion_qlike": null
+   },
+   "promotion": {
+    "status": "accruing",
+    "n_independent_paired": 0,
+    "required": 52,
+    "dm_stat": null,
+    "p_value": null,
+    "mean_qlike_difference": null
    },
    "recent": [
     {
@@ -3337,8 +3347,8 @@
      "status": "skipped_roll"
     }
    ],
-   "promotion_rule": "The challenger replaces the model of record after at least 52 independent resolved weeks if its live QLIKE is lower with a one-sided Diebold-Mariano p below 0.10.",
-   "note": "Each forecast is scored on the realized volatility of the five settlement-to-settlement returns after the first CL settlement (14:30 ET) at least an hour after it was issued and recorded, one session or more later than the backtest's window, so no scored price was known when the forecast was committed.",
+   "promotion_rule": "The challenger replaces the model of record if, on the first 52 independent resolved weeks where both were forecast, its mean QLIKE is lower with a one-sided Diebold-Mariano p below 0.10 (Harvey-Leybourne-Newbold, Student t with 51 degrees of freedom). The test is run once, on that fixed sample; a maintainer applies the verdict.",
+   "note": "Each forecast is scored on the realized volatility of the five settlement-to-settlement returns after the first CL settlement (14:30 ET) at least an hour after it was issued and recorded, one session or more later than the backtest's window. The record is sealed just before each git commit; an entry not sealed more than five minutes before that settlement is marked late_commit and never scored, so every scored forecast was committed before any price it is scored on.",
    "direction_note": "Direction accuracy is not evidence of skill: on simulated returns with nothing to forecast, the backtest's noise floor is 75.5%, because a five-session realized vol is a noisy estimate that reverts toward its mean. QLIKE is the skill measure."
   }
  },

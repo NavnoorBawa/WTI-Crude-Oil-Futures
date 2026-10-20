@@ -321,7 +321,7 @@ class VolForecastValidationTest(unittest.TestCase):
 
     LIVE_RECORD = {
         "started": "2026-10-20", "n_recorded": 4, "n_resolved": 1, "n_pending": 2, "n_skipped_roll": 0,
-        "n_expired": 0, "n_late_commit": 1, "n_independent": 1,
+        "n_expired": 0, "n_late_commit": 1, "n_independent": 1, "next_result_due": "2026-10-27",
         "champion": {"model_version": "har-iv/2", "qlike": 0.2, "interval_80_coverage_pct": 100.0,
                      "direction_hit_pct": 100.0, "mean_forecast_pct": 47.6, "mean_realized_pct": 44.0},
         "challenger": {"key": "har_iv_range", "qlike": 0.21},
@@ -336,7 +336,7 @@ class VolForecastValidationTest(unittest.TestCase):
         "promotion_rule": "...",
     }
     DECIDED = {"status": "keep", "n_independent_paired": 52, "required": 52, "dm_stat": 0.4078,
-               "p_value": 0.341706, "mean_qlike_difference": 0.006543}
+               "p_value": 0.342564, "mean_qlike_difference": 0.006543}         # p = P(T > 0.4078), T ~ t(51)
 
     def record_errors(self, **changes):
         record = {**copy.deepcopy(self.LIVE_RECORD), **changes}
@@ -349,7 +349,8 @@ class VolForecastValidationTest(unittest.TestCase):
         self.assertNotIn("live_record", self.valid["vol_forecast"])
         self.assertEqual(self.record_errors(), [])
         empty = {"n_recorded": 0, "n_resolved": 0, "n_pending": 0, "n_late_commit": 0, "n_independent": 0,
-                 "recent": [], "promotion": {**self.LIVE_RECORD["promotion"], "n_independent_paired": 0}}
+                 "next_result_due": None, "recent": [],
+                 "promotion": {**self.LIVE_RECORD["promotion"], "n_independent_paired": 0}}
         self.assertEqual(self.record_errors(**empty), [])
 
     def test_the_writers_summaries_pass(self):
@@ -377,12 +378,32 @@ class VolForecastValidationTest(unittest.TestCase):
             "decided": [entry(week, "resolved", (30.0, 36.0)[week % 2], (33.0, 34.0)[week % 2])
                         for week in range(52)],
         }
+        due = {}
         for name, entries in records.items():
             with self.subTest(name):
                 summary = vol_record.summarize(vol_record.validate_record(
                     {"schema_version": 1, "started": "2026-10-20", "entries": entries}))
                 self.assertEqual(self.errors_with(lambda vol: vol.update(live_record=summary)), [])
+                due[name] = summary["next_result_due"]
         self.assertEqual(summary["promotion"]["status"], "promote")
+        # The one pending entry (week 0) is the next result; with nothing pending there is none.
+        self.assertEqual(due, {"seeded": None, "every status": "2026-11-09", "decided": None})
+
+    def test_next_result_due_is_required_and_a_date_or_null(self):
+        required = "vol_forecast.live_record.next_result_due is required (an ISO date or null)"
+        malformed = "vol_forecast.live_record.next_result_due must be an ISO date (YYYY-MM-DD) or null"
+        self.assertEqual(self.record_errors(next_result_due=None), [])
+        self.assertEqual(self.record_errors(next_result_due="2026-11-30"), [])
+        record = {k: v for k, v in self.LIVE_RECORD.items() if k != "next_result_due"}
+        self.assertIn(required, self.errors_with(lambda vol: vol.update(live_record=record)))
+        for bad in ("2026-10-27T00:00:00Z", "20261027", "2026-W44-2", "2026-13-01", "2026-02-30", "",
+                    "٢٠٢٦-10-27", 20261027, True, ["2026-10-27"]):
+            with self.subTest(bad=bad):
+                self.assertIn(malformed, self.record_errors(next_result_due=bad))
+        # A date needs a pending entry to come from.
+        self.assertIn("vol_forecast.live_record.next_result_due must be null with no pending entry",
+                      self.record_errors(n_pending=0))
+        self.assertEqual(self.record_errors(n_pending=0, next_result_due=None), [])
 
     def test_live_record_counts_must_be_non_negative_integers(self):
         for key in ("n_recorded", "n_resolved", "n_pending", "n_skipped_roll", "n_expired", "n_late_commit",

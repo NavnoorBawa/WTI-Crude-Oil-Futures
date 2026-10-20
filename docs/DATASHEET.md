@@ -52,8 +52,10 @@ this snapshot.
 - Bars dated on exchange holidays are partial sessions and are dropped.
 - The 2020-04-20 settlement (−$37.63) is dropped because log returns need positive prices.
 - Range-based variance on roll days replaces the overnight gap (the calendar spread) with the
-  median squared overnight return of the previous 250 non-roll sessions
-  (`backend/vol_lab.range_variance`).
+  median squared overnight return over the non-roll sessions among the previous 250 sessions: a
+  rolling 250-session window ending the session before, with roll days left out of the median, and
+  at least 20 non-roll sessions required (zero before that; `backend/vol_lab._overnight_variance`,
+  used by `range_variance` and `settlement_range_variance`).
 - **Decision-time use of the bar.** A forecast is made at session *t*'s 14:30 ET settlement, before
   its high and low are final. The lab's range-based features therefore use the full bar of earlier
   sessions and, for session *t*, only the overnight return and the open-to-settlement return

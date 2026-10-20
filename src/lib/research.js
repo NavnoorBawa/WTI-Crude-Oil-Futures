@@ -428,22 +428,35 @@ export const promotionStatus = (raw) => {
   };
 };
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}/;
+
 /**
  * The live forward record (data.json vol_forecast.live_record), normalized. `firstResult` is the
- * earliest pending call's target_end, or (no calls yet) an estimate from the start date.
+ * record's own next_result_due when the payload carries that key (the earliest target_end of a
+ * pending call whose window does not span a contract roll; null means no result is due). Older
+ * payloads without it fall back to the earliest pending call's target_end, or (no calls yet) an
+ * estimate from the start date.
  */
 export const liveRecordSummary = (record, horizon = 5) => {
   const lr = asObject(record);
   if (!lr) return null;
   const recent = asArray(lr.recent).filter((row) => asObject(row));
   const started = asText(lr.started);
-  const pendingEnds = recent
-    .filter((row) => row.status === "pending" && asText(row.target_end))
-    .map((row) => row.target_end)
-    .sort();
-  // With calls on record but none pending (e.g. the first was skipped at a roll), there is no
-  // honest date to quote, so none is estimated.
-  const firstResult = pendingEnds[0] ?? (started && recent.length === 0 ? estimateTargetEnd(started, horizon) : null);
+  let firstResult;
+  let firstResultIsEstimate = false;
+  if (Object.hasOwn(lr, "next_result_due")) {
+    const due = asText(lr.next_result_due);
+    firstResult = due && ISO_DATE.test(due) ? due.slice(0, 10) : null;
+  } else {
+    const pendingEnds = recent
+      .filter((row) => row.status === "pending" && asText(row.target_end))
+      .map((row) => row.target_end)
+      .sort();
+    // With calls on record but none pending (e.g. the first was skipped at a roll), there is no
+    // honest date to quote, so none is estimated.
+    firstResult = pendingEnds[0] ?? (started && recent.length === 0 ? estimateTargetEnd(started, horizon) : null);
+    firstResultIsEstimate = pendingEnds.length === 0 && firstResult != null;
+  }
   return {
     started,
     recorded: num(lr.n_recorded),
@@ -461,7 +474,7 @@ export const liveRecordSummary = (record, horizon = 5) => {
     note: asText(lr.note),
     directionNote: asText(lr.direction_note),
     firstResult,
-    firstResultIsEstimate: pendingEnds.length === 0,
+    firstResultIsEstimate,
   };
 };
 
@@ -473,10 +486,18 @@ const EXPERIMENT_LABELS = {
   real_cl_5y_window: "Real CL=F, 5y",
 };
 const MODEL_LABELS = { nearest_neighbour: "1-NN", decision_tree: "Tree", random_forest: "Forest" };
+// Experiments on symmetric i.i.d. returns, where 50% is the no-skill accuracy. On CL=F returns it is
+// each run's base rate (the share of the more common sign), reported per arm as base_rate_pct_mean.
+const SYMMETRIC_EXPERIMENTS = new Set(["synthetic_random_walk"]);
+// Used only when research.json predates design.sharpe / retracted_reference.sharpe_basis.
+const EXPERIMENT_SHARPE_BASIS = "gross (no transaction costs)";
+const REFERENCE_SHARPE_BASIS = "after transaction costs";
 
 /**
  * research.json leak_anatomy, normalized: the analytic sign-agreement ladder by training row and
- * one row per experiment x model with unpurged and purged accuracy / Sharpe.
+ * one row per experiment x model with unpurged and purged accuracy / Sharpe. The experiments'
+ * Sharpe ratios are gross and the retracted model's is after costs; `sharpeBasis` carries both
+ * labels (from the artifact when it states them).
  */
 export const leakAnatomy = (research) => {
   const anatomy = asObject(research?.leak_anatomy);
@@ -496,6 +517,7 @@ export const leakAnatomy = (research) => {
       const unpurged = asObject(runs?.unpurged);
       const purged = asObject(runs?.purged);
       if (!unpurged || !purged) continue;
+      const symmetric = SYMMETRIC_EXPERIMENTS.has(experiment);
       experiments.push({
         key: `${experiment}:${model}`,
         experiment,
@@ -511,14 +533,31 @@ export const leakAnatomy = (research) => {
         purgedRange: asArray(purged.accuracy_pct_range).map(num),
         purgedSharpe: num(purged.sharpe_mean),
         purgedP: num(purged.pooled_binomial_p_value_vs_50),
+        baseRate: num(unpurged.base_rate_pct_mean ?? purged.base_rate_pct_mean),
+        unpurgedBeatBase: num(unpurged.runs_beating_base_rate_5pct),
+        purgedBeatBase: num(purged.runs_beating_base_rate_5pct),
+        purgedRuns: num(purged.n_runs),
+        // The accuracy a model with no skill expects: 50% on symmetric noise, the base rate on CL=F.
+        noSkill: symmetric ? 50 : num(unpurged.base_rate_pct_mean ?? purged.base_rate_pct_mean),
+        symmetric,
         isHeadline: experiment === "synthetic_random_walk" && model === anatomy.headline_model,
       });
     }
   }
   const reference = asObject(anatomy.retracted_reference);
+  const design = asObject(anatomy.design);
+  // design.sharpe opens with the basis ("gross (no transaction costs): direction x ..."); the rest is
+  // the formula.
+  const sharpeText = asText(design?.sharpe);
+  const designBasis = sharpeText?.includes(":") ? asText(sharpeText.split(":")[0]) : null;
   return {
     ladder,
     experiments,
+    sharpeBasis: {
+      experiments: designBasis ?? EXPERIMENT_SHARPE_BASIS,
+      reference: asText(reference?.sharpe_basis) ?? REFERENCE_SHARPE_BASIS,
+    },
+    upSharePct: num(design?.cl_5_session_up_share_pct),
     formula: asText(anatomy.analytic?.formula),
     headlineModel: asText(anatomy.headline_model),
     unpurgedAcc: num(anatomy.unpurged_dir_acc_pct_mean),
@@ -554,7 +593,24 @@ export const supplyStudy = (research) => {
       peakP: pv(group.p_value_vs_placebo, "peak"),
       settleP: pv(group.p_value_vs_placebo, "settle"),
       peakPYear: pv(group.p_value_vs_year_matched_placebo, "peak"),
+      settlePYear: pv(group.p_value_vs_year_matched_placebo, "settle"),
+      eventIds: asArray(group.event_ids).filter((id) => asText(id)),
+    }))
+    .map((group) => ({
+      ...group,
+      // The study's rule: a group differs from an ordinary date only if both placebo tests reject,
+      // so its p is the larger of the two (as in the research ledger). Null unless both exist.
+      peakPRule: group.peakP != null && group.peakPYear != null ? Math.max(group.peakP, group.peakPYear) : null,
+      settlePRule: group.settleP != null && group.settlePYear != null ? Math.max(group.settleP, group.settlePYear) : null,
     }));
+  const overlap = asObject(study.overlapping_events);
+  const pairs = asArray(overlap?.pairs)
+    .map((pair) => ({ events: asArray(pair?.events).filter((id) => asText(id)), apart: num(pair?.sessions_apart) }))
+    .filter((pair) => pair.events.length === 2);
+  for (const group of groups) {
+    const members = new Set(group.eventIds);
+    group.overlaps = pairs.filter((pair) => pair.events.every((id) => members.has(id)));
+  }
   const between = asObject(study.between_groups);
   return {
     method: asText(study.method),
@@ -571,6 +627,7 @@ export const supplyStudy = (research) => {
       peakP: pv(between.p_value, "peak"),
       settleP: pv(between.p_value, "settle"),
     } : null,
+    overlapping: overlap ? { definition: asText(overlap.definition), pairs } : null,
     superseded: Object.values(asObject(study.superseded_claims) ?? {}).filter((text) => asText(text)),
     conclusion: asText(study.conclusion),
   };
