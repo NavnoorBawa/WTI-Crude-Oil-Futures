@@ -3,10 +3,12 @@ import json
 import subprocess
 import sys
 import unittest
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from backend import vol_record
 from scripts.validate_frozen_payload import (
+    LIVE_RECORD_STATUSES,
     RETRACTED_MODEL_FIELDS,
     research_payload_path,
     validate_payload,
@@ -318,26 +320,73 @@ class VolForecastValidationTest(unittest.TestCase):
                               self.errors_with(lambda vol: vol["validation"].update(har_qlike=bad)))
 
     LIVE_RECORD = {
-        "started": "2026-10-20", "n_recorded": 3, "n_resolved": 1, "n_pending": 2, "n_skipped_roll": 0,
-        "n_independent": 1,
+        "started": "2026-10-20", "n_recorded": 4, "n_resolved": 1, "n_pending": 2, "n_skipped_roll": 0,
+        "n_expired": 0, "n_late_commit": 1, "n_independent": 1,
         "champion": {"model_version": "har-iv/2", "qlike": 0.2, "interval_80_coverage_pct": 100.0,
                      "direction_hit_pct": 100.0, "mean_forecast_pct": 47.6, "mean_realized_pct": 44.0},
         "challenger": {"key": "har_iv_range", "qlike": 0.21},
-        "recent": [{"as_of": "2026-10-19", "issued_at": "2026-10-20T12:01:59Z", "target_start": "2026-10-20",
-                    "target_end": "2026-10-26", "forecast_pct": 47.6, "median_pct": 40.0, "lo80_pct": 23.3,
-                    "hi80_pct": 63.9, "challenger_pct": 48.4, "realized_pct": None, "status": "pending"}],
+        "promotion": {"status": "accruing", "n_independent_paired": 1, "required": 52, "dm_stat": None,
+                      "p_value": None, "mean_qlike_difference": None},
+        "recent": [{"as_of": "2026-10-19", "issued_at": "2026-10-20T12:01:59Z", "target_start": "2026-10-21",
+                    "target_end": "2026-10-27", "forecast_pct": 47.6, "median_pct": 40.0, "lo80_pct": 23.3,
+                    "hi80_pct": 63.9, "challenger_pct": 48.4, "realized_pct": None, "status": "pending"},
+                   {"as_of": "2026-10-16", "issued_at": "2026-10-19T17:50:00Z", "target_start": "2026-10-20",
+                    "target_end": "2026-10-26", "forecast_pct": 46.1, "median_pct": 39.0, "lo80_pct": 22.0,
+                    "hi80_pct": 62.0, "challenger_pct": 47.0, "realized_pct": None, "status": "late_commit"}],
         "promotion_rule": "...",
     }
+    DECIDED = {"status": "keep", "n_independent_paired": 52, "required": 52, "dm_stat": 0.4078,
+               "p_value": 0.341706, "mean_qlike_difference": 0.006543}
+
+    def record_errors(self, **changes):
+        record = {**copy.deepcopy(self.LIVE_RECORD), **changes}
+        return self.errors_with(lambda vol: vol.update(live_record=record))
+
+    def promotion_errors(self, **changes):
+        return self.record_errors(promotion={**self.DECIDED, **changes})
 
     def test_live_record_is_optional_but_well_formed_when_present(self):
         self.assertNotIn("live_record", self.valid["vol_forecast"])
-        record = copy.deepcopy(self.LIVE_RECORD)
-        self.assertEqual(self.errors_with(lambda vol: vol.update(live_record=record)), [])
-        empty = {**record, "n_recorded": 0, "n_resolved": 0, "n_pending": 0, "n_independent": 0, "recent": []}
-        self.assertEqual(self.errors_with(lambda vol: vol.update(live_record=empty)), [])
+        self.assertEqual(self.record_errors(), [])
+        empty = {"n_recorded": 0, "n_resolved": 0, "n_pending": 0, "n_late_commit": 0, "n_independent": 0,
+                 "recent": [], "promotion": {**self.LIVE_RECORD["promotion"], "n_independent_paired": 0}}
+        self.assertEqual(self.record_errors(**empty), [])
+
+    def test_the_writers_summaries_pass(self):
+        # What backend/vol_record.py publishes: the seeded record, one holding every status, and one
+        # whose promotion test has decided.
+        self.assertEqual(LIVE_RECORD_STATUSES, vol_record.STATUSES)
+
+        def entry(week, status, realized=None, challenger=38.0):
+            base = date(2026, 11, 2) + timedelta(days=7 * week)       # Mondays; windows Tuesday to Monday
+            return {
+                "as_of": (base - timedelta(days=3)).isoformat(), "issued_at": f"{base}T13:00:00Z",
+                "recorded_at": f"{base}T13:05:00Z", "sealed_at": f"{base}T13:15:00Z", "model_version": "har-iv/2",
+                "forecast_pct": 40.0, "challenger": {"key": "har_iv_range", "forecast_pct": challenger,
+                                                     "median_pct": None},
+                "base_session": base.isoformat(), "target_start": (base + timedelta(days=1)).isoformat(),
+                "target_end": (base + timedelta(days=7)).isoformat(), "status": status, "realized_pct": realized,
+                "resolved_at": "2026-12-31T12:00:00Z",
+                "closes": [[(base + timedelta(days=d)).isoformat(), 80.0] for d in (0, 1, 2, 3, 4, 7)],
+            }
+
+        records = {
+            "seeded": [],
+            "every status": [entry(week, status, 35.0 if status == "resolved" else None)
+                             for week, status in enumerate(vol_record.STATUSES)],
+            "decided": [entry(week, "resolved", (30.0, 36.0)[week % 2], (33.0, 34.0)[week % 2])
+                        for week in range(52)],
+        }
+        for name, entries in records.items():
+            with self.subTest(name):
+                summary = vol_record.summarize(vol_record.validate_record(
+                    {"schema_version": 1, "started": "2026-10-20", "entries": entries}))
+                self.assertEqual(self.errors_with(lambda vol: vol.update(live_record=summary)), [])
+        self.assertEqual(summary["promotion"]["status"], "promote")
 
     def test_live_record_counts_must_be_non_negative_integers(self):
-        for key in ("n_recorded", "n_resolved", "n_pending", "n_skipped_roll", "n_independent"):
+        for key in ("n_recorded", "n_resolved", "n_pending", "n_skipped_roll", "n_expired", "n_late_commit",
+                    "n_independent"):
             for bad in (-1, 1.0, True, "3", None):
                 with self.subTest(key=key, bad=bad):
                     record = {**self.LIVE_RECORD, key: bad}
@@ -352,6 +401,68 @@ class VolForecastValidationTest(unittest.TestCase):
                               self.errors_with(lambda vol: vol.update(live_record=record)))
         self.assertIn("vol_forecast.live_record must be an object",
                       self.errors_with(lambda vol: vol.update(live_record=[])))
+
+    def test_live_record_recent_statuses_must_be_known(self):
+        statuses = "vol_forecast.live_record.recent statuses must be one of " + ", ".join(LIVE_RECORD_STATUSES)
+        for bad in ("won", None, "LATE_COMMIT"):
+            with self.subTest(bad=bad):
+                recent = [{**self.LIVE_RECORD["recent"][0], "status": bad}]
+                self.assertIn(statuses, self.record_errors(recent=recent))
+        for good in LIVE_RECORD_STATUSES:
+            with self.subTest(good=good):
+                self.assertEqual(self.record_errors(recent=[{**self.LIVE_RECORD["recent"][0], "status": good}]), [])
+
+    def test_promotion_verdicts_pass(self):
+        self.assertEqual(self.promotion_errors(), [])
+        self.assertEqual(self.promotion_errors(status="promote", dm_stat=2.1, p_value=0.0179,
+                                               mean_qlike_difference=0.031), [])
+        # Identical forecasts leave nothing to test: a keep without a statistic.
+        self.assertEqual(self.promotion_errors(dm_stat=None, p_value=None, mean_qlike_difference=0.0), [])
+
+    def test_malformed_promotion_blocks_are_rejected(self):
+        where = "vol_forecast.live_record.promotion"
+        accruing = self.LIVE_RECORD["promotion"]
+        cases = {
+            "missing block": (self.record_errors(promotion=None), f"{where} must be an object"),
+            "not an object": (self.record_errors(promotion=[]), f"{where} must be an object"),
+            "missing key": (self.record_errors(promotion={k: v for k, v in self.DECIDED.items() if k != "p_value"}),
+                            f"{where} is missing p_value"),
+            "status": (self.promotion_errors(status="promoted"),
+                       f"{where}.status must be one of accruing, promote, keep"),
+            "required zero": (self.promotion_errors(required=0), f"{where}.required must be a positive integer"),
+            "required float": (self.promotion_errors(required=52.0), f"{where}.required must be a positive integer"),
+            "n negative": (self.promotion_errors(n_independent_paired=-1),
+                           f"{where}.n_independent_paired must be a non-negative integer"),
+            "n boolean": (self.promotion_errors(n_independent_paired=True),
+                          f"{where}.n_independent_paired must be a non-negative integer"),
+            "dm string": (self.promotion_errors(dm_stat="0.4"), f"{where}.dm_stat must be a finite number or null"),
+            "dm infinite": (self.promotion_errors(dm_stat=float("inf")),
+                            f"{where}.dm_stat must be a finite number or null"),
+            "mean NaN": (self.promotion_errors(mean_qlike_difference=float("nan")),
+                         f"{where}.mean_qlike_difference must be a finite number or null"),
+            "p above one": (self.promotion_errors(p_value=1.5), f"{where}.p_value must be a probability or null"),
+            "p negative": (self.promotion_errors(p_value=-0.1), f"{where}.p_value must be a probability or null"),
+        }
+        accruing_rule = f"{where}: an accruing test has fewer than the required weeks and no statistics"
+        verdict_rule = (f"{where}: a verdict needs exactly the required weeks, a mean difference, and the statistic "
+                        "with its p-value")
+        promote_rule = f"{where}: a promote verdict needs a positive mean difference and a p-value"
+        cases.update({
+            "accruing with statistics": (self.record_errors(promotion={**accruing, "dm_stat": 1.0}), accruing_rule),
+            "accruing with a full sample": (self.record_errors(promotion={**accruing, "n_independent_paired": 52}),
+                                            accruing_rule),
+            "verdict on too few weeks": (self.promotion_errors(n_independent_paired=40), verdict_rule),
+            "verdict on too many weeks": (self.promotion_errors(n_independent_paired=60), verdict_rule),
+            "verdict without a mean": (self.promotion_errors(mean_qlike_difference=None), verdict_rule),
+            "statistic without p": (self.promotion_errors(p_value=None), verdict_rule),
+            "promote on a negative mean": (self.promotion_errors(status="promote", mean_qlike_difference=-0.01),
+                                           promote_rule),
+            "promote without a test": (self.promotion_errors(status="promote", dm_stat=None, p_value=None),
+                                       promote_rule),
+        })
+        for name, (errors, expected) in cases.items():
+            with self.subTest(name):
+                self.assertIn(expected, errors)
 
 
 class ResearchValidationTest(unittest.TestCase):

@@ -28,10 +28,21 @@ Rules (conservative by construction; sessions are CME business days, see contrac
   the live forecast is published hours after that settlement, so the price move between the
   `as_of` settlement and publication is already known when the forecast appears and must not be
   scored. The live window therefore starts at least one session later than the backtest's. The
-  one-hour margin covers the time between this step and the git commit that proves the entry
-  existed (the record is committed after the site deploys, normally within a quarter of an
-  hour), so that commit precedes the settlement that opens the window it is scored on. The record
-  stores k0 as `base_session` and the scored return sessions as `target_start` .. `target_end`.
+  one-hour margin leaves room for the time between this step and the publish job's commit of the
+  record (after the site deploys, normally within a quarter of an hour); the seal below checks
+  that the commit came first. The record stores k0 as `base_session` and the scored return
+  sessions as `target_start` .. `target_end`.
+- SEAL (status "late_commit"). The build job records an entry; the publish job commits it to the
+  live-data branch later. Immediately before that commit the publish job runs --seal, which stamps
+  `sealed_at` (its clock) on every entry not yet sealed. The seal, the commit and the push run in
+  one workflow step capped at four minutes, so the commit is made within SEAL_MARGIN (five
+  minutes, the cap plus a minute of slack) of `sealed_at`. An entry whose window-opening
+  settlement (14:30 ET on base_session) is not later than `sealed_at` + SEAL_MARGIN may have been
+  committed after that settlement: the seal marks it "late_commit", and it is never scored.
+  Resolution settles only entries sealed in time. An entry still unsealed when its window is about
+  to open was never committed by the seal step (for example, it was written by hand), so it is
+  closed as "late_commit" too. A failed persist never gets that far: the run's new entry does not
+  reach live-data at all, and later runs restore the record without it.
 - Closes come from `vol_forecast.recent_closes` (the finished-session closes the forecaster itself
   used) and, for any session it lacks, from the payload's completed daily ("1d") chart bars
   (unified_data.actual), dated by their session. A bar newer than the last finished session
@@ -52,15 +63,30 @@ Rules (conservative by construction; sessions are CME business days, see contrac
   realized vol is a noisy estimate that reverts toward its mean). Daily forecasts of a
   five-session window overlap, so `n_independent` counts the resolved entries whose windows do
   not overlap (greedy in time order): that, not `n_resolved`, is the effective sample size.
+- PROMOTION: one test, run once, on a fixed sample (summary["promotion"]). In record order, take
+  the resolved entries on which both the current model of record (its model_version) and the
+  current challenger (its key) were forecast, keep the ones whose windows do not overlap (greedy,
+  as for `n_independent`), and stop at the first entry of that pair still pending: it may still
+  resolve, and its window comes before those of later entries, while everything before it is
+  final. The first PROMOTION_WEEKS entries selected are the sample. On it, a one-sided
+  Diebold-Mariano test of the QLIKE differences, model of record minus challenger (positive
+  favours the challenger): the mean difference over its standard error, from the plain sample
+  variance with an n - 1 denominator and no autocovariance terms, as for one-step-ahead forecasts,
+  since the windows do not overlap (this equals the Harvey-Leybourne-Newbold-corrected statistic
+  for one step), with the p-value from the standard normal. The verdict is "promote" if the mean
+  difference is positive and p < PROMOTION_ALPHA, else "keep"; "accruing" until the sample is
+  full. Entries added later never change it (a single look). Applying a "promote" verdict, i.e.
+  swapping the models, is a maintainer's change to the code.
 
 The summary is written into the payload at vol_forecast.live_record (docs/DATA_CONTRACT.md).
 
 Standard library only (plus contract_calendar and safe_paths, which are standard-library only):
 the publish job validates the restored record with `from backend.vol_record import load_record`
-without installing any dependency.
+and seals it with --seal without installing any dependency.
 
 Usage:
-    python backend/vol_record.py --data public/data.json      # CI, after freeze.py
+    python backend/vol_record.py --data public/data.json      # CI build job, after freeze.py
+    python backend/vol_record.py --seal                       # CI publish job, right before the commit
     python backend/vol_record.py --init                       # write an empty record (seeding)
 """
 
@@ -93,19 +119,27 @@ RECORD_PATH = data_json_path("vol_track_record.json")
 SETTLEMENT_ET = time(14, 30)                 # NYMEX CL daily settlement (America/New_York)
 HORIZON_SESSIONS = 5                         # the forecast's target: next 5 sessions
 ANNUALIZATION = 252
-COMMIT_MARGIN = timedelta(hours=1)           # recording -> git commit of the entry, with room to spare
+COMMIT_MARGIN = timedelta(hours=1)           # recording -> the publish job's commit, with room to spare
+SEAL_MARGIN = timedelta(minutes=5)           # seal -> commit and push: refresh.yml caps that step at 4 minutes
 BAR_FETCH_MARGIN = timedelta(hours=1)        # daily bars are fetched before frozen_at is stamped
 MAX_CLOCK_SKEW = timedelta(minutes=5)        # an issued_at later than the run's clock is refused
 MAX_WAIT_SESSIONS = 10                       # closes missing this long after k0+5: expired
 RECENT_ENTRIES = 12
-STATUSES = ("pending", "resolved", "skipped_roll", "expired")
+STATUSES = ("pending", "resolved", "skipped_roll", "expired", "late_commit")
+_SEALED_IN_TIME = ("resolved", "skipped_roll", "expired")    # only entries sealed in time get these
 DIRECTIONS = ("RISING", "FALLING")
-PROMOTION_RULE = ("The challenger replaces the model of record after at least 52 independent resolved "
-                  "weeks if its live QLIKE is lower with a one-sided Diebold-Mariano p below 0.10.")
+PROMOTION_WEEKS = 52
+PROMOTION_ALPHA = 0.10
+PROMOTION_RULE = (f"The challenger replaces the model of record if, on the first {PROMOTION_WEEKS} independent "
+                  f"resolved weeks where both were forecast, its mean QLIKE is lower with a one-sided "
+                  f"Diebold-Mariano p below {PROMOTION_ALPHA:.2f}. The test is run once, on that fixed sample; "
+                  f"a maintainer applies the verdict.")
 WINDOW_NOTE = ("Each forecast is scored on the realized volatility of the five settlement-to-settlement "
                "returns after the first CL settlement (14:30 ET) at least an hour after it was issued and "
-               "recorded, one session or more later than the backtest's window, so no scored price was "
-               "known when the forecast was committed.")
+               "recorded, one session or more later than the backtest's window. The record is sealed just "
+               "before each git commit; an entry not sealed more than five minutes before that settlement is "
+               "marked late_commit and never scored, so every scored forecast was committed before any price "
+               "it is scored on.")
 _RECORD_KEYS = {"schema_version", "started", "entries"}
 _REQUIRED_ENTRY_KEYS = {
     "as_of", "issued_at", "recorded_at", "model_version", "forecast_pct", "base_session",
@@ -186,6 +220,14 @@ def target_window(issued_at: datetime) -> dict:
     }
 
 
+def sealed_in_time(entry: dict) -> bool:
+    """Whether the entry was sealed more than SEAL_MARGIN before the settlement that opens its window."""
+    sealed_at = entry.get("sealed_at")
+    if sealed_at is None:
+        return False
+    return settlement_time(_iso_date(entry["base_session"])) > _aware_utc(sealed_at) + SEAL_MARGIN
+
+
 def window_sessions(base_session: date) -> list[date]:
     """k0 .. k0+5: the six sessions whose closes the window needs."""
     return [base_session] + [shift_business_days(base_session, i) for i in range(1, HORIZON_SESSIONS + 1)]
@@ -251,9 +293,17 @@ def _validate_entry(entry, index: int) -> date:
         raise ValueError(f"{where}: window must satisfy as_of < base_session < target_start <= target_end")
     if issued_at > recorded_at + MAX_CLOCK_SKEW or recorded_at >= settlement_time(base):
         raise ValueError(f"{where}: recorded after its window opened, or issued after it was recorded")
+    if entry.get("sealed_at") is not None and recorded_at > _aware_utc(entry["sealed_at"]) + MAX_CLOCK_SKEW:
+        raise ValueError(f"{where}: sealed before it was recorded")
     status = entry["status"]
     if status not in STATUSES:
         raise ValueError(f"{where}: unknown status {status!r}")
+    # A late seal is caught by the seal itself (late_commit), so a pending entry that carries a seal
+    # was sealed in time, and resolution never settles anything else.
+    if (status in _SEALED_IN_TIME or (status == "pending" and entry.get("sealed_at") is not None)) \
+            and not sealed_in_time(entry):
+        raise ValueError(f"{where}: a {status} entry must have been sealed more than "
+                         f"{SEAL_MARGIN.total_seconds() / 60:g} minutes before its window opened")
     if status == "resolved":
         if _positive(entry.get("realized_pct")) is None:
             raise ValueError(f"{where}: a resolved entry needs a positive realized_pct")
@@ -389,6 +439,7 @@ def extract_entry(payload: dict, now: datetime) -> tuple[dict | None, str]:
         "as_of": as_of.isoformat(),
         "issued_at": _stamp(issued_at),
         "recorded_at": _stamp(now),
+        "sealed_at": None,                       # stamped by --seal, right before the commit
         "frozen_at": frozen_at if isinstance(frozen_at, str) else None,
         "contract": contract.get("symbol") if isinstance(contract.get("symbol"), str) else None,
         "model_version": model_version,
@@ -481,13 +532,49 @@ def realized_vol_pct(closes: list[float]) -> float:
     return math.sqrt(sum(r * r for r in returns) / len(returns) * ANNUALIZATION) * 100.0
 
 
+def seal_entries(record: dict, now: datetime) -> list[str]:
+    """Stamp sealed_at = `now` on every entry not yet sealed; returns one message per entry sealed.
+
+    Runs immediately before the record is committed (refresh.yml's publish job). A pending entry whose
+    window-opening settlement is not later than `now` + SEAL_MARGIN becomes "late_commit": its commit
+    cannot be shown to precede that settlement, so it is never scored. Entries already sealed are left
+    alone, so sealing again changes nothing. Mutates `record`.
+    """
+    if now.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    messages = []
+    for entry in record["entries"]:
+        if entry.get("sealed_at") is not None:
+            continue
+        entry["sealed_at"] = _stamp(now)
+        if entry["status"] == "pending" and not sealed_in_time(entry):
+            entry["status"] = "late_commit"
+            entry["closed_at"] = _stamp(now)
+            messages.append(f"as_of {entry['as_of']}: sealed too close to the {entry['base_session']} settlement "
+                            "that opens its window — late_commit, never scored")
+        else:
+            messages.append(f"as_of {entry['as_of']}: sealed ({entry['status']})")
+    return messages
+
+
 def resolve_entries(record: dict, closes: dict[date, float], cutoff: date, now: datetime) -> list[str]:
-    """Settle every pending entry that can be settled; returns one message per change."""
+    """Settle every pending entry that can be settled; returns one message per change.
+
+    Only entries sealed in time are settled. An unsealed one waits for the seal while that can still be
+    in time, and is closed as "late_commit" once it cannot.
+    """
     messages = []
     for entry in record["entries"]:
         if entry["status"] != "pending":
             continue
         base, end = date.fromisoformat(entry["base_session"]), date.fromisoformat(entry["target_end"])
+        if not sealed_in_time(entry):
+            if entry.get("sealed_at") is not None or settlement_time(base) <= now + SEAL_MARGIN:
+                entry["status"] = "late_commit"
+                entry["closed_at"] = _stamp(now)
+                messages.append(f"as_of {entry['as_of']}: not sealed before the {entry['base_session']} "
+                                "settlement that opens its window — late_commit, never scored")
+            continue
         if spans_roll(base, end):
             entry["status"] = "skipped_roll"
             entry["closed_at"] = _stamp(now)
@@ -537,6 +624,64 @@ def independent_entries(resolved: list[dict]) -> list[dict]:
     return chosen
 
 
+def _pair(entry: dict) -> tuple:
+    """(model of record version, challenger key) of an entry; the key is None without a challenger."""
+    return entry["model_version"], (entry.get("challenger") or {}).get("key")
+
+
+def promotion_sample(entries: list[dict], model_version, challenger_key) -> list[dict]:
+    """The first PROMOTION_WEEKS (or fewer, while accruing) independent resolved entries of the pair.
+
+    Entries are taken in record order; those whose windows overlap an already selected one are
+    skipped (greedy, as independent_entries does). The scan stops at the first entry of the pair
+    that is still pending: it may resolve and its window precedes later ones, whereas every entry
+    before it is final. So the selection only grows, and once full it never changes.
+    """
+    if challenger_key is None:
+        return []
+    chosen, last_end = [], None
+    for entry in entries:
+        if _pair(entry) != (model_version, challenger_key):
+            continue
+        if entry["status"] == "pending":
+            break
+        if entry["status"] == "resolved" and (last_end is None or entry["target_start"] > last_end):
+            chosen.append(entry)
+            last_end = entry["target_end"]
+            if len(chosen) == PROMOTION_WEEKS:
+                break
+    return chosen
+
+
+def promotion_test(entries: list[dict], model_version, challenger_key) -> dict:
+    """The promotion rule (PROMOTION_RULE), computed once on its fixed sample (module docstring).
+
+    The loss difference is QLIKE(model of record) - QLIKE(challenger), so a positive mean favours the
+    challenger. The Diebold-Mariano statistic is the mean over its standard error from the sample
+    variance (n - 1 denominator), with no autocovariance terms because the windows do not overlap;
+    the one-sided p-value is P(Z >= stat) for a standard normal Z.
+    """
+    sample = promotion_sample(entries, model_version, challenger_key)
+    result = {"status": "accruing", "n_independent_paired": len(sample), "required": PROMOTION_WEEKS,
+              "dm_stat": None, "p_value": None, "mean_qlike_difference": None}
+    if len(sample) < PROMOTION_WEEKS:
+        return result
+    diffs = [qlike(e["realized_pct"], e["forecast_pct"]) - qlike(e["realized_pct"], e["challenger"]["forecast_pct"])
+             for e in sample]
+    n = len(diffs)
+    mean = sum(diffs) / n
+    variance = sum((d - mean) ** 2 for d in diffs) / (n - 1)
+    result["mean_qlike_difference"] = round(mean, 6)
+    promote = False
+    if variance > 0:                     # zero only if every difference is identical: nothing to test
+        stat = mean / math.sqrt(variance / n)
+        p_value = 0.5 * math.erfc(stat / math.sqrt(2.0))
+        result["dm_stat"], result["p_value"] = round(stat, 4), round(p_value, 6)
+        promote = mean > 0 and p_value < PROMOTION_ALPHA
+    result["status"] = "promote" if promote else "keep"
+    return result
+
+
 def _recent(entry: dict) -> dict:
     challenger = entry.get("challenger") or {}
     return {
@@ -562,15 +707,18 @@ def direction_note(noise_floor_pct=None) -> str:
 def summarize(record: dict, noise_floor_pct=None) -> dict:
     """The dashboard summary (vol_forecast.live_record in docs/DATA_CONTRACT.md).
 
-    Every statistic is over the resolved entries and stays null until one exists. `recent` lists
-    up to RECENT_ENTRIES entries, newest first.
+    Every statistic is over the resolved entries and stays null until one exists. The challenger is
+    compared with the current model of record (the newest entry's model_version) on the entries
+    where both were forecast; `promotion` is the promotion rule's single test. `recent` lists up to
+    RECENT_ENTRIES entries, newest first.
     """
     entries = record["entries"]
     resolved = [e for e in entries if e["status"] == "resolved"]
     with_interval = [e for e in resolved if e.get("lo80_pct") is not None]
     with_direction = [e for e in resolved if e.get("direction") in DIRECTIONS and e.get("rv5_pct") is not None]
+    model_version = entries[-1]["model_version"] if entries else None
     challenger_key = next((e["challenger"]["key"] for e in reversed(entries) if e.get("challenger")), None)
-    paired = [e for e in resolved if (e.get("challenger") or {}).get("key") == challenger_key] if challenger_key else []
+    paired = [e for e in resolved if _pair(e) == (model_version, challenger_key)] if challenger_key else []
     return {
         "started": record["started"],
         "n_recorded": len(entries),
@@ -578,9 +726,10 @@ def summarize(record: dict, noise_floor_pct=None) -> dict:
         "n_pending": sum(e["status"] == "pending" for e in entries),
         "n_skipped_roll": sum(e["status"] == "skipped_roll" for e in entries),
         "n_expired": sum(e["status"] == "expired" for e in entries),
+        "n_late_commit": sum(e["status"] == "late_commit" for e in entries),
         "n_independent": len(independent_entries(resolved)),
         "champion": {
-            "model_version": entries[-1]["model_version"] if entries else None,
+            "model_version": model_version,
             "qlike": _mean([qlike(e["realized_pct"], e["forecast_pct"]) for e in resolved], 4),
             "interval_80_coverage_pct": _share_pct(
                 [e["lo80_pct"] <= e["realized_pct"] <= e["hi80_pct"] for e in with_interval]),
@@ -592,10 +741,12 @@ def summarize(record: dict, noise_floor_pct=None) -> dict:
         "challenger": {
             "key": challenger_key,
             "qlike": _mean([qlike(e["realized_pct"], e["challenger"]["forecast_pct"]) for e in paired], 4),
-            # The comparison the promotion rule makes: both models on the same resolved entries.
+            # Descriptive: both models on every paired resolved entry, overlapping windows included.
+            # The promotion decision is `promotion`, on independent windows only.
             "n": len(paired),
             "champion_qlike": _mean([qlike(e["realized_pct"], e["forecast_pct"]) for e in paired], 4),
         },
+        "promotion": promotion_test(entries, model_version, challenger_key),
         "recent": [_recent(e) for e in reversed(entries[-RECENT_ENTRIES:])],
         "promotion_rule": PROMOTION_RULE,
         "note": WINDOW_NOTE,
@@ -630,7 +781,10 @@ def main(argv: list[str] | None = None, now: datetime | None = None) -> int:
     parser = argparse.ArgumentParser(description="Record + resolve the live vol forecast track record.")
     parser.add_argument("--data", default="public/data.json", help="frozen payload (public/data.json)")
     parser.add_argument("--record", default="data/vol_track_record.json", help="the record file")
-    parser.add_argument("--init", action="store_true", help="write an empty record (refuses to overwrite)")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--init", action="store_true", help="write an empty record (refuses to overwrite)")
+    mode.add_argument("--seal", action="store_true",
+                      help="stamp sealed_at on the entries not yet sealed, immediately before the record is committed")
     args = parser.parse_args(argv)
     now = now or datetime.now(timezone.utc)
     record_path = data_json_path(args.record)
@@ -644,6 +798,17 @@ def main(argv: list[str] | None = None, now: datetime | None = None) -> int:
         record = init_record(now)
         save_record(record, record_path)
         print(json.dumps(record, indent=2))
+        return 0
+
+    if args.seal:
+        record = load_record(record_path)
+        messages = seal_entries(record, now)
+        for message in messages:
+            print(f"vol_record: {message}")
+        if messages:
+            save_record(record, record_path)
+        else:
+            print("vol_record: every entry is already sealed; file left untouched")
         return 0
 
     data_path = public_json_path(args.data)
@@ -667,11 +832,12 @@ def main(argv: list[str] | None = None, now: datetime | None = None) -> int:
             _atomic_write(data_path, json.dumps(payload, indent=2))
     else:
         print("vol_record: the payload has no vol_forecast block; summary not attached")
-    champion = summary["champion"]
+    champion, promotion = summary["champion"], summary["promotion"]
     print(f"vol_record: {summary['n_recorded']} recorded, {summary['n_resolved']} resolved "
           f"({summary['n_independent']} independent), {summary['n_pending']} pending, "
-          f"{summary['n_skipped_roll']} skipped (roll), {summary['n_expired']} expired; "
-          f"QLIKE {champion['qlike']}")
+          f"{summary['n_skipped_roll']} skipped (roll), {summary['n_expired']} expired, "
+          f"{summary['n_late_commit']} late commits; QLIKE {champion['qlike']}; promotion "
+          f"{promotion['status']} ({promotion['n_independent_paired']}/{promotion['required']})")
     return 0
 
 

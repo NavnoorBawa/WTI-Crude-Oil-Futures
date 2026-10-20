@@ -33,7 +33,12 @@ VOL_DIRECTIONS = ("RISING", "FALLING")
 # The forecast's as_of is the last completed session; one session behind the quote is normal, four
 # covers a holiday weekend plus a late Yahoo bar. Older means the forecast is stale.
 VOL_MAX_LAG_BUSINESS_DAYS = 4
-LIVE_RECORD_COUNTS = ("n_recorded", "n_resolved", "n_pending", "n_skipped_roll", "n_independent")
+# vol_forecast.live_record, as backend/vol_record.py summarize() writes it.
+LIVE_RECORD_COUNTS = ("n_recorded", "n_resolved", "n_pending", "n_skipped_roll", "n_expired", "n_late_commit",
+                      "n_independent")
+LIVE_RECORD_STATUSES = ("pending", "resolved", "skipped_roll", "expired", "late_commit")
+PROMOTION_STATUSES = ("accruing", "promote", "keep")
+PROMOTION_KEYS = ("status", "n_independent_paired", "required", "dm_stat", "p_value", "mean_qlike_difference")
 # Outputs of the retracted 1-week direction model (schema_version 2 and earlier). It is not run in
 # production, so any of them in a snapshot means a stale renderer and must never be published.
 RETRACTED_MODEL_FIELDS = ("multi_horizon_predictions", "performance_metrics", "ml_prediction",
@@ -275,6 +280,45 @@ def _validate_live_record(record: Any) -> list[str]:
     recent = record.get("recent")
     if not isinstance(recent, list) or not all(isinstance(row, dict) for row in recent):
         errors.append("vol_forecast.live_record.recent must be a list of objects")
+    elif any(row.get("status") not in LIVE_RECORD_STATUSES for row in recent):
+        errors.append(f"vol_forecast.live_record.recent statuses must be one of {', '.join(LIVE_RECORD_STATUSES)}")
+    errors.extend(_validate_promotion(record.get("promotion")))
+    return errors
+
+
+def _validate_promotion(block: Any) -> list[str]:
+    """The promotion test's result: accruing with no statistics, or a verdict on exactly the required sample."""
+    where = "vol_forecast.live_record.promotion"
+    if not isinstance(block, dict):
+        return [f"{where} must be an object"]
+    missing = [key for key in PROMOTION_KEYS if key not in block]
+    if missing:
+        return [f"{where} is missing {', '.join(missing)}"]
+    errors = []
+    status, n, required = block["status"], block["n_independent_paired"], block["required"]
+    if status not in PROMOTION_STATUSES:
+        errors.append(f"{where}.status must be one of {', '.join(PROMOTION_STATUSES)}")
+    if not _count(required) or required == 0:
+        errors.append(f"{where}.required must be a positive integer")
+    if not _count(n):
+        errors.append(f"{where}.n_independent_paired must be a non-negative integer")
+    for key in ("dm_stat", "mean_qlike_difference"):
+        if block[key] is not None and not _finite_number(block[key]):
+            errors.append(f"{where}.{key} must be a finite number or null")
+    if block["p_value"] is not None and not (_finite_number(block["p_value"]) and 0.0 <= block["p_value"] <= 1.0):
+        errors.append(f"{where}.p_value must be a probability or null")
+    if errors:
+        return errors
+    stats = [block[key] for key in ("dm_stat", "p_value", "mean_qlike_difference")]
+    if status == "accruing":
+        if n >= required or any(value is not None for value in stats):
+            errors.append(f"{where}: an accruing test has fewer than the required weeks and no statistics")
+    elif (n != required or block["mean_qlike_difference"] is None
+          or (block["dm_stat"] is None) != (block["p_value"] is None)):
+        errors.append(f"{where}: a verdict needs exactly the required weeks, a mean difference, and the "
+                      "statistic with its p-value")
+    elif status == "promote" and (block["p_value"] is None or block["mean_qlike_difference"] <= 0):
+        errors.append(f"{where}: a promote verdict needs a positive mean difference and a p-value")
     return errors
 
 

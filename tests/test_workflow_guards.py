@@ -1,6 +1,9 @@
+import fnmatch
 import re
 import unittest
 from pathlib import Path
+
+from backend.vol_record import SEAL_MARGIN
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -9,6 +12,8 @@ FULL_COMMIT_SHA = re.compile(r"[0-9a-fA-F]{40}")
 # The structural check of the restored live vol track record (backend/vol_record.py is standard
 # library only, so it runs before anything is installed and in the publish job, which installs nothing).
 VOL_RECORD_CHECK = "'from backend.vol_record import load_record; load_record()'"
+# Stamps sealed_at on the record's new entries immediately before the publish job commits it.
+VOL_RECORD_SEAL = "PYTHONDONTWRITEBYTECODE=1 python backend/vol_record.py --seal"
 
 # The only actions a job holding a write token may use: GitHub's own, and only those such a job
 # needs. Their SHA pins are enforced by test_every_remote_action_is_pinned_to_a_full_commit_sha.
@@ -248,11 +253,20 @@ class WorkflowGuardTest(unittest.TestCase):
         trigger = source[source.index("\n  push:\n"):source.index("\npermissions:")]
         paths = re.findall(r"^\s+- '([^']+)'", trigger, re.M)
         for path in ("src/**", "backend/**", "freeze.py", "data/vol_lab.json", "data/vol_forecast_validation.json",
-                     "data/wf_*.json", "data/carry_signal_test.json", "data/market/**",
-                     "scripts/build_research_bundle.py", "scripts/validate_frozen_payload.py",
+                     "data/wf_*.json", "data/carry_signal_test.json", "data/supply_shock_study.json",
+                     "data/leak_anatomy.json", "data/research_ledger.json", "data/eia_wti_spot_daily.json",
+                     "data/market/**", "scripts/build_research_bundle.py", "scripts/validate_frozen_payload.py",
                      ".github/workflows/refresh.yml"):
             with self.subTest(path=path):
                 self.assertIn(path, paths)
+        # Every committed artifact research.json is built from, and the supply-shock playbook's spot
+        # history in data.json, redeploys the site when it changes.
+        builder = (REPOSITORY_ROOT / "scripts" / "build_research_bundle.py").read_text(encoding="utf-8")
+        inputs = set(re.findall(r'"(\w+\.json)"', builder)) - {"research.json"}
+        self.assertGreaterEqual(len(inputs), 9)
+        for name in sorted(inputs | {"eia_wti_spot_daily.json"}):
+            with self.subTest(artifact=name):
+                self.assertTrue(any(fnmatch.fnmatchcase(f"data/{name}", pattern) for pattern in paths))
 
 
     def test_privileged_refresh_job_is_split_from_the_build(self):
@@ -299,7 +313,7 @@ class WorkflowGuardTest(unittest.TestCase):
 
     def test_publish_job_imports_only_the_vol_record_from_backend(self):
         # Next to the write token, the only repository Python that runs is the standard-library
-        # record validator and the payload validator; the retired alert script is gone.
+        # record validator and seal and the payload validator; the retired alert script is gone.
         source = (WORKFLOW_DIRECTORY / "refresh.yml").read_text(encoding="utf-8")
         publish = _jobs(source)["publish"]
         self.assertEqual(set(re.findall(r"\bbackend[./](\w+)", publish)), {"vol_record"})
@@ -309,7 +323,10 @@ class WorkflowGuardTest(unittest.TestCase):
         scripts = set()
         for command in commands:
             scripts.update(re.findall(r"\bpython3?\s+(?:-[A-Za-z]\s+)*([\w./-]+\.py)\b", command))
-        self.assertEqual(scripts, {"scripts/validate_frozen_payload.py"})
+        self.assertEqual(scripts, {"scripts/validate_frozen_payload.py", "backend/vol_record.py"})
+        record_calls = [line.strip() for command in commands for line in command.splitlines()
+                        if "backend/vol_record.py" in line]
+        self.assertEqual(record_calls, [VOL_RECORD_SEAL])
         inline = [code for command in commands for code in re.findall(r"\bpython3?\s+-c\s+'([^']*)'", command)]
         self.assertEqual(sorted(inline), sorted([
             "from backend.vol_record import load_record; load_record()",
@@ -400,6 +417,31 @@ class WorkflowGuardTest(unittest.TestCase):
         guard = persist.index(f'if [ "$({tree})" != "$base_tree" ]; then')
         self.assertLess(persist.index("diff --staged --quiet"), guard)
         self.assertLess(guard, persist.index("commit -m"))
+
+    def test_the_record_is_sealed_right_before_it_is_committed(self):
+        # The seal is what lets the record claim each scored forecast was committed before its
+        # window opened: it runs only in the publish job, in the step that commits and pushes, after
+        # the origin and restored-tree checks and before the bytes it persists are snapshotted; and
+        # that step's time limit keeps the push inside vol_record.SEAL_MARGIN of the stamp.
+        source = (WORKFLOW_DIRECTORY / "refresh.yml").read_text(encoding="utf-8")
+        jobs = _jobs(source)
+        self.assertNotIn("--seal", "\n".join(_shell_run_blocks(jobs["build"])))
+        sealing = [b for b in _shell_run_blocks(source) if "--seal" in b]
+        self.assertEqual(len(sealing), 1)
+        persist = sealing[0]
+        self.assertIn('push origin "HEAD:${STATE_BRANCH}"', persist)
+        self.assertEqual(persist.count(VOL_RECORD_SEAL), 1)
+        seal = persist.index(VOL_RECORD_SEAL)
+        self.assertLess(persist.index('if [ "${origin_url%.git}" != "$expected_origin" ]'), seal)
+        self.assertLess(persist.index('if ! [[ "$base_tree" =~'), seal)
+        self.assertLess(seal, persist.index('cp data/vol_track_record.json "$STATE_SNAPSHOT_DIR/'))
+        self.assertLess(seal, persist.index("commit -m"))
+
+        publish = jobs["publish"]
+        step = publish[publish.index("- name: Persist live vol track record to live-data branch"):]
+        limit = re.search(r"^        timeout-minutes:\s*(\d+)\s*$", step.split("\n      - name:")[0], re.M)
+        self.assertIsNotNone(limit, "the persist step needs its own time limit")
+        self.assertLess(int(limit.group(1)) * 60, SEAL_MARGIN.total_seconds())
 
     def test_site_deploy_mirrors_the_replaced_action(self):
         # What peaceiris/actions-gh-pages did with this workflow's inputs: replace the branch's files

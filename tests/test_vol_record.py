@@ -1,8 +1,9 @@
 """Network-free, clock-independent tests for backend/vol_record.py, the live vol forecast record.
 
-This module decides which forecast is recorded, which price window it is scored on, when it is
-settled, skipped or expired, and what the dashboard reports. Every test injects `now`; nothing
-reads the wall clock or the network.
+This module decides which forecast is recorded, which price window it is scored on, whether it was
+committed before that window opened, when it is settled, skipped or expired, whether the challenger
+is promoted, and what the dashboard reports. Every test injects `now`; nothing reads the wall clock
+or the network.
 
 Calendar facts used below (backend/contract_calendar.py, asserted in CalendarFactsTest): CLX26 last
 trades 2026-10-20 and CLZ26 2026-11-20, so CL=F's daily bars roll on 2026-10-21 and 2026-11-23.
@@ -15,6 +16,8 @@ import copy
 import json
 import math
 import os
+import statistics
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -27,6 +30,7 @@ from backend import vol_record as vr
 
 UTC = timezone.utc
 D = date.fromisoformat
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def at(stamp: str) -> datetime:
@@ -78,12 +82,22 @@ def empty_record(started="2026-11-03"):
     return {"schema_version": 1, "started": started, "entries": []}
 
 
-def recorded(as_of="2026-11-02", issued_at="2026-11-03T13:00:00Z", now="2026-11-03T13:05:00Z", **kwargs):
-    """A record holding one pending entry, made by the real recorder."""
+def recorded(as_of="2026-11-02", issued_at="2026-11-03T13:00:00Z", now="2026-11-03T13:05:00Z",
+             seal_after=timedelta(minutes=10), **kwargs):
+    """A record holding one pending entry, made by the real recorder and, unless `seal_after` is None,
+    sealed that long after it was recorded (the publish job's commit)."""
     record = empty_record()
     message = vr.record_forecast(record, payload(live(as_of=as_of, issued_at=issued_at, **kwargs)), at(now))
     assert message.startswith("recorded"), message
+    if seal_after is not None:
+        vr.seal_entries(record, at(now) + seal_after)
     return record
+
+
+def resolve(record, closes, snapshot):
+    """One resolution pass on a payload frozen at `snapshot` that carries `closes` as daily bars."""
+    cutoff = vr.bars_cutoff(at(snapshot))
+    return vr.resolve_entries(record, vr.completed_closes(payload(None, closes), cutoff), cutoff, at(snapshot))
 
 
 # Closes for the 2026-11-03 .. 2026-11-10 window (k0 = Tue 2026-11-03).
@@ -142,11 +156,12 @@ class TargetWindowTest(unittest.TestCase):
 
 class RecordingTest(unittest.TestCase):
     def test_records_everything_needed_to_audit_and_score(self):
-        record = recorded()
+        record = recorded(seal_after=None)
         (entry,) = record["entries"]
         self.assertEqual(entry["as_of"], "2026-11-02")
         self.assertEqual(entry["issued_at"], "2026-11-03T13:00:00Z")
         self.assertEqual(entry["recorded_at"], "2026-11-03T13:05:00Z")
+        self.assertIsNone(entry["sealed_at"])            # the publish job seals it, right before its commit
         self.assertEqual(entry["frozen_at"], "2026-11-03T13:02:00Z")
         self.assertEqual(entry["contract"], "CLZ26")
         self.assertEqual(entry["model_version"], "har-iv/2")
@@ -269,8 +284,7 @@ class BarsTest(unittest.TestCase):
 
 class ResolutionTest(unittest.TestCase):
     def resolve(self, record, closes, snapshot):
-        cutoff = vr.bars_cutoff(at(snapshot))
-        return vr.resolve_entries(record, vr.completed_closes(payload(None, closes), cutoff), cutoff, at(snapshot))
+        return resolve(record, closes, snapshot)
 
     def test_realized_vol_math(self):
         self.assertAlmostEqual(vr.realized_vol_pct(list(ZIGZAG.values())), ZIGZAG_VOL, places=9)
@@ -334,11 +348,97 @@ class ResolutionTest(unittest.TestCase):
         vr.validate_record(record)
 
 
+class SealTest(unittest.TestCase):
+    """The publish job seals the record right before committing it; only entries sealed in time are scored.
+
+    recorded() opens its window at the settlement of Tue 2026-11-03, 14:30 EST = 19:30Z, so a seal
+    is in time strictly before 19:25Z (SEAL_MARGIN).
+    """
+
+    def test_a_seal_in_time_keeps_the_entry_pending_and_scorable(self):
+        record = recorded(seal_after=None)
+        self.assertEqual(len(vr.seal_entries(record, at("2026-11-03T19:24:59Z"))), 1)
+        entry = record["entries"][0]
+        self.assertEqual((entry["status"], entry["sealed_at"]), ("pending", "2026-11-03T19:24:59Z"))
+        self.assertTrue(vr.sealed_in_time(entry))
+        vr.validate_record(record)
+        self.assertEqual(len(resolve(record, ZIGZAG, "2026-11-11T12:00:00Z")), 1)
+        self.assertEqual(entry["status"], "resolved")
+        vr.validate_record(record)
+
+    def test_a_late_seal_is_a_late_commit_and_never_scored(self):
+        for sealed_at in ("2026-11-03T19:25:00Z", "2026-11-03T19:30:00Z", "2026-11-03T23:00:00Z"):
+            with self.subTest(sealed_at=sealed_at):
+                record = recorded(seal_after=None)
+                (message,) = vr.seal_entries(record, at(sealed_at))
+                self.assertIn("late_commit", message)
+                entry = record["entries"][0]
+                self.assertEqual((entry["status"], entry["sealed_at"], entry["closed_at"]),
+                                 ("late_commit", sealed_at, sealed_at))
+                vr.validate_record(record)
+                # Every close of its window arrives; it stays closed and unscored.
+                self.assertEqual(resolve(record, ZIGZAG, "2026-11-11T12:00:00Z"), [])
+                self.assertEqual(entry["status"], "late_commit")
+                self.assertIsNone(entry["realized_pct"])
+                summary = vr.summarize(record)
+                self.assertEqual((summary["n_late_commit"], summary["n_resolved"], summary["n_pending"]), (1, 0, 0))
+                self.assertIsNone(summary["champion"]["qlike"])
+                self.assertEqual(summary["recent"][0]["status"], "late_commit")
+
+    def test_an_entry_never_sealed_is_never_scored(self):
+        record = recorded(seal_after=None)
+        # The build job's own new entry: the seal can still be in time, so resolution leaves it.
+        self.assertEqual(resolve(record, {}, "2026-11-03T19:24:59Z"), [])
+        self.assertEqual(record["entries"][0]["status"], "pending")
+        # Once it cannot (here a week later, with every close in), it is closed unscored.
+        (message,) = resolve(record, ZIGZAG, "2026-11-11T12:00:00Z")
+        self.assertIn("late_commit", message)
+        entry = record["entries"][0]
+        self.assertEqual((entry["status"], entry["sealed_at"], entry["realized_pct"]), ("late_commit", None, None))
+        self.assertEqual(entry["closed_at"], "2026-11-11T12:00:00Z")
+        vr.validate_record(record)
+        # Its eventual seal records when it was committed; it stays closed.
+        vr.seal_entries(record, at("2026-11-11T12:30:00Z"))
+        self.assertEqual((entry["status"], entry["sealed_at"]), ("late_commit", "2026-11-11T12:30:00Z"))
+        vr.validate_record(record)
+        self.assertEqual(resolve(record, ZIGZAG, "2026-11-12T12:00:00Z"), [])
+        self.assertEqual((vr.summarize(record)["n_late_commit"], vr.summarize(record)["n_resolved"]), (1, 0))
+
+    def test_the_margin_boundary_also_applies_to_unsealed_entries(self):
+        record = recorded(seal_after=None)
+        self.assertEqual(len(resolve(record, {}, "2026-11-03T19:25:00Z")), 1)
+        self.assertEqual(record["entries"][0]["status"], "late_commit")
+
+    def test_sealing_again_changes_nothing(self):
+        record = recorded()                                   # sealed at 13:15Z
+        before = copy.deepcopy(record)
+        self.assertEqual(vr.seal_entries(record, at("2026-11-03T19:29:00Z")), [])
+        self.assertEqual(record, before)
+        # The next session's entry is sealed on its own; the earlier seal stands.
+        nxt = payload(live(as_of="2026-11-03", issued_at="2026-11-04T13:00:00Z"))
+        vr.record_forecast(record, nxt, at("2026-11-04T13:05:00Z"))
+        self.assertEqual(len(vr.seal_entries(record, at("2026-11-04T13:20:00Z"))), 1)
+        self.assertEqual([e["sealed_at"] for e in record["entries"]],
+                         ["2026-11-03T13:15:00Z", "2026-11-04T13:20:00Z"])
+        self.assertEqual(vr.seal_entries(record, at("2026-11-04T14:00:00Z")), [])
+        vr.validate_record(record)
+
+    def test_the_seeded_record_seals_to_itself(self):
+        record = empty_record()
+        self.assertEqual(vr.seal_entries(record, at("2026-11-03T13:00:00Z")), [])
+        self.assertEqual(record, empty_record())
+
+    def test_naive_seal_times_are_refused(self):
+        with self.assertRaises(ValueError):
+            vr.seal_entries(recorded(seal_after=None), datetime(2026, 11, 3, 13, 20))
+
+
 def resolved_entry(as_of, base, realized, forecast=40.0, lo=25.0, hi=55.0, direction="RISING", rv5=30.0,
                    challenger=38.0, challenger_key="har_iv_range"):
     sessions = vr.window_sessions(D(base))
     return {
         "as_of": as_of, "issued_at": f"{base}T13:00:00Z", "recorded_at": f"{base}T13:05:00Z",
+        "sealed_at": f"{base}T13:15:00Z",
         "model_version": "har-iv/2", "forecast_pct": forecast, "median_pct": forecast - 4,
         "lo80_pct": lo, "hi80_pct": hi, "direction": direction, "rv5_pct": rv5,
         "challenger": {"key": challenger_key, "forecast_pct": challenger, "median_pct": None} if challenger else None,
@@ -349,8 +449,10 @@ def resolved_entry(as_of, base, realized, forecast=40.0, lo=25.0, hi=55.0, direc
 
 
 class SummaryTest(unittest.TestCase):
-    SHAPE = {"started", "n_recorded", "n_resolved", "n_pending", "n_skipped_roll", "n_expired", "n_independent",
-             "champion", "challenger", "recent", "promotion_rule", "note", "direction_note"}
+    SHAPE = {"started", "n_recorded", "n_resolved", "n_pending", "n_skipped_roll", "n_expired", "n_late_commit",
+             "n_independent", "champion", "challenger", "promotion", "recent", "promotion_rule", "note",
+             "direction_note"}
+    PROMOTION = {"status", "n_independent_paired", "required", "dm_stat", "p_value", "mean_qlike_difference"}
     CHAMPION = {"model_version", "qlike", "interval_80_coverage_pct", "direction_hit_pct",
                 "mean_forecast_pct", "mean_realized_pct"}
     RECENT = {"as_of", "issued_at", "target_start", "target_end", "forecast_pct", "median_pct", "lo80_pct",
@@ -366,10 +468,15 @@ class SummaryTest(unittest.TestCase):
         self.assertTrue(all(v is None for v in summary["champion"].values()))
         self.assertIsNone(summary["challenger"]["qlike"])
         self.assertEqual(summary["recent"], [])
+        self.assertEqual(summary["n_late_commit"], 0)
+        self.assertEqual(summary["promotion"], {"status": "accruing", "n_independent_paired": 0, "required": 52,
+                                                "dm_stat": None, "p_value": None, "mean_qlike_difference": None})
         self.assertEqual(summary["promotion_rule"],
-                         "The challenger replaces the model of record after at least 52 independent resolved "
-                         "weeks if its live QLIKE is lower with a one-sided Diebold-Mariano p below 0.10.")
+                         "The challenger replaces the model of record if, on the first 52 independent resolved "
+                         "weeks where both were forecast, its mean QLIKE is lower with a one-sided Diebold-Mariano "
+                         "p below 0.10. The test is run once, on that fixed sample; a maintainer applies the verdict.")
         self.assertIn("settlement", summary["note"])
+        self.assertIn("late_commit", summary["note"])
         json.dumps(summary, allow_nan=False)
 
     def test_pending_entries_leave_statistics_null(self):
@@ -417,13 +524,18 @@ class SummaryTest(unittest.TestCase):
         rolled = dict(resolved_entry("2026-11-13", "2026-11-16", 40.0), status="skipped_roll", realized_pct=None)
         expired = dict(resolved_entry("2026-11-24", "2026-11-25", 40.0), status="expired", realized_pct=None)
         pending = dict(resolved_entry("2026-11-25", "2026-11-27", 40.0), status="pending", realized_pct=None)
-        record = {"schema_version": 1, "started": "2026-11-03", "entries": [on_low, on_high, rolled, expired, pending]}
+        late = dict(resolved_entry("2026-11-27", "2026-11-30", 40.0), status="late_commit", realized_pct=None,
+                    sealed_at="2026-11-30T19:26:00Z")
+        record = {"schema_version": 1, "started": "2026-11-03",
+                  "entries": [on_low, on_high, rolled, expired, pending, late]}
         vr.validate_record(record)
         s = vr.summarize(record)
-        self.assertEqual([s[k] for k in ("n_recorded", "n_resolved", "n_pending", "n_skipped_roll", "n_expired")],
-                         [5, 2, 1, 1, 1])
+        self.assertEqual([s[k] for k in ("n_recorded", "n_resolved", "n_pending", "n_skipped_roll", "n_expired",
+                                         "n_late_commit")],
+                         [6, 2, 1, 1, 1, 1])
         self.assertEqual(s["champion"]["interval_80_coverage_pct"], 100.0)
-        self.assertEqual([r["status"] for r in s["recent"]], ["pending", "expired", "skipped_roll", "resolved", "resolved"])
+        self.assertEqual([r["status"] for r in s["recent"]],
+                         ["late_commit", "pending", "expired", "skipped_roll", "resolved", "resolved"])
 
     def test_challenger_key_change_starts_its_own_comparison(self):
         old = resolved_entry("2026-11-02", "2026-11-03", realized=40.0, challenger=30.0, challenger_key="garch")
@@ -431,6 +543,15 @@ class SummaryTest(unittest.TestCase):
         s = vr.summarize({"schema_version": 1, "started": "2026-11-03", "entries": [old, new]})
         self.assertEqual((s["challenger"]["key"], s["challenger"]["n"]), ("har_iv_range", 1))
         self.assertEqual(s["challenger"]["qlike"], round(vr.qlike(40.0, 44.0), 4))
+
+    def test_model_of_record_change_starts_its_own_comparison(self):
+        old = resolved_entry("2026-11-02", "2026-11-03", realized=40.0, challenger=30.0)
+        new = dict(resolved_entry("2026-11-09", "2026-11-10", realized=40.0, challenger=44.0),
+                   model_version="har-iv/3")
+        s = vr.summarize({"schema_version": 1, "started": "2026-11-03", "entries": [old, new]})
+        self.assertEqual((s["champion"]["model_version"], s["challenger"]["n"]), ("har-iv/3", 1))
+        self.assertEqual(s["challenger"]["champion_qlike"], round(vr.qlike(40.0, 40.0), 4))
+        self.assertEqual(s["promotion"]["n_independent_paired"], 1)
 
     def test_independent_windows(self):
         # Daily forecasts: ten consecutive k0 sessions; five-session windows overlap.
@@ -463,6 +584,127 @@ class SummaryTest(unittest.TestCase):
         self.assertEqual(len(recent), 12)
         self.assertEqual(recent[0]["as_of"], record["entries"][-1]["as_of"])
         self.assertEqual(recent[-1]["as_of"], record["entries"][3]["as_of"])
+
+
+def weekly_entries(n, realized=(30.0, 36.0), challenger=(33.0, 34.0), start="2026-10-21"):
+    """`n` resolved entries whose windows are back to back (each opens at the previous one's last close),
+    so none overlaps another. Realized vol and the challenger's forecast cycle through the given values;
+    the model of record always forecasts 40%."""
+    entries, base = [], D(start)
+    for i in range(n):
+        entries.append(resolved_entry(contract_calendar.shift_business_days(base, -1).isoformat(), base.isoformat(),
+                                      realized=realized[i % len(realized)],
+                                      challenger=challenger[i % len(challenger)]))
+        base = contract_calendar.shift_business_days(base, vr.HORIZON_SESSIONS)
+    return entries
+
+
+def as_pending(entry):
+    pending = {k: v for k, v in entry.items() if k not in ("resolved_at", "closes")}
+    return dict(pending, status="pending", realized_pct=None)
+
+
+class PromotionTest(unittest.TestCase):
+    """The promotion rule: one one-sided Diebold-Mariano test on the first 52 independent paired weeks."""
+
+    def promotion(self, entries):
+        record = {"schema_version": 1, "started": "2026-10-20", "entries": entries}
+        vr.validate_record(record)
+        result = vr.summarize(record)["promotion"]
+        self.assertEqual(set(result), SummaryTest.PROMOTION)
+        json.dumps(result, allow_nan=False)
+        return result
+
+    def test_accruing_until_52_independent_paired_weeks(self):
+        result = self.promotion(weekly_entries(51))
+        self.assertEqual(result, {"status": "accruing", "n_independent_paired": 51, "required": 52,
+                                  "dm_stat": None, "p_value": None, "mean_qlike_difference": None})
+
+    def test_a_clear_edge_on_52_weeks_promotes(self):
+        entries = weekly_entries(52)
+        result = self.promotion(entries)
+        diffs = [vr.qlike(e["realized_pct"], 40.0) - vr.qlike(e["realized_pct"], e["challenger"]["forecast_pct"])
+                 for e in entries]
+        stat = statistics.mean(diffs) / (statistics.stdev(diffs) / math.sqrt(52))
+        self.assertEqual((result["status"], result["n_independent_paired"], result["required"]), ("promote", 52, 52))
+        self.assertGreater(result["mean_qlike_difference"], 0)
+        self.assertAlmostEqual(result["mean_qlike_difference"], statistics.mean(diffs), places=6)
+        self.assertAlmostEqual(result["dm_stat"], stat, places=4)
+        self.assertAlmostEqual(result["p_value"], 1 - statistics.NormalDist().cdf(stat), places=6)
+        self.assertLess(result["p_value"], 0.10)
+
+    def test_no_edge_keeps_the_model_of_record(self):
+        cases = {
+            "challenger worse": dict(challenger=(50.0,)),
+            "small edge, not significant": dict(realized=(30.0, 50.0), challenger=(33.0, 37.0)),
+        }
+        for name, kwargs in cases.items():
+            with self.subTest(name):
+                result = self.promotion(weekly_entries(52, **kwargs))
+                self.assertEqual((result["status"], result["n_independent_paired"]), ("keep", 52))
+                self.assertGreaterEqual(result["p_value"], 0.10)
+        small = self.promotion(weekly_entries(52, **cases["small edge, not significant"]))
+        self.assertGreater(small["mean_qlike_difference"], 0)             # positive, but p = 0.34
+        # Identical forecasts: every difference is zero and there is nothing to test.
+        same = self.promotion(weekly_entries(52, challenger=(40.0,)))
+        self.assertEqual((same["status"], same["dm_stat"], same["p_value"], same["mean_qlike_difference"]),
+                         ("keep", None, None, 0.0))
+
+    def test_a_verdict_is_final(self):
+        decided = self.promotion(weekly_entries(52))
+        # Thirty more weeks in which the challenger is far worse, then a pending entry: one look only.
+        entries = weekly_entries(83)
+        for entry in entries[52:]:
+            entry["challenger"]["forecast_pct"] = 80.0
+        entries[-1] = as_pending(entries[-1])
+        self.assertEqual(self.promotion(entries), decided)
+        kept = self.promotion(weekly_entries(52, challenger=(50.0,)))
+        later = weekly_entries(80, challenger=(50.0,))
+        for entry in later[52:]:
+            entry["challenger"]["forecast_pct"] = 36.0
+        self.assertEqual(self.promotion(later), kept)
+
+    def test_overlapping_windows_are_not_counted(self):
+        # Daily forecasts: ten consecutive k0 sessions, of which two windows do not overlap.
+        sessions = [D("2026-10-21")]
+        for _ in range(9):
+            sessions.append(contract_calendar.shift_business_days(sessions[-1], 1))
+        daily = [resolved_entry(contract_calendar.shift_business_days(k0, -1).isoformat(), k0.isoformat(), 40.0)
+                 for k0 in sessions]
+        self.assertEqual(self.promotion(daily)["n_independent_paired"], 2)
+        summary = vr.summarize({"schema_version": 1, "started": "2026-10-20", "entries": daily})
+        self.assertEqual(summary["challenger"]["n"], 10)                     # descriptive, overlaps included
+        # 52 weekly entries with a daily (overlapping) entry after each: the sample is the weekly ones.
+        weekly = weekly_entries(52)
+        mixed = []
+        for entry in weekly:
+            mixed.append(entry)
+            k0 = contract_calendar.shift_business_days(D(entry["base_session"]), 1)
+            mixed.append(resolved_entry(entry["base_session"], k0.isoformat(), realized=30.0, challenger=80.0))
+        self.assertEqual(len(mixed), 104)
+        self.assertEqual(self.promotion(mixed), self.promotion(weekly))
+
+    def test_a_pending_paired_entry_holds_back_the_entries_after_it(self):
+        entries = weekly_entries(10)
+        entries[3] = as_pending(entries[3])
+        self.assertEqual(self.promotion(entries)["n_independent_paired"], 3)
+        entries[3] = weekly_entries(10)[3]
+        self.assertEqual(self.promotion(entries)["n_independent_paired"], 10)
+        # Unpaired entries never resolve into the sample, so they do not hold it back.
+        entries[3] = dict(as_pending(entries[3]), challenger=None)
+        self.assertEqual(self.promotion(entries)["n_independent_paired"], 9)
+
+    def test_only_the_current_pair_counts(self):
+        entries = weekly_entries(60)
+        entries[-1]["model_version"] = "har-iv/3"
+        self.assertEqual(self.promotion(entries)["n_independent_paired"], 1)
+        entries = weekly_entries(60)
+        entries[-1]["challenger"]["key"] = "garch"
+        self.assertEqual(self.promotion(entries)["n_independent_paired"], 1)
+        entries = weekly_entries(60)
+        for entry in entries[:20]:
+            entry["challenger"] = None
+        self.assertEqual(self.promotion(entries)["n_independent_paired"], 40)
 
 
 class RecordFileTest(unittest.TestCase):
@@ -532,14 +774,29 @@ class RecordFileTest(unittest.TestCase):
             "issued after recording": with_entry(issued_at="2026-11-03T14:00:00Z"),
             "pending with a realized vol": with_entry(realized_pct=30.0),
             "challenger": with_entry(challenger={"key": "", "forecast_pct": 1.0}),
+            "naive sealed_at": with_entry(sealed_at="2026-11-03T13:15:00"),
+            "sealed_at not a time": with_entry(sealed_at=1),
+            "sealed before recording": with_entry(sealed_at="2026-11-03T12:59:00Z"),
+            "pending sealed late": with_entry(sealed_at="2026-11-03T19:25:00Z"),
             "resolved without realized": with_resolved(realized_pct=None),
             "resolved without closes": with_resolved(closes=[]),
             "resolved closes outside window": with_resolved(closes=[["2026-11-09", 80.0]] + res["closes"][1:]),
             "resolved bad price": with_resolved(closes=res["closes"][:-1] + [[res["target_end"], 0]]),
+            "resolved never sealed": with_resolved(sealed_at=None),
+            "resolved sealed late": with_resolved(sealed_at="2026-11-10T19:25:00Z"),
+            "skipped never sealed": with_resolved(status="skipped_roll", realized_pct=None, sealed_at=None),
+            "expired sealed late": with_resolved(status="expired", realized_pct=None,
+                                                 sealed_at="2026-11-10T20:00:00Z"),
+            "late commit with a realized vol": with_resolved(status="late_commit"),
             "duplicate session": dict(good, entries=[entry, entry]),
             "out of order": dict(good, entries=[res, entry]),
         }
         vr.validate_record({"schema_version": 1, "started": "2026-11-03", "entries": [entry, res]})
+        # An entry closed unscored needs no seal, or may carry a late one.
+        for sealed_at in (None, "2026-11-10T19:25:00Z", "2026-11-11T09:00:00Z"):
+            with self.subTest(late_commit=sealed_at):
+                vr.validate_record(with_resolved(status="late_commit", realized_pct=None, sealed_at=sealed_at))
+        vr.validate_record(with_entry(sealed_at="2026-11-03T13:01:00Z"))    # within the clock-skew allowance
         for name, bad in cases.items():
             with self.subTest(name):
                 self.write(bad)
@@ -601,7 +858,12 @@ class CommandLineTest(unittest.TestCase):
         data = json.loads(self.data_path.read_text(encoding="utf-8"))
         summary = data["vol_forecast"]["live_record"]
         self.assertEqual((summary["n_recorded"], summary["n_pending"], summary["started"]), (1, 1, "2026-11-02"))
+        self.assertEqual(summary["promotion"]["status"], "accruing")
         self.assertEqual(data["vol_forecast"]["live"]["as_of"], "2026-11-02")   # the rest is untouched
+        # The publish job seals the record right before committing it.
+        self.assertIsNone(vr.load_record(self.record_path)["entries"][0]["sealed_at"])
+        self.assertEqual(self.run_main("--seal", now="2026-11-03T13:20:00Z"), 0)
+        self.assertEqual(vr.load_record(self.record_path)["entries"][0]["sealed_at"], "2026-11-03T13:20:00Z")
 
         # A week later: same session's forecast again (ignored), the window's closes now available.
         later = payload(live(issued_at="2026-11-11T13:00:00Z", forecast=99.0), ZIGZAG,
@@ -622,6 +884,45 @@ class CommandLineTest(unittest.TestCase):
         os.utime(self.record_path, ns=(stamp - 10**9, stamp - 10**9))
         self.run_main("--data", "public/data.json", now="2026-11-11T14:05:00Z")
         self.assertEqual(self.record_path.stat().st_mtime_ns, stamp - 10**9)
+
+    def test_an_entry_the_seal_never_reached_is_closed_unscored(self):
+        self.run_main("--init", now="2026-11-02T12:00:00Z")
+        self.data_path.write_text(json.dumps(payload(live())), encoding="utf-8")
+        self.run_main("--data", "public/data.json")
+        later = payload(live(issued_at="2026-11-11T13:00:00Z"), ZIGZAG, frozen_at="2026-11-11T13:02:00Z")
+        self.data_path.write_text(json.dumps(later), encoding="utf-8")
+        self.run_main("--data", "public/data.json", now="2026-11-11T13:05:00Z")
+        entry = vr.load_record(self.record_path)["entries"][0]
+        self.assertEqual((entry["status"], entry["realized_pct"]), ("late_commit", None))
+        summary = json.loads(self.data_path.read_text(encoding="utf-8"))["vol_forecast"]["live_record"]
+        self.assertEqual((summary["n_late_commit"], summary["n_resolved"]), (1, 0))
+        self.assertIsNone(summary["champion"]["qlike"])
+
+    def test_seal_stamps_once_and_leaves_a_sealed_record_untouched(self):
+        self.record_path.write_text(json.dumps(recorded(seal_after=None)), encoding="utf-8")
+        self.assertEqual(self.run_main("--seal", now="2026-11-03T13:20:00Z"), 0)
+        entry = vr.load_record(self.record_path)["entries"][0]
+        self.assertEqual((entry["status"], entry["sealed_at"]), ("pending", "2026-11-03T13:20:00Z"))
+        self.assertFalse(self.data_path.exists())               # the seal reads and writes only the record
+        stamp = self.record_path.stat().st_mtime_ns - 10**9
+        os.utime(self.record_path, ns=(stamp, stamp))
+        self.assertEqual(self.run_main("--seal", now="2026-11-03T19:29:00Z"), 0)
+        self.assertEqual(self.record_path.stat().st_mtime_ns, stamp)
+        # A late seal is recorded as such.
+        self.record_path.write_text(json.dumps(recorded(seal_after=None)), encoding="utf-8")
+        self.run_main("--seal", now="2026-11-03T19:29:00Z")
+        self.assertEqual(vr.load_record(self.record_path)["entries"][0]["status"], "late_commit")
+
+    def test_seal_fails_closed(self):
+        with self.assertRaisesRegex(ValueError, "--init"):
+            self.run_main("--seal")
+        self.assertFalse(self.record_path.exists())
+        self.record_path.write_text('{"calls": []}', encoding="utf-8")
+        with self.assertRaises(ValueError):
+            self.run_main("--seal")
+        self.assertEqual(self.record_path.read_text(encoding="utf-8"), '{"calls": []}')
+        with self.assertRaises(SystemExit):
+            self.run_main("--init", "--seal")
 
     def test_without_a_forecast_block_the_record_still_resolves(self):
         self.record_path.write_text(json.dumps(recorded()), encoding="utf-8")
@@ -659,6 +960,30 @@ class StandardLibraryOnlyTest(unittest.TestCase):
                     with self.subTest(file=name, module=module):
                         self.assertTrue(top in sys.stdlib_module_names or top in allowed_local
                                         or top == "__future__", module)
+
+    def test_load_seal_and_summary_run_without_site_packages(self):
+        # -I -S: no site-packages and no environment, as close to an empty interpreter as it gets (-B:
+        # no bytecode left in backend/).
+        code = "\n".join((
+            "import json, os, sys, sysconfig",
+            "sys.path.insert(0, sys.argv[1])",
+            "from datetime import datetime, timezone",
+            "from backend import vol_record",
+            "record = json.loads(sys.argv[2])",
+            "vol_record.validate_record(record)",
+            "vol_record.seal_entries(record, datetime(2026, 11, 3, 13, 20, tzinfo=timezone.utc))",
+            "vol_record.validate_record(record)",
+            "vol_record.summarize(record)",
+            "roots = tuple(os.path.realpath(p) + os.sep for p in (sysconfig.get_paths()['stdlib'],",
+            "              sysconfig.get_paths()['platstdlib'], os.path.join(sys.argv[1], 'backend')))",
+            "files = [getattr(m, '__file__', None) for m in list(sys.modules.values())]",
+            "print(sorted(f for f in files if f and not os.path.realpath(f).startswith(roots)))",
+        ))
+        result = subprocess.run(  # nosec B603 - fixed argv: this interpreter and inline code
+            [sys.executable, "-I", "-S", "-B", "-c", code, str(ROOT), json.dumps(recorded(seal_after=None))],
+            capture_output=True, text=True, timeout=60, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "[]")
 
 
 if __name__ == "__main__":

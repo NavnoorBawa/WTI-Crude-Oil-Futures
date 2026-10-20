@@ -31,6 +31,10 @@ on:
       - 'data/vol_forecast_validation.json'
       - 'data/wf_*.json'
       - 'data/carry_signal_test.json'
+      - 'data/supply_shock_study.json'
+      - 'data/leak_anatomy.json'
+      - 'data/research_ledger.json'
+      - 'data/eia_wti_spot_daily.json'
       - 'data/market/**'
       - 'scripts/build_research_bundle.py'
       - 'scripts/validate_frozen_payload.py'
@@ -157,7 +161,8 @@ jobs:
 
       # Appends this snapshot's vol forecast (one per session, first issuance wins), settles the
       # forecasts whose target week has closed, and writes the summary into public/data.json
-      # (vol_forecast.live_record) before the site is built from it.
+      # (vol_forecast.live_record) before the site is built from it. The new entry is sealed only
+      # in the publish job, right before it is committed.
       - name: Record + resolve live vol track record
         run: python backend/vol_record.py --data public/data.json
 
@@ -438,9 +443,15 @@ jobs:
 
       # Persist only after a successful Pages publish, so the record never runs ahead of the
       # summary the site shows. The state goes on top of the tree this build restored, never over
-      # a newer one.
+      # a newer one. Right before the commit, --seal stamps sealed_at on the entries this run
+      # added; one whose scoring window opens within vol_record.SEAL_MARGIN (5 minutes) of that
+      # stamp becomes late_commit and is never scored. The step's 4-minute limit keeps the commit
+      # and push inside that margin, so every entry sealed in time was committed before the
+      # settlement that opens its window. The site above was built before the seal, so it shows a
+      # late entry as pending until the next run.
       - name: Persist live vol track record to live-data branch
         if: ${{ !cancelled() && steps.pages_deploy.outcome == 'success' }}
+        timeout-minutes: 4
         env:
           STATE_SNAPSHOT_DIR: ${{ runner.temp }}/wti-state-snapshot
           STATE_BRANCH: live-data
@@ -465,6 +476,9 @@ jobs:
 
           auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
           echo "::add-mask::${auth_header}"
+
+          # Standard library only, like the load_record check.
+          PYTHONDONTWRITEBYTECODE=1 python backend/vol_record.py --seal
           mkdir -p "$STATE_SNAPSHOT_DIR"
           cp data/vol_track_record.json "$STATE_SNAPSHOT_DIR/vol_track_record.json"
 
