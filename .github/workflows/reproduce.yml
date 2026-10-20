@@ -53,7 +53,7 @@ jobs:
       # A pinned numeric environment. The GARCH refits are iterative optimizations, so a last-bit
       # difference in a BLAS or vectorized-math result (BLAS thread count, CPU-specific kernel)
       # moves later digits of the GARCH-family results: measured up to ~1e-3 relative, enough to
-      # move a few one-decimal figures, though no model set or the challenger. One thread
+      # move a few published figures in their last digit (no model set, flag or challenger). One thread
       # everywhere, OpenBLAS's AVX2 kernel and NumPy's AVX2 code paths run the same instructions
       # on every x86-64-v3 runner host (Intel with AVX-512 and AMD without), so the comparison
       # can be exact. data/vol_lab.json must be generated under these same variables.
