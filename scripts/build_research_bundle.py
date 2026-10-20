@@ -9,6 +9,9 @@ never show a figure the repository cannot reproduce:
   vol_lab      data/vol_lab.json (backend/vol_lab.py on the pinned data/market snapshot)
   postmortem   data/wf_5y_purged.json, data/wf_5y_unpurged_LEAKED.json and the 10-year pair
   carry        data/carry_signal_test.json
+  leak_anatomy data/leak_anatomy.json (why the leaked backtest looked skilled on a random walk)
+  supply_study data/supply_shock_study.json (event study against a placebo of ordinary dates)
+  ledger       data/research_ledger.json (every hypothesis tested, with multiplicity adjustments)
 
 Standard library only (it runs in any job). Usage: python scripts/build_research_bundle.py [--out public]
 """
@@ -81,14 +84,69 @@ def _vol_lab() -> dict:
     return lab
 
 
+def _leak_anatomy() -> dict:
+    """The leak anatomy, without the per-seed run lists."""
+    raw = _load("leak_anatomy.json")
+
+    def arm(block: dict) -> dict:
+        keep = ("n_runs", "accuracy_pct_mean", "accuracy_pct_range", "sharpe_mean", "sharpe_range",
+                "pooled_binomial_p_value_vs_50")
+        return {key: block[key] for key in keep if key in block}
+
+    experiments = {}
+    for name in ("synthetic_random_walk", "block_shuffled_cl", "real_cl_5y_window"):
+        experiments[name] = {model: {"unpurged": arm(v["unpurged_leaked"]), "purged": arm(v["purged"])}
+                             for model, v in raw[name].items() if isinstance(v, dict) and "purged" in v}
+    synthetic = experiments["synthetic_random_walk"]
+    headline_model = "random_forest" if "random_forest" in synthetic else next(iter(synthetic))
+    return {
+        "analytic": raw["analytic"],
+        "experiments": experiments,
+        "retracted_reference": raw["retracted_reference"],
+        "conclusion": raw["conclusion"],
+        # Flat headline fields for the dashboard (the synthetic random-walk experiment).
+        "headline_model": headline_model,
+        "unpurged_dir_acc_pct_mean": synthetic[headline_model]["unpurged"]["accuracy_pct_mean"],
+        "purged_dir_acc_pct_mean": synthetic[headline_model]["purged"]["accuracy_pct_mean"],
+        "unpurged_sharpe_mean": synthetic[headline_model]["unpurged"].get("sharpe_mean"),
+        "sims": synthetic[headline_model]["unpurged"].get("n_runs"),
+        "analytic_sign_agreement_pct": raw["analytic"]["p_sign_agree_leaked_pct"],
+    }
+
+
+def _ledger() -> dict:
+    """The research ledger, one compact row per hypothesis."""
+    raw = _load("research_ledger.json")
+    rows = []
+    for row in raw["rows"]:
+        stat = row.get("statistic") or {}
+        rows.append({
+            "id": row["id"], "date": row["date"], "family": row["family"], "hypothesis": row["hypothesis"],
+            "test": row["test"], "statistic_name": stat.get("name"), "statistic_value": stat.get("value"),
+            "p_value": row.get("p_value"), "q_bh": row.get("q_value_bh"), "p_holm": row.get("p_holm"),
+            "survives_bh": row.get("survives_bh_5pct"), "clears_t3": row.get("clears_hlz_t3"),
+            "pre_specified": row.get("pre_specified"), "status": row["status"],
+            "artifact": (row.get("artifact") or {}).get("path"),
+        })
+    return {"method": raw["method"], "alpha": raw["alpha"], "hlz_t": raw["hlz_t"], "summary": raw["summary"],
+            "rows": rows}
+
+
 def build() -> dict:
     carry = _load("carry_signal_test.json")
+    supply = _load("supply_shock_study.json")
     return {
         "schema_version": SCHEMA_VERSION,
         "vol_lab": _vol_lab(),
         "postmortem": _postmortem(),
-        "carry": {key: carry[key] for key in ("method", "full_sample", "pre_2007", "post_2007", "verdict")
-                  if key in carry},
+        "carry": {key: carry[key] for key in ("method", "full_sample", "pre_2007", "post_2007", "verdict",
+                                             "sign_split", "power_post_2007", "regime_change_test",
+                                             "sharpe_difference", "field_notes") if key in carry},
+        "leak_anatomy": _leak_anatomy(),
+        "supply_study": {key: supply[key] for key in ("method", "placebo", "groups", "between_groups",
+                                                     "priced_in", "superseded_claims", "conclusion")
+                         if key in supply},
+        "ledger": _ledger(),
     }
 
 
@@ -110,6 +168,13 @@ def validate(bundle: dict) -> list[str]:
         run = (bundle.get("postmortem") or {}).get(label) or {}
         if not run.get("purged", {}).get("equity") or not run.get("leaked", {}).get("equity"):
             problems.append(f"postmortem.{label}.equity")
+    ledger = bundle.get("ledger") or {}
+    if not isinstance(ledger.get("rows"), list) or not ledger["rows"]:
+        problems.append("ledger.rows")
+    if not isinstance((bundle.get("supply_study") or {}).get("groups"), list):
+        problems.append("supply_study.groups")
+    if not isinstance((bundle.get("leak_anatomy") or {}).get("analytic_sign_agreement_pct"), (int, float)):
+        problems.append("leak_anatomy")
     return problems
 
 

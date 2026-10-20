@@ -1,0 +1,558 @@
+{
+  "method": "Each event's path: peak = highest close over sessions 0-19, settle = close at session 10, both vs the mean close of the 5 sessions before day 0 (EIA RWTC daily spot). The placebo applies the identical statistics to every non-event session between the first and last event. p_value_vs_placebo: two-sided resampling test, 20000 groups of n random placebo dates (with replacement) vs the group's median; p_value_vs_year_matched_placebo: the same with each event's draw taken from placebo dates of its own calendar year; mann_whitney_p: two-sided rank test vs all placebo dates (placebo paths overlap, so it is approximate); ci_*: 95% percentile bootstrap of the group median (10000 resamples). Values at the event table's 0.1% resolution; ties count against the hypothesis.",
+  "data": {
+    "source": "EIA RWTC daily WTI Cushing spot, data/eia_wti_spot_daily.json",
+    "events_scored": 35,
+    "events_defined": 35
+  },
+  "resampling": {
+    "seed": 20261020,
+    "null_reps": 20000,
+    "ci_reps": 10000
+  },
+  "placebo": {
+    "n": 7352,
+    "span": [
+      "1990-08-30",
+      "2024-08-23"
+    ],
+    "exclusion": "sessions within 19 of an event (its base, window or settle would touch the event) are excluded",
+    "median_peak_pct": 5.4,
+    "median_settle_pct": 0.7,
+    "p10_peak_pct": -0.7,
+    "p90_peak_pct": 15.2,
+    "p10_settle_pct": -8.6,
+    "p90_settle_pct": 9.3,
+    "share_peak_positive_pct": 86.9
+  },
+  "groups": [
+    {
+      "key": "supply_lost",
+      "name": "Announced or physical supply removal >0.5 mbpd",
+      "definition": "supply_mbpd > 0.5: physical outages (wars, attacks, hurricane shut-ins), sanctioned export losses and announced OPEC(+) quota cuts",
+      "n": 21,
+      "median_peak_pct": 12.1,
+      "median_settle_pct": 4.3,
+      "ci_peak": [
+        7.7,
+        16.2
+      ],
+      "ci_settle": [
+        -2.4,
+        9.2
+      ],
+      "excess_peak_vs_placebo_pct": 6.7,
+      "excess_settle_vs_placebo_pct": 3.6,
+      "p_value_vs_placebo": {
+        "peak": 0.0005,
+        "settle": 0.0445
+      },
+      "p_value_vs_year_matched_placebo": {
+        "peak": 0.0015,
+        "settle": 0.1027
+      },
+      "mann_whitney_p": {
+        "peak": 0.0016,
+        "settle": 0.1366
+      },
+      "placebo_group_median_p05_p95": {
+        "peak": [
+          3.1,
+          8.4
+        ],
+        "settle": [
+          -2.4,
+          3.6
+        ]
+      },
+      "event_ids": [
+        "kuwait_1990",
+        "opec_agreement_1999",
+        "iraq_war_2003",
+        "hurricane_katrina_2005",
+        "hurricane_rita_2005",
+        "hurricane_ike_2008",
+        "opec_cut_2008",
+        "libya_2011",
+        "iran_sanctions_2012",
+        "nigeria_militants_2016",
+        "opec_deal_2016",
+        "jcpoa_exit_2018",
+        "venezuela_pdvsa_sanctions_2019",
+        "iran_max_pressure_2019",
+        "abqaiq_2019",
+        "opec_record_cut_2020",
+        "hurricane_ida_2021",
+        "russia_ukraine_2022",
+        "opec_cut_2022",
+        "opec_cut_2023",
+        "saudi_extra_cut_2023"
+      ]
+    },
+    {
+      "key": "threat_only",
+      "name": "Geopolitical threat, no supply removed",
+      "definition": "supply_mbpd == 0, excluding bearish supply gluts and demand events: conflict, strait and escalation scares",
+      "n": 10,
+      "median_peak_pct": 4.0,
+      "median_settle_pct": 0.5,
+      "ci_peak": [
+        2.0,
+        9.7
+      ],
+      "ci_settle": [
+        -3.2,
+        5.0
+      ],
+      "excess_peak_vs_placebo_pct": -1.4,
+      "excess_settle_vs_placebo_pct": -0.2,
+      "p_value_vs_placebo": {
+        "peak": 0.4897,
+        "settle": 0.9443
+      },
+      "p_value_vs_year_matched_placebo": {
+        "peak": 0.6419,
+        "settle": 0.9564
+      },
+      "mann_whitney_p": {
+        "peak": 0.7445,
+        "settle": 0.8595
+      },
+      "placebo_group_median_p05_p95": {
+        "peak": [
+          2.3,
+          9.7
+        ],
+        "settle": [
+          -3.5,
+          4.7
+        ]
+      },
+      "event_ids": [
+        "ukraine_crimea_2014",
+        "isis_2014",
+        "tanker_attacks_2019",
+        "soleimani_2020",
+        "iran_tanker_seizure_2023",
+        "hamas_2023",
+        "houthi_redsea_2023",
+        "iran_israel_apr_2024",
+        "lebanon_hezbollah_2024",
+        "iran_israel_oct_2024"
+      ]
+    },
+    {
+      "key": "strait_risk",
+      "name": "Hormuz / transit-strait risk",
+      "definition": "strait_risk is true",
+      "n": 8,
+      "median_peak_pct": 6.0,
+      "median_settle_pct": 0.0,
+      "ci_peak": [
+        1.2,
+        14.0
+      ],
+      "ci_settle": [
+        -2.9,
+        11.0
+      ],
+      "excess_peak_vs_placebo_pct": 0.6,
+      "excess_settle_vs_placebo_pct": -0.7,
+      "p_value_vs_placebo": {
+        "peak": 0.8501,
+        "settle": 0.7877
+      },
+      "p_value_vs_year_matched_placebo": {
+        "peak": 0.7229,
+        "settle": 0.5314
+      },
+      "mann_whitney_p": {
+        "peak": 0.74,
+        "settle": 0.6731
+      },
+      "placebo_group_median_p05_p95": {
+        "peak": [
+          2.0,
+          10.2
+        ],
+        "settle": [
+          -4.0,
+          5.1
+        ]
+      },
+      "event_ids": [
+        "iran_sanctions_2012",
+        "iran_max_pressure_2019",
+        "tanker_attacks_2019",
+        "soleimani_2020",
+        "iran_tanker_seizure_2023",
+        "houthi_redsea_2023",
+        "iran_israel_apr_2024",
+        "iran_israel_oct_2024"
+      ]
+    },
+    {
+      "key": "iran_driven",
+      "name": "Iran-driven",
+      "definition": "'iran' among the drivers",
+      "n": 12,
+      "median_peak_pct": 6.4,
+      "median_settle_pct": 0.6,
+      "ci_peak": [
+        3.3,
+        12.0
+      ],
+      "ci_settle": [
+        -2.6,
+        6.3
+      ],
+      "excess_peak_vs_placebo_pct": 1.0,
+      "excess_settle_vs_placebo_pct": -0.1,
+      "p_value_vs_placebo": {
+        "peak": 0.6876,
+        "settle": 0.9688
+      },
+      "p_value_vs_year_matched_placebo": {
+        "peak": 0.4692,
+        "settle": 0.7676
+      },
+      "mann_whitney_p": {
+        "peak": 0.5103,
+        "settle": 0.5509
+      },
+      "placebo_group_median_p05_p95": {
+        "peak": [
+          2.5,
+          9.3
+        ],
+        "settle": [
+          -3.2,
+          4.4
+        ]
+      },
+      "event_ids": [
+        "iran_sanctions_2012",
+        "jcpoa_exit_2018",
+        "iran_max_pressure_2019",
+        "tanker_attacks_2019",
+        "abqaiq_2019",
+        "soleimani_2020",
+        "iran_tanker_seizure_2023",
+        "hamas_2023",
+        "houthi_redsea_2023",
+        "iran_israel_apr_2024",
+        "lebanon_hezbollah_2024",
+        "iran_israel_oct_2024"
+      ]
+    },
+    {
+      "key": "opec_cut",
+      "name": "Announced OPEC(+) production cut",
+      "definition": "'opec' driver with supply_mbpd > 0",
+      "n": 7,
+      "median_peak_pct": 12.8,
+      "median_settle_pct": 6.1,
+      "ci_peak": [
+        7.7,
+        17.9
+      ],
+      "ci_settle": [
+        2.3,
+        9.6
+      ],
+      "excess_peak_vs_placebo_pct": 7.4,
+      "excess_settle_vs_placebo_pct": 5.4,
+      "p_value_vs_placebo": {
+        "peak": 0.0264,
+        "settle": 0.0763
+      },
+      "p_value_vs_year_matched_placebo": {
+        "peak": 0.0898,
+        "settle": 0.149
+      },
+      "mann_whitney_p": {
+        "peak": 0.0284,
+        "settle": 0.0951
+      },
+      "placebo_group_median_p05_p95": {
+        "peak": [
+          1.6,
+          10.6
+        ],
+        "settle": [
+          -4.6,
+          5.6
+        ]
+      },
+      "event_ids": [
+        "opec_agreement_1999",
+        "opec_cut_2008",
+        "opec_deal_2016",
+        "opec_record_cut_2020",
+        "opec_cut_2022",
+        "opec_cut_2023",
+        "saudi_extra_cut_2023"
+      ]
+    },
+    {
+      "key": "weather",
+      "name": "Hurricane / weather shut-in",
+      "definition": "'weather' driver",
+      "n": 5,
+      "median_peak_pct": 5.7,
+      "median_settle_pct": -4.8,
+      "ci_peak": [
+        0.6,
+        19.2
+      ],
+      "ci_settle": [
+        -8.6,
+        4.3
+      ],
+      "excess_peak_vs_placebo_pct": 0.3,
+      "excess_settle_vs_placebo_pct": -5.5,
+      "p_value_vs_placebo": {
+        "peak": 0.939,
+        "settle": 0.1464
+      },
+      "p_value_vs_year_matched_placebo": {
+        "peak": 0.6116,
+        "settle": 0.0916
+      },
+      "mann_whitney_p": {
+        "peak": 0.4855,
+        "settle": 0.1977
+      },
+      "placebo_group_median_p05_p95": {
+        "peak": [
+          1.0,
+          11.5
+        ],
+        "settle": [
+          -5.6,
+          6.4
+        ]
+      },
+      "event_ids": [
+        "hurricane_katrina_2005",
+        "hurricane_rita_2005",
+        "hurricane_ike_2008",
+        "hurricane_harvey_2017",
+        "hurricane_ida_2021"
+      ]
+    },
+    {
+      "key": "conflict",
+      "name": "Armed conflict",
+      "definition": "'conflict' driver",
+      "n": 15,
+      "median_peak_pct": 8.2,
+      "median_settle_pct": 2.2,
+      "ci_peak": [
+        3.5,
+        14.0
+      ],
+      "ci_settle": [
+        -3.7,
+        7.8
+      ],
+      "excess_peak_vs_placebo_pct": 2.8,
+      "excess_settle_vs_placebo_pct": 1.5,
+      "p_value_vs_placebo": {
+        "peak": 0.2016,
+        "settle": 0.4961
+      },
+      "p_value_vs_year_matched_placebo": {
+        "peak": 0.0428,
+        "settle": 0.4767
+      },
+      "mann_whitney_p": {
+        "peak": 0.1435,
+        "settle": 0.2081
+      },
+      "placebo_group_median_p05_p95": {
+        "peak": [
+          2.7,
+          9.1
+        ],
+        "settle": [
+          -2.9,
+          4.1
+        ]
+      },
+      "event_ids": [
+        "kuwait_1990",
+        "iraq_war_2003",
+        "libya_2011",
+        "ukraine_crimea_2014",
+        "isis_2014",
+        "nigeria_militants_2016",
+        "tanker_attacks_2019",
+        "abqaiq_2019",
+        "soleimani_2020",
+        "russia_ukraine_2022",
+        "hamas_2023",
+        "houthi_redsea_2023",
+        "iran_israel_apr_2024",
+        "lebanon_hezbollah_2024",
+        "iran_israel_oct_2024"
+      ]
+    },
+    {
+      "key": "sanctions",
+      "name": "Sanctions",
+      "definition": "'sanctions' driver",
+      "n": 6,
+      "median_peak_pct": 6.6,
+      "median_settle_pct": 2.2,
+      "ci_peak": [
+        3.1,
+        24.9
+      ],
+      "ci_settle": [
+        -3.3,
+        12.9
+      ],
+      "excess_peak_vs_placebo_pct": 1.2,
+      "excess_settle_vs_placebo_pct": 1.5,
+      "p_value_vs_placebo": {
+        "peak": 0.7186,
+        "settle": 0.6243
+      },
+      "p_value_vs_year_matched_placebo": {
+        "peak": 0.2796,
+        "settle": 0.5258
+      },
+      "mann_whitney_p": {
+        "peak": 0.3176,
+        "settle": 0.3598
+      },
+      "placebo_group_median_p05_p95": {
+        "peak": [
+          1.6,
+          10.8
+        ],
+        "settle": [
+          -4.6,
+          5.8
+        ]
+      },
+      "event_ids": [
+        "iran_sanctions_2012",
+        "ukraine_crimea_2014",
+        "jcpoa_exit_2018",
+        "venezuela_pdvsa_sanctions_2019",
+        "iran_max_pressure_2019",
+        "russia_ukraine_2022"
+      ]
+    },
+    {
+      "key": "all_events",
+      "name": "All defined events",
+      "definition": "every scored event, bearish and demand events included",
+      "n": 35,
+      "median_peak_pct": 7.8,
+      "median_settle_pct": 2.1,
+      "ci_peak": [
+        3.8,
+        11.8
+      ],
+      "ci_settle": [
+        -2.4,
+        4.8
+      ],
+      "excess_peak_vs_placebo_pct": 2.4,
+      "excess_settle_vs_placebo_pct": 1.4,
+      "p_value_vs_placebo": {
+        "peak": 0.0916,
+        "settle": 0.3343
+      },
+      "p_value_vs_year_matched_placebo": {
+        "peak": 0.0303,
+        "settle": 0.4618
+      },
+      "mann_whitney_p": {
+        "peak": 0.1214,
+        "settle": 0.5522
+      },
+      "placebo_group_median_p05_p95": {
+        "peak": [
+          3.5,
+          7.7
+        ],
+        "settle": [
+          -1.6,
+          2.9
+        ]
+      },
+      "event_ids": [
+        "kuwait_1990",
+        "opec_agreement_1999",
+        "iraq_war_2003",
+        "hurricane_katrina_2005",
+        "hurricane_rita_2005",
+        "hurricane_ike_2008",
+        "opec_cut_2008",
+        "libya_2011",
+        "iran_sanctions_2012",
+        "ukraine_crimea_2014",
+        "isis_2014",
+        "opec_no_cut_2014",
+        "nigeria_militants_2016",
+        "opec_deal_2016",
+        "hurricane_harvey_2017",
+        "jcpoa_exit_2018",
+        "venezuela_pdvsa_sanctions_2019",
+        "iran_max_pressure_2019",
+        "tanker_attacks_2019",
+        "abqaiq_2019",
+        "soleimani_2020",
+        "saudi_russia_price_war_2020",
+        "opec_record_cut_2020",
+        "hurricane_ida_2021",
+        "russia_ukraine_2022",
+        "opec_cut_2022",
+        "china_covid_reopen_2022",
+        "opec_cut_2023",
+        "iran_tanker_seizure_2023",
+        "saudi_extra_cut_2023",
+        "hamas_2023",
+        "houthi_redsea_2023",
+        "iran_israel_apr_2024",
+        "lebanon_hezbollah_2024",
+        "iran_israel_oct_2024"
+      ]
+    }
+  ],
+  "between_groups": {
+    "groups": [
+      "supply_lost",
+      "threat_only"
+    ],
+    "test": "permutation of group labels, medians",
+    "median_peak_difference_pct": 8.1,
+    "p_value": {
+      "peak": 0.0309,
+      "settle": 0.3874
+    },
+    "median_settle_difference_pct": 3.8
+  },
+  "priced_in": {
+    "strong_day0_n": 6,
+    "weak_day0_n": 29,
+    "strong_day0_median_further_rise_pct": 6.7,
+    "weak_day0_median_further_rise_pct": 9.0,
+    "strong_vs_weak_mann_whitney_p": 0.7427,
+    "placebo_strong_day0_n": 557,
+    "placebo_strong_day0_median_further_rise_pct": 5.4,
+    "placebo_weak_day0_n": 6795,
+    "placebo_weak_day0_median_further_rise_pct": 5.0
+  },
+  "superseded_claims": {
+    "threat_only_peak": "'Threat-only events peak +4.0% and settle near flat' described the statistic, not the events: an ordinary date peaks higher.",
+    "supply_lost_label": "'Real barrels lost' also counted announced OPEC(+) cuts and sanctions; the group is 'announced or physical supply removal'."
+  },
+  "conclusion": "On a random non-event date the same statistics are +5.4% (peak) and +0.7% (settle): a 20-session maximum is positive on 87% of ordinary dates, so a group's median peak only means something relative to that. Announced or physical supply removal >0.5 mbpd (n=21): median peak +12.1%, settle +4.3% (p = 0.0005 / 0.0445 vs placebo; 0.0015 / 0.1027 year-matched): it differs from an ordinary date on peak (above). Geopolitical threat, no supply removed (n=10): median peak +4.0%, settle +0.5% (p = 0.4897 / 0.9443 vs placebo; 0.6419 / 0.9564 year-matched): it is indistinguishable from an ordinary date. Supply removal vs threat-only directly: p = 0.0309 (peak), 0.3874 (settle). Other groups with a peak above placebo at 5% (unadjusted): Announced OPEC(+) production cut (n=7). Caveats: event dates and groupings were chosen with hindsight, the groups overlap, and these p-values are not adjusted for the number of groups tested (see data/research_ledger.json).",
+  "generated_by": "python -m backend.supply_shock_playbook",
+  "generated_at": "2026-10-20T12:21:04.607463+00:00"
+}
