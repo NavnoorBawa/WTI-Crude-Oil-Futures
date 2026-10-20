@@ -113,6 +113,12 @@ def data_json_path(value: str | os.PathLike[str]) -> Path:
     }:
         return _trusted_file(DATA_ROOT, "serial_correlation_check.json")
     if normalized in {
+        "vol_lab.json",
+        "data/vol_lab.json",
+        "./data/vol_lab.json",
+    }:
+        return _trusted_file(DATA_ROOT, "vol_lab.json")
+    if normalized in {
         "vol_forecast_validation.json",
         "data/vol_forecast_validation.json",
         "./data/vol_forecast_validation.json",

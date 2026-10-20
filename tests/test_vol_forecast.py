@@ -151,10 +151,11 @@ class ValidateOfflineTest(unittest.TestCase):
         self.assertIn(live["direction"], ("RISING", "FALLING"))
 
     def test_live_forecast_falls_back_when_latest_ovx_is_missing(self):
-        # Previously a missing latest OVX fed 3 features to a 4-coefficient model (shape crash).
+        # Previously a missing latest OVX fed 3 features to a 4-coefficient model (shape crash). The
+        # model uses OVX lagged one session, so the print it needs is the second-to-last one.
         r, dates, ovx = self.data
         stale = ovx.copy()
-        stale[-1] = np.nan
+        stale[-1 - vf.OVX_LAG_SESSIONS:] = np.nan
         live = vf.live_forecast(data=(r, dates, stale))
         self.assertEqual(live["model"], "HAR (RV5,RV22,RV66)")
         self.assertIsNone(live["implied_vol_ovx_pct"])
