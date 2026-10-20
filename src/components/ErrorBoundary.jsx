@@ -32,23 +32,23 @@ export default class ErrorBoundary extends Component {
 
     if (this.props.label) {
       return (
-        <div className="tv-section-error" role="alert">
-          {this.props.label} could not be displayed ({message}). The rest of the dashboard is unaffected.
+        <div className="section-error" role="alert">
+          {this.props.label} could not be displayed ({message}). The rest of the page is unaffected.
         </div>
       );
     }
 
     return (
-      <div className="tv-app tv-center">
-        <div className="tv-fatal" role="alert">
-          <h1 className="tv-fatal-title">The dashboard failed to render</h1>
-          <p className="tv-fatal-text">{message}</p>
-          <p className="tv-fatal-text">
+      <div className="status-screen">
+        <div className="status-card" role="alert">
+          <h1 className="status-title is-error">The dashboard failed to render</h1>
+          <p className="status-text">{message}</p>
+          <p className="status-text">
             This is usually one malformed field in the data snapshot. Reloading fetches the latest
             snapshot; the research write-up is on{" "}
             <a href={REPO_URL} target="_blank" rel="noopener noreferrer">GitHub</a>.
           </p>
-          <button type="button" className="tv-button" onClick={() => window.location.reload()}>
+          <button type="button" className="button" onClick={() => window.location.reload()}>
             Reload
           </button>
         </div>
