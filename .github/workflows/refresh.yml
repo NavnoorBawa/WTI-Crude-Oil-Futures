@@ -6,24 +6,33 @@ name: Refresh frozen dashboard
 # snapshot stays live and the next scheduled run retries.
 #
 # Least privilege: the `build` job runs every third-party install and build tool with a
-# read-only token and no alert credentials. The `publish` job holds the write token and the
-# mail credential, and installs and builds nothing: besides GitHub's own checkout, artifact
-# and Python setup actions, it runs only git and this repository's own standard-library
-# scripts against the artifacts `build` produced, and deploys with a plain git push.
+# read-only token, and the only secret it receives is the EIA API key the supply-shock study
+# reads. The `publish` job holds the write token and nothing else, and installs and builds
+# nothing: besides GitHub's own checkout, artifact and Python setup actions, it runs only git
+# and this repository's own standard-library scripts against the artifacts `build` produced,
+# and deploys with a plain git push.
 
 on:
   schedule:
-    # Every 4 hours (UTC). The ML signal is 1-week cadence so hourly rebuilds were
-    # wasteful. 6 runs/day stays well under NewsAPI's 100-call/day free limit. GitHub
-    # delays or drops scheduled runs under load, so gaps of several hours happen; the
-    # dashboard shows the snapshot's age. For on-demand refresh use workflow_dispatch.
+    # Every 4 hours (UTC). The forecast is a daily one (next five sessions, from the last
+    # settled session), so six runs a day record each session's forecast and settle the record
+    # within hours of the data. GitHub runs schedules best-effort and delays or drops runs under
+    # load, so gaps of several hours happen; the dashboard shows the snapshot's age, and the
+    # record never depends on a run landing at a particular time. For an on-demand refresh use
+    # workflow_dispatch.
     - cron: '17 */4 * * *'
   workflow_dispatch: {}        # allow manual runs from the Actions tab
   push:
     branches: [main]
-    paths:                     # rebuild the site when the app or pipeline changes
+    paths:                     # rebuild the site when the app, pipeline or published research changes
       - 'src/**'
       - 'backend/**'
+      - 'data/vol_lab.json'
+      - 'data/vol_forecast_validation.json'
+      - 'data/wf_*.json'
+      - 'data/carry_signal_test.json'
+      - 'data/market/**'
+      - 'scripts/build_research_bundle.py'
       - 'scripts/validate_frozen_payload.py'
       - 'freeze.py'
       - 'vite.config.js'
@@ -61,9 +70,11 @@ jobs:
           cache: pip
 
       # Keep generated state off protected main. The live-data branch is seeded
-      # before this workflow ships; missing or partial state therefore fails closed.
-      # The tree it restored from goes to publish with the state, so publish can refuse to
-      # overwrite state that another run persisted after this one restored it.
+      # (runtime-state/vol_track_record.json from `python backend/vol_record.py --init`) before
+      # this workflow ships; missing or invalid state therefore fails closed instead of silently
+      # restarting the forward record. The tree it restored from goes to publish with the state,
+      # so publish can refuse to overwrite state that another run persisted after this one
+      # restored it.
       - name: Restore mutable runtime state from live-data
         env:
           STATE_BRANCH: live-data
@@ -101,26 +112,25 @@ jobs:
             exit 1
           fi
 
-          for state_file in signal_state.json live_track_record.json; do
-            branch_path="${STATE_DIRECTORY}/${state_file}"
-            state_mode="$(git ls-tree "origin/${STATE_BRANCH}" -- "$branch_path" | awk '{print $1}')"
-            if [ "$state_mode" != "100644" ]; then
-              echo "Runtime state is missing, partial, or not a regular file" >&2
-              exit 1
-            fi
+          state_file=vol_track_record.json
+          branch_path="${STATE_DIRECTORY}/${state_file}"
+          state_mode="$(git ls-tree "origin/${STATE_BRANCH}" -- "$branch_path" | awk '{print $1}')"
+          if [ "$state_mode" != "100644" ]; then
+            echo "Runtime state is missing or not a regular file" >&2
+            exit 1
+          fi
 
-            restore_path="${STATE_RESTORE_DIR}/${state_file}"
-            git show "origin/${STATE_BRANCH}:${branch_path}" > "$restore_path"
-            python -m json.tool "$restore_path" >/dev/null
-            cp "$restore_path" "data/.${state_file}.tmp"
-            mv "data/.${state_file}.tmp" "data/${state_file}"
-            echo "Restored ${branch_path}"
-          done
+          restore_path="${STATE_RESTORE_DIR}/${state_file}"
+          git show "origin/${STATE_BRANCH}:${branch_path}" > "$restore_path"
+          python -m json.tool "$restore_path" >/dev/null
+          cp "$restore_path" "data/.${state_file}.tmp"
+          mv "data/.${state_file}.tmp" "data/${state_file}"
+          echo "Restored ${branch_path}"
 
-          # Syntax is not enough: fail closed unless both restored objects satisfy
-          # the same structural contracts used by the runtime writers.
+          # Syntax is not enough: fail closed unless the restored record satisfies the
+          # structural contract its writer enforces (standard library only, nothing installed).
           PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python -c \
-            'from backend.live_record import load_record; from backend.signal_alert import load_state; load_record(); load_state()'
+            'from backend.vol_record import load_record; load_record()'
 
           mkdir -p "$(dirname "$STATE_BASE_FILE")"
           {
@@ -134,17 +144,9 @@ jobs:
 
       - name: Freeze data snapshot -> public/data.json
         env:
-          EAGER_ML_WARMUP: 'true'
-          # Tolerate missing external APIs so a deploy never fails on a transient API outage;
-          # the price/ML core still produces a valid snapshot.
-          MIN_REQUIRED_EXTERNAL_SOURCES: '0'
-          # Optional provider credentials. The pipeline degrades gracefully when absent.
-          NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
+          # The only credential production uses: the supply-shock study's EIA spot history. It is
+          # optional; without it the study keeps its committed cache.
           EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
-          FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
-          ALPHA_VANTAGE_KEY: ${{ secrets.ALPHA_VANTAGE_KEY }}
-          USDA_NASS_KEY: ${{ secrets.USDA_NASS_KEY }}
-          NOAA_CDO_KEY: ${{ secrets.NOAA_CDO_KEY }}
         run: python freeze.py --out public
 
       # frozen_at is stamped seconds earlier in this job, so its age proves nothing; the quote's
@@ -153,8 +155,11 @@ jobs:
       - name: Validate frozen payload invariants
         run: python scripts/validate_frozen_payload.py public/data.json --max-age-minutes 30 --max-market-age-days 4
 
-      - name: Record + resolve live 1W track record
-        run: python backend/live_record.py --data public/data.json
+      # Appends this snapshot's vol forecast (one per session, first issuance wins), settles the
+      # forecasts whose target week has closed, and writes the summary into public/data.json
+      # (vol_forecast.live_record) before the site is built from it.
+      - name: Record + resolve live vol track record
+        run: python backend/vol_record.py --data public/data.json
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -240,7 +245,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s "${RUNNER_TEMP}/runtime-state/restored-from"
-          cp data/signal_state.json data/live_track_record.json "${RUNNER_TEMP}/runtime-state/"
+          cp data/vol_track_record.json "${RUNNER_TEMP}/runtime-state/"
 
       - name: Upload site
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -259,7 +264,7 @@ jobs:
           retention-days: 3
 
   publish:
-    name: Deploy, alert and persist state
+    name: Deploy and persist state
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -268,7 +273,7 @@ jobs:
     steps:
       # Nothing is installed or built in this job and no third-party action runs in it: only
       # GitHub's own actions below, git, and this repository's standard-library scripts from a
-      # fresh checkout of this commit ever run next to the write token or mail credential
+      # fresh checkout of this commit ever run next to the write token, and no secret reaches it
       # (tests/test_workflow_guards.py enforces the allowlist).
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -299,18 +304,16 @@ jobs:
           set -euo pipefail
           mkdir -p public
           cp dist/data.json public/data.json
-          for state_file in signal_state.json live_track_record.json; do
-            cp "${RUNNER_TEMP}/runtime-state/${state_file}" "data/${state_file}"
-          done
+          cp "${RUNNER_TEMP}/runtime-state/vol_track_record.json" data/vol_track_record.json
           PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python -c \
-            'from backend.live_record import load_record; from backend.signal_alert import load_state; load_record(); load_state()'
+            'from backend.vol_record import load_record; load_record()'
 
       # Normal runs never trip this (the concurrency group serializes them), but a re-run of an old
       # run's publish job ("Re-run failed jobs", artifacts live 3 days) would deploy an older site
       # and overwrite the live record that later runs persisted. It also validates the exact bytes
-      # being deployed: dist/data.json, after live_record.py added its summary in the build job.
-      # A superseded build fails here on purpose, before deploying, alerting or persisting: a green
-      # run would look like the re-run had delivered its snapshot. Start a new run instead.
+      # being deployed: dist/data.json, after vol_record.py added its summary in the build job.
+      # A superseded build fails here on purpose, before deploying or persisting: a green run
+      # would look like the re-run had delivered its snapshot. Start a new run instead.
       - name: Refuse a stale or superseded build
         env:
           STATE_BRANCH: live-data
@@ -340,7 +343,7 @@ jobs:
           done
 
           if [ "$(git rev-parse "origin/${STATE_BRANCH}:${STATE_DIRECTORY}")" != "$base_tree" ]; then
-            echo "::error title=Superseded build::Runtime state on ${STATE_BRANCH} changed after this build restored it (a later run, or an earlier attempt of this one, persisted since). Nothing was deployed, alerted or persisted; start a new run."
+            echo "::error title=Superseded build::Runtime state on ${STATE_BRANCH} changed after this build restored it (a later run, or an earlier attempt of this one, persisted since). Nothing was deployed or persisted; start a new run."
             exit 1
           fi
 
@@ -352,7 +355,7 @@ jobs:
             checks+=(--not-older-than "$published_at")
           fi
           if ! python scripts/validate_frozen_payload.py public/data.json "${checks[@]}"; then
-            echo "::error title=Not published::This build's payload is invalid, over 4 hours old, or older than the live site's (${published_at:-unknown}). Nothing was deployed, alerted or persisted; start a new run."
+            echo "::error title=Not published::This build's payload is invalid, over 4 hours old, or older than the live site's (${published_at:-unknown}). Nothing was deployed or persisted; start a new run."
             exit 1
           fi
 
@@ -432,21 +435,10 @@ jobs:
             sleep "$((attempt * 5))"
           done
 
-      # Never announce a stance that was not successfully published.
-      - name: Check 1W signal and send alert on stance change
-        env:
-          # Add GMAIL_APP_PASSWORD as a GitHub Secret to enable email alerts.
-          # Generate at: myaccount.google.com > Security > App passwords
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          GMAIL_USER: navnoorquant@gmail.com
-          ALERT_EMAIL: navnoorquant@gmail.com
-        run: python backend/signal_alert.py --data public/data.json
-
-      # Persist only after a successful Pages publish. The explicit status check
-      # lets the live record persist even if alert delivery itself fails, while
-      # signal_alert.py leaves an unsent stance unchanged so the next run retries.
-      # The state goes on top of the tree this build restored, never over a newer one.
-      - name: Persist signal state + live record to live-data branch
+      # Persist only after a successful Pages publish, so the record never runs ahead of the
+      # summary the site shows. The state goes on top of the tree this build restored, never over
+      # a newer one.
+      - name: Persist live vol track record to live-data branch
         if: ${{ !cancelled() && steps.pages_deploy.outcome == 'success' }}
         env:
           STATE_SNAPSHOT_DIR: ${{ runner.temp }}/wti-state-snapshot
@@ -473,8 +465,7 @@ jobs:
           auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
           echo "::add-mask::${auth_header}"
           mkdir -p "$STATE_SNAPSHOT_DIR"
-          cp data/signal_state.json "$STATE_SNAPSHOT_DIR/signal_state.json"
-          cp data/live_track_record.json "$STATE_SNAPSHOT_DIR/live_track_record.json"
+          cp data/vol_track_record.json "$STATE_SNAPSHOT_DIR/vol_track_record.json"
 
           state_worktree=""
           cleanup_worktree() {
@@ -505,16 +496,12 @@ jobs:
                 exit 1
               fi
 
-              cp --remove-destination -- "$STATE_SNAPSHOT_DIR/signal_state.json" \
-                "$state_worktree/$STATE_DIRECTORY/signal_state.json"
-              cp --remove-destination -- "$STATE_SNAPSHOT_DIR/live_track_record.json" \
-                "$state_worktree/$STATE_DIRECTORY/live_track_record.json"
-              git -C "$state_worktree" add \
-                "$STATE_DIRECTORY/signal_state.json" \
-                "$STATE_DIRECTORY/live_track_record.json"
+              cp --remove-destination -- "$STATE_SNAPSHOT_DIR/vol_track_record.json" \
+                "$state_worktree/$STATE_DIRECTORY/vol_track_record.json"
+              git -C "$state_worktree" add "$STATE_DIRECTORY/vol_track_record.json"
 
               if git -C "$state_worktree" diff --staged --quiet; then
-                echo "Signal state unchanged — no commit"
+                echo "Vol track record unchanged — no commit"
                 git worktree remove "$state_worktree"
                 state_worktree=""
                 exit 0
@@ -525,9 +512,9 @@ jobs:
                 exit 1
               fi
 
-              git -C "$state_worktree" config user.name "WTI Signal Bot"
+              git -C "$state_worktree" config user.name "WTI Vol Record Bot"
               git -C "$state_worktree" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-              git -C "$state_worktree" commit -m "chore: refresh runtime state [skip ci]"
+              git -C "$state_worktree" commit -m "chore: update vol track record [skip ci]"
               if git -C "$state_worktree" \
                 -c http.https://github.com/.extraheader="AUTHORIZATION: basic ${auth_header}" \
                 -c http.followRedirects=false \
@@ -543,7 +530,7 @@ jobs:
             fi
 
             if [ "$attempt" -eq 3 ]; then
-              echo "Unable to persist signal state after 3 attempts" >&2
+              echo "Unable to persist the vol track record after 3 attempts" >&2
               exit 1
             fi
             sleep "$((attempt * 5))"
