@@ -235,9 +235,9 @@ def _validate_vol_forecast(vol: Any, session: date | None, notes: list[str]) -> 
 
     A missing challenger forecast, or an economic block marked unavailable, is not an error (the
     dashboard renders without them), but it is noted: a session without a challenger cannot enter
-    the promotion test. The optional reasons (live.challenger_error, economic.unavailable_reason)
-    must be non-empty strings or null. They are not echoed into the notes, which CI prints as
-    workflow commands.
+    the promotion test. The optional reasons (live.challenger_error, live.ovx_error,
+    economic.unavailable_reason) must be non-empty strings or null. They are not echoed into the
+    notes, which CI prints as workflow commands.
     """
     if not isinstance(vol, dict):
         return ["vol_forecast is required"]
@@ -264,9 +264,10 @@ def _validate_vol_forecast(vol: Any, session: date | None, notes: list[str]) -> 
     if not _text(live.get("model_version")):
         errors.append("vol_forecast.live.model_version must be a non-empty string")
 
+    for key in ("challenger_error", "ovx_error"):
+        if live.get(key) is not None and not _text(live[key]):
+            errors.append(f"vol_forecast.live.{key} must be a non-empty string or null")
     challenger_error = live.get("challenger_error")
-    if challenger_error is not None and not _text(challenger_error):
-        errors.append("vol_forecast.live.challenger_error must be a non-empty string or null")
     if live.get("challenger") is None:
         notes.append("vol_forecast.live has no challenger forecast, so this session cannot enter the promotion test; "
                      + ("vol_forecast.live.challenger_error gives the reason" if _text(challenger_error)

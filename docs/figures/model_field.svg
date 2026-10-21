@@ -219,7 +219,7 @@ L -3.5 0
       </g>
      </g>
      <g id="text_15">
-      <text style="font-size: 8.5px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #57606a" x="225.400313" y="137.854804" transform="rotate(-0 225.400313 137.854804)">Implied vol (raw OVX)</text>
+      <text style="font-size: 8.5px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #57606a" x="225.400313" y="137.854804" transform="rotate(-0 225.400313 137.854804)">Raw OVX</text>
      </g>
     </g>
     <g id="ytick_9">
@@ -249,7 +249,7 @@ L -3.5 0
       </g>
      </g>
      <g id="text_18">
-      <text style="font-size: 8.5px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #57606a" x="225.400313" y="89.008989" transform="rotate(-0 225.400313 89.008989)">Implied-vol regression</text>
+      <text style="font-size: 8.5px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #57606a" x="225.400313" y="89.008989" transform="rotate(-0 225.400313 89.008989)">OVX-only regression</text>
      </g>
     </g>
     <g id="ytick_12">

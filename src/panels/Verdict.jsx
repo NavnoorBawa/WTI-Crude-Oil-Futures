@@ -1,9 +1,10 @@
 import Chip from "../components/Chip";
 import Kpi from "../components/Kpi";
 import { INTERVAL_LEVEL_PCT, promotionText, shortModelName } from "../lib/assertions";
-import { DASH, fmtCT, fmtDate, fmtInt, fmtNum, fmtP, fmtPct, fmtSigned, num, toMs } from "../lib/format";
+import { DASH, NBSP, fmtCT, fmtDate, fmtInt, fmtNum, fmtP, fmtPct, fmtSigned, num, toMs } from "../lib/format";
 import {
-  asObject, asText, getLab, getVol, liveRecordSummary, mcsSummary, ovxOnlyBenchmark, recordVar, varRows,
+  asObject, asText, getLab, getVol, liveRecordSummary, mcsSummary, ovxOnlyBenchmark, ovxOnlyLabel, persistenceBenchmark,
+  recordVar, varRows,
 } from "../lib/research";
 
 /**
@@ -45,7 +46,12 @@ function Hero({ live }) {
   const realized = num(live?.current_realized_vol_5d_annualized_pct);
   const implied = num(live?.implied_vol_ovx_pct);
   const ovxSession = asText(live?.inputs?.ovx_session);
+  // ovx_error is null, or why an OVX source failed: with one source left the forecast still uses
+  // OVX (from that source); with none it is the HAR model without OVX.
+  const ovxError = asText(live?.ovx_error);
+  const ovxSource = asText(live?.inputs?.ovx_source);
   const challenger = asObject(live?.challenger);
+  const challengerError = asText(live?.challenger_error);
   const issuedMs = toMs(live?.issued_at);
   const title = <h2 className="micro verdict-label" id="verdict-title">Next-week WTI realized volatility · forecast</h2>;
 
@@ -89,20 +95,31 @@ function Hero({ live }) {
           <dt><i className="swatch swatch-truth is-tick" />Realized 5d</dt>
           <dd className="num">{fmtPct(realized)}</dd>
         </div>
-        <div className="fact">
+        <div className="fact" title={ovxError ?? undefined}>
           <dt><i className="swatch swatch-implied is-diamond" />OVX</dt>
           <dd className="num">
             {fmtNum(implied, 1)}
-            {ovxSession && <span className="fact-note">{fmtDate(ovxSession, { year: false })} close, the model's input</span>}
+            {implied == null && ovxError
+              ? <span className="fact-note">no OVX source this session; forecast without OVX</span>
+              : ovxSession && (
+                <span className="fact-note">
+                  {fmtDate(ovxSession, { year: false })} close, the model&apos;s input{ovxError && ovxSource ? ` (from ${ovxSource})` : ""}
+                </span>
+              )}
           </dd>
         </div>
-        {challenger && (
+        {challenger ? (
           <div className="fact">
             <dt>Challenger</dt>
             <dd className="num">
               {fmtPct(challenger.forecast_next_week_vol_annualized_pct)}
               {asText(challenger.label) && <span className="fact-note">{challenger.label}</span>}
             </dd>
+          </div>
+        ) : challengerError && (
+          <div className="fact" title={challengerError}>
+            <dt>Challenger</dt>
+            <dd className="num">{DASH}<span className="fact-note">not published this session</span></dd>
           </div>
         )}
         {probRise != null && (
@@ -147,24 +164,32 @@ export default function Verdict({ data, research, researchStatus }) {
   const record = liveRecordSummary(liveRecord);
   const mz = asObject(validation?.har_mincer_zarnowitz);
   const ovx = ovxOnlyBenchmark(validation);
+  const persistence = persistenceBenchmark(validation);
+  const ovxName = ovxOnlyLabel(lab);
   const n = num(validation?.n);
   const model = shortModelName(live?.model) ?? shortModelName(validation?.model) ?? "the model";
   const weeks = n != null ? `${fmtInt(n)} wk OOS, weekly` : "weekly OOS";
   const promotion = promotionText(record?.promotion);
-  const persistenceDm = num(validation?.har_vs_persistence_qlike_dm);
+  // The leaderboard's convention, page-wide: positive = the benchmark has the lower loss.
   const dmParts = [
-    persistenceDm != null ? `${fmtSigned(persistenceDm, 2)} vs persistence` : null,
-    ovx?.dm != null ? `${fmtSigned(ovx.dm, 2)} vs OVX-only${ovx.p != null ? ` (${fmtP(ovx.p)})` : ""}` : null,
+    persistence?.dm != null ? `persistence ${fmtSigned(persistence.dm, 2)}` : null,
+    ovx?.dm != null ? `${ovxName} ${fmtSigned(ovx.dm, 2)}${ovx.p != null ? ` (${fmtP(ovx.p)})` : ""}` : null,
   ].filter(Boolean);
   const mcsAvailable = mcs?.survivors != null;
 
   let liveFoot = null;
   if (record) {
-    const status = (record.resolved ?? 0) === 0
-      ? (record.firstResult
-        ? `first result ${record.firstResultIsEstimate ? "≈ " : ""}${fmtDate(record.firstResult)}`
-        : `${fmtInt(record.recorded ?? 0)} recorded · ${fmtInt(record.skipped ?? 0)} skipped at roll${record.lateCommit ? ` · ${fmtInt(record.lateCommit)} not sealed in time` : ""}`)
-      : `${fmtInt(record.independent)} independent · QLIKE ${fmtNum(record.champion?.qlike, 3)}`;
+    const paired = record.paired;
+    let status;
+    if ((record.resolved ?? 0) === 0) {
+      status = record.firstResult
+        ? `first result ${fmtDate(record.firstResult)}`
+        : `${fmtInt(record.recorded ?? 0)} recorded · ${fmtInt(record.skipped ?? 0)} skipped at roll${record.lateCommit ? ` · ${fmtInt(record.lateCommit)} not sealed in time` : ""}`;
+    } else {
+      status = paired.n > 0 && paired.record != null && paired.challenger != null
+        ? `QLIKE ${fmtNum(paired.record, 3)} record vs ${fmtNum(paired.challenger, 3)} challenger, same ${fmtInt(paired.n)}${NBSP}wk`
+        : `${fmtInt(record.independent)} independent · no week with both forecasts yet`;
+    }
     liveFoot = promotion ? `${status} · promotion ${promotion}` : status;
   }
 
@@ -179,10 +204,10 @@ export default function Verdict({ data, research, researchStatus }) {
           baseline={(
             <>
               vs <b className="num">{fmtNum(validation?.persistence_qlike, 3)}</b> persistence
-              {ovx && <>, <b className="num">{fmtNum(ovx.qlike, 3)}</b> OVX-only</>} · lower is better
+              {ovx && <>, <b className="num">{fmtNum(ovx.qlike, 3)}</b> {ovxName}</>} · lower is better
             </>
           )}
-          foot={`${dmParts.length ? `DM t (+ favours ${model}) ${dmParts.join(", ")} · ` : ""}${weeks}`}
+          foot={`${dmParts.length ? `DM t (+ = lower loss than ${model}): ${dmParts.join(", ")} · ` : ""}${weeks}`}
         />
         <Kpi
           label="Model Confidence Set"

@@ -66,6 +66,7 @@ const ARIA_SORT = { asc: "ascending", desc: "descending" };
  * @param {boolean} [props.tall]           cap the height and scroll vertically, header stuck on top
  * @param {boolean} [props.stickyFirst]    keep the first column in view while scrolling sideways (default on)
  * @param {import("react").ReactNode} [props.footnote]
+ * @param {import("react").ReactNode} [props.empty]  shown in one full-width row when there are no rows
  */
 export default function DataTable({
   caption,
@@ -80,6 +81,7 @@ export default function DataTable({
   tall = false,
   stickyFirst = true,
   footnote = null,
+  empty = null,
 }) {
   const captionId = useId();
   const [sort, setSort] = useState(initialSort);
@@ -154,6 +156,9 @@ export default function DataTable({
             </tr>
           </thead>
           <tbody>
+            {sorted.length === 0 && empty && (
+              <tr><td className="empty-cell" colSpan={columns.length}>{empty}</td></tr>
+            )}
             {sorted.map((row) => (
               <tr key={rowKey(row)} className={rowClass?.(row)}>
                 {columns.map((column) => {

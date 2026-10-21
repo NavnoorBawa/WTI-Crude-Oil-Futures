@@ -4,9 +4,9 @@ import DataTable from "../components/DataTable";
 import LazyMount from "../components/LazyMount";
 import Panel, { REPRODUCE } from "../components/Panel";
 import Segmented from "../components/Segmented";
-import { INTERVAL_LEVEL_PCT, bandSourceLabel, forecastAssertion, shortModelName } from "../lib/assertions";
+import { INTERVAL_LEVEL_PCT, bandSourceLabel, forecastAssertion, forecastDetail, shortModelName } from "../lib/assertions";
 import { DASH, fmtDate, fmtInt, fmtNum, fmtPct, fmtSpan, num } from "../lib/format";
-import { bandCoverage, forecastRows, getLab, getVol } from "../lib/research";
+import { bandCoverage, forecastRows, getLab, getVol, ovxOnlyLabel } from "../lib/research";
 
 const RANGES = [
   { value: "1Y", label: "1Y" },
@@ -16,9 +16,10 @@ const RANGES = [
 const TABLE_WEEKS = 26;
 
 /**
- * FCST: forecast vs realized next-week volatility, with the conformal band and OVX. The meta and the
- * band's stated coverage describe the rows drawn; the R² and loss comparisons in the title come from
- * the weekly production validation and say so in the caption.
+ * FCST: forecast vs realized next-week volatility, with the conformal band and OVX. The title's
+ * comparisons come from the weekly production validation, and the meta and caption say so. The
+ * band's stated coverage counts every week drawn with a band, whatever range is on screen; the
+ * hero's coverage is the production validation's own band, a different sample, and is named as such.
  */
 export default function ForecastPanel({ data, research }) {
   const [range, setRange] = useState("3Y");
@@ -41,6 +42,11 @@ export default function ForecastPanel({ data, research }) {
   const band = useMemo(() => bandCoverage(rows), [rows]);
   const bandSource = bandSourceLabel(band);
   const validationN = num(validation?.n);
+  const ovxLabel = ovxOnlyLabel(lab);
+  const banded = rows.filter((row) => row.actual != null && row.lo != null && row.hi != null);
+  const bandSpan = banded.length ? fmtSpan(banded[0].date, banded[banded.length - 1].date) : null;
+  const productionCoverage = num(validation?.interval_80_coverage_pct);
+  const productionN = num(validation?.interval_80_n);
 
   const fit = [
     ratio != null ? `realized averaged ${fmtNum(ratio, 2)}× the forecast` : null,
@@ -48,7 +54,12 @@ export default function ForecastPanel({ data, research }) {
   ].filter(Boolean).join("; ");
   const caption = "Each point is a forecast date; realized vol is measured over the following 5 sessions."
     + (fit ? ` Production validation${validationN != null ? ` (${fmtInt(validationN)} weeks)` : ""}: ${fit}.` : "")
-    + (bandSource ? ` The band drawn is the ${bandSource} ${INTERVAL_LEVEL_PCT}% interval${band.coverage != null ? `, which covered ${fmtPct(band.coverage)} of the ${fmtInt(band.n)} weeks shown` : ""}.` : "");
+    + (bandSource ? ` The band drawn is the ${bandSource} ${INTERVAL_LEVEL_PCT}% interval${band.coverage != null
+      ? `, which covered ${fmtPct(band.coverage)} of the ${fmtInt(band.n)} weeks with a band${bandSpan ? ` (${bandSpan}, every range)` : ""}` : ""}`
+      + `${live ? "; the live week's band is the production forecast's" : ""}.` : "")
+    + (productionCoverage != null && band.lab > 0
+      ? ` The verdict's ${fmtPct(productionCoverage)}${productionN != null ? ` over ${fmtInt(productionN)} weeks` : ""} is the production validation's own band.`
+      : "");
 
   const tableRows = rows.slice(-TABLE_WEEKS).reverse();
   return (
@@ -56,9 +67,10 @@ export default function ForecastPanel({ data, research }) {
       id="fcst"
       code="FCST"
       name="Forecast vs realized"
-      title={forecastAssertion(validation, live, band)}
+      title={forecastAssertion(validation, live, { ovxLabel })}
       fallbackTitle="Next-week volatility forecast against what was realized"
       meta={[
+        ...forecastDetail(validation, { ovxLabel }),
         rows.length ? `${fmtInt(rows.length)} weeks drawn` : null,
         rows.length ? fmtSpan(rows[0].date, rows[rows.length - 1].date) : null,
         "purged walk-forward, out of sample",

@@ -1,9 +1,11 @@
 // Panel titles are assertions computed from the payload, never fixed copy: each builder states only
 // what its numbers support and returns null when they are missing (the panel then falls back to a
-// neutral title). Wording is deliberately plain: no claim the statistics do not carry, and every
-// figure names its sample when two samples of the same statistic appear on the page.
-import { fmtDate, fmtInt, fmtNum, fmtP, fmtPct, fmtPValue, fmtSigned, num, ordinal } from "./format";
-import { asArray, asObject, asText, coverageByYear, ovxOnlyBenchmark, recordVar, shortLabel, yearsBetter } from "./research";
+// neutral title). A title makes one plain claim, short enough to scan (about 90 characters at
+// most); the statistics behind it go in the meta line under the title, built by the matching
+// *Detail function, so every figure stays computed from the payload. Every figure names its sample
+// when two samples of the same statistic appear on the page.
+import { NBSP, fmtDate, fmtInt, fmtNum, fmtP, fmtPct, fmtPValue, fmtSigned, num, ordinal } from "./format";
+import { asArray, asObject, asText, coverageByYear, ovxOnlyBenchmark, recordVar, shortLabel, vrpSummary, yearsBetter } from "./research";
 
 /** The nominal coverage of the contract's interval_80 fields (a design level, not a statistic). */
 export const INTERVAL_LEVEL_PCT = 80;
@@ -22,6 +24,8 @@ const join = (parts) => parts.filter(Boolean).join("; ");
 const capitalize = (text) => (text ? text.charAt(0).toUpperCase() + text.slice(1) : null);
 const plural = (count, word) => `${fmtInt(count)} ${word}${count === 1 ? "" : "s"}`;
 const pct = (value) => fmtNum(value * 100, 0);
+/** "MCS p = 0.04" with no-break spaces, so a wrapped line never ends on "MCS". */
+const labelledP = (label, p) => (fmtP(p) ? `${label}${NBSP}${fmtP(p)}` : null);
 
 /**
  * Which pipeline produced the band drawn on the forecast chart (see bandCoverage()): the benchmark
@@ -35,39 +39,45 @@ export const bandSourceLabel = (band) => {
 };
 
 /**
- * FCST: the model against the weakest benchmark (persistence) and the strongest simple one (a
- * regression on OVX alone), then the coverage of the band as drawn. `band` is bandCoverage() of the
- * plotted rows, so the stated coverage is always that of the band on the chart.
+ * FCST: the model against the weakest benchmark (persistence, on out-of-sample R²) and the
+ * strongest simple one, the regression on OVX alone (Diebold-Mariano on QLIKE).
  */
-export const forecastAssertion = (validation, live, band = null) => {
+export const forecastAssertion = (validation, live, { ovxLabel = "OVX-only regression" } = {}) => {
   const r2 = num(validation?.har_level_r2);
   const persistenceR2 = num(validation?.persistence_level_r2);
   const model = shortModelName(live?.model) ?? shortModelName(validation?.model) ?? "The model";
   const ovx = ovxOnlyBenchmark(validation);
-  const harQlike = num(validation?.har_qlike);
-  const tracks = r2 != null && persistenceR2 != null && r2 > persistenceR2
-    ? `${model} tracks next-week realized vol better than persistence (vol-level out-of-sample R² ${fmtNum(r2, 2)} vs ${fmtNum(persistenceR2, 2)})`
-    : null;
+  const beatsPersistence = r2 != null && persistenceR2 != null && r2 > persistenceR2;
   let versusOvx = null;
-  if (ovx && ovx.p != null && harQlike != null) {
-    const losses = `QLIKE ${fmtNum(harQlike, 3)} vs ${fmtNum(ovx.qlike, 3)}, ${fmtP(ovx.p)}`;
-    if (ovx.p >= ALPHA) versusOvx = `is not distinguishable from an OVX-only regression (${losses})`;
-    else if (ovx.dm != null) versusOvx = `${ovx.dm > 0 ? "beats" : "loses to"} an OVX-only regression (${losses})`;
+  if (ovx?.p != null && ovx.dm != null) {
+    if (ovx.p >= ALPHA) versusOvx = `is not distinguishable from the ${ovxLabel}`;
+    else versusOvx = ovx.dm < 0 ? `beats the ${ovxLabel}` : `loses to the ${ovxLabel}`;
   }
-  const comparison = tracks && versusOvx ? `${tracks} but ${versusOvx}` : tracks ?? (versusOvx ? `${model} ${versusOvx}` : null);
-  const source = bandSourceLabel(band);
-  const coverage = band?.coverage != null && source
-    ? `the ${INTERVAL_LEVEL_PCT}% band drawn (${source}) covered ${fmtPct(band.coverage)} of ${plural(band.n, "week")}`
-    : null;
-  return capitalize(join([comparison, coverage]));
+  if (beatsPersistence && versusOvx) {
+    return `${model} beats persistence ${versusOvx.startsWith("beats") ? `and ${versusOvx.slice("beats ".length)}` : `but ${versusOvx}`}`;
+  }
+  if (beatsPersistence) return `${model} beats persistence on out-of-sample R²`;
+  return versusOvx ? `${model} ${versusOvx}` : null;
 };
 
-const INFO_TEXT = { implied: "implied vol (OVX)", range: "the intraday range" };
+/** FCST meta: the loss comparison behind the title, with its sample. */
+export const forecastDetail = (validation, { ovxLabel = "OVX-only regression" } = {}) => {
+  const ovx = ovxOnlyBenchmark(validation);
+  const harQlike = num(validation?.har_qlike);
+  const n = num(validation?.n);
+  if (!ovx || harQlike == null) return [];
+  return [
+    `QLIKE ${fmtNum(harQlike, 3)} vs ${fmtNum(ovx.qlike, 3)} for the ${ovxLabel}${ovx.p != null ? `, DM ${fmtP(ovx.p)}` : ""}`
+      + `${n != null ? ` (weekly validation, ${fmtInt(n)} weeks)` : ""}`,
+  ];
+};
+
+const INFO_TEXT = { implied: "OVX", range: "the intraday range" };
 
 /**
  * MODL: what the Model Confidence Set contains, true by construction from the rows: which inputs
- * every member uses, whether the model of record is in it, and whether the return-only models are
- * significantly worse than it. Timing controls (and anything else not eligible) are left out.
+ * every member uses and whether the model of record is among them. Timing controls (and anything
+ * else not eligible) are left out.
  * @param {import("./research").LeaderRow[]} rows
  * @param {{level?: number|null, available?: boolean}} [options]  MCS level in percent; whether
  *   the payload carries MCS results at all
@@ -81,31 +91,39 @@ export const leaderboardAssertion = (rows, { level = null, available = true } = 
   const record = eligible.find((row) => row.role === "record") ?? null;
   const recordName = record ? shortLabel(record.label) : null;
 
-  let first;
   if (survivors.length === 1) {
     const only = survivors[0];
-    first = `${shortLabel(only.label)}${only === record ? ", the model of record," : ""} alone is in the ${set}`;
-  } else {
-    const shared = Object.keys(INFO_TEXT).find((kind) => survivors.every((row) => row.info.has(kind)));
-    const uses = shared ? INFO_TEXT[shared]
-      : survivors.every((row) => row.info.size > 0) ? `${INFO_TEXT.implied} or ${INFO_TEXT.range}` : null;
-    first = uses
-      ? `All ${fmtInt(survivors.length)} models in the ${set} use ${uses}`
-      : `${fmtInt(survivors.length)} of ${fmtInt(eligible.length)} models are in the ${set}`;
+    return `${shortLabel(only.label)}${only === record ? ", the model of record," : ""} alone is in the ${set}`;
   }
-  const recordPart = record && !(survivors.length === 1 && survivors[0] === record)
-    ? `${recordName}, the model of record, is ${record.inMcs ? "in" : "outside"} it${record.mcsP != null ? ` (MCS ${fmtP(record.mcsP)})` : ""}`
-    : null;
+  const shared = Object.keys(INFO_TEXT).find((kind) => survivors.every((row) => row.info.has(kind)));
+  const uses = shared ? INFO_TEXT[shared]
+    : survivors.every((row) => row.info.size > 0) ? `${INFO_TEXT.implied} or ${INFO_TEXT.range}` : null;
+  const first = uses
+    ? `All ${fmtInt(survivors.length)} models in the ${set} use ${uses}`
+    : `${fmtInt(survivors.length)} of ${fmtInt(eligible.length)} models are in the ${set}`;
+  const recordPart = record ? `${recordName} is ${record.inMcs ? "one of them" : "not among them"}` : null;
+  return join([first, recordPart]);
+};
 
+/**
+ * MODL meta: the record's MCS p-value and whether the return-only models are significantly worse
+ * than it (every one of them, by a Diebold-Mariano test at ALPHA).
+ */
+export const leaderboardDetail = (rows, { available = true } = {}) => {
+  if (!Array.isArray(rows) || !available) return [];
+  const eligible = rows.filter((row) => row.mcsEligible !== false && !row.timingControl);
+  const record = eligible.find((row) => row.role === "record") ?? null;
+  if (!record) return [];
+  const recordName = shortLabel(record.label);
+  const parts = [record.mcsP != null ? `${recordName} ${labelledP("MCS", record.mcsP)}` : null];
   const returnOnly = eligible.filter((row) => row.info.size === 0 && row.role !== "record");
-  let third = null;
-  if (returnOnly.length && record) {
+  if (returnOnly.length) {
     const allWorse = returnOnly.every((row) => !row.inMcs && row.dmStat != null && row.dmStat < 0
       && row.dmP != null && row.dmP < ALPHA);
-    if (allWorse) third = `every return-only model has significantly higher QLIKE than ${recordName}`;
-    else if (returnOnly.every((row) => !row.inMcs)) third = "no return-only model is in it";
+    if (allWorse) parts.push(`every return-only model has significantly higher QLIKE than ${recordName}`);
+    else if (returnOnly.every((row) => !row.inMcs)) parts.push("no return-only model is in the set");
   }
-  return join([first, recordPart, third]);
+  return parts.filter(Boolean);
 };
 
 /**
@@ -128,14 +146,14 @@ export const spaAssertion = (spa, { recordName = "the model of record", mcsLevel
   return `Hansen SPA test of ${recordName} against ${count ? plural(count, "alternative") : "the alternatives"}: consistent ${fmtP(p)}${bounds}; ${reading}.`;
 };
 
-/** STAB: does the ranking hold year by year? */
+/** STAB: does the ranking hold year by year? "Beat" means a lower QLIKE in that calendar year. */
 export const stabilityAssertion = (yearly, { champion, challenger, bench, labels = new Map() } = {}) => {
   if (!Array.isArray(yearly) || !yearly.length || !champion) return null;
   const name = (key) => shortLabel(labels.get(key) ?? key);
   const parts = [];
   if (bench) {
     const { wins, total } = yearsBetter(yearly, champion, bench);
-    if (total) parts.push(`${name(champion)} had lower QLIKE than ${name(bench)} in ${wins} of ${total} years`);
+    if (total) parts.push(`${name(champion)} beat ${name(bench)} in ${wins} of ${total} years`);
   }
   if (challenger) {
     const { wins, total } = yearsBetter(yearly, challenger, champion);
@@ -145,20 +163,29 @@ export const stabilityAssertion = (yearly, { champion, challenger, bench, labels
 };
 
 /**
- * CALB: conformal coverage overall and its yearly range. Adaptive conformal inference steers its
- * long-run coverage to the target by construction, so coverage near the target is expected; the
- * evidence is in the year-by-year spread (and the interval score, shown beside it).
+ * CALB: the yearly range of conformal coverage. Adaptive conformal inference steers its long-run
+ * coverage to the target by construction, so the overall figure is expected; the evidence is the
+ * year-by-year spread (and the interval score, shown beside it).
  */
 export const calibrationAssertion = (lab, champion) => {
   const conformal = asObject(lab?.conformal?.[champion]);
   const coverage = num(conformal?.coverage_pct);
   const target = num(conformal?.target_coverage_pct) ?? INTERVAL_LEVEL_PCT;
-  const days = num(conformal?.n_days);
   if (coverage == null) return null;
   const years = coverageByYear(lab, champion).map((row) => row.coverage);
-  const range = years.length > 1 ? `; year by year coverage ranged ${fmtNum(Math.min(...years), 1)}–${fmtPct(Math.max(...years))}` : "";
-  return `${fmtNum(target, 0)}% intervals covered ${fmtPct(coverage)}${days != null ? ` of ${fmtInt(days)} days` : ""}, `
-    + `which adaptive conformal targets by construction${range}`;
+  if (years.length > 1) {
+    return `In every year the ${fmtNum(target, 0)}% interval covered between ${fmtPct(Math.min(...years))} and ${fmtPct(Math.max(...years))} of days`;
+  }
+  return `The ${fmtNum(target, 0)}% interval covered ${fmtPct(coverage)} of days, as adaptive conformal targets by construction`;
+};
+
+/** CALB meta: the overall coverage, which the method targets by construction. */
+export const calibrationDetail = (lab, champion) => {
+  const conformal = asObject(lab?.conformal?.[champion]);
+  const coverage = num(conformal?.coverage_pct);
+  const days = num(conformal?.n_days);
+  if (coverage == null) return [];
+  return [`overall ${fmtPct(coverage)}${days != null ? ` of ${fmtInt(days)} days` : ""}, targeted by construction`];
 };
 
 const breachRange = (row) => {
@@ -170,19 +197,31 @@ const breachRange = (row) => {
 const QUANTILE_WORDS = { fhs: "filtered historical simulation", normal: "normal quantile" };
 
 /**
- * RISK: the model of record's 99% VaR (coverage and its breach range across the sampling grids)
- * and historical simulation's independence failures, each clause at its own VaR level.
+ * RISK: the model of record's 99% VaR passes Kupiec coverage on k of n sampling grids; when every
+ * grid also has more breaches than expected, the title says so (each excess is within the test's
+ * tolerance, together they lean one way).
  */
 export const riskAssertion = (rows, labels = new Map(), champion = null) => {
   if (!Array.isArray(rows)) return null;
   const record99 = recordVar(rows, 0.01);
+  if (record99?.kupiecPass == null || !record99.gridCount) return null;
+  const name = shortLabel(labels.get(champion) ?? record99.label);
+  const head = `${name} 99% VaR passes Kupiec on ${record99.kupiecPass}/${record99.gridCount} grids`;
+  const over = record99.exceedMin != null && record99.expected != null && record99.exceedMin > record99.expected;
+  return over ? `${head}, each with more breaches than expected` : head;
+};
+
+/**
+ * RISK meta: the record's 99% breach range and method, and historical simulation's independence
+ * failures, each at its own VaR level.
+ */
+export const riskDetail = (rows) => {
+  if (!Array.isArray(rows)) return [];
+  const record99 = recordVar(rows, 0.01);
   const parts = [];
-  if (record99?.kupiecPass != null && record99.gridCount) {
-    const name = shortLabel(labels.get(champion) ?? record99.label);
-    const method = QUANTILE_WORDS[record99.quantile] ? ` (${QUANTILE_WORDS[record99.quantile]})` : "";
-    const breaches = breachRange(record99);
-    parts.push(`${name} 99% VaR${method} passes Kupiec coverage on ${record99.kupiecPass}/${record99.gridCount} grids`
-      + (breaches ? `, ${breaches}` : ""));
+  if (record99) {
+    const method = QUANTILE_WORDS[record99.quantile] ?? null;
+    parts.push([breachRange(record99), method].filter(Boolean).join(", "));
   }
   const failing = rows
     .filter((row) => row.isHistorical && row.independencePass != null && row.gridCount && row.confidence != null
@@ -190,7 +229,7 @@ export const riskAssertion = (rows, labels = new Map(), champion = null) => {
     .sort((a, b) => b.confidence - a.confidence)
     .map((row) => `at ${row.confidence}% on ${row.gridCount - row.independencePass}/${row.gridCount} grids`);
   if (failing.length) parts.push(`historical-simulation VaR fails the independence test ${failing.join(" and ")}`);
-  return parts.length ? join(parts) : null;
+  return parts.filter(Boolean);
 };
 
 /** CONE: where current realized vol sits in its own history, shortest vs longest window. */
@@ -207,14 +246,25 @@ export const coneAssertion = (cone) => {
     + `and the ${ordinal(long.percentile)} on ${long.window} days`;
 };
 
-/** VRP: how often implied vol exceeded what was realized, and the tail of that bet. */
+/**
+ * VRP: is there a variance risk premium? Read in variance units, where a zero premium means
+ * IV² = E[RV²]: the vol-point gap and the share of periods with OVX above realized vol are both
+ * positive even with no premium, so they are never the evidence (see vrpSummary()).
+ */
 export const vrpAssertion = (vrp) => {
-  const share = num(vrp?.share_positive_pct);
-  const n = num(vrp?.n_periods);
-  const worst = num(vrp?.worst_period_vol_pts);
-  if (share == null) return null;
-  const head = `OVX exceeded subsequent realized vol in ${fmtPct(share)}${n != null ? ` of ${fmtInt(n)} periods` : " of periods"}`;
-  return worst != null && worst < 0 ? `${head}; the worst period missed by ${fmtNum(Math.abs(worst), 1)} vol pts` : head;
+  const summary = vrpSummary(vrp);
+  if (!summary) return null;
+  if (summary.varianceCi) {
+    const [lo, hi] = summary.varianceCi;
+    if (lo <= 0 && hi >= 0) return "The variance risk premium, in variance units, is not distinguishable from zero";
+    return lo > 0 ? "OVX carries a positive variance risk premium, in variance units"
+      : "Realized variance exceeded implied variance, on average";
+  }
+  if (summary.share != null && summary.nullShare != null && summary.nullP != null) {
+    return summary.nullP < ALPHA ? "OVX exceeded realized vol more often than a zero premium would explain"
+      : "OVX exceeded realized vol about as often as it would with no premium";
+  }
+  return null;
 };
 
 /** The challenger's promotion status in a few words: "accruing 3/52", "keep the model of record (one-sided p = 0.41)". */
@@ -229,47 +279,46 @@ export const promotionText = (promotion) => {
 };
 
 /**
- * LIVE: forward record status. Calls skipped at a contract roll, not sealed in time (late_commit:
- * sealed less than five minutes before the settlement that opens their window, or never sealed) or
- * expired are never scored; they are counted as such, never as "not resolved yet".
+ * LIVE: forward record status. Once weeks resolve, the two models are compared on the same weeks
+ * only (the pinned pair's, liveRecordSummary().paired); the record's QLIKE over all its resolved
+ * weeks is a different sample and appears only labelled as such, in the panel.
  */
 export const liveAssertion = (summary) => {
   if (!summary) return null;
   const resolved = summary.resolved ?? 0;
   if (resolved <= 0) {
-    if (!summary.started) return "No live forecast has resolved yet";
-    const recorded = summary.recorded ?? 0;
-    const skipped = summary.skipped ?? 0;
-    const late = summary.lateCommit ?? 0;
-    const expired = summary.expired ?? 0;
-    const breakdown = [
-      summary.pending > 0 ? `${fmtInt(summary.pending)} pending` : null,
-      skipped > 0 ? `${fmtInt(skipped)} skipped at a contract roll` : null,
-      late > 0 ? `${fmtInt(late)} not sealed in time` : null,
-      expired > 0 ? `${fmtInt(expired)} expired` : null,
-    ].filter(Boolean);
-    const unscored = skipped + late + expired;
-    let calls = "nothing has resolved yet";
-    if (recorded > 0) {
-      const never = unscored > 0 ? ` (${unscored === recorded ? "" : `${fmtInt(unscored)} `}never scored)` : "";
-      calls = join([`${plural(recorded, "call")} recorded${breakdown.length ? `: ${breakdown.join(", ")}` : ""}${never}`, "nothing has resolved yet"]);
-    }
-    return join([
-      `Forward record started ${fmtDate(summary.started)}`,
-      calls,
-      summary.firstResult ? `first result due ${summary.firstResultIsEstimate ? "about " : ""}${fmtDate(summary.firstResult)}` : null,
-    ]);
+    // The start date is in the meta line (liveDetail's neighbour), so the title keeps to one claim.
+    return summary.firstResult
+      ? `No live forecast has resolved yet; the first is due ${fmtDate(summary.firstResult)}`
+      : "No live forecast has resolved yet";
   }
-  const championQ = num(summary.champion?.qlike);
-  const challengerQ = num(summary.challenger?.qlike);
-  const coverage = num(summary.champion?.interval_80_coverage_pct);
-  const head = `${fmtInt(resolved)} live week${resolved === 1 ? "" : "s"} resolved`;
-  const loss = championQ != null && challengerQ != null
-    ? `QLIKE ${fmtNum(championQ, 3)} for the model of record vs ${fmtNum(challengerQ, 3)} for the challenger`
-    : championQ != null ? `QLIKE ${fmtNum(championQ, 3)}` : null;
-  const band = coverage != null ? `${INTERVAL_LEVEL_PCT}% band covered ${fmtPct(coverage)}` : null;
-  const promotion = promotionText(summary.promotion);
-  return join([`${head}${loss ? `: ${loss}` : ""}`, band, promotion ? `promotion test: ${promotion}` : null]);
+  const { n, record, challenger } = summary.paired ?? {};
+  if (n > 0 && record != null && challenger != null) {
+    return `On the same ${plural(n, "live week")}, QLIKE ${fmtNum(record, 3)} for the model of record vs ${fmtNum(challenger, 3)} for the challenger`;
+  }
+  return `${plural(resolved, "live week")} resolved; none has both forecasts yet`;
+};
+
+/**
+ * LIVE meta: what was recorded and why some calls are never scored. Calls skipped at a contract
+ * roll, not sealed in time (late_commit: sealed less than five minutes before the settlement that
+ * opens their window, or never sealed) or expired are counted as such, never as "not resolved yet".
+ */
+export const liveDetail = (summary) => {
+  if (!summary?.started) return [];
+  const recorded = summary.recorded ?? 0;
+  const skipped = summary.skipped ?? 0;
+  const late = summary.lateCommit ?? 0;
+  const expired = summary.expired ?? 0;
+  const breakdown = [
+    summary.pending > 0 ? `${fmtInt(summary.pending)} pending` : null,
+    skipped > 0 ? `${fmtInt(skipped)} skipped at a contract roll` : null,
+    late > 0 ? `${fmtInt(late)} not sealed in time` : null,
+    expired > 0 ? `${fmtInt(expired)} expired` : null,
+  ].filter(Boolean);
+  const unscored = skipped + late + expired;
+  const never = unscored > 0 ? ` (${unscored === recorded ? "" : `${fmtInt(unscored)} `}never scored)` : "";
+  return [`${plural(recorded, "call")} recorded${breakdown.length ? `: ${breakdown.join(", ")}` : ""}${never}`];
 };
 
 /** LEAK: what the leak did to the headline number. */
@@ -286,35 +335,42 @@ export const leakAssertion = (window) => {
 /** Ledger row id of the pre-2007 carry spread test (data/research_ledger.json). */
 const CARRY_PRE_2007_ROW = "carry_spread_pre2007";
 
+/** STDY carry: did the carry sort survive the post-2007 sample? */
+export const carryAssertion = (carry) => {
+  const pre = num(carry?.pre_2007?.spread_p_value_one_sided);
+  const post = num(carry?.post_2007?.spread_p_value_one_sided);
+  const full = num(carry?.full_sample?.spread_p_value_one_sided);
+  if (pre != null && post != null) {
+    if (pre < ALPHA && post >= ALPHA) return "Carry sorted WTI returns before 2007, not detectably after";
+    if (pre < ALPHA && post < ALPHA) return "Carry sorted WTI returns both before and after 2007";
+    return "Carry did not reliably sort WTI returns in either half";
+  }
+  if (full == null) return null;
+  return full < ALPHA ? "Carry sorted WTI returns over the full sample" : "Carry did not reliably sort WTI returns";
+};
+
 /**
- * STDY carry: did the carry sort survive the post-2007 sample? A null result after 2007 is only
- * called weak evidence when the payload's power analysis says the test was underpowered; the
- * pre/post change is reported with its own test, and the pre-2007 spread with its multiplicity-
- * adjusted q-value when the ledger is available.
+ * STDY carry meta: the two halves' one-sided p-values (the pre-2007 one with its multiplicity-
+ * adjusted q when the ledger has it, the post-2007 one with its power when the payload's power
+ * analysis says the test was underpowered), and the test of the change itself.
  */
-export const carryAssertion = (carry, ledger = null) => {
+export const carryDetail = (carry, ledger = null) => {
   const pre = num(carry?.pre_2007?.spread_p_value_one_sided);
   const post = num(carry?.post_2007?.spread_p_value_one_sided);
   const full = num(carry?.full_sample?.spread_p_value_one_sided);
   const power = num(carry?.power_post_2007?.power_vs_pre_2007_spread);
+  const target = num(carry?.power_post_2007?.target_power) ?? 0.8;
   const changeP = num(carry?.regime_change_test?.spread_difference_p_value);
   const rankDropP = num(carry?.regime_change_test?.rank_corr_difference_p_value);
-  if (pre != null && post != null) {
-    if (pre < ALPHA && post >= ALPHA) {
-      const powerNote = power != null && power < (num(carry?.power_post_2007?.target_power) ?? 0.8) ? `, ${fmtNum(power * 100, 0)}% power` : "";
-      const preRow = ledger?.byId?.get(CARRY_PRE_2007_ROW);
-      const bh = preRow?.survives_bh === false && preRow.q != null
-        ? `; q = ${fmtPValue(preRow.q)} after Benjamini-Hochberg across the ledger` : "";
-      const change = changeP == null ? null
-        : changeP >= ALPHA ? `the change in the spread is not itself significant (${fmtP(changeP)})`
-          : `the spread fell significantly (${fmtP(changeP)})`;
-      const rank = rankDropP != null && rankDropP < ALPHA ? `its rank correlation fell (${fmtP(rankDropP)})` : null;
-      return join([`Carry sorted WTI returns before 2007 (${fmtP(pre)}${bh}), not detectably after (${fmtP(post)}${powerNote})`, change, rank]);
-    }
-    if (pre < ALPHA && post < ALPHA) return `Carry sorted WTI returns before and after 2007 (${fmtP(pre)}, ${fmtP(post)})`;
-    return `Carry did not reliably sort WTI returns in either half (${fmtP(pre)}, ${fmtP(post)})`;
-  }
-  return full != null ? `Carry spread over the full sample: ${fmtP(full)}` : null;
+  if (pre == null || post == null) return full != null ? [`full sample ${fmtP(full)}`] : [];
+  const preRow = ledger?.byId?.get(CARRY_PRE_2007_ROW);
+  const q = preRow?.survives_bh === false && preRow.q != null ? `, q${NBSP}=${NBSP}${fmtPValue(preRow.q)} after Benjamini-Hochberg` : "";
+  return [
+    `before 2007 ${fmtP(pre)}${q}`,
+    `2007 on ${fmtP(post)}${power != null && power < target ? `, ${fmtNum(power * 100, 0)}% power` : ""}`,
+    changeP != null ? `change in the spread ${fmtP(changeP)}` : null,
+    rankDropP != null && rankDropP < ALPHA ? `the rank correlation fell (${fmtP(rankDropP)})` : null,
+  ].filter(Boolean);
 };
 
 /**
@@ -331,90 +387,98 @@ export const placeboVerdict = (p, pYear) => {
 const placeboPs = (p, pYear) => `${fmtP(p)} vs placebo, ${fmtPValue(pYear)} year-matched`;
 
 /**
- * STDY supply study (research.json supply_study): which event groups differ from an ordinary
- * (placebo) date under the study's rule (both placebo tests below ALPHA). Uses the groups keyed
- * supply_lost and threat_only when present.
+ * STDY supply study (research.json supply_study): does supply removal move WTI more than an
+ * ordinary (placebo) date under the study's rule (both placebo tests below ALPHA), and do
+ * threat-only events? Uses the groups keyed supply_lost and threat_only when present.
  */
 export const supplyStudyAssertion = (study) => {
   if (!study?.placebo || !study.groups.length) return null;
   const lost = study.groups.find((group) => group.key === "supply_lost");
   const threat = study.groups.find((group) => group.key === "threat_only");
   const placeboPeak = fmtSigned(study.placebo.peak, 1, "%");
-  const parts = [];
   const lostVerdict = placeboVerdict(lost?.peakP, lost?.peakPYear);
+  const threatVerdict = placeboVerdict(threat?.peakP, threat?.peakPYear);
+  let head = null;
   if (lost?.peak != null && lostVerdict) {
     const peak = fmtSigned(lost.peak, 1, "%");
-    const ps = placeboPs(lost.peakP, lost.peakPYear);
-    parts.push({
-      both: `Supply removal peaks ${peak} vs ${placeboPeak} on an ordinary date (${ps})`,
-      one: `Supply removal peaks ${peak} vs ${placeboPeak} on an ordinary date, significant against only one placebo (${ps})`,
-      neither: `Supply removal peaks ${peak}, not distinguishable from ${placeboPeak} on an ordinary date (${ps})`,
-    }[lostVerdict]);
+    head = {
+      both: `Supply removal peaks ${peak} vs ${placeboPeak} on an ordinary date`,
+      one: `Supply removal peaks ${peak} vs ${placeboPeak}, significant against only one placebo`,
+      neither: `Supply removal peaks ${peak}, not distinguishable from ${placeboPeak} on an ordinary date`,
+    }[lostVerdict];
   }
-  const threatVerdict = placeboVerdict(threat?.peakP, threat?.peakPYear);
-  if (threat?.peak != null && threatVerdict) {
-    const peak = fmtSigned(threat.peak, 1, "%");
-    const ps = placeboPs(threat.peakP, threat.peakPYear);
-    parts.push({
-      both: `threat-only events differ (${peak}, ${ps})`,
-      one: `threat-only events (${peak}) differ from one against only one placebo (${ps})`,
-      neither: `threat-only events (${peak}) are indistinguishable from one`,
-    }[threatVerdict]);
-  }
-  return parts.length ? join(parts) : null;
+  const tail = threat && threatVerdict ? {
+    both: "threat-only events differ too",
+    one: "threat-only events differ against only one placebo",
+    neither: "threat-only: not significant",
+  }[threatVerdict] : null;
+  return head || tail ? capitalize(join([head, tail])) : null;
+};
+
+/** STDY supply meta: the two placebo p-values behind each clause of the title. */
+export const supplyStudyDetail = (study) => {
+  if (!study?.groups?.length) return [];
+  const lost = study.groups.find((group) => group.key === "supply_lost");
+  const threat = study.groups.find((group) => group.key === "threat_only");
+  return [
+    lost?.peakP != null && lost.peakPYear != null ? `supply removal: ${placeboPs(lost.peakP, lost.peakPYear)}` : null,
+    threat?.peakP != null && threat.peakPYear != null ? `threat-only: ${placeboPs(threat.peakP, threat.peakPYear)}` : null,
+  ].filter(Boolean);
 };
 
 /**
- * LEAK anatomy: the same leak on pure noise reproduces the retracted model's numbers. The noise
- * experiments' Sharpe is gross and the retracted model's is after costs, so each is labelled.
+ * LEAK anatomy: the same leak on pure noise. The noise experiments' Sharpe is gross and the
+ * retracted model's is after costs; both, each with its basis, are in the facts beside the title.
  */
 export const leakAnatomyAssertion = (anatomy) => {
   const headline = anatomy?.experiments.find((row) => row.isHeadline);
-  const reference = anatomy?.reference;
   if (!headline || headline.unpurged == null || headline.purged == null) return null;
-  const basis = (key) => (anatomy.sharpeBasis?.[key] ? ` ${anatomy.sharpeBasis[key]}` : "");
-  const sharpe = headline.unpurgedSharpe != null ? ` with a Sharpe of ${fmtNum(headline.unpurgedSharpe, 2)}${basis("experiments")}` : "";
-  const versus = reference?.accuracy != null
-    ? `, against the retracted model's ${fmtPct(reference.accuracy)}${reference.sharpe != null ? ` and Sharpe ${fmtNum(reference.sharpe, 2)}${basis("reference")}` : ""}`
-    : "";
-  return `On a pure random walk an unpurged ${headline.modelLabel.toLowerCase()} scores ${fmtPct(headline.unpurged)}${sharpe}${versus}; purged, ${fmtPct(headline.purged)}`;
+  return `On a pure random walk an unpurged ${headline.modelLabel.toLowerCase()} scores ${fmtPct(headline.unpurged)}; purged, ${fmtPct(headline.purged)}`;
 };
 
-/** LEDG: how many supported claims survive multiplicity control. */
+/**
+ * LEDG: how many supported claims survive multiplicity control. Rows selected after a search are
+ * outside the multiplicity family, so they are not counted among the claims that could survive it.
+ */
 export const ledgerAssertion = (ledger) => {
   if (!ledger) return null;
   const parts = [];
-  if (ledger.survivingBh != null && ledger.supported) {
-    parts.push(`${ledger.survivingBh} of ${ledger.supported} supported claims survive Benjamini-Hochberg at ${fmtNum((ledger.alpha ?? ALPHA) * 100, 0)}%`);
+  const inFamily = ledger.supported - (ledger.supportedAfterSearch ?? 0);
+  if (ledger.survivingBh != null && inFamily > 0) {
+    parts.push(`${ledger.survivingBh} of ${inFamily} supported claims survive Benjamini-Hochberg at ${fmtNum((ledger.alpha ?? ALPHA) * 100, 0)}%`);
   }
   if (ledger.clearingHurdle != null && ledger.hurdle != null) parts.push(`${ledger.clearingHurdle} clear t > ${fmtNum(ledger.hurdle, 0)}`);
   return parts.length ? join(parts) : `${ledger.rows.length} hypotheses tested`;
 };
 
 /**
- * RISK vol targeting: did sizing on the forecast control risk, at what Sharpe, and did it do any
- * better than the simple alternative of sizing on trailing realized vol?
+ * RISK vol targeting: did sizing on the forecast hold its volatility target? The comparisons
+ * (tails, Sharpe against buy-and-hold and against trailing-vol sizing) are in volTargetDetail().
  */
 export const volTargetAssertion = (risk) => {
   const forecast = risk?.rows.find((row) => row.key === "forecast_vol_target");
+  if (!forecast || forecast.vol == null || risk.target == null) return null;
+  return `Sizing on the forecast held realized vol at ${fmtPct(forecast.vol)} against a ${fmtNum(risk.target, 0)}% target`;
+};
+
+/** RISK vol targeting meta: the simple alternative it must beat, the Sharpe test and the tails. */
+export const volTargetDetail = (risk) => {
+  const forecast = risk?.rows.find((row) => row.key === "forecast_vol_target");
   const buyHold = risk?.rows.find((row) => row.key === "buy_hold");
   const trailing = risk?.rows.find((row) => row.key === "trailing_vol_target");
-  if (!forecast || forecast.vol == null || risk.target == null) return null;
-  const tails = buyHold?.kurtosis != null && forecast.kurtosis != null
-    ? `, with thinner tails than buy-and-hold (excess kurtosis ${fmtNum(forecast.kurtosis, 1)} vs ${fmtNum(buyHold.kurtosis, 1)})`
-    : "";
-  const p = risk.vsBuyHold?.p;
-  const sharpe = p != null ? (p >= ALPHA ? ` at a Sharpe not distinguishable from it (${fmtP(p)})` : `; Sharpe difference ${fmtP(p)}`) : "";
-  const head = `Sizing on the forecast held realized vol at ${fmtPct(forecast.vol)} against a ${fmtNum(risk.target, 0)}% target${tails}${sharpe}`;
+  if (!forecast) return [];
   const vsTrailing = risk.vsTrailing;
-  let versus = null;
+  const parts = [];
   if (trailing?.vol != null && vsTrailing?.p != null && vsTrailing.difference != null) {
-    const difference = `${fmtSigned(vsTrailing.difference, 2)}, ${fmtP(vsTrailing.p)}`;
-    versus = vsTrailing.p >= ALPHA
-      ? `trailing-vol sizing held ${fmtPct(trailing.vol)} with a Sharpe not distinguishable from the forecast's (${difference})`
-      : `against trailing-vol sizing (${fmtPct(trailing.vol)} realized) the Sharpe difference is ${difference}`;
+    parts.push(`trailing-vol sizing held ${fmtPct(trailing.vol)}; Sharpe difference ${fmtSigned(vsTrailing.difference, 2)}, `
+      + `${fmtP(vsTrailing.p)}${vsTrailing.p >= ALPHA ? ", not distinguishable" : ""}`);
   }
-  return join([head, versus]);
+  const p = risk.vsBuyHold?.p;
+  if (p != null) parts.push(`Sharpe vs buy-and-hold ${fmtP(p)}${p >= ALPHA ? ", not distinguishable" : ""}`);
+  if (buyHold?.kurtosis != null && forecast.kurtosis != null) {
+    parts.push(`excess kurtosis ${fmtNum(forecast.kurtosis, 1)} vs ${fmtNum(buyHold.kurtosis, 1)} buy-and-hold`);
+  }
+  return parts;
 };
 
 /**
@@ -429,45 +493,44 @@ export const supplyPlaybookAssertion = (playbook) => {
   const lostPeak = num(lost?.peak?.median);
   const threatPeak = num(threat?.peak?.median);
   if (lostPeak == null || threatPeak == null) return null;
-  return `Median 20-session peak: ${fmtSigned(lostPeak, 1, "%")} after supply removal (n = ${fmtInt(lost.n)}), `
-    + `${fmtSigned(threatPeak, 1, "%")} after threats (n = ${fmtInt(threat.n)}); no placebo comparison in this snapshot`;
+  return `Median 20-session peak ${fmtSigned(lostPeak, 1, "%")} after supply removal, ${fmtSigned(threatPeak, 1, "%")} after threats; no placebo comparison`;
 };
 
-/** STDY: the two side studies in one line. */
+/** STDY: the two side studies, one short clause each. */
 export const studiesAssertion = (carry, study) => {
   const pre = num(carry?.pre_2007?.spread_p_value_one_sided);
   const post = num(carry?.post_2007?.spread_p_value_one_sided);
-  const changeP = num(carry?.regime_change_test?.spread_difference_p_value);
   let carryPart = null;
   if (pre != null && post != null) {
-    if (pre < ALPHA && post >= ALPHA) {
-      carryPart = `Carry sorted WTI returns before 2007, not detectably after${changeP != null && changeP >= ALPHA ? ", though the change is not itself significant" : ""}`;
-    } else {
-      carryPart = pre < ALPHA && post < ALPHA ? "Carry sorted WTI returns in both halves" : "Carry did not reliably sort WTI returns";
-    }
+    if (pre < ALPHA && post >= ALPHA) carryPart = "Carry sorted returns before 2007, not detectably after";
+    else carryPart = pre < ALPHA && post < ALPHA ? "Carry sorted returns in both halves" : "Carry did not reliably sort returns";
   }
   const lost = study?.groups.find((group) => group.key === "supply_lost");
-  const threat = study?.groups.find((group) => group.key === "threat_only");
-  const lostVerdict = placeboVerdict(lost?.peakP, lost?.peakPYear);
-  const threatVerdict = placeboVerdict(threat?.peakP, threat?.peakPYear);
-  let supplyPart = null;
-  if (lostVerdict && threatVerdict) {
-    supplyPart = lostVerdict === "both" && threatVerdict === "neither"
-      ? "supply-removal events peaked higher than ordinary dates against both placebos; threat-only events were indistinguishable from ordinary dates"
-      : `supply-removal and threat-only peaks vs ordinary dates: ${fmtP(lost.peakPRule)} and ${fmtP(threat.peakPRule)}, each the larger of the two placebo tests`;
-  }
+  const supplyPart = {
+    both: "supply removal beat placebo dates",
+    one: "supply removal beat only one placebo",
+    neither: "supply removal did not beat placebo dates",
+  }[placeboVerdict(lost?.peakP, lost?.peakPYear)] ?? null;
   return capitalize(join([carryPart, supplyPart]));
 };
 
 /**
  * METH: provenance in one line. The SHA-256 manifest pins the benchmark lab's inputs only; the
- * production validation and the post-mortem are committed records of runs on downloaded data.
+ * production validation and the post-mortem are committed records of runs on downloaded data
+ * (methodDetail()).
  */
 export const methodAssertion = (lab) => {
   const files = asObject(lab?.generated_from?.files);
   const count = files ? Object.keys(files).length : 0;
-  const through = asText(lab?.generated_from?.sessions_through);
   if (!count) return null;
-  return `Every benchmark-lab figure is computed from ${count} pinned source file${count === 1 ? "" : "s"} with SHA-256 digests`
-    + `${through ? `, sessions through ${fmtDate(through)}` : ""}; the production validation and the post-mortem are committed records of runs on downloaded data`;
+  return `Every benchmark-lab figure comes from ${count} source file${count === 1 ? "" : "s"} pinned by SHA-256 digest`;
+};
+
+/** METH meta: how far the pinned data run, and what the digests do not cover. */
+export const methodDetail = (lab) => {
+  const through = asText(lab?.generated_from?.sessions_through);
+  return [
+    through ? `sessions through ${fmtDate(through)}` : null,
+    "production validation and post-mortem: committed records of runs on downloaded data",
+  ].filter(Boolean);
 };

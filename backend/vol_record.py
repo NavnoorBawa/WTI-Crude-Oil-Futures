@@ -113,6 +113,18 @@ import sys
 import tempfile
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, NoReturn, TypedDict
+
+if TYPE_CHECKING:
+    # The record, its entries and the frozen payload are JSON objects (validate_record checks the record).
+    Record = dict[str, Any]
+    Entry = dict[str, Any]
+    Payload = dict[str, Any]
+
+    class Challenger(TypedDict):
+        key: str
+        forecast_pct: float
+        median_pct: float | None
 
 try:
     from .contract_calendar import (
@@ -121,11 +133,11 @@ try:
     )
     from .safe_paths import data_json_path, public_json_path
 except ImportError:  # Direct invocation: python backend/vol_record.py
-    from contract_calendar import (
+    from contract_calendar import (  # type: ignore[import-not-found, no-redef]
         EXCHANGE_TZ, business_days_between, is_business_day, last_completed_bar_date,
         shift_business_days, spans_roll,
     )
-    from safe_paths import data_json_path, public_json_path
+    from safe_paths import data_json_path, public_json_path  # type: ignore[import-not-found, no-redef]
 
 SCHEMA_VERSION = 1
 RECORD_PATH = data_json_path("vol_track_record.json")
@@ -172,29 +184,29 @@ _REQUIRED_ENTRY_KEYS = {
 
 # --------------------------------------------------------------------------- parsing helpers
 
-def _dict(value) -> dict:
+def _dict(value: object) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _number(value):
+def _number(value: object) -> float | None:
     """A finite real number (bools excluded), else None."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return float(value) if math.isfinite(value) else None
 
 
-def _positive(value):
+def _positive(value: object) -> float | None:
     number = _number(value)
     return number if number is not None and number > 0 else None
 
 
-def _iso_date(value) -> date:
+def _iso_date(value: object) -> date:
     if not isinstance(value, str) or len(value) != 10:
         raise ValueError(f"not an ISO date: {value!r}")
     return date.fromisoformat(value)
 
 
-def _aware_utc(value) -> datetime:
+def _aware_utc(value: object) -> datetime:
     """An ISO-8601 timestamp WITH an offset ('Z' accepted), as UTC. A naive time is ambiguous: refused."""
     if not isinstance(value, str) or "T" not in value:
         raise ValueError(f"not an ISO timestamp: {value!r}")
@@ -208,7 +220,7 @@ def _stamp(moment: datetime) -> str:
     return moment.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _reject_constant(token):
+def _reject_constant(token: str) -> NoReturn:
     raise ValueError(f"non-finite number {token} in the record")
 
 
@@ -229,7 +241,7 @@ def first_settlement_after(moment: datetime) -> date:
     return session
 
 
-def target_window(issued_at: datetime) -> dict:
+def target_window(issued_at: datetime) -> dict[str, date]:
     """The scored window for a forecast issued at `issued_at` (see the module docstring).
 
     base_session is k0 (its close opens the window); the five scored returns end at target_start
@@ -243,7 +255,7 @@ def target_window(issued_at: datetime) -> dict:
     }
 
 
-def sealed_in_time(entry: dict) -> bool:
+def sealed_in_time(entry: Entry) -> bool:
     """Whether the entry was sealed more than SEAL_MARGIN before the settlement that opens its window."""
     sealed_at = entry.get("sealed_at")
     if sealed_at is None:
@@ -268,13 +280,13 @@ def bars_cutoff(snapshot: datetime) -> date:
 
 # --------------------------------------------------------------------------- record file
 
-def init_record(now: datetime) -> dict:
+def init_record(now: datetime) -> Record:
     """An empty, valid record started on `now`'s UTC date."""
     return {"schema_version": SCHEMA_VERSION, "started": now.astimezone(timezone.utc).date().isoformat(),
             "entries": []}
 
 
-def _validate_entry(entry, index: int) -> date:
+def _validate_entry(entry: object, index: int) -> date:
     where = f"entry {index}"
     if not isinstance(entry, dict):
         raise ValueError(f"{where}: not an object")
@@ -346,7 +358,7 @@ def _validate_entry(entry, index: int) -> date:
     return as_of
 
 
-def validate_record(record) -> dict:
+def validate_record(record: object) -> Record:
     """Raise ValueError unless `record` satisfies the structural contract this module writes."""
     if not isinstance(record, dict):
         raise ValueError("the record must be a JSON object")
@@ -368,7 +380,7 @@ def validate_record(record) -> dict:
     return record
 
 
-def load_record(path: str | os.PathLike[str] | None = None) -> dict:
+def load_record(path: str | os.PathLike[str] | None = None) -> Record:
     """Read and validate the record. Fails closed: a missing, unreadable or malformed file raises.
 
     A missing file is an error, not an empty record: silently starting over would erase the
@@ -414,7 +426,7 @@ def _atomic_write(path: Path, text: str) -> None:
         raise
 
 
-def save_record(record: dict, path: str | os.PathLike[str] | None = None) -> None:
+def save_record(record: Record, path: str | os.PathLike[str] | None = None) -> None:
     validate_record(record)
     _atomic_write(Path(path) if path is not None else RECORD_PATH,
                   json.dumps(record, indent=2, allow_nan=False) + "\n")
@@ -422,7 +434,7 @@ def save_record(record: dict, path: str | os.PathLike[str] | None = None) -> Non
 
 # --------------------------------------------------------------------------- payload
 
-def _parse_challenger(raw, as_of: str):
+def _parse_challenger(raw: object, as_of: str) -> Challenger | None:
     """The published challenger forecast for the same session, or None."""
     if not isinstance(raw, dict) or raw.get("as_of", as_of) != as_of:
         return None
@@ -432,7 +444,7 @@ def _parse_challenger(raw, as_of: str):
     return {"key": key, "forecast_pct": forecast, "median_pct": _positive(raw.get("forecast_median_pct"))}
 
 
-def extract_entry(payload: dict, now: datetime) -> tuple[dict | None, str]:
+def extract_entry(payload: Payload, now: datetime) -> tuple[Entry | None, str]:
     """Build the record entry for the payload's live forecast, or (None, why it is not recordable)."""
     live = _dict(_dict(payload).get("vol_forecast")).get("live")
     if not isinstance(live, dict):
@@ -491,7 +503,7 @@ def extract_entry(payload: dict, now: datetime) -> tuple[dict | None, str]:
     return entry, "ok"
 
 
-def record_forecast(record: dict, payload: dict, now: datetime) -> str:
+def record_forecast(record: Record, payload: Payload, now: datetime) -> str:
     """Append the payload's forecast unless its session is already recorded (first issuance wins)."""
     try:
         entry, why = extract_entry(payload, now)
@@ -509,7 +521,7 @@ def record_forecast(record: dict, payload: dict, now: datetime) -> str:
             f"(window {entry['target_start']}..{entry['target_end']} from the {entry['base_session']} close)")
 
 
-def completed_closes(payload: dict, cutoff: date) -> dict[date, float]:
+def completed_closes(payload: Payload, cutoff: date) -> dict[date, float]:
     """Session -> close of completed sessions up to `cutoff`.
 
     The primary source is `vol_forecast.recent_closes` (the finished-session CL=F closes the
@@ -533,7 +545,7 @@ def completed_closes(payload: dict, cutoff: date) -> dict[date, float]:
     return closes
 
 
-def _chart_closes(payload: dict, cutoff: date) -> dict[date, float]:
+def _chart_closes(payload: Payload, cutoff: date) -> dict[date, float]:
     """Session -> close for the payload's completed daily ("1d") chart bars up to `cutoff`."""
     actual = _dict(_dict(_dict(payload).get("unified_data")).get("actual"))
     values, stamps, kinds = actual.get("values"), actual.get("timestamps"), actual.get("kinds")
@@ -561,7 +573,7 @@ def realized_vol_pct(closes: list[float]) -> float:
     return math.sqrt(sum(r * r for r in returns) / len(returns) * ANNUALIZATION) * 100.0
 
 
-def seal_entries(record: dict, now: datetime) -> list[str]:
+def seal_entries(record: Record, now: datetime) -> list[str]:
     """Stamp sealed_at = `now` on every entry not yet sealed; returns one message per entry sealed.
 
     Runs immediately before the record is committed (refresh.yml's publish job). A pending entry whose
@@ -586,7 +598,7 @@ def seal_entries(record: dict, now: datetime) -> list[str]:
     return messages
 
 
-def resolve_entries(record: dict, closes: dict[date, float], cutoff: date, now: datetime) -> list[str]:
+def resolve_entries(record: Record, closes: dict[date, float], cutoff: date, now: datetime) -> list[str]:
     """Settle every pending entry that can be settled; returns one message per change.
 
     Only entries sealed in time are settled. An unsealed one waits for the seal while that can still be
@@ -635,15 +647,15 @@ def qlike(realized_pct: float, forecast_pct: float) -> float:
     return ratio - math.log(ratio) - 1.0
 
 
-def _mean(values: list[float], digits: int):
+def _mean(values: list[float], digits: int) -> float | None:
     return round(sum(values) / len(values), digits) if values else None
 
 
-def _share_pct(flags: list[bool]):
+def _share_pct(flags: list[bool]) -> float | None:
     return round(100.0 * sum(flags) / len(flags), 1) if flags else None
 
 
-def independent_entries(resolved: list[dict]) -> list[dict]:
+def independent_entries(resolved: list[Entry]) -> list[Entry]:
     """Greedy, in time order, the resolved entries whose scored return windows do not overlap."""
     chosen, last_end = [], None
     for entry in sorted(resolved, key=lambda e: (e["target_start"], e["target_end"])):
@@ -653,13 +665,13 @@ def independent_entries(resolved: list[dict]) -> list[dict]:
     return chosen
 
 
-def _pair(entry: dict) -> tuple:
+def _pair(entry: Entry) -> tuple[str, str | None]:
     """(model of record version, challenger key) of an entry; the key is None without a challenger."""
     return entry["model_version"], (entry.get("challenger") or {}).get("key")
 
 
-def promotion_sample(entries: list[dict], model_version: str = PROMOTION_MODEL_VERSION,
-                     challenger_key: str | None = PROMOTION_CHALLENGER) -> list[dict]:
+def promotion_sample(entries: list[Entry], model_version: str = PROMOTION_MODEL_VERSION,
+                     challenger_key: str | None = PROMOTION_CHALLENGER) -> list[Entry]:
     """The first PROMOTION_WEEKS (or fewer, while accruing) independent resolved entries of the pair.
 
     The pair defaults to the declared one. Entries of any other pair are passed over, so they never
@@ -685,8 +697,8 @@ def promotion_sample(entries: list[dict], model_version: str = PROMOTION_MODEL_V
     return chosen
 
 
-def promotion_exclusions(entries: list[dict], model_version: str = PROMOTION_MODEL_VERSION,
-                         challenger_key: str | None = PROMOTION_CHALLENGER) -> dict:
+def promotion_exclusions(entries: list[Entry], model_version: str = PROMOTION_MODEL_VERSION,
+                         challenger_key: str | None = PROMOTION_CHALLENGER) -> dict[str, int]:
     """Resolved entries kept out of the pair's comparison, counted by reason.
 
     An entry of another model version counts under that reason whatever its challenger; an entry of
@@ -740,8 +752,8 @@ def student_t_sf(t: float, df: int) -> float:
     return 0.5 * two_tailed if t >= 0 else 1.0 - 0.5 * two_tailed
 
 
-def promotion_test(entries: list[dict], model_version: str = PROMOTION_MODEL_VERSION,
-                   challenger_key: str | None = PROMOTION_CHALLENGER) -> dict:
+def promotion_test(entries: list[Entry], model_version: str = PROMOTION_MODEL_VERSION,
+                   challenger_key: str | None = PROMOTION_CHALLENGER) -> dict[str, Any]:
     """The promotion rule (PROMOTION_RULE), computed once on its fixed sample (module docstring).
 
     The pair defaults to the declared one, and the result names it, with the resolved entries left
@@ -753,10 +765,10 @@ def promotion_test(entries: list[dict], model_version: str = PROMOTION_MODEL_VER
     T ~ Student t(n - 1), as they recommend.
     """
     sample = promotion_sample(entries, model_version, challenger_key)
-    result = {"status": "accruing", "n_independent_paired": len(sample), "required": PROMOTION_WEEKS,
-              "dm_stat": None, "p_value": None, "mean_qlike_difference": None,
-              "model_version": model_version, "challenger_key": challenger_key,
-              **promotion_exclusions(entries, model_version, challenger_key)}
+    result: dict[str, Any] = {"status": "accruing", "n_independent_paired": len(sample), "required": PROMOTION_WEEKS,
+                              "dm_stat": None, "p_value": None, "mean_qlike_difference": None,
+                              "model_version": model_version, "challenger_key": challenger_key,
+                              **promotion_exclusions(entries, model_version, challenger_key)}
     if len(sample) < PROMOTION_WEEKS:
         return result
     diffs = [qlike(e["realized_pct"], e["forecast_pct"]) - qlike(e["realized_pct"], e["challenger"]["forecast_pct"])
@@ -775,7 +787,7 @@ def promotion_test(entries: list[dict], model_version: str = PROMOTION_MODEL_VER
     return result
 
 
-def next_result_due(entries: list[dict]) -> str | None:
+def next_result_due(entries: list[Entry]) -> str | None:
     """The earliest target_end (ISO date) of a pending entry that resolution will score, or None.
 
     Pending entries whose windows span a roll are left out: resolution skips them with the same
@@ -786,7 +798,7 @@ def next_result_due(entries: list[dict]) -> str | None:
     return min(due) if due else None
 
 
-def _recent(entry: dict) -> dict:
+def _recent(entry: Entry) -> dict[str, Any]:
     challenger = entry.get("challenger") or {}
     return {
         "as_of": entry["as_of"], "issued_at": entry["issued_at"], "model_version": entry["model_version"],
@@ -799,7 +811,7 @@ def _recent(entry: dict) -> dict:
     }
 
 
-def direction_note(noise_floor_pct=None) -> str:
+def direction_note(noise_floor_pct: object = None) -> str:
     """The direction-accuracy caveat, quoting the validation's own noise floor when the payload has it."""
     floor = _number(noise_floor_pct)
     level = f"{floor:.1f}%" if floor is not None else "about three calls in four"
@@ -808,7 +820,7 @@ def direction_note(noise_floor_pct=None) -> str:
             f"estimate that reverts toward its mean. QLIKE is the skill measure.")
 
 
-def summarize(record: dict, noise_floor_pct=None) -> dict:
+def summarize(record: Record, noise_floor_pct: object = None) -> dict[str, Any]:
     """The dashboard summary (vol_forecast.live_record in docs/DATA_CONTRACT.md).
 
     Every statistic stays null until a resolved entry it covers exists. The top-level counts cover
@@ -865,7 +877,7 @@ def summarize(record: dict, noise_floor_pct=None) -> dict:
 
 # --------------------------------------------------------------------------- one CI cycle
 
-def _snapshot_time(payload: dict, now: datetime) -> datetime:
+def _snapshot_time(payload: Payload, now: datetime) -> datetime:
     """When the payload's bars were current: its freeze time, never later than this run."""
     try:
         return min(_aware_utc(payload.get("frozen_at")), now)
@@ -873,7 +885,7 @@ def _snapshot_time(payload: dict, now: datetime) -> datetime:
         return now
 
 
-def update(record: dict, payload: dict, now: datetime) -> list[str]:
+def update(record: Record, payload: Payload, now: datetime) -> list[str]:
     """Record the payload's forecast and settle what can be settled. Mutates `record`."""
     messages = [record_forecast(record, payload, now)]
     cutoff = bars_cutoff(_snapshot_time(payload, now))
@@ -881,7 +893,7 @@ def update(record: dict, payload: dict, now: datetime) -> list[str]:
     return messages
 
 
-def _noise_floor(payload: dict):
+def _noise_floor(payload: Payload) -> object:
     validation = _dict(_dict(payload.get("vol_forecast")).get("validation"))
     return _dict(validation.get("direction_noise_floor")).get("dir_acc_pct_mean")
 

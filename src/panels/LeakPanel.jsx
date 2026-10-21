@@ -5,7 +5,7 @@ import LazyMount from "../components/LazyMount";
 import Panel, { REPRODUCE } from "../components/Panel";
 import Segmented from "../components/Segmented";
 import { ALPHA, leakAnatomyAssertion, leakAssertion } from "../lib/assertions";
-import { DASH, fmtDate, fmtInt, fmtNum, fmtP, fmtPValue, fmtPct, fmtSignedUsd, fmtSpan, num } from "../lib/format";
+import { DASH, NBSP, fmtDate, fmtInt, fmtNum, fmtP, fmtPValue, fmtPct, fmtSignedUsd, fmtSpan, num, tidyProse } from "../lib/format";
 import { asObject, asText, getLab, leakAnatomy, postmortemWindow } from "../lib/research";
 import { Facts, Legend, ResearchUnavailable } from "./common";
 
@@ -27,7 +27,7 @@ function LeakAnatomy({ anatomy }) {
   const Dumbbell = getLeakDumbbell();
   const headline = anatomy.experiments.find((row) => row.isHeadline);
   const basis = anatomy.sharpeBasis;
-  const gross = (value) => (value != null ? `Sharpe ${fmtNum(value, 2)}, ${basis.experiments}` : null);
+  const gross = (value) => (value != null ? `Sharpe ${fmtNum(value, 2)}${basis.experiments ? `, ${basis.experiments}` : ""}` : null);
   const hasBaseRate = anatomy.experiments.some((row) => !row.symmetric && row.noSkill != null);
   return (
     <div className="subsection anatomy">
@@ -37,7 +37,9 @@ function LeakAnatomy({ anatomy }) {
         headline && { label: "Purged, on noise", value: fmtPct(headline.purged), note: gross(headline.purgedSharpe) },
         anatomy.reference && {
           label: "Retracted model", value: fmtPct(anatomy.reference.accuracy),
-          note: anatomy.reference.sharpe != null ? `Sharpe ${fmtNum(anatomy.reference.sharpe, 2)} ${basis.reference}, n ${fmtInt(anatomy.reference.n)}` : null,
+          note: anatomy.reference.sharpe != null
+            ? `Sharpe ${fmtNum(anatomy.reference.sharpe, 2)}${basis.reference ? ` ${basis.reference}` : ""}, n${NBSP}${fmtInt(anatomy.reference.n)}`
+            : null,
         },
         anatomy.signAgreement != null && { label: "Sign agreement, t−1", value: fmtPct(anatomy.signAgreement), note: "analytic, random walk" },
       ]} />
@@ -65,7 +67,7 @@ function LeakAnatomy({ anatomy }) {
           </div>
         )}
       </div>
-      {anatomy.conclusion && <p className="prose-note">{anatomy.conclusion}</p>}
+      {anatomy.conclusion && <p className="prose-note is-wide">{tidyProse(anatomy.conclusion)}</p>}
     </div>
   );
 }
@@ -141,16 +143,16 @@ export default function LeakPanel({ data, research, researchStatus }) {
         />
         {anatomy?.experiments.length > 0 && (
         <DataTable
-          caption={`Leak anatomy: direction accuracy and Sharpe, ${anatomy.sharpeBasis.experiments}, without and with the purge, against the no-skill accuracy`}
+          caption={`Leak anatomy: direction accuracy and Sharpe${anatomy.sharpeBasis.experiments ? `, ${anatomy.sharpeBasis.experiments}` : ""}, without and with the purge, against the no-skill accuracy`}
           rowKey={(row) => row.key}
           dense
           columns={[
             { key: "label", label: "Data · model", rowHeader: true },
             { key: "runs", label: "Runs", align: "right", render: (row) => fmtInt(row.runs) },
             { key: "unpurged", label: "Unpurged acc.", align: "right", render: (row) => fmtPct(row.unpurged) },
-            { key: "unpurgedSharpe", label: "Sharpe", title: `Mean Sharpe across runs, ${anatomy.sharpeBasis.experiments}`, align: "right", render: (row) => fmtNum(row.unpurgedSharpe, 2) },
+            { key: "unpurgedSharpe", label: "Sharpe", title: `Mean Sharpe across runs${anatomy.sharpeBasis.experiments ? `, ${anatomy.sharpeBasis.experiments}` : ""}`, align: "right", render: (row) => fmtNum(row.unpurgedSharpe, 2) },
             { key: "purged", label: "Purged acc.", align: "right", render: (row) => fmtPct(row.purged) },
-            { key: "purgedSharpe", label: "Sharpe", title: `Mean Sharpe across runs, ${anatomy.sharpeBasis.experiments}`, align: "right", render: (row) => fmtNum(row.purgedSharpe, 2) },
+            { key: "purgedSharpe", label: "Sharpe", title: `Mean Sharpe across runs${anatomy.sharpeBasis.experiments ? `, ${anatomy.sharpeBasis.experiments}` : ""}`, align: "right", render: (row) => fmtNum(row.purgedSharpe, 2) },
             {
               key: "noSkill", label: "No skill", title: "50% on symmetric random-walk returns; on CL=F returns, the mean of each run's base rate (the share of the more common sign)", align: "right",
               render: (row) => (row.noSkill != null ? `${fmtPct(row.noSkill)}${row.symmetric ? "" : " base rate"}` : DASH),

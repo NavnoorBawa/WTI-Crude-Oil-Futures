@@ -4,6 +4,8 @@
 
 export const DASH = "—";
 const MINUS = "−";
+/** A no-break space: keeps "p = 0.63" and "MCS p = 0.04" on one line when a title wraps. */
+export const NBSP = "\u00a0";
 
 export const num = (value) => {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
@@ -56,13 +58,15 @@ export const fmtSignedUsd = (value, digits = 0) => {
 
 // Rounding must never carry a p-value onto a threshold it is not at: 0.0496 is not "p = 0.05",
 // 0.9996 is not "p = 1.00", and 0.0548 is not "p = 0.05" either. Digits are added until the text
-// leaves the threshold, else "p < t" (from below) or "p > t" (from above).
+// leaves the threshold, else "p < t" (from below) or "p > t" (from above). The spaces are no-break
+// spaces, so a wrapped line never ends on "p =".
 const P_THRESHOLDS = [0.01, 0.05, 0.1, 1];
 const MAX_P_DIGITS = 4;
+const pText = (relation, value) => `p${NBSP}${relation}${NBSP}${value}`;
 export const fmtP = (value) => {
   const p = num(value);
   if (p == null) return null;
-  if (p < 0.001) return "p < 0.001";
+  if (p < 0.001) return pText("<", "0.001");
   const crossed = (text) => P_THRESHOLDS.find((t) => p < t && Number(text) >= t);
   const landed = (text) => P_THRESHOLDS.find((t) => p > t && Number(text) === t);
   let digits = p < 0.01 ? 3 : 2;
@@ -72,9 +76,9 @@ export const fmtP = (value) => {
     text = p.toFixed(digits);
   }
   const below = crossed(text);
-  if (below != null) return `p < ${below}`;
+  if (below != null) return pText("<", below);
   const above = landed(text);
-  return above != null ? `p > ${above}` : `p = ${text}`;
+  return above != null ? pText(">", above) : pText("=", text);
 };
 
 export const signClass = (value, up = "up", down = "down") => {
@@ -160,7 +164,22 @@ export const fmtShare = (value, digits = 1) => {
 /** p-value text without the "p = " prefix, for table cells ("0.0059", "< 0.001"). */
 export const fmtPValue = (value) => {
   const text = fmtP(value);
-  return text == null ? DASH : text.replace(/^p = /, "").replace(/^p ([<>]) /, "$1 ");
+  return text == null ? DASH : text.replace(/^p\s=\s/, "").replace(/^p\s([<>])\s/, `$1${NBSP}`);
+};
+
+// Names the payloads spell in ASCII or capitals, as the rest of the page spells them.
+const PROPER_NAMES = [[/\bGibbs-Candes\b/g, "Gibbs-Candès"], [/\bCBOE\b/g, "Cboe"]];
+
+/**
+ * Prose from a payload with its numbers and names in the page's style: every "p = 0.0210" printed
+ * by fmtP (two decimals unless a threshold needs more, no-break spaces), a hyphen used as a minus
+ * sign ("to -0.03") replaced by a real minus, and PROPER_NAMES spelled as elsewhere on the page.
+ */
+export const tidyProse = (text) => {
+  if (typeof text !== "string") return text;
+  return PROPER_NAMES.reduce((out, [pattern, name]) => out.replace(pattern, name), text)
+    .replace(/\bp\s*=\s*(\d*\.\d+)/g, (match, value) => fmtP(Number(value)) ?? match)
+    .replace(/(^|[\s([/])-(?=\d)/g, `$1${MINUS}`);
 };
 
 // Source prose quotes exchange times in ET while the page's clock is CT. Both zones change for
@@ -193,19 +212,6 @@ export const fmtSpan = (start, end) => {
   const b = fmtMonthYear(end);
   if (a === DASH || b === DASH || a === b) return a === DASH ? b : a;
   return `${a} – ${b}`;
-};
-
-/** The calendar date `count` weekdays after an ISO date (exchange holidays are not modelled). */
-export const addWeekdays = (dateText, count) => {
-  if (typeof dateText !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dateText)) return null;
-  const date = new Date(`${dateText}T00:00:00Z`);
-  let left = count;
-  while (left > 0) {
-    date.setUTCDate(date.getUTCDate() + 1);
-    const day = date.getUTCDay();
-    if (day !== 0 && day !== 6) left -= 1;
-  }
-  return date.toISOString().slice(0, 10);
 };
 
 /** Ordinal for percentile ranks: 1 -> "1st", 68.3 -> "68th", 92 -> "92nd", 13 -> "13th". */

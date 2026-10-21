@@ -1,7 +1,7 @@
 import DataTable from "../components/DataTable";
 import Panel, { REPRODUCE } from "../components/Panel";
-import { methodAssertion } from "../lib/assertions";
-import { DASH, fmtCT, fmtDate, fmtInt, fmtNum, fmtShare, num, shortHash, toMs } from "../lib/format";
+import { methodAssertion, methodDetail } from "../lib/assertions";
+import { DASH, fmtCT, fmtInt, fmtNum, fmtShare, num, shortHash, tidyProse, toMs } from "../lib/format";
 import { asArray, asObject, asText, getLab, getVol } from "../lib/research";
 import { Facts, ResearchUnavailable } from "./common";
 
@@ -61,7 +61,7 @@ export default function MethodPanel({ data, research, researchStatus }) {
     { label: "Scoring", value: asText(config.evaluation) },
     { label: "Forecast used", value: asText(config.forecasts) ?? asText(validation?.forecast_used_for_losses) },
     { label: "MCS", value: mcs ? `${mcs.statistic ?? DASH} statistic, ${mcs.bootstrap ?? DASH} bootstrap, ${fmtInt(mcs.reps)} reps` : null, note: mcs?.seed != null ? `seed ${mcs.seed}` : null },
-    { label: "Interval", value: asText(conformal?.method) },
+    { label: "Interval", value: tidyProse(asText(conformal?.method)) },
   ];
 
   return (
@@ -72,8 +72,8 @@ export default function MethodPanel({ data, research, researchStatus }) {
       title={methodAssertion(lab)}
       fallbackTitle="Methodology and reproducibility"
       meta={[
+        ...methodDetail(lab),
         retrievedMs != null ? `data retrieved ${fmtCT(retrievedMs)}` : null,
-        typeof generated?.sessions_through === "string" ? `sessions through ${fmtDate(generated.sessions_through)}` : null,
         lab?.sample?.n_days != null ? `${fmtInt(lab.sample.n_days)} out-of-sample days` : null,
       ]}
       source={{ artifact: ["research.json → vol_lab.generated_from", "vol_lab.config"] }}

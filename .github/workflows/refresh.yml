@@ -200,15 +200,14 @@ jobs:
 
       # Only the shipped dependency tree can reach a visitor's browser, so a
       # vulnerability there blocks the deploy. Build-only devDependencies (eslint,
-      # vite) never leave the runner, and a fresh upstream advisory in that chain must
-      # not freeze the dashboard on stale prices — which is exactly what happened when
-      # GHSA-rgw5-rvv9-x895 landed in eslint's brace-expansion. tests.yml still fails
-      # the full audit on every pull request and on its weekly schedule, so a dev-tree
-      # advisory is still caught and still blocks code changes.
+      # vite) never leave the runner, so an upstream advisory in that chain, which may
+      # have no fix to take yet, must not stop the dashboard from refreshing its prices.
+      # tests.yml still fails the full audit on every pull request and on its weekly
+      # schedule, so a dev-tree advisory is still caught and still blocks code changes.
       - name: Audit shipped JS dependencies
-        # A real advisory still fails this step. A registry/network error (the 2026-09-03 deploy
-        # died on an npm advisory-endpoint timeout) is retried, then only warned: an unreachable
-        # audit endpoint is not a vulnerability. Must never freeze the live dashboard on stale prices over a transient outage.
+        # A real advisory fails this step. A registry or network error from the advisory
+        # endpoint is retried, then only warned: an unreachable audit endpoint is not a
+        # vulnerability, and a transient outage must not leave the live dashboard on stale prices.
         run: |
           set -uo pipefail
           for attempt in 1 2 3; do
@@ -365,13 +364,11 @@ jobs:
             exit 1
           fi
 
-      # A plain git push with this job's token, instead of a third-party action holding it. Same
-      # site as the peaceiris/actions-gh-pages step it replaces (publish_dir ./dist, defaults
-      # otherwise): the branch's files become exactly dist/ plus .nojekyll, committed on top of the
-      # branch's history as "deploy: <commit>" and pushed without force; an unchanged site is not
-      # committed. One deliberate difference: the commit is authored by github-actions[bot], not by
-      # the run's actor (a scheduled deploy is not the work of whoever last edited the schedule).
-      # The gh-pages branch must exist, as it has since the first deploy.
+      # A plain git push with this job's token, so no third-party action holds it. The branch's
+      # files become exactly dist/ plus .nojekyll, committed on top of the branch's history as
+      # "deploy: <commit>" and pushed without force; an unchanged site is not committed. The commit
+      # is authored by github-actions[bot], not by the run's actor (a scheduled deploy is not the
+      # work of whoever last edited the schedule). The gh-pages branch must already exist.
       - name: Deploy to GitHub Pages
         id: pages_deploy
         env:

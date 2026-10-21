@@ -15,8 +15,11 @@ after(() => m.close());
 const data = readFixture("dashboard_data_v3.json");
 const research = readFixture("research.json");
 
+/** Text with its no-break spaces read as spaces (fmtP keeps "p = 0.63" on one line with them). */
+const spaced = (text) => (typeof text === "string" ? text.replace(/\u00a0/g, " ") : text);
+
 // ------------------------------------------------------------------------------------ formatting
-test("format helpers handle ages, spans, weekdays, ordinals and p-value cells", () => {
+test("format helpers handle ages, spans, ordinals and p-value cells", () => {
   const f = m.format;
   assert.equal(f.fmtAge(14 * 60000), "14m");
   assert.equal(f.fmtAge((2 * 60 + 14) * 60000), "2h 14m");
@@ -25,13 +28,10 @@ test("format helpers handle ages, spans, weekdays, ordinals and p-value cells", 
   assert.equal(f.fmtSpan("2008-05-08", "2026-10-07"), "May 2008 – Oct 2026");
   assert.equal(f.fmtSpan("2008-05-08", null), "May 2008");
   assert.equal(f.fmtSpan(null, null), "—");
-  assert.equal(f.addWeekdays("2026-10-16", 1), "2026-10-19");     // Friday -> Monday
-  assert.equal(f.addWeekdays("2026-10-20", 5), "2026-10-27");
-  assert.equal(f.addWeekdays("nope", 1), null);
   assert.deepEqual([1, 2, 3, 11, 12, 13, 22, 68.3, 91.5].map(f.ordinal), ["1st", "2nd", "3rd", "11th", "12th", "13th", "22nd", "68th", "92nd"]);
   assert.equal(f.fmtPValue(0.0059), "0.006");
   assert.equal(f.fmtPValue(0.0496), "0.0496");
-  assert.equal(f.fmtPValue(0.0004), "< 0.001");
+  assert.equal(spaced(f.fmtPValue(0.0004)), "< 0.001");
   assert.equal(f.fmtPValue(null), "—");
   assert.equal(f.fmtInt(4370), "4,370");
   assert.equal(f.fmtShare(0.9988, 2), "99.88%");
@@ -80,6 +80,17 @@ test("SVG label helpers fit labels and keep stacked labels apart", () => {
   assert.equal(fitLabel("short", 200), "short");
   const fitted = fitLabel("HAR-IV, same-day OVX (v1 timing)", 120);
   assert.ok(fitted.endsWith("…") && fitted.length <= Math.floor(120 / 6.6));
+  // A label too long for its column wraps onto two lines instead of losing its end (touch screens
+  // cannot reach the hover title); only what still does not fit is shortened.
+  const { wrapLabel } = m.svg;
+  assert.deepEqual(wrapLabel("short", 200), ["short"]);
+  const wrapped = wrapLabel("HAR-IV, same-day OVX (v1 timing)", 143);
+  assert.equal(wrapped.length, 2);
+  assert.equal(wrapped.join(" "), "HAR-IV, same-day OVX (v1 timing)");
+  assert.ok(wrapped.every((line) => line.length <= Math.floor(143 / 6.6)));
+  const cut = wrapLabel("a label with far too many words to fit on two short lines", 66);
+  assert.equal(cut.length, 2);
+  assert.ok(cut[1].endsWith("…"));
   const spread = spreadLabels([{ y: 50 }, { y: 52 }, { y: 10 }, { y: 51 }], 12);
   assert.deepEqual(spread.map((item) => item.y), [50, 74, 10, 62]);   // input order kept, pushed apart in y order
   assert.match(m.sparkline.sparkPath([1, 2, 3], 10, 10), /^M1\.5,8\.5 L5\.0,5\.0 L8\.5,1\.5$/);
@@ -136,10 +147,11 @@ const flaggedLab = () => {
   return lab;
 };
 
-test("a timing control is never in the MCS and never counted, flagged or (legacy) by key", () => {
+test("a timing control is identified by its flag, and is never in the MCS or counted", () => {
   const { leaderboardRows, mcsSummary, isTimingControl } = m.research;
-  assert.equal(isTimingControl({ key: "har_iv_sameday" }), true, "legacy payloads carry no flag");
-  assert.equal(isTimingControl({ key: "har_iv_sameday", timing_control: false }), false, "an explicit flag wins");
+  assert.ok(research.vol_lab.leaderboard.models.some((model) => model.timing_control === true), "the fixture flags it");
+  assert.equal(isTimingControl({ key: "har_iv_sameday", timing_control: false }), false, "the flag decides, not the key");
+  assert.equal(isTimingControl({ key: "har_iv_sameday" }), false, "no flag, no timing control");
   assert.equal(isTimingControl({ key: "other", timing_control: true }), true);
   for (const lab of [research.vol_lab, flaggedLab()]) {
     const rows = leaderboardRows(lab);
@@ -218,50 +230,86 @@ test("band coverage is computed from the rows drawn and names their pipeline", (
   assert.equal(bandCoverage([]).coverage, null);
 });
 
-/** The fixture's live record without next_result_due: a payload from before the key existed. */
-const legacyRecord = (overrides = {}) => {
-  const record = { ...data.vol_forecast.live_record, ...overrides };
-  delete record.next_result_due;
-  return record;
-};
-
-test("live record: next_result_due is the due date whenever the payload carries the key", () => {
+test("live record: next_result_due is the due date, and null means no result is due", () => {
   const { liveRecordSummary } = m.research;
   const record = data.vol_forecast.live_record;
   assert.ok(Object.hasOwn(record, "next_result_due"), "the fixture follows the current contract");
-  const fixture = liveRecordSummary(record);
-  assert.equal(fixture.firstResult, record.next_result_due);
-  assert.equal(fixture.firstResultIsEstimate, false);
-  // A pending call whose window spans a roll will be skipped: the record says no result is due.
+  assert.equal(liveRecordSummary(record).firstResult, record.next_result_due);
+  // A pending call whose window spans a roll will be skipped: the record says no result is due,
+  // and nothing is estimated in its place, from the calls or from the start date.
   const rollOnly = liveRecordSummary({ ...record, next_result_due: null, recent: [{ status: "pending", target_end: "2026-10-27" }] });
   assert.equal(rollOnly.firstResult, null);
-  // ... and an empty record carrying the key gets no estimate either.
   assert.equal(liveRecordSummary({ ...record, next_result_due: null, recent: [], n_recorded: 0 }).firstResult, null);
+  const withoutKey = { ...record, recent: [{ status: "pending", target_end: "2026-10-28" }] };
+  delete withoutKey.next_result_due;
+  assert.equal(liveRecordSummary(withoutKey).firstResult, null);
   const due = liveRecordSummary({ ...record, next_result_due: "2026-11-03", recent: [{ status: "pending", target_end: "2026-10-28" }] });
-  assert.deepEqual([due.firstResult, due.firstResultIsEstimate], ["2026-11-03", false]);
+  assert.equal(due.firstResult, "2026-11-03");
   assert.equal(liveRecordSummary({ ...record, next_result_due: "soon" }).firstResult, null);
+  assert.equal(liveRecordSummary(null), null);
 });
 
-test("live record without next_result_due: an estimate only when nothing is on record; none when calls exist but none pend", () => {
-  const { liveRecordSummary, estimateTargetEnd } = m.research;
-  assert.equal(estimateTargetEnd("2026-10-20"), "2026-10-27");     // the first call's real target_end
-  assert.equal(estimateTargetEnd("2026-10-17"), "2026-10-26");     // a Saturday start issues Monday
-  const empty = liveRecordSummary(legacyRecord({ recent: [], n_recorded: 0 }));
-  assert.equal(empty.firstResult, estimateTargetEnd(data.vol_forecast.live_record.started));
-  assert.equal(empty.firstResultIsEstimate, true);
-  const skippedOnly = liveRecordSummary(legacyRecord({ recent: [{ status: "skipped_roll", target_end: "2026-10-27" }] }));
-  assert.equal(skippedOnly.firstResult, null);
-  const pending = liveRecordSummary({ started: "2026-10-20", recent: [{ status: "pending", target_end: "2026-10-28" }, { status: "pending", target_end: "2026-10-27" }] });
-  assert.equal(pending.firstResult, "2026-10-27");
-  assert.equal(pending.firstResultIsEstimate, false);
-  assert.equal(liveRecordSummary(null), null);
+/**
+ * A live record whose resolved weeks are not all paired: `all` weeks resolved for the model of
+ * record, `pairedN` of them with the pinned challenger. The QLIKE figures are deliberately far
+ * apart, so any mix-up of the two samples shows.
+ */
+const mixedRecord = ({ all = 3, pairedN = 2 } = {}) => ({
+  ...data.vol_forecast.live_record,
+  n_recorded: all, n_resolved: all, n_pending: 0, n_independent: all, next_result_due: null,
+  champion: { ...data.vol_forecast.live_record.champion, n: all, qlike: 0.815, interval_80_coverage_pct: 66.7 },
+  challenger: {
+    ...data.vol_forecast.live_record.challenger, n: pairedN,
+    qlike: pairedN ? 0.0187 : null, champion_qlike: pairedN ? 0.0213 : null,
+  },
+  promotion: {
+    ...data.vol_forecast.live_record.promotion, n_independent_paired: pairedN,
+    n_excluded_no_challenger: all - pairedN, n_excluded_other_version: 0, n_excluded_other_challenger: 0,
+  },
+});
+
+test("live record: the two models are compared on the same weeks, the all-weeks QLIKE kept apart", () => {
+  const summary = m.research.liveRecordSummary(mixedRecord());
+  const raw = mixedRecord();
+  assert.deepEqual(summary.paired, { n: raw.challenger.n, record: raw.challenger.champion_qlike, challenger: raw.challenger.qlike });
+  assert.deepEqual(summary.recordAll, { n: raw.champion.n, qlike: raw.champion.qlike, modelVersion: raw.champion.model_version });
+  const pinned = summary.promotion;
+  assert.equal(pinned.modelVersion, data.vol_forecast.live_record.promotion.model_version);
+  assert.equal(pinned.challengerKey, data.vol_forecast.live_record.promotion.challenger_key);
+  assert.deepEqual(pinned.excluded, { otherVersion: 0, otherChallenger: 0, noChallenger: raw.champion.n - raw.challenger.n });
 });
 
 test("research ledger, supply study, leak anatomy and vol-target selectors normalize the payload", () => {
   const ledger = m.research.researchLedger(research);
+  const summary = research.ledger.summary;
   assert.equal(ledger.rows.length, research.ledger.rows.length);
-  assert.equal(ledger.survivingBh, research.ledger.summary.supported_surviving_bh_5pct.length);
+  assert.equal(ledger.survivingBh, summary.supported_surviving_bh_5pct.length);
   assert.equal(m.research.researchLedger({}), null);
+  // A failure to reject is "not supported", never "rejected"; the flags come from the summary lists.
+  assert.ok(ledger.rows.every((row) => row.status !== "rejected"));
+  assert.ok(ledger.rows.some((row) => row.status === "not_supported"), "the fixture has not-supported rows");
+  assert.equal(m.research.ledgerStatusLabel("not_supported"), "not supported");
+  assert.deepEqual(ledger.rows.filter((row) => row.selectedAfterSearch).map((row) => row.id), summary.selected_after_search);
+  assert.deepEqual(ledger.rows.filter((row) => row.underpowered).map((row) => row.id), summary.underpowered);
+  assert.equal(ledger.underpowered, summary.underpowered.length);
+  assert.equal(ledger.supportedAfterSearch, summary.supported_selected_after_search.length);
+  const onRow = m.research.researchLedger({ ledger: { rows: [{ id: "x", hypothesis: "h", status: "not_supported", underpowered: true }] } });
+  assert.equal(onRow.rows[0].underpowered, true, "a flag on the row itself also counts");
+
+  // Ledger prose shows display words: no snake_case name or artifact file name reaches the page.
+  const words = { labels: m.research.modelLabels(research.vol_lab), mcsLevel: m.research.mcsLevel(research.vol_lab) };
+  for (const row of research.ledger.rows) {
+    for (const text of [row.hypothesis, row.test, row.statistic_name].filter(Boolean)) {
+      assert.doesNotMatch(m.research.ledgerText(text, words), /\b[a-z0-9]+_[a-z0-9_]+\b|\.json\b/, `${row.id}: ${text}`);
+    }
+  }
+  assert.equal(m.research.ledgerText("x; the lab's own set (mcs_members) is the 1 - mcs_size confidence set", words),
+    `x; the lab's own set is the ${words.mcsLevel}% confidence set`);
+  assert.equal(m.research.ledgerText("har_iv_sameday vs persistence", words),
+    `${m.research.shortLabel(words.labels.get("har_iv_sameday"))} vs persistence`, "model keys become their labels");
+  const note = research.vol_lab.leaderboard.mcs_note;
+  assert.ok(note.includes("har_iv_sameday"), "the fixture's note names the key");
+  assert.ok(!m.research.withModelLabels(note, words.labels).includes("har_iv_sameday"));
 
   const study = m.research.supplyStudy(research);
   const lost = study.groups.find((group) => group.key === "supply_lost");
@@ -275,7 +323,10 @@ test("research ledger, supply study, leak anatomy and vol-target selectors norma
     assert.equal(group.peakPRule, Math.max(source.p_value_vs_placebo.peak, source.p_value_vs_year_matched_placebo.peak), group.key);
     assert.equal(group.settlePRule, Math.max(source.p_value_vs_placebo.settle, source.p_value_vs_year_matched_placebo.settle), group.key);
     const ledgerRow = research.ledger.rows.find((row) => row.id === `shock_${group.key}_peak`);
-    if (ledgerRow) assert.equal(ledgerRow.p_value, group.peakPRule, `ledger p for ${group.key}`);
+    if (ledgerRow) {
+      assert.equal(ledgerRow.p_value, group.peakPRule, `ledger p for ${group.key}`);
+      assert.ok(ledgerRow.hypothesis.includes(group.name), `the ledger names ${group.key} as the study does`);
+    }
   }
   // Overlapping event pairs are attributed to every group that contains both events.
   const pairs = research.supply_study.overlapping_events.pairs;
@@ -285,6 +336,9 @@ test("research ledger, supply study, leak anatomy and vol-target selectors norma
     assert.equal(group.overlaps.length, pairs.filter((pair) => pair.events.every((id) => members.has(id))).length, group.key);
   }
   assert.ok(study.groups.some((group) => group.overlaps.length > 0), "the fixture has an overlapping pair inside a group");
+  assert.equal(m.research.eventName("hurricane_katrina_2005"), "Hurricane Katrina (2005)");
+  assert.equal(m.research.eventName("opec_record_cut_2020"), "OPEC Record Cut (2020)");
+  for (const id of pairs.flatMap((pair) => pair.events)) assert.doesNotMatch(m.research.eventName(id), /_/, id);
 
   const anatomy = m.research.leakAnatomy(research);
   assert.equal(anatomy.ladder.length, research.leak_anatomy.analytic.by_training_row.length);
@@ -295,6 +349,10 @@ test("research ledger, supply study, leak anatomy and vol-target selectors norma
   // Sharpe bases come from the artifact: gross for the experiments, after costs for the reference.
   assert.equal(anatomy.sharpeBasis.experiments, research.leak_anatomy.design.sharpe.split(":")[0].trim());
   assert.equal(anatomy.sharpeBasis.reference, research.leak_anatomy.retracted_reference.sharpe_basis);
+  const bare = structuredClone(research);
+  delete bare.leak_anatomy.design;
+  delete bare.leak_anatomy.retracted_reference.sharpe_basis;
+  assert.deepEqual(m.research.leakAnatomy(bare).sharpeBasis, { experiments: null, reference: null }, "no basis is assumed");
   // No skill is 50% on the random walk and each CL=F row's own base rate.
   for (const row of anatomy.experiments) {
     const arm = research.leak_anatomy.experiments[row.experiment][row.model].unpurged;
@@ -303,69 +361,126 @@ test("research ledger, supply study, leak anatomy and vol-target selectors norma
     assert.equal(row.noSkill, row.experiment === "synthetic_random_walk" ? 50 : arm.base_rate_pct_mean, row.key);
   }
   assert.ok(anatomy.experiments.some((row) => !row.symmetric), "the fixture has CL=F rows");
-  const legacy = structuredClone(research);
-  delete legacy.leak_anatomy.design;
-  delete legacy.leak_anatomy.retracted_reference.sharpe_basis;
-  assert.deepEqual(m.research.leakAnatomy(legacy).sharpeBasis, anatomy.sharpeBasis, "older bundles keep the same labels");
 
   const risk = m.research.volTargetRisk(data.vol_forecast.economic.vol_target_overlay);
   assert.equal(risk.rows.length, Object.keys(data.vol_forecast.economic.vol_target_overlay.risk).length);
   assert.equal(m.research.volTargetRisk({}), null);
+
+  const vrp = data.vol_forecast.economic.variance_risk_premium;
+  const premium = m.research.vrpSummary(vrp);
+  assert.equal(premium.share, vrp.share_positive_pct);
+  assert.equal(premium.nullShare, vrp.zero_premium_null.share_positive_pct);
+  assert.equal(premium.nullP, vrp.zero_premium_null.p_value_one_sided);
+  assert.deepEqual(premium.varianceCi, vrp.mean_premium_variance_ci95);
+  assert.equal(m.research.vrpSummary(null), null);
+});
+
+test("one name and one DM sign for each benchmark, page-wide", () => {
+  const v = data.vol_forecast.validation;
+  // The validation signs DM so that positive favours the model of record; the page (and the
+  // leaderboard) signs it so that positive means the named benchmark has the lower loss.
+  assert.equal(m.research.ovxOnlyBenchmark(v).dm, -v.har_vs_ovx_only_qlike_dm);
+  assert.equal(m.research.ovxOnlyBenchmark(v).p, v.har_vs_ovx_only_qlike_dm_p_value);
+  assert.equal(m.research.persistenceBenchmark(v).dm, -v.har_vs_persistence_qlike_dm);
+  const ovxOnly = research.vol_lab.leaderboard.models.find((model) => model.key === m.research.OVX_ONLY_KEY);
+  assert.equal(m.research.ovxOnlyLabel(research.vol_lab), ovxOnly.label, "the hero and FCST use the lab's label");
+  assert.equal(m.research.ovxOnlyLabel(null), "OVX-only regression");
 });
 
 // ------------------------------------------------------------------------------------ assertions
-test("assertion titles state only what the numbers support", () => {
+test("assertion titles state one claim each, and only what the numbers support", () => {
   const a = m.assertions;
+  const f = m.format;
+  const titles = [];
+  const keep = (title) => { titles.push(title); return title; };
 
   const v = data.vol_forecast.validation;
-  const band = m.research.bandCoverage(m.research.forecastRows(research.vol_lab, data.vol_forecast.recent_oos));
-  const fcst = a.forecastAssertion(v, data.vol_forecast.live, band);
-  assert.ok(fcst.includes(`band drawn (benchmark lab) covered ${band.coverage.toFixed(1)}% of ${band.n} weeks`), fcst);
-  assert.ok(!fcst.includes(`${v.interval_80_coverage_pct}%`), "the title never quotes the validation band it does not draw");
-  assert.match(fcst, new RegExp(`vol-level out-of-sample R² ${v.har_level_r2.toFixed(2)} vs ${v.persistence_level_r2.toFixed(2)}`));
-  assert.match(fcst, /not distinguishable from an OVX-only regression \(QLIKE /, "the strongest simple benchmark is named");
-  assert.match(a.forecastAssertion({ ...v, har_vs_ovx_only_qlike_dm: 3.1, har_vs_ovx_only_qlike_dm_p_value: 0.002 }, null, band), /beats an OVX-only regression/);
+  const ovxLabel = m.research.ovxOnlyLabel(research.vol_lab);
+  const model = a.shortModelName(data.vol_forecast.live.model);
+  assert.ok(v.har_level_r2 > v.persistence_level_r2 && v.har_vs_ovx_only_qlike_dm_p_value >= a.ALPHA, "the fixture's case");
+  assert.equal(keep(a.forecastAssertion(v, data.vol_forecast.live, { ovxLabel })),
+    `${model} beats persistence but is not distinguishable from the ${ovxLabel}`);
+  const significant = { ...v, har_vs_ovx_only_qlike_dm_p_value: 0.002 };
+  assert.equal(a.forecastAssertion({ ...significant, har_vs_ovx_only_qlike_dm: 3.1 }, null, { ovxLabel }), `HAR-IV beats persistence and the ${ovxLabel}`);
+  assert.equal(a.forecastAssertion({ ...significant, har_vs_ovx_only_qlike_dm: -3.1 }, null, { ovxLabel }), `HAR-IV beats persistence but loses to the ${ovxLabel}`);
   assert.equal(a.forecastAssertion(null, null), null);
+  assert.deepEqual(a.forecastDetail(v, { ovxLabel }).map(spaced), [
+    `QLIKE ${f.fmtNum(v.har_qlike, 3)} vs ${f.fmtNum(v.ovx_only_qlike, 3)} for the ${ovxLabel}, DM ${spaced(f.fmtP(v.har_vs_ovx_only_qlike_dm_p_value))}`
+      + ` (weekly validation, ${f.fmtInt(v.n)} weeks)`,
+  ]);
 
   const pm = m.research.postmortemWindow(research, "five_year");
-  assert.match(a.leakAssertion(pm), /^A look-ahead leak turned a coin flip into a Sharpe of /);
+  assert.match(keep(a.leakAssertion(pm)), /^A look-ahead leak turned a coin flip into a Sharpe of /);
   assert.match(a.leakAssertion({ leaked: { sharpe: 2 }, purged: { sharpe: 1, p: 0.01 } }), /^Purging a look-ahead leak cut/);
   assert.equal(a.leakAssertion(null), null);
 
-  assert.match(a.coneAssertion(research.vol_lab.vol_cone), /^Realized vol is at the \d+(st|nd|rd|th) percentile on a 5-day window/);
-  assert.match(a.vrpAssertion(data.vol_forecast.economic.variance_risk_premium), /^OVX exceeded subsequent realized vol in /);
-  assert.match(a.calibrationAssertion(research.vol_lab, research.vol_lab.config.champion), /which adaptive conformal targets by construction; year by year coverage ranged /);
-  const supply = a.supplyStudyAssertion(m.research.supplyStudy(research));
-  const lostGroup = research.supply_study.groups.find((group) => group.key === "supply_lost");
-  assert.match(supply, /indistinguishable from one$/);
-  assert.ok(supply.includes(`${m.format.fmtP(lostGroup.p_value_vs_placebo.peak)} vs placebo, ${m.format.fmtPValue(lostGroup.p_value_vs_year_matched_placebo.peak)} year-matched`), supply);
-  const leakTitle = a.leakAnatomyAssertion(m.research.leakAnatomy(research));
-  assert.match(leakTitle, /^On a pure random walk an unpurged forest scores /);
-  const basis = research.leak_anatomy.design.sharpe.split(":")[0].trim();
-  assert.ok(leakTitle.includes(`Sharpe of ${research.leak_anatomy.unpurged_sharpe_mean.toFixed(2)} ${basis}`), leakTitle);
-  assert.ok(leakTitle.includes(`Sharpe ${research.leak_anatomy.retracted_reference.sharpe.toFixed(2)} ${research.leak_anatomy.retracted_reference.sharpe_basis}`), leakTitle);
-  assert.match(a.ledgerAssertion(m.research.researchLedger(research)), /^\d+ of \d+ supported claims survive Benjamini-Hochberg at 5%; \d+ clear t > 3$/);
-  const overlay = data.vol_forecast.economic.vol_target_overlay;
-  const target = a.volTargetAssertion(m.research.volTargetRisk(overlay));
-  assert.match(target, new RegExp(`against a ${overlay.target_vol_pct}% target, with thinner tails`));
-  assert.ok(target.includes(`trailing-vol sizing held ${overlay.risk.trailing_vol_target.realized_vol_pct.toFixed(1)}%`), "the trailing-vol alternative is named");
-  assert.match(a.methodAssertion(research.vol_lab), new RegExp(`^Every benchmark-lab figure is computed from ${Object.keys(research.vol_lab.generated_from.files).length} pinned source files`));
-  assert.match(a.methodAssertion(research.vol_lab), /production validation and the post-mortem are committed records of runs on downloaded data$/);
+  assert.match(keep(a.coneAssertion(research.vol_lab.vol_cone)), /^Realized vol is at the \d+(st|nd|rd|th) percentile on a 5-day window/);
 
-  const studies = a.studiesAssertion(research.carry, m.research.supplyStudy(research));
-  assert.doesNotMatch(studies, /threats alone did not/);
-  assert.match(studies, /supply-removal events peaked higher than ordinary dates against both placebos; threat-only events were indistinguishable from ordinary dates$/);
+  // VRP: read in variance units; the share of positive periods is never the evidence on its own.
+  const vrp = data.vol_forecast.economic.variance_risk_premium;
+  const [lo, hi] = vrp.mean_premium_variance_ci95;
+  assert.ok(lo <= 0 && hi >= 0, "the fixture's interval spans zero");
+  assert.equal(keep(a.vrpAssertion(vrp)), "The variance risk premium, in variance units, is not distinguishable from zero");
+  const noCi = { ...vrp };
+  delete noCi.mean_premium_variance_ci95;
+  assert.equal(a.vrpAssertion(noCi), vrp.zero_premium_null.p_value_one_sided < a.ALPHA
+    ? "OVX exceeded realized vol more often than a zero premium would explain"
+    : "OVX exceeded realized vol about as often as it would with no premium");
+  assert.equal(a.vrpAssertion({ ...noCi, zero_premium_null: null }), null, "without the null the share supports no title");
+
+  const champion = research.vol_lab.config.champion;
+  const years = m.research.coverageByYear(research.vol_lab, champion).map((row) => row.coverage);
+  assert.equal(keep(a.calibrationAssertion(research.vol_lab, champion)),
+    `In every year the 80% interval covered between ${f.fmtPct(Math.min(...years))} and ${f.fmtPct(Math.max(...years))} of days`);
+  const conformal = research.vol_lab.conformal[champion];
+  assert.deepEqual(a.calibrationDetail(research.vol_lab, champion),
+    [`overall ${f.fmtPct(conformal.coverage_pct)} of ${f.fmtInt(conformal.n_days)} days, targeted by construction`]);
+
+  const study = m.research.supplyStudy(research);
+  const lost = study.groups.find((group) => group.key === "supply_lost");
+  const threat = study.groups.find((group) => group.key === "threat_only");
+  assert.equal(a.placeboVerdict(lost.peakP, lost.peakPYear), "both");
+  assert.equal(a.placeboVerdict(threat.peakP, threat.peakPYear), "neither");
+  assert.equal(keep(a.supplyStudyAssertion(study)),
+    `Supply removal peaks ${f.fmtSigned(lost.peak, 1, "%")} vs ${f.fmtSigned(study.placebo.peak, 1, "%")} on an ordinary date; threat-only: not significant`);
+  assert.deepEqual(a.supplyStudyDetail(study).map(spaced), [
+    `supply removal: ${spaced(f.fmtP(lost.peakP))} vs placebo, ${spaced(f.fmtPValue(lost.peakPYear))} year-matched`,
+    `threat-only: ${spaced(f.fmtP(threat.peakP))} vs placebo, ${spaced(f.fmtPValue(threat.peakPYear))} year-matched`,
+  ]);
+  const studies = keep(a.studiesAssertion(research.carry, study));
+  assert.match(studies, /; supply removal beat placebo dates$/);
   // A group that passes only the unmatched placebo does not pass the rule.
   const oneSided = structuredClone(research);
-  const lostRaw = oneSided.supply_study.groups.find((group) => group.key === "supply_lost");
-  lostRaw.p_value_vs_year_matched_placebo.peak = 0.2;
+  oneSided.supply_study.groups.find((group) => group.key === "supply_lost").p_value_vs_year_matched_placebo.peak = 0.2;
   const oneStudy = m.research.supplyStudy(oneSided);
-  assert.match(a.studiesAssertion(research.carry, oneStudy), /supply-removal and threat-only peaks vs ordinary dates: p = 0.20 and p = [\d.]+, each the larger of the two placebo tests$/);
-  assert.match(a.supplyStudyAssertion(oneStudy), /^Supply removal peaks .*, significant against only one placebo \(/);
+  assert.match(a.studiesAssertion(research.carry, oneStudy), /; supply removal beat only one placebo$/);
+  assert.match(a.supplyStudyAssertion(oneStudy), /^Supply removal peaks .*, significant against only one placebo; /);
   assert.equal(a.placeboVerdict(0.01, 0.02), "both");
   assert.equal(a.placeboVerdict(0.01, 0.2), "one");
   assert.equal(a.placeboVerdict(0.3, 0.2), "neither");
   assert.equal(a.placeboVerdict(0.01, null), null);
+
+  const anatomy = research.leak_anatomy;
+  assert.equal(keep(a.leakAnatomyAssertion(m.research.leakAnatomy(research))),
+    `On a pure random walk an unpurged forest scores ${f.fmtPct(anatomy.unpurged_dir_acc_pct_mean)}; purged, ${f.fmtPct(anatomy.purged_dir_acc_pct_mean)}`);
+
+  const summary = research.ledger.summary;
+  assert.equal(keep(a.ledgerAssertion(m.research.researchLedger(research))),
+    `${summary.supported_surviving_bh_5pct.length} of ${summary.supported.length - summary.supported_selected_after_search.length} `
+    + `supported claims survive Benjamini-Hochberg at 5%; ${summary.supported_clearing_hlz_t3.length} clear t > 3`);
+
+  const overlay = data.vol_forecast.economic.vol_target_overlay;
+  const risk = m.research.volTargetRisk(overlay);
+  assert.equal(keep(a.volTargetAssertion(risk)),
+    `Sizing on the forecast held realized vol at ${f.fmtPct(overlay.risk.forecast_vol_target.realized_vol_pct)} against a ${f.fmtNum(overlay.target_vol_pct, 0)}% target`);
+  assert.ok(a.volTargetDetail(risk)[0].startsWith(`trailing-vol sizing held ${f.fmtPct(overlay.risk.trailing_vol_target.realized_vol_pct)}`), "the trailing-vol alternative is named");
+
+  const files = Object.keys(research.vol_lab.generated_from.files).length;
+  assert.equal(keep(a.methodAssertion(research.vol_lab)), `Every benchmark-lab figure comes from ${files} source files pinned by SHA-256 digest`);
+  assert.ok(a.methodDetail(research.vol_lab).includes("production validation and post-mortem: committed records of runs on downloaded data"));
+
+  // One claim per title, short enough to scan: the statistics are in the *Detail meta lines.
+  for (const title of titles) assert.ok(title && title.length <= 90, `${title?.length}: ${title}`);
 
   for (const builder of ["stabilityAssertion", "calibrationAssertion", "carryAssertion", "supplyStudyAssertion", "ledgerAssertion", "volTargetAssertion", "coneAssertion", "vrpAssertion", "riskAssertion", "spaAssertion"]) {
     assert.doesNotThrow(() => a[builder](null, { labels: new Map() }), builder);
@@ -378,7 +493,7 @@ const row = (key, info, extra = {}) => ({
 });
 
 test("MODL states only what the confidence set contains, and leaves timing controls out", () => {
-  const { leaderboardAssertion } = m.assertions;
+  const { leaderboardAssertion, leaderboardDetail } = m.assertions;
   const record = row("HAR-IV", ["implied"], { role: "record", mcsP: 0.0368 });
   const base = [
     record,
@@ -387,26 +502,25 @@ test("MODL states only what the confidence set contains, and leaves timing contr
     row("GARCH", [], { dmStat: -3.7, dmP: 0.0002 }),
     row("Same-day", ["implied"], { inMcs: true, timingControl: true, mcsEligible: false }),
   ];
-  assert.equal(leaderboardAssertion(base, { level: 90 }),
-    "All 2 models in the 90% Model Confidence Set use implied vol (OVX); HAR-IV, the model of record, is outside it (MCS p = 0.04); "
-    + "every return-only model has significantly higher QLIKE than HAR-IV");
+  assert.equal(leaderboardAssertion(base, { level: 90 }), "All 2 models in the 90% Model Confidence Set use OVX; HAR-IV is not among them");
+  assert.deepEqual(leaderboardDetail(base).map(spaced), ["HAR-IV MCS p = 0.04", "every return-only model has significantly higher QLIKE than HAR-IV"]);
   // Survivors that do not share an input are described by what each uses.
   const mixed = base.map((r) => (r.key === "HAR-IV-range" ? { ...r, info: new Set(["range"]) } : r));
-  assert.match(leaderboardAssertion(mixed, { level: 90 }), /^All 2 models in the 90% Model Confidence Set use implied vol \(OVX\) or the intraday range;/);
+  assert.match(leaderboardAssertion(mixed, { level: 90 }), /^All 2 models in the 90% Model Confidence Set use OVX or the intraday range;/);
   const shared = base.map((r) => (r.key === "OVX-only" ? { ...r, info: new Set(["range"]) } : r));
   assert.match(leaderboardAssertion(shared, { level: 90 }), /^All 2 models in the 90% Model Confidence Set use the intraday range;/);
   // A return-only survivor: no input claim, and no claim about return-only models.
   const garchIn = base.map((r) => (r.key === "GARCH" ? { ...r, inMcs: true } : r));
-  const text = leaderboardAssertion(garchIn, { level: 90 });
-  assert.match(text, /^3 of 4 models are in the 90% Model Confidence Set;/);
-  assert.doesNotMatch(text, /significantly higher|return-only/);
+  assert.match(leaderboardAssertion(garchIn, { level: 90 }), /^3 of 4 models are in the 90% Model Confidence Set;/);
+  assert.deepEqual(leaderboardDetail(garchIn).map(spaced), ["HAR-IV MCS p = 0.04"]);
   // The record inside the set, and the record alone in it.
-  assert.match(leaderboardAssertion(base.map((r) => (r === record ? { ...r, inMcs: true, mcsP: 0.4 } : r))), /HAR-IV, the model of record, is in it \(MCS p = 0\.40\)/);
+  assert.match(leaderboardAssertion(base.map((r) => (r === record ? { ...r, inMcs: true, mcsP: 0.4 } : r))), /; HAR-IV is one of them$/);
   const alone = base.map((r) => ({ ...r, inMcs: r === record }));
-  assert.match(leaderboardAssertion(alone, { level: 90 }), /^HAR-IV, the model of record, alone is in the 90% Model Confidence Set/);
+  assert.equal(leaderboardAssertion(alone, { level: 90 }), "HAR-IV, the model of record, alone is in the 90% Model Confidence Set");
   // A timing control alone in the set is not a survivor.
   assert.equal(leaderboardAssertion(base.map((r) => ({ ...r, inMcs: r.timingControl })), { level: 90 }), null);
   assert.equal(leaderboardAssertion(base, { available: false }), null);
+  assert.deepEqual(leaderboardDetail(base, { available: false }), []);
   assert.equal(leaderboardAssertion([]), null);
 
   // On the fixture: the stated count is the eligible members, and the record clause matches its flag.
@@ -416,13 +530,13 @@ test("MODL states only what the confidence set contains, and leaves timing contr
     const members = rows.filter((r) => r.inMcs);
     assert.ok(title.startsWith(`All ${members.length} models in the 90% Model Confidence Set use `), title);
     const fixtureRecord = rows.find((r) => r.role === "record");
-    assert.ok(title.includes(`the model of record, is ${fixtureRecord.inMcs ? "in" : "outside"} it`), title);
+    assert.ok(title.endsWith(`${m.research.shortLabel(fixtureRecord.label)} is ${fixtureRecord.inMcs ? "one of them" : "not among them"}`), title);
     assert.ok(!members.some((r) => r.timingControl));
   }
 });
 
 test("the SPA footnote reads an inconclusive p-value as inconclusive", () => {
-  const { spaAssertion } = m.assertions;
+  const spaAssertion = (...args) => spaced(m.assertions.spaAssertion(...args));
   const spa = { p_consistent: 0.072, p_lower: 0.0548, p_upper: 0.7048, models: ["a", "b", "c"] };
   const text = spaAssertion(spa, { recordName: "HAR-IV", mcsLevel: 90 });
   assert.equal(text, "Hansen SPA test of HAR-IV against 3 alternatives: consistent p = 0.07 (lower 0.055, upper 0.70); "
@@ -432,84 +546,98 @@ test("the SPA footnote reads an inconclusive p-value as inconclusive", () => {
   assert.match(spaAssertion({ ...spa, p_consistent: 0.3 }, { recordName: "HAR-IV" }), /no alternative beats HAR-IV even at the 10% level\.$/);
   assert.match(spaAssertion({ ...spa, p_consistent: 0.08 }, { recordName: "HAR-IV", mcsLevel: 95 }), /would reject at the 10% level\.$/);
   const fixture = spaAssertion(research.vol_lab.leaderboard.spa_qlike_vs_har_iv, { mcsLevel: 90 });
-  assert.ok(fixture.includes(`lower ${m.format.fmtPValue(research.vol_lab.leaderboard.spa_qlike_vs_har_iv.p_lower)}`));
-  assert.equal(spaAssertion(null), null);
+  assert.ok(fixture.includes(`lower ${spaced(m.format.fmtPValue(research.vol_lab.leaderboard.spa_qlike_vs_har_iv.p_lower))}`));
+  assert.equal(m.assertions.spaAssertion(null), null);
 });
 
 test("RISK names the VaR level of every clause and the 99% breach range across grids", () => {
   const rows = m.research.varRows(research.vol_lab);
   const labels = m.research.modelLabels(research.vol_lab);
   const champion = research.vol_lab.config.champion;
-  const text = m.assertions.riskAssertion(rows, labels, champion);
   const summary = research.vol_lab.var_backtest.summary;
   const record = summary[`${champion}:fhs@0.01`];
   const grids = record.exceedances_by_grid;
-  assert.ok(text.includes(`99% VaR (filtered historical simulation) passes Kupiec coverage on ${record.kupiec_pass_grids}/${grids.length} grids, `
-    + `${Math.min(...grids)}–${Math.max(...grids)} breaches vs ${record.expected} expected`), text);
+  const over = Math.min(...grids) > record.expected;
+  assert.equal(m.assertions.riskAssertion(rows, labels, champion),
+    `${m.research.shortLabel(labels.get(champion))} 99% VaR passes Kupiec on ${record.kupiec_pass_grids}/${grids.length} grids`
+    + `${over ? ", each with more breaches than expected" : ""}`);
   const failing = [["99", summary["historical_simulation@0.01"]], ["95", summary["historical_simulation@0.05"]]]
     .filter(([, stats]) => stats.independence_pass_grids < stats.exceedances_by_grid.length)
     .map(([level, stats]) => `at ${level}% on ${stats.exceedances_by_grid.length - stats.independence_pass_grids}/${stats.exceedances_by_grid.length} grids`);
-  assert.ok(text.endsWith(`historical-simulation VaR fails the independence test ${failing.join(" and ")}`), text);
-  assert.doesNotMatch(text, /historical simulation fails independence on \d+\/\d+$/, "no clause without its level");
+  assert.deepEqual(m.assertions.riskDetail(rows), [
+    `${Math.min(...grids)}–${Math.max(...grids)} breaches vs ${m.format.fmtNum(record.expected, 1)} expected, filtered historical simulation`,
+    ...(failing.length ? [`historical-simulation VaR fails the independence test ${failing.join(" and ")}`] : []),
+  ]);
   assert.equal(m.assertions.riskAssertion([], labels, champion), null);
 });
 
-test("STDY carry: the change test and the multiplicity-adjusted q are stated", () => {
+test("STDY carry: the title makes one claim; the halves' p-values, power and q are in the meta", () => {
+  const { carryAssertion, carryDetail } = m.assertions;
   const ledger = m.research.researchLedger(research);
-  const text = m.assertions.carryAssertion(research.carry, ledger);
-  const change = research.carry.regime_change_test.spread_difference_p_value;
-  if (change >= 0.05) assert.match(text, /the change in the spread is not itself significant \(p = /);
-  const pre = ledger.byId.get("carry_spread_pre2007");
-  if (pre && pre.survives_bh === false) assert.match(text, /q = [\d.]+ after Benjamini-Hochberg across the ledger/);
-  assert.doesNotMatch(m.assertions.carryAssertion(research.carry, null), /Benjamini-Hochberg/, "no ledger, no q claim");
+  const carry = research.carry;
+  const pre = carry.pre_2007.spread_p_value_one_sided;
+  const post = carry.post_2007.spread_p_value_one_sided;
+  assert.ok(pre < m.assertions.ALPHA && post >= m.assertions.ALPHA, "the fixture's case");
+  assert.equal(carryAssertion(carry), "Carry sorted WTI returns before 2007, not detectably after");
+  const detail = carryDetail(carry, ledger).map(spaced);
+  const preRow = ledger.byId.get("carry_spread_pre2007");
+  assert.equal(detail[0], `before 2007 ${spaced(m.format.fmtP(pre))}`
+    + `${preRow.survives_bh === false ? `, q = ${spaced(m.format.fmtPValue(preRow.q))} after Benjamini-Hochberg` : ""}`);
+  const power = carry.power_post_2007;
+  assert.equal(detail[1], `2007 on ${spaced(m.format.fmtP(post))}`
+    + `${power.power_vs_pre_2007_spread < power.target_power ? `, ${Math.round(power.power_vs_pre_2007_spread * 100)}% power` : ""}`);
+  assert.equal(detail[2], `change in the spread ${spaced(m.format.fmtP(carry.regime_change_test.spread_difference_p_value))}`);
+  assert.doesNotMatch(carryDetail(carry, null).join(" "), /Benjamini-Hochberg/, "no ledger, no q claim");
 });
 
-test("LIVE counts unscored calls as such, and reports promotion and late commits", () => {
+test("LIVE counts unscored calls as such, and compares the two models on the same weeks only", () => {
   const { liveRecordSummary } = m.research;
-  const { liveAssertion, promotionText } = m.assertions;
-  const record = liveRecordSummary(legacyRecord({ recent: [], n_recorded: 0 }));
-  assert.match(liveAssertion(record), /nothing has resolved yet; first result due about /);
-  const noneDue = liveRecordSummary({ ...data.vol_forecast.live_record, recent: [], n_recorded: 0, next_result_due: null });
-  assert.equal(liveAssertion(noneDue), "Forward record started Oct 20, 2026; nothing has resolved yet");
-  const rollPending = liveRecordSummary({
-    ...data.vol_forecast.live_record, n_recorded: 1, n_pending: 1, n_skipped_roll: 0, next_result_due: null,
-    recent: [{ status: "pending", target_end: "2026-10-27" }],
-  });
-  assert.doesNotMatch(liveAssertion(rollPending), /first result/, "a pending call that will be skipped at a roll dates nothing");
+  const { liveAssertion, liveDetail, promotionText } = m.assertions;
+  const record = data.vol_forecast.live_record;
+  const fixture = liveRecordSummary(record);
+  assert.equal(liveAssertion(fixture), "No live forecast has resolved yet"
+    + `${fixture.firstResult ? `; the first is due ${m.format.fmtDate(fixture.firstResult)}` : ""}`);
+  assert.equal(liveAssertion(liveRecordSummary({ ...record, next_result_due: "2026-10-28" })),
+    "No live forecast has resolved yet; the first is due Oct 28, 2026");
   const skippedOnly = liveRecordSummary({
-    started: "2026-10-20", n_recorded: 1, n_resolved: 0, n_pending: 0, n_skipped_roll: 1, n_expired: 0,
+    started: record.started, n_recorded: 1, n_resolved: 0, n_pending: 0, n_skipped_roll: 1, n_expired: 0, next_result_due: null,
     recent: [{ status: "skipped_roll", target_end: "2026-10-27" }],
   });
-  assert.equal(liveAssertion(skippedOnly),
-    "Forward record started Oct 20, 2026; 1 call recorded: 1 skipped at a contract roll (never scored); nothing has resolved yet");
-  assert.doesNotMatch(liveAssertion(skippedOnly), /none resolved yet|first result/);
+  assert.equal(liveAssertion(skippedOnly), "No live forecast has resolved yet", "a call skipped at a roll dates nothing");
+  assert.deepEqual(liveDetail(skippedOnly), ["1 call recorded: 1 skipped at a contract roll (never scored)"]);
   const mixed = liveRecordSummary({
-    started: "2026-10-20", n_recorded: 3, n_resolved: 0, n_pending: 1, n_skipped_roll: 1, n_expired: 0, n_late_commit: 1,
+    started: record.started, n_recorded: 3, n_resolved: 0, n_pending: 1, n_skipped_roll: 1, n_expired: 0, n_late_commit: 1,
+    next_result_due: null,
     recent: [{ status: "pending", target_end: "2026-10-28" }, { status: "late_commit" }, { status: "skipped_roll" }],
     promotion: { status: "accruing", n_independent_paired: 0, required: 52, dm_stat: null, p_value: null, mean_qlike_difference: null },
   });
   assert.equal(mixed.lateCommit, 1);
-  assert.equal(liveAssertion(mixed), "Forward record started Oct 20, 2026; 3 calls recorded: 1 pending, 1 skipped at a contract roll, "
-    + "1 not sealed in time (2 never scored); nothing has resolved yet; first result due Oct 28, 2026");
-  assert.doesNotMatch(liveAssertion(mixed), /sealed after/, "a late commit may be sealed before its window opened");
+  assert.deepEqual(liveDetail(mixed), ["3 calls recorded: 1 pending, 1 skipped at a contract roll, 1 not sealed in time (2 never scored)"]);
+  assert.doesNotMatch(liveDetail(mixed).join(" "), /sealed after/, "a late commit may be sealed before its window opened");
   assert.equal(promotionText(mixed.promotion), "accruing 0/52");
-  assert.equal(promotionText({ status: "keep", p: 0.41 }), "keep the model of record (one-sided p = 0.41)");
-  assert.equal(promotionText({ status: "promote", p: 0.03 }), "promote the challenger (one-sided p = 0.03)");
+  assert.equal(spaced(promotionText({ status: "keep", p: 0.41 })), "keep the model of record (one-sided p = 0.41)");
+  assert.equal(spaced(promotionText({ status: "promote", p: 0.03 })), "promote the challenger (one-sided p = 0.03)");
   assert.equal(m.research.promotionStatus({ status: "unknown" }), null);
   assert.equal(m.research.promotionStatus(null), null);
-  const resolved = liveAssertion({
-    resolved: 3, champion: { qlike: 0.31, interval_80_coverage_pct: 66.7 }, challenger: { qlike: 0.29 },
-    promotion: { status: "accruing", paired: 2, required: 52 },
-  });
-  assert.equal(resolved, "3 live weeks resolved: QLIKE 0.310 for the model of record vs 0.290 for the challenger; 80% band covered 66.7%; promotion test: accruing 2/52");
+
+  // Resolved weeks without a challenger forecast: the title uses the paired comparator only.
+  const raw = mixedRecord();
+  const title = liveAssertion(liveRecordSummary(raw));
+  assert.equal(title, `On the same ${raw.challenger.n} live weeks, QLIKE ${m.format.fmtNum(raw.challenger.champion_qlike, 3)} `
+    + `for the model of record vs ${m.format.fmtNum(raw.challenger.qlike, 3)} for the challenger`);
+  assert.ok(!title.includes(m.format.fmtNum(raw.champion.qlike, 3)), "the all-weeks QLIKE is another sample");
+  assert.equal(liveAssertion(liveRecordSummary(mixedRecord({ all: 2, pairedN: 0 }))), "2 live weeks resolved; none has both forecasts yet");
 });
 
-test("ledger statistics that are p-values print like p-values", () => {
-  const { fmtLedgerStatistic } = m.ledger;
+test("ledger statistics print with one precision per unit, and p-values like p-values", () => {
+  const fmtLedgerStatistic = (value) => spaced(m.ledger.fmtLedgerStatistic(value));
   assert.equal(fmtLedgerStatistic({ statistic: 0.002, statistic_name: "MCS p-value of HAR-IV" }), "0.002");
   assert.equal(fmtLedgerStatistic({ statistic: 0.0004, statistic_name: "SPA consistent p-value" }), "< 0.001");
   assert.equal(fmtLedgerStatistic({ statistic: -7.07, statistic_name: "DM statistic" }), "−7.07");
   assert.equal(fmtLedgerStatistic({ statistic: 13.16, statistic_name: "t (HAC)" }), "13.2");
+  // Percentages to one decimal, as the studies print them ("4.3", never "4.30").
+  assert.equal(fmtLedgerStatistic({ statistic: 4.3, statistic_name: "median settle %" }), "4.3");
+  assert.equal(fmtLedgerStatistic({ statistic: -4.8, statistic_name: "median settle %" }), "−4.8");
   assert.equal(fmtLedgerStatistic({ statistic: null }), "—");
 });
 

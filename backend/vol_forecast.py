@@ -73,6 +73,7 @@ import argparse
 import json
 import logging
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any, cast
 
 try:
     from . import carry_signal_test as eia_curve
@@ -81,15 +82,25 @@ try:
     from .forecast_eval import hac_z as _hac_z, newey_west_lrv  # noqa: F401 - re-exported
     from .safe_paths import data_json_path
 except ImportError:  # Direct invocation: python backend/vol_forecast.py
-    import carry_signal_test as eia_curve
-    from contract_calendar import is_business_day, last_completed_bar_date, last_trade_date
-    from forecast_eval import adaptive_conformal, dm_test, mincer_zarnowitz, qlike
-    from forecast_eval import hac_z as _hac_z, newey_west_lrv  # noqa: F401 - re-exported
-    from safe_paths import data_json_path
+    import carry_signal_test as eia_curve  # type: ignore[import-not-found, no-redef]
+    from contract_calendar import (  # type: ignore[import-not-found, no-redef]
+        is_business_day, last_completed_bar_date, last_trade_date)
+    from forecast_eval import (  # type: ignore[import-not-found, no-redef]
+        adaptive_conformal, dm_test, mincer_zarnowitz, qlike)
+    from forecast_eval import hac_z as _hac_z, newey_west_lrv  # type: ignore[no-redef]  # noqa: F401 - re-exported
+    from safe_paths import data_json_path  # type: ignore[import-not-found, no-redef]
 
 import numpy as np
 import pandas as pd
 from scipy.stats import binom, kurtosis, norm, skew, ttest_ind
+
+if TYPE_CHECKING:
+    import numpy.typing as npt
+
+    # (daily log returns, their session dates, the same-day aligned OVX or None), as _load_data returns it;
+    # _load_data_full adds the metadata dict.
+    MarketData = tuple[np.ndarray, pd.DatetimeIndex, np.ndarray | None]
+    MarketDataWithMeta = tuple[np.ndarray, pd.DatetimeIndex, np.ndarray | None, dict[str, Any]]
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +123,7 @@ VRP_NULL_REPS = 10000      # bootstrap draws for the zero-premium test of the vo
 INTERVAL_ALPHA = 0.20      # 80% intervals
 RECENT_OOS_WEEKS = 156     # out-of-sample weeks shipped to the dashboard (3 years)
 RECENT_CLOSES = 40         # finished-session closes shipped for the live track record
-# v1 (2026-06): log-OLS on RV5, RV22, RV66 and the same day's OVX; published the median forecast.
+# v1: log-OLS on RV5, RV22, RV66 and the same day's OVX; published the median forecast.
 # v2: OVX lagged one session (entry-time clean); losses and risk use the variance-consistent mean.
 MODEL_VERSION = "har-iv/2"
 NOISE_FLOOR_SIMS = 10      # the research lab reports this same floor (vol_lab.noise_floor calls noise_floor)
@@ -134,16 +145,16 @@ def _completed(series: pd.Series, now: datetime | None = None) -> pd.Series:
     """
     s = pd.to_numeric(series, errors="coerce")
     if getattr(s.index, "tz", None) is not None:
-        s.index = s.index.tz_localize(None)
+        s.index = cast("pd.DatetimeIndex", s.index).tz_localize(None)
     s.index = pd.DatetimeIndex(s.index).normalize()
     cutoff = pd.Timestamp(last_completed_bar_date(now or datetime.now(timezone.utc)))
     values = s.to_numpy(dtype=float)
     settled = np.array([is_business_day(day.date()) for day in s.index], dtype=bool)
     s = s[(s.index <= cutoff) & settled & np.isfinite(values) & (values > 0)]
-    return s[~s.index.duplicated(keep="last")]
+    return cast("pd.Series", s[~s.index.duplicated(keep="last")])
 
 
-def _yf_history(symbol: str, period: str):
+def _yf_history(symbol: str, period: str) -> pd.DataFrame:
     """yfinance daily history with a short bounded retry (Yahoo rate-limits bursts with HTTP 429)."""
     import time
 
@@ -154,7 +165,7 @@ def _yf_history(symbol: str, period: str):
         try:
             frame = yf.Ticker(symbol).history(period=period, interval="1d")
             if frame is not None and not frame.empty and "Close" in frame:
-                return frame
+                return cast("pd.DataFrame", frame)
             last_error = RuntimeError(f"{symbol} history empty")
         except Exception as exc:  # noqa: BLE001 - retried, then surfaced
             last_error = exc
@@ -163,7 +174,7 @@ def _yf_history(symbol: str, period: str):
     raise RuntimeError(f"{symbol} history unavailable") from last_error
 
 
-def _load_data_full(period: str = HISTORY_PERIOD, now: datetime | None = None):
+def _load_data_full(period: str = HISTORY_PERIOD, now: datetime | None = None) -> MarketDataWithMeta:
     """Daily WTI log returns (CL=F, completed sessions, non-positive prints dropped), aligned OVX and
     metadata about the OVX print: (returns, dates, ovx|None, meta).
 
@@ -178,15 +189,16 @@ def _load_data_full(period: str = HISTORY_PERIOD, now: datetime | None = None):
     close = _completed(df["Close"], now)
     logret = np.log(close).diff().dropna()
     tail = close.iloc[-RECENT_CLOSES:]
-    meta: dict = {"ovx_source": None, "ovx_as_of": None, "ovx_error": None, "ohlc": None, "ohlc_error": None,
-                  # The live track record (backend/vol_record.py) scores forecasts on these closes.
-                  "recent_closes": {"date": [str(d.date()) for d in tail.index],
-                                    "close": [round(float(v), 4) for v in tail.to_numpy()]}}
+    meta: dict[str, Any] = {
+        "ovx_source": None, "ovx_as_of": None, "ovx_error": None, "ohlc": None, "ohlc_error": None,
+        # The live track record (backend/vol_record.py) scores forecasts on these closes.
+        "recent_closes": {"date": [str(d.date()) for d in tail.index],
+                          "close": [round(float(v), 4) for v in tail.to_numpy()]}}
     try:
         try:
             from .market_data import clean_ohlc
         except ImportError:  # pragma: no cover - direct invocation
-            from market_data import clean_ohlc
+            from market_data import clean_ohlc  # type: ignore[import-not-found, no-redef]
         meta["ohlc"] = clean_ohlc(df, now)[0].loc[logret.index, ["Open", "High", "Low", "Close"]]
     except Exception as exc:  # noqa: BLE001 - only the challenger's range features need the bar
         meta["ohlc_error"] = _failure(exc)
@@ -201,7 +213,7 @@ def _load_data_full(period: str = HISTORY_PERIOD, now: datetime | None = None):
         try:
             from .market_data import _fetch_fred_ovx
         except ImportError:  # pragma: no cover - direct invocation
-            from market_data import _fetch_fred_ovx
+            from market_data import _fetch_fred_ovx  # type: ignore[no-redef]
         try:
             raw = _completed(_fetch_fred_ovx(), now)
             meta["ovx_source"] = "FRED OVXCLS"
@@ -222,7 +234,7 @@ def _load_data_full(period: str = HISTORY_PERIOD, now: datetime | None = None):
     return logret.to_numpy(dtype=float), pd.DatetimeIndex(logret.index), ovx, meta
 
 
-def _load_data(period: str = HISTORY_PERIOD, now: datetime | None = None):
+def _load_data(period: str = HISTORY_PERIOD, now: datetime | None = None) -> MarketData:
     """(returns, dates, ovx|None): see _load_data_full."""
     r, dates, ovx, _ = _load_data_full(period, now)
     return r, dates, ovx
@@ -250,7 +262,7 @@ def _downside_semivol(daily_logrets: np.ndarray) -> float:
 
 
 def _build_matrix(r: np.ndarray, dates: pd.DatetimeIndex, ovx: np.ndarray | None = None,
-                  return_positions: bool = False):
+                  return_positions: bool = False) -> tuple[Any, ...]:  # (X, y, tdate[, positions])
     """HAR features (RV over 5/22/66 days, all <= t) + optional OVX, target = RV of days t+1..t+H.
 
     Feature order keeps RV5 first (the persistence baseline / current-vol reference) and RV66 third
@@ -263,10 +275,10 @@ def _build_matrix(r: np.ndarray, dates: pd.DatetimeIndex, ovx: np.ndarray | None
     for t in range(66, len(r) - H):
         past = r[: t + 1]
         row = [_rvol(past[-5:]), _rvol(past[-22:]), _rvol(past[-66:])]
-        if use_ovx:
-            if not np.isfinite(ovx[t]) or ovx[t] <= 0:
+        if use_ovx:                             # ovx is not None; mypy does not narrow through use_ovx
+            if not np.isfinite(ovx[t]) or ovx[t] <= 0:  # type: ignore[index]
                 continue
-            row.append(float(ovx[t]))
+            row.append(float(ovx[t]))  # type: ignore[index]
         y = _rvol(r[t + 1 : t + 1 + H])
         if y <= 0 or min(row) <= 0:
             continue
@@ -287,7 +299,7 @@ def _fit_log_har(X_train: np.ndarray, y_train: np.ndarray) -> np.ndarray:
     """
     A = np.column_stack([np.ones(len(X_train)), np.log(X_train)])
     beta, *_ = np.linalg.lstsq(A, np.log(y_train), rcond=None)
-    return beta
+    return cast("np.ndarray", beta)
 
 
 def _predict_log_har(beta: np.ndarray, x: np.ndarray) -> float:
@@ -322,7 +334,7 @@ def _r2(actual: np.ndarray, pred: np.ndarray) -> float:
     return float(1 - ss_res / ss_tot) if ss_tot > 0 else 0.0
 
 
-def _qlike(actual: np.ndarray, pred: np.ndarray) -> float:
+def _qlike(actual: npt.ArrayLike, pred: npt.ArrayLike) -> float:
     """QLIKE loss on variances (0 = perfect). Robust to noise in the realized-vol proxy (Patton 2011)."""
     ratio = (np.asarray(actual, float) / np.asarray(pred, float)) ** 2
     return float(np.mean(ratio - np.log(ratio) - 1.0))
@@ -333,7 +345,7 @@ def lag_ovx(ovx: np.ndarray | None, sessions: int = OVX_LAG_SESSIONS) -> np.ndar
     if ovx is None or sessions <= 0:
         return ovx
     arr = np.asarray(ovx, dtype=float)
-    return np.r_[np.full(sessions, np.nan), arr[:-sessions]]
+    return cast("np.ndarray", np.r_[np.full(sessions, np.nan), arr[:-sessions]])
 
 
 def _pick_ovx(ovx: np.ndarray | None) -> np.ndarray | None:
@@ -421,7 +433,7 @@ def _sharpe(returns: np.ndarray, periods_per_year: float) -> float:
     return round(float(np.mean(arr)) / sd * np.sqrt(periods_per_year), 2) + 0.0 if sd > 0 else 0.0
 
 
-def _sharpe_positive_test(pnl: np.ndarray) -> dict:
+def _sharpe_positive_test(pnl: np.ndarray) -> dict[str, Any]:
     """One-sided test that the per-period Sharpe ratio of an i.i.d. P&L series is positive, with the
     non-normal standard error of Mertens (2002) and Opdyke (2007):
         SE(SR) = sqrt((1 - g3 SR + (g4 - 1) / 4 SR^2) / n),
@@ -441,7 +453,7 @@ def _overlay_returns(weights: np.ndarray, period_returns: np.ndarray) -> np.ndar
     """Net per-period returns of holding `weights` over each period, paying COST_PER_TURN on turnover."""
     w = np.asarray(weights, dtype=float)
     turnover = np.abs(np.diff(np.concatenate([[0.0], w])))
-    return w * np.asarray(period_returns, dtype=float) - COST_PER_TURN * turnover
+    return cast("np.ndarray", w * np.asarray(period_returns, dtype=float) - COST_PER_TURN * turnover)
 
 
 def same_contract_returns(r: np.ndarray, dates: pd.DatetimeIndex,
@@ -458,7 +470,8 @@ def same_contract_returns(r: np.ndarray, dates: pd.DatetimeIndex,
     Returns (returns, n_roll_days_rebuilt, end): every return at a position <= end is roll-free.
     """
     curve = eia_curve.clean_curve(eia_curve.load_curve() if curve is None else curve)
-    days, gap = curve.index, np.log(curve["c2"] / curve["c1"]).to_numpy()
+    # numpy's stubs type np.log of a Series as an ndarray; it returns a Series.
+    days, gap = curve.index, np.log(curve["c2"] / curve["c1"]).to_numpy()  # type: ignore[attr-defined]
     out = np.asarray(r, dtype=float).copy()
     end = int(np.searchsorted(dates, days[-1], side="right")) - 1
     rebuilt = 0
@@ -466,11 +479,13 @@ def same_contract_returns(r: np.ndarray, dates: pd.DatetimeIndex,
     while (y, m) <= (days[-1].year + 1, days[-1].month):
         expiry = pd.Timestamp(last_trade_date(y, m))
         y, m = (y + 1, 1) if m == 12 else (y, m + 1)
-        i = int(np.searchsorted(dates, expiry, side="right"))      # CL=F's first row after expiry
+        # CL=F's first row after expiry. numpy's stubs reject a DatetimeIndex (or Index) and a Timestamp,
+        # which searchsorted compares as datetime64, here and for the EIA dates below.
+        i = int(np.searchsorted(dates, expiry, side="right"))  # type: ignore[call-overload]
         if not 0 < i <= end:
             continue
         # EIA misses a few expiry days before 2007; the calendar spread a day earlier stands in.
-        k = int(np.searchsorted(days, expiry, side="right")) - 1
+        k = int(np.searchsorted(days, expiry, side="right")) - 1  # type: ignore[call-overload]
         if k < 0 or (expiry - days[k]).days > 7:
             raise RuntimeError(f"EIA has no settlement near the {expiry.date()} expiry")
         out[i] -= gap[k]
@@ -478,7 +493,7 @@ def same_contract_returns(r: np.ndarray, dates: pd.DatetimeIndex,
     return out, rebuilt, end
 
 
-def _nw_regression(y: np.ndarray, x: np.ndarray) -> dict | None:
+def _nw_regression(y: np.ndarray, x: np.ndarray) -> dict[str, Any] | None:
     """OLS of y on [1, x] with a Newey-West slope t-statistic; None when too short."""
     yv, xv = np.asarray(y, float), np.asarray(x, float)
     if yv.size < 24:
@@ -494,7 +509,7 @@ def _nw_regression(y: np.ndarray, x: np.ndarray) -> dict | None:
             "n": int(yv.size), "lags": int(lags)}
 
 
-def _risk_profile(weekly: np.ndarray, periods_per_year: float) -> dict:
+def _risk_profile(weekly: np.ndarray, periods_per_year: float) -> dict[str, Any]:
     """Risk-control scorecard of a weekly return series: realized vol vs the target, vol of vol
     (dispersion of 26-week realized vol), kurtosis, worst week, 97.5% expected shortfall and drawdown."""
     w = np.asarray(weekly, dtype=float)
@@ -506,35 +521,37 @@ def _risk_profile(weekly: np.ndarray, periods_per_year: float) -> dict:
         "sharpe": _sharpe(w, periods_per_year),
         "realized_vol_pct": _pct(np.std(w, ddof=1) * np.sqrt(periods_per_year)),
         "vol_of_vol_pct": _pct(np.std(rolling, ddof=1)) if rolling.size > 1 else None,
-        "excess_kurtosis": round(float(pd.Series(w).kurt()), 2),
+        # pandas-stubs type kurt() as any scalar; on a float Series it is a float.
+        "excess_kurtosis": round(float(pd.Series(w).kurt()), 2),  # type: ignore[arg-type]
         "worst_week_pct": _pct(w.min()),
         "expected_shortfall_97_5_pct": _pct(tail.mean()),
         "max_drawdown_pct": _pct(drawdown.max()),
     }
 
 
-def _sharpe_difference(a: np.ndarray, b: np.ndarray, periods_per_year: float, reps: int = 2000) -> dict:
+def _sharpe_difference(a: np.ndarray, b: np.ndarray, periods_per_year: float, reps: int = 2000) -> dict[str, Any]:
     """Sharpe(a) - Sharpe(b) with a stationary block bootstrap p-value (two-sided), preserving the
     serial dependence and the cross-correlation of the two weekly series (Ledoit-Wolf 2008 spirit)."""
     from arch.bootstrap import StationaryBootstrap
 
     x, y = np.asarray(a, float), np.asarray(b, float)
 
-    def diff(u, v):
+    def diff(u: np.ndarray, v: np.ndarray) -> float:
         su, sv = np.std(u, ddof=1), np.std(v, ddof=1)
         return (np.mean(u) / su - np.mean(v) / sv) * np.sqrt(periods_per_year) if su > 0 and sv > 0 else 0.0
 
     observed = diff(x, y)
     block = max(2, int(round(x.size ** (1 / 3))))
     boot = StationaryBootstrap(block, x, y, seed=NOISE_FLOOR_SEED)
-    draws = np.array([diff(u, v) for (u, v), _ in boot.bootstrap(reps)])
+    # arch types the resampled data as array, Series or DataFrame; resampling ndarrays gives ndarrays.
+    draws = np.array([diff(u, v) for (u, v), _ in boot.bootstrap(reps)])  # type: ignore[arg-type]
     centered = draws - draws.mean()
     p = float(np.mean(np.abs(centered) >= abs(observed)))
     return {"difference": round(float(observed), 2), "p_value": round(p, 3),
             "ci95": [round(float(np.quantile(draws, 0.025)), 2), round(float(np.quantile(draws, 0.975)), 2)]}
 
 
-def _zero_premium_null(implied: np.ndarray, realized: np.ndarray, reps: int = VRP_NULL_REPS) -> dict:
+def _zero_premium_null(implied: np.ndarray, realized: np.ndarray, reps: int = VRP_NULL_REPS) -> dict[str, Any]:
     """The vol-point comparison as it would look with NO variance risk premium, and a test of the
     observed share of periods with implied above realized vol against it.
 
@@ -565,7 +582,8 @@ def _zero_premium_null(implied: np.ndarray, realized: np.ndarray, reps: int = VR
     observed = excess_periods(ratio)
     block = max(2, int(round(ratio.size ** (1 / 3))))
     boot = StationaryBootstrap(block, null_ratio, seed=NOISE_FLOOR_SEED)
-    draws = np.array([excess_periods(x) for (x,), _ in boot.bootstrap(reps)])
+    # arch types the resampled data as array, Series or DataFrame; resampling an ndarray gives an ndarray.
+    draws = np.array([excess_periods(x) for (x,), _ in boot.bootstrap(reps)])  # type: ignore[arg-type]
     p = (1.0 + float(np.sum(draws >= observed))) / (1.0 + reps)
     return {
         "share_positive_pct": _pct(np.mean(null_ratio < 1.0)),
@@ -582,7 +600,7 @@ def _zero_premium_null(implied: np.ndarray, realized: np.ndarray, reps: int = VR
 
 
 def _economic_tests(d: pd.DataFrame, r: np.ndarray, dates: pd.DatetimeIndex,
-                    curve: pd.DataFrame | None = None) -> dict:
+                    curve: pd.DataFrame | None = None) -> dict[str, Any]:
     """Out-of-sample economic value: a vol-targeting overlay and the variance risk premium.
 
     Both use only the walk-forward forecasts (made with data up to each decision date) and the
@@ -590,7 +608,7 @@ def _economic_tests(d: pd.DataFrame, r: np.ndarray, dates: pd.DatetimeIndex,
     Unlike direction accuracy, a P&L is biased by roll gaps (every strategy earns its weight times
     each gap), so both tests run on same-contract returns and stop where EIA's curve stops.
     """
-    out: dict = {}
+    out: dict[str, Any] = {}
     try:
         spliced = np.asarray(r, dtype=float)
         r, rebuilt, last = same_contract_returns(spliced, dates, curve)
@@ -730,7 +748,7 @@ def _economic_tests(d: pd.DataFrame, r: np.ndarray, dates: pd.DatetimeIndex,
     return out
 
 
-def _summarize(d: pd.DataFrame, has_ovx: bool, has_leverage: bool = False) -> dict:
+def _summarize(d: pd.DataFrame, has_ovx: bool, has_leverage: bool = False) -> dict[str, Any]:
     """Overall + year-by-year metrics from the walk-forward records."""
     n_total = int(len(d))
     up_rate = float(d["act_up"].mean())
@@ -802,7 +820,7 @@ def _summarize(d: pd.DataFrame, has_ovx: bool, has_leverage: bool = False) -> di
             "leverage_gain_dir_z_hac": round(float(z_lev), 2),
         })
 
-    yearly = {}
+    yearly: dict[str, dict[str, Any]] = {}
     for yr, g in d.groupby("year"):
         g_up = float(g["act_up"].mean())
         yearly[str(yr)] = {
@@ -831,7 +849,7 @@ def _summarize(d: pd.DataFrame, has_ovx: bool, has_leverage: bool = False) -> di
     return {"overall": overall, "yearly": yearly}
 
 
-def noise_floor(r: np.ndarray, dates: pd.DatetimeIndex, sims: int = NOISE_FLOOR_SIMS) -> dict:
+def noise_floor(r: np.ndarray, dates: pd.DatetimeIndex, sims: int = NOISE_FLOOR_SIMS) -> dict[str, Any]:
     """Direction accuracy when nothing is forecastable: i.i.d. Student-t(5) returns with the sample's
     volatility through the identical feature builder and walk-forward (pure HAR, no OVX). The
     mean-reversion rule is scored on the same rows: HAR beats it here too, with nothing to forecast.
@@ -850,7 +868,8 @@ def noise_floor(r: np.ndarray, dates: pd.DatetimeIndex, sims: int = NOISE_FLOOR_
             "mean_reversion_dir_acc_pct_mean": _pct(np.mean(accs_mr))}
 
 
-def validate(period: str = HISTORY_PERIOD, data: tuple | None = None, return_frame: bool = False):
+def validate(period: str = HISTORY_PERIOD, data: MarketData | None = None,
+             return_frame: bool = False) -> dict[str, Any] | tuple[dict[str, Any], pd.DataFrame]:
     """Purged walk-forward validation: overall + year-by-year metrics, baselines, economic tests.
 
     `data` is an optional (returns, dates, ovx) tuple, with ovx the SAME-DAY aligned series, so
@@ -887,7 +906,8 @@ def validate(period: str = HISTORY_PERIOD, data: tuple | None = None, return_fra
         # Timing robustness: the v1 model used the test day's OWN OVX close, which settles at 16:15 ET,
         # ~1h45m after the 14:30 ET CL settlement that starts the target window. Same rows, same grid.
         Xs = X.copy()
-        Xs[:, 3] = np.array([ovx_raw[t] if np.isfinite(ovx_raw[t]) and ovx_raw[t] > 0 else X[i, 3]
+        # ovx is lag_ovx(ovx_raw), so ovx_raw is not None here.
+        Xs[:, 3] = np.array([ovx_raw[t] if np.isfinite(ovx_raw[t]) and ovx_raw[t] > 0 else X[i, 3]  # type: ignore[index]
                              for i, t in enumerate(pos)])
         ds = _walk_forward(Xs, y, tdate, has_ovx=True)
         overall["robustness_same_day_ovx"] = {
@@ -909,7 +929,7 @@ def validate(period: str = HISTORY_PERIOD, data: tuple | None = None, return_fra
     return (report, d) if return_frame else report
 
 
-def _conformal_interval(frame: pd.DataFrame) -> dict:
+def _conformal_interval(frame: pd.DataFrame) -> dict[str, Any]:
     """Adaptive conformal 80% interval state from the out-of-sample log errors of the MEDIAN forecast."""
     e = np.log(frame["actual"].to_numpy(dtype=float)) - np.log(frame["pred"].to_numpy(dtype=float))
     aci = adaptive_conformal(e, alpha=INTERVAL_ALPHA)
@@ -917,8 +937,8 @@ def _conformal_interval(frame: pd.DataFrame) -> dict:
     return {"aci": aci, "coverage_pct": _pct(hits.mean()) if hits.size else None, "n": int(hits.size)}
 
 
-def live_forecast(period: str = HISTORY_PERIOD, data: tuple | None = None, meta: dict | None = None,
-                  frame: pd.DataFrame | None = None, now: datetime | None = None) -> dict:
+def live_forecast(period: str = HISTORY_PERIOD, data: MarketData | None = None, meta: dict[str, Any] | None = None,
+                  frame: pd.DataFrame | None = None, now: datetime | None = None) -> dict[str, Any]:
     """Train on all matured rows and forecast next-week realized vol.
 
     Publishes the variance-consistent forecast (the expected vol, for risk and losses), the median
@@ -941,8 +961,8 @@ def live_forecast(period: str = HISTORY_PERIOD, data: tuple | None = None, meta:
     beta = _fit_log_har(X, y)                   # all matured rows; the last H days have no target yet
     smear = _smearing(X, y, beta)
     sd = _resid_sd(X, y, beta)
-    if use_ovx:
-        cur_feat.append(live_ovx)
+    if use_ovx:                                 # live_ovx is not None; mypy does not narrow through use_ovx
+        cur_feat.append(live_ovx)  # type: ignore[arg-type]
     median = _predict_log_har(beta, np.array(cur_feat))
     mean = median * float(np.sqrt(smear))
     current_vol = float(cur_feat[0])
@@ -954,14 +974,14 @@ def live_forecast(period: str = HISTORY_PERIOD, data: tuple | None = None, meta:
         "forecast_median_pct": round(median * 100, 1),
         "prob_vol_rises_pct": round(prob_up * 100, 1) if prob_up is not None else None,
         "direction": "RISING" if median > current_vol else "FALLING",
-        "implied_vol_ovx_pct": round(live_ovx, 1) if use_ovx else None,
+        "implied_vol_ovx_pct": round(live_ovx, 1) if use_ovx else None,  # type: ignore[arg-type]
         "model": "HAR-IV (RV5,RV22,RV66,OVX)" if use_ovx else "HAR (RV5,RV22,RV66)",
         "model_version": MODEL_VERSION if use_ovx else "har/2",
         "as_of": str(as_of),
         "issued_at": (now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
         "inputs": {"rv5_pct": round(cur_feat[0] * 100, 2), "rv22_pct": round(cur_feat[1] * 100, 2),
                    "rv66_pct": round(cur_feat[2] * 100, 2),
-                   "ovx": round(live_ovx, 2) if use_ovx else None,
+                   "ovx": round(live_ovx, 2) if use_ovx else None,  # type: ignore[arg-type]
                    "ovx_session": str(dates[-1 - OVX_LAG_SESSIONS].date()) if use_ovx else None,
                    "ovx_last_print": (meta or {}).get("ovx_as_of"),
                    "ovx_source": (meta or {}).get("ovx_source")},
@@ -983,13 +1003,13 @@ def live_forecast(period: str = HISTORY_PERIOD, data: tuple | None = None, meta:
     return out
 
 
-def _recent_series(frame: pd.DataFrame, weeks: int = RECENT_OOS_WEEKS) -> dict:
+def _recent_series(frame: pd.DataFrame, weeks: int = RECENT_OOS_WEEKS) -> dict[str, Any]:
     """The last `weeks` out-of-sample weeks, compact, for the dashboard (percent, 1 decimal)."""
     aci = _conformal_interval(frame)["aci"]
     tail = slice(max(0, len(frame) - weeks), len(frame))
     med = frame["pred"].to_numpy(dtype=float)
 
-    def pct(values):
+    def pct(values: npt.ArrayLike) -> list[float | None]:
         return [None if not np.isfinite(v) else round(float(v) * 100, 1) for v in np.asarray(values, float)[tail]]
 
     return {
@@ -1009,7 +1029,7 @@ def _lab_challenger() -> tuple[str | None, str | None]:
 
 
 def _challenger_forecast(r: np.ndarray, dates: pd.DatetimeIndex, ovx: np.ndarray | None,
-                         meta: dict) -> tuple[dict | None, str | None]:
+                         meta: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
     """(the live challenger forecast, None) or (None, why there is none). A failure is logged and
     never touches the model of record, which does not depend on the challenger."""
     challenger, reason = _lab_challenger()
@@ -1022,19 +1042,20 @@ def _challenger_forecast(r: np.ndarray, dates: pd.DatetimeIndex, ovx: np.ndarray
             try:
                 from . import vol_lab
             except ImportError:  # pragma: no cover - direct invocation
-                import vol_lab
-            return vol_lab.live_model_forecast(challenger, r, dates, ovx, meta["ohlc"]), None
+                import vol_lab  # type: ignore[import-not-found, no-redef]
+            # _pick_ovx(ovx) is not None on this branch, so ovx is not None.
+            return vol_lab.live_model_forecast(challenger, r, dates, ovx, meta["ohlc"]), None  # type: ignore[arg-type]
         except Exception as exc:  # noqa: BLE001 - the challenger is optional; the model of record never depends on it
             reason = f"{challenger} forecast failed ({_failure(exc)})"
     logger.warning("no live challenger forecast: %s", reason)
     return None, reason
 
 
-def forecast_bundle(period: str = HISTORY_PERIOD) -> dict:
+def forecast_bundle(period: str = HISTORY_PERIOD) -> dict[str, Any]:
     """Live forecast + validation from ONE download (the dashboard payload's vol_forecast block)."""
     r, dates, ovx, meta = _load_data_full(period)
     data = (r, dates, ovx)
-    report, frame = validate(period, data=data, return_frame=True)
+    report, frame = cast("tuple[dict[str, Any], pd.DataFrame]", validate(period, data=data, return_frame=True))
     use_ovx = _pick_ovx(ovx) is not None
     interval = _conformal_interval(frame) if use_ovx else None
     validation = dict(report["overall"])
@@ -1062,7 +1083,7 @@ def main() -> None:
 
     r, dates, ovx, meta = _load_data_full(args.period)
     data = (r, dates, ovx)
-    report, frame = validate(args.period, data=data, return_frame=True)
+    report, frame = cast("tuple[dict[str, Any], pd.DataFrame]", validate(args.period, data=data, return_frame=True))
     report["live"] = live_forecast(args.period, data=data, meta=meta, frame=frame)
     report["config"] = {"horizon_days": H, "min_train": MIN_TRAIN, "step": STEP,
                         "model": report["overall"].get("model", "HAR"), "period": args.period}
@@ -1107,10 +1128,11 @@ def main() -> None:
               f"{ov['sharpe_trailing_vol_target']} | forecast {ov['sharpe_forecast_vol_target']}")
     vrp = econ.get("variance_risk_premium")
     if vrp:
-        sp = vrp["sharpe_positive_test"]
+        sp, null = vrp["sharpe_positive_test"], vrp["zero_premium_null"]
         print(f"  variance risk premium  : {vrp['mean_premium_vol_pts']} vol pts, positive "
-              f"{vrp['share_positive_pct']}% of periods, short-vol Sharpe {vrp['short_vol_swap_sharpe']} "
-              f"(p {sp['short_vol_swap']['p_value_one_sided']}, non-normal SE; variance-swap "
+              f"{vrp['share_positive_pct']}% of periods (with zero premium: {null['mean_premium_vol_pts']} vol pts, "
+              f"{null['share_positive_pct']}%; p {null['p_value_one_sided']}), short-vol Sharpe "
+              f"{vrp['short_vol_swap_sharpe']} (p {sp['short_vol_swap']['p_value_one_sided']}, non-normal SE; variance-swap "
               f"{vrp['short_variance_sharpe']}, p {sp['short_variance']['p_value_one_sided']}), "
               f"worst {vrp['worst_period_vol_pts']} pts; timing p={vrp['timing_p_value']}")
     live = report["live"]

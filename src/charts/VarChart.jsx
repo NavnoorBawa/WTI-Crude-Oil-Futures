@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { HistogramSeries, LineSeries, LineType, createChart, createSeriesMarkers } from "lightweight-charts";
-import { SERIES, STATUS, SURFACE, TEXT, baseChartOptions, fontsReady, labelAttribution, withAlpha } from "../theme/chartTheme";
+import { HistogramSeries, LineSeries, LineStyle, LineType, createChart, createSeriesMarkers } from "lightweight-charts";
+import { SERIES, STATUS, SURFACE, TEXT, baseChartOptions, fontsReady, withAlpha } from "../theme/chartTheme";
 import { DASH, fmtDate, fmtNum, fmtSigned } from "../lib/format";
 import { frameRange, timeKey } from "./lwUtil";
 
@@ -23,7 +23,8 @@ const BAR_COLORS = {
 
 /**
  * Weekly 5-session log returns (bars) against the model of record's forecast-scaled VaR on the
- * same log-return scale, drawn as negative step lines; breaches are coloured and the 99% ones marked.
+ * same log-return scale, drawn as negative step lines in the model's colour (95% solid, 99% dashed:
+ * one model, two levels); breaches are coloured and the 99% ones marked.
  *
  * @param {{rows: {date:string, ret:number, var95:number|null, var99:number|null}[], range: "3Y"|"10Y"|"ALL"}} props
  */
@@ -62,7 +63,9 @@ export default function VarChart({ rows, range = "ALL" }) {
       const quiet = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false };
       const bars = chart.addSeries(HistogramSeries, { ...quiet, base: 0 });
       const var95 = chart.addSeries(LineSeries, { ...quiet, color: SERIES.model, lineWidth: 1, lineType: LineType.WithSteps });
-      const var99 = chart.addSeries(LineSeries, { ...quiet, color: SERIES.alt, lineWidth: 1, lineType: LineType.WithSteps });
+      const var99 = chart.addSeries(LineSeries, {
+        ...quiet, color: SERIES.model, lineWidth: 1, lineType: LineType.WithSteps, lineStyle: LineStyle.Dashed,
+      });
       const markers = createSeriesMarkers(bars, []);
       const onMove = (param) => setHoverDate(param?.point ? timeKey(param.time) : null);
       chart.subscribeCrosshairMove(onMove);
@@ -70,7 +73,6 @@ export default function VarChart({ rows, range = "ALL" }) {
         if (entry) chart.resize(Math.floor(entry.contentRect.width), Math.floor(entry.contentRect.height));
       });
       observer.observe(host);
-      labelAttribution(host);
       stateRef.current = { chart, bars, var95, var99, markers, rangeKey: null };
       setReady(true);
       teardown = () => {
@@ -121,8 +123,8 @@ export default function VarChart({ rows, range = "ALL" }) {
       <div className="chart-legend" aria-hidden="true">
         <span className="legend-date">{shown ? fmtDate(shown.date) : DASH}</span>
         <span className="legend-item"><i className="swatch swatch-bar" />5-session log return {fmtSigned(shown?.ret, 1, "%")}</span>
-        <span className="legend-item"><i className="swatch swatch-model" />−VaR 95% {shown?.var95 != null ? fmtNum(-shown.var95, 1) : DASH}</span>
-        <span className="legend-item"><i className="swatch swatch-alt" />−VaR 99% {shown?.var99 != null ? fmtNum(-shown.var99, 1) : DASH}</span>
+        <span className="legend-item"><i className="swatch swatch-model" />−VaR 95% {shown?.var95 != null ? `${fmtNum(-shown.var95, 1)}%` : DASH}</span>
+        <span className="legend-item"><i className="swatch swatch-model is-dashed" />−VaR 99% {shown?.var99 != null ? `${fmtNum(-shown.var99, 1)}%` : DASH}</span>
         {shown && <span className={`legend-item legend-status is-${shown.breach}`}>{status[shown.breach]}</span>}
       </div>
       <div ref={hostRef} className="lw-host lw-host--var" />

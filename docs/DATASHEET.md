@@ -33,7 +33,7 @@ this snapshot.
   return on that day. The Close is the 14:30 ET settlement; the High and Low cover the session to
   its 17:00 ET close, after the settlement; the Open is the session's first trade, the evening
   before.
-- `ovx_yahoo_daily.csv`: the CBOE Crude Oil ETF Volatility Index close (annualized percent), the
+- `ovx_yahoo_daily.csv`: the Cboe Crude Oil ETF Volatility Index close (annualized percent), the
   series the production model uses.
 - `ovxcls_fred.csv`: the same index as redistributed by FRED, used only as an independent check.
 
@@ -78,4 +78,4 @@ live numbers.
 Committed to the repository (about 0.6 MB). `python -m backend.vol_lab --refresh` downloads a new
 snapshot (free sources, no API keys) and rewrites the manifest; the research artifacts are then
 regenerated and the change is reviewed like code. Terms: Yahoo Finance data is for personal use;
-FRED series are public; CBOE owns the OVX index.
+FRED series are public; Cboe owns the OVX index.

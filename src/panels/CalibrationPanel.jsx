@@ -3,8 +3,8 @@ import { getCoverageByYear, getMzForest } from "../charts/lazy";
 import DataTable from "../components/DataTable";
 import LazyMount from "../components/LazyMount";
 import Panel, { REPRODUCE } from "../components/Panel";
-import { INTERVAL_LEVEL_PCT, calibrationAssertion } from "../lib/assertions";
-import { DASH, fmtInt, fmtNum, fmtP, fmtPct, num } from "../lib/format";
+import { INTERVAL_LEVEL_PCT, calibrationAssertion, calibrationDetail } from "../lib/assertions";
+import { DASH, fmtInt, fmtNum, fmtP, fmtPValue, fmtPct, num } from "../lib/format";
 import { asObject, coverageByYear, getLab, getRoles, getVol, leaderboardRows, modelLabels, shortLabel } from "../lib/research";
 import { Facts, Legend, ResearchUnavailable } from "./common";
 
@@ -32,7 +32,8 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
     .sort((a, b) => a.mzSlope - b.mzSlope)
     .map((row) => ({
       key: row.key,
-      label: `${row.timingControl ? "Timing control: " : ""}${shortLabel(row.label)}`,
+      label: shortLabel(row.label),
+      tag: row.timingControl ? "timing control" : null,
       slope: row.mzSlope,
       se: row.mzSe,
       p: row.mzP,
@@ -93,7 +94,7 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
       title={calibrationAssertion(lab, champion)}
       fallbackTitle="Interval coverage by year"
       meta={[
-        conformal?.n_days != null ? `n ${fmtInt(conformal.n_days)} days` : null,
+        ...calibrationDetail(lab, champion),
         `${years[0].year}–${years[years.length - 1].year}`,
         "adaptive conformal (Gibbs-Candès 2021)",
         config?.window_days != null ? `window ${fmtInt(config.window_days)} days` : null,
@@ -125,10 +126,13 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
             dense
             initialSort={{ key: "slope", direction: "asc" }}
             columns={[
-              { key: "label", label: "Model", rowHeader: true, sortable: true },
+              {
+                key: "label", label: "Model", rowHeader: true, sortable: true,
+                render: (row) => <>{row.label}{row.tag && <span className="cell-note">{row.tag}</span>}</>,
+              },
               { key: "slope", label: "Slope", align: "right", sortable: true, render: (row) => fmtNum(row.slope, 3) },
               { key: "se", label: "SE", align: "right", sortable: true, render: (row) => fmtNum(row.se, 3) },
-              { key: "p", label: "p (unbiased)", align: "right", sortable: true, render: (row) => fmtP(row.p) ?? "—" },
+              { key: "p", label: "p (unbiased)", align: "right", sortable: true, render: (row) => fmtPValue(row.p) },
             ]}
             rows={mzRows}
           />

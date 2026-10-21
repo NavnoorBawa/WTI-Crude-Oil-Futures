@@ -42,7 +42,10 @@ runs `build_research_bundle.validate` on `research.json`).
       "interval_80": { "low_pct": 23.3, "high_pct": 63.9, "method": "..." },
       "challenger": { "key": "har_iv_range", "label": "...", "forecast_next_week_vol_annualized_pct": 45.1,
                       "forecast_median_pct": 38.0, "as_of": "..." } | null,
-      "model": "HAR-IV (RV5,RV22,RV66,OVX)", "model_version": "har-iv/2",
+      "challenger_error": null,                       // why the challenger is missing, when it is: a non-empty string or null
+      "ovx_error": null,                              // why the first OVX source (or both) failed: a non-empty string or null
+      "model": "HAR-IV (RV5,RV22,RV66,OVX)",
+      "model_version": "har-iv/2",                    // "har/2" for the plain-HAR fallback forecast when no lagged OVX print exists
       "as_of": "2026-10-19",                          // last completed session the forecast uses
       "issued_at": "2026-10-20T11:11:27Z",
       "inputs": { "rv5_pct": 36.76, "rv22_pct": 36.81, "rv66_pct": 46.96, "ovx": 50.74,
@@ -60,7 +63,16 @@ runs `build_research_bundle.validate` on `research.json`).
                        qlike_by_grid_offset[5], ovx_lag_sessions, ...
                        plus two fields the committed artifact does not have:
                        interval_80_coverage_pct, interval_80_n (the conformal interval's coverage) */ },
-    "economic": { "returns": {}, "vol_target_overlay": {}, "variance_risk_premium": {} },   // recomputed likewise
+    "economic": {                                     // recomputed likewise
+      "returns": {}, "vol_target_overlay": {},
+      "variance_risk_premium": {                      // also: zero_premium_null{share_positive_pct, mean_premium_vol_pts,
+                                                      //   mean_ratio_realized_to_implied_variance, excess_share_pct,
+                                                      //   p_value_one_sided, bootstrap{reps, mean_block_periods, seed},
+                                                      //   method} and vol_points_caveat (a string)
+      },
+      "unavailable_reason": "..."                     // present only when the economic tests were skipped (then the
+                                                      // other three blocks are absent)
+    },
     "recent_oos": { "date": [], "actual": [], "forecast": [], "median": [], "rv5": [], "lo80": [], "hi80": [] },
     "recent_closes": { "date": [], "close": [] },     // the last 40 finished-session CL=F closes (the record scores on these)
     "live_record": {                                  // backend/vol_record.py summarize(), added after the freeze
@@ -69,14 +81,21 @@ runs `build_research_bundle.validate` on `research.json`).
       "n_late_commit": 0,                             // entries not sealed in time: never scored
       "n_independent": 0,                             // resolved entries whose windows do not overlap
       "next_result_due": null,                        // ISO date: earliest target_end among pending entries whose windows do not span a roll; null if none
-      "champion": { "model_version": "har-iv/2", "qlike": null, "interval_80_coverage_pct": null,
-                    "direction_hit_pct": null, "mean_forecast_pct": null, "mean_realized_pct": null },
-      "challenger": { "key": "har_iv_range", "qlike": null, "n": 0, "champion_qlike": null },  // descriptive, all paired entries
+      "champion": {                                   // the resolved entries of the pinned model version only
+        "model_version": "har-iv/2", "n": 0,          // vol_record.PROMOTION_MODEL_VERSION and its resolved entries
+        "qlike": null, "interval_80_coverage_pct": null,
+        "direction_hit_pct": null, "mean_forecast_pct": null, "mean_realized_pct": null
+      },
+      "challenger": { "key": "har_iv_range", "qlike": null, "n": 0, "champion_qlike": null },  // descriptive: every resolved entry of the pinned pair
       "promotion": {                                  // vol_record.promotion_test: the single fixed-sample test
         "status": "accruing|promote|keep", "n_independent_paired": 0, "required": 52,
-        "dm_stat": null, "p_value": null, "mean_qlike_difference": null   // null while accruing
+        "dm_stat": null, "p_value": null, "mean_qlike_difference": null,  // null while accruing
+        "model_version": "har-iv/2", "challenger_key": "har_iv_range",   // the pinned pair
+        "n_excluded_other_version": 0,                // resolved entries left out of the test, by reason
+        "n_excluded_other_challenger": 0, "n_excluded_no_challenger": 0
       },
-      "recent": [ { "as_of": "...", "issued_at": "...", "target_start": "...", "target_end": "...",
+      "recent": [ { "as_of": "...", "issued_at": "...", "model_version": "har-iv/2",
+                    "target_start": "...", "target_end": "...",
                     "forecast_pct": 47.6, "median_pct": 40.0, "lo80_pct": 23.3, "hi80_pct": 63.9,
                     "challenger_pct": 45.1, "realized_pct": null,
                     "status": "pending|resolved|skipped_roll|expired|late_commit" } ],   // newest first, up to 12
@@ -98,12 +117,20 @@ forecast, median and
 current RV; a direction of `RISING` or `FALLING`; a probability between 0 and 100; an interval that
 contains the median; a forecast `as_of` no more than four business days before the quote's session;
 a positive `validation.n` and a finite `validation.har_qlike`; and no field of the retracted
-direction model. When `live_record` is present, every count above must be a non-negative integer,
-every `recent[].status` one of the five statuses, and `promotion` consistent: `accruing` with fewer
-than `required` weeks and no statistics, or a verdict on exactly `required` weeks with a mean
-difference (and a statistic with its p-value); `promote` needs a positive mean difference.
-`next_result_due` must be present: an ISO date (`YYYY-MM-DD`) or null, and null when no entry is
-pending.
+direction model. `live.challenger_error`, `live.ovx_error` and `economic.unavailable_reason` may each
+be absent, null or a non-empty string; a missing challenger forecast and a skipped economic block
+are not errors, but each adds a note (the payload's own reason text is never echoed into the notes,
+which CI prints as workflow commands). When `live_record` is present, every count above must be a
+non-negative integer, every `recent[].status` one of the five statuses and every
+`recent[].model_version` a non-empty string, and `promotion` consistent: `accruing` with fewer than
+`required` weeks and no statistics, or a verdict on exactly `required` weeks with a mean difference
+(and a statistic with its p-value); `promote` needs a positive mean difference. `promotion` must name
+its pair (`model_version`, `challenger_key`: non-empty strings) and give the three excluded counts
+(non-negative integers); `champion.model_version` and `challenger.key` must be that pair; and the
+resolved entries must add up: `n_resolved = champion.n + promotion.n_excluded_other_version`, and
+`champion.n = challenger.n + promotion.n_excluded_other_challenger +
+promotion.n_excluded_no_challenger`. `next_result_due` must be present: an ISO date (`YYYY-MM-DD`)
+or null, and null when no entry is pending.
 
 ### The live record file
 
@@ -156,9 +183,14 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
 - `supply_study`: `data/supply_shock_study.json` `{method, placebo, groups, between_groups, priced_in,
   overlapping_events, superseded_claims, conclusion}`.
 - `ledger`: `data/research_ledger.json` `{method, alpha, hlz_t, summary, rows[]}`; `summary` includes
-  `by_status`, `by_family` and the lists of supported rows surviving each adjustment; a row is
-  `{id, date, family, hypothesis, test, statistic_name, statistic_value, p_value, q_bh, p_holm,
-  survives_bh, clears_t3, pre_specified, status, artifact}`.
+  `by_status` and each `by_family.<family>.by_status` (keys `supported`, `not_supported`, `retracted`,
+  `inconclusive`), `rows_in_multiplicity_family`, the lists of supported rows surviving each
+  adjustment, `selected_after_search` and `supported_selected_after_search` (rows left out of the
+  multiplicity family because the model they test was picked by a search of the same sample) and
+  `underpowered`; a row is `{id, date, family, hypothesis, test, statistic_name, statistic_value,
+  p_value, q_bh, p_holm, survives_bh, clears_t3, pre_specified, status, artifact}`, with `status`
+  one of those four keys, and `q_bh`, `p_holm`, `survives_bh` and `clears_t3` null for a row
+  selected after a search.
 
 `build_research_bundle.validate` requires the schema version, every `series` array to have
 `sample.n_weeks` entries, leaderboard rows with `key` and `qlike`, both post-mortem equity curves,

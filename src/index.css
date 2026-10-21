@@ -357,7 +357,7 @@ button { font: inherit; color: inherit; }
   padding: var(--sp-5) var(--sp-6) var(--sp-4);
 }
 .panel.span-full { grid-column: 1 / -1; }
-.panel.span-half { grid-column: span 6; }
+.panel.span-half { grid-column: span 6; } /* paired halves share the row height so the two figures align */
 
 .panel-head {
   display: grid;
@@ -425,21 +425,25 @@ button { font: inherit; color: inherit; }
   .split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-6); }
   .split--wide { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); }
 }
-.split--even .study + .study { border-top: 1px solid var(--rule); padding-top: var(--sp-5); }
-@container (min-width: 880px) {
-  .split--even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0; }
-  .split--even .study + .study { border-top: 0; padding-top: 0; border-left: 1px solid var(--rule); padding-left: var(--sp-6); }
-  .split--even .study:first-child { padding-right: var(--sp-6); }
-}
+/* Studies of unequal length are stacked at full width, so neither leaves a column of blank space. */
+.studies { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-5); }
+.studies .study + .study { border-top: 1px solid var(--rule); padding-top: var(--sp-5); }
 @container (min-width: 600px) and (max-width: 879px) {
   .split--vrp { grid-template-columns: minmax(0, 1fr) minmax(220px, 0.8fr); gap: var(--sp-5); }
 }
 .data-table .wrap-cell.stat-label { min-width: 140px; }
 .cell-note { display: block; font-size: var(--fs-11); font-weight: 400; color: var(--text-3); }
 .study-title { font-size: var(--fs-14); line-height: 1.4; font-weight: 600; color: var(--text-1); margin-bottom: var(--sp-3); }
+.study-head { margin-bottom: var(--sp-3); }
+.study-head .study-title { margin-bottom: 0; text-wrap: balance; }
+.study-meta { margin-top: var(--sp-1); font-family: var(--font-mono); font-size: var(--fs-11); line-height: 1.5; color: var(--text-3); }
 
 .prose-note { margin-top: var(--sp-3); max-width: var(--measure); font-size: var(--fs-12); line-height: 1.55; color: var(--text-2); }
 .prose-note.is-muted { color: var(--text-3); }
+/* A long note in a full-width panel: two columns at the usual line length instead of one beside a blank half. */
+@container (min-width: 880px) {
+  .prose-note.is-wide { max-width: calc(2 * var(--measure) + var(--sp-8)); columns: 2 40ch; column-gap: var(--sp-8); }
+}
 .callout {
   display: flex;
   flex-wrap: wrap;
@@ -478,7 +482,12 @@ button { font: inherit; color: inherit; }
 
 /* --------------------------------------------------------------------------- facts (dl rows) */
 .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--sp-3) var(--sp-5); margin-top: var(--sp-1); }
-.facts--row { margin-bottom: var(--sp-3); grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+/* auto-fit: a short row stretches across the width instead of leaving empty tracks. Each fact is a
+   subgrid over two shared rows, so a label that wraps never pushes its value below its neighbours'. */
+.facts--row { margin-bottom: var(--sp-3); grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); }
+.facts--row .fact { display: grid; grid-row: span 2; grid-template-rows: subgrid; row-gap: 2px; }
+.facts--row .fact dt { align-self: end; }
+.facts--row .fact dd { margin-top: 0; }
 .facts--stack { grid-template-columns: minmax(0, 1fr); gap: 0; }
 .facts--stack .fact { display: grid; grid-template-columns: minmax(120px, 34%) minmax(0, 1fr); gap: var(--sp-3); padding: 6px 0; border-bottom: 1px solid var(--rule); }
 .facts--stack .fact dt { white-space: normal; padding-top: 2px; }
@@ -604,6 +613,10 @@ tr.is-timing-control > * { color: var(--text-3); }
 tr.is-timing-control .model-name { color: var(--text-2); }
 tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timing-control > * { border-top: 1px solid var(--rule-strong); }
 .ledger-test { display: block; margin-top: 2px; font-size: var(--fs-11); color: var(--text-3); }
+.data-table .status-cell { white-space: normal; min-width: 116px; }
+.chip-stack { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.data-table .empty-cell { padding: var(--sp-4) 0; white-space: normal; color: var(--text-2); }
+.table-empty { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }
 .stat-block { display: inline-flex; flex-direction: column; align-items: flex-end; }
 .stat-block .cell-note { white-space: normal; max-width: 160px; text-align: right; }
 .superseded { margin-top: var(--sp-3); font-size: var(--fs-11); color: var(--text-3); max-width: var(--measure); }
@@ -701,8 +714,9 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 .dot-premium { fill: var(--s-implied); fill-opacity: 0.5; }
 .dot-loss { fill: var(--s-truth); fill-opacity: 0.75; }
 .bar-train { fill: var(--text-4); }
-.bar-purged { fill: none; stroke: var(--neg); stroke-dasharray: 3 2; }
-.purge-row.is-purged .row-label { fill: var(--neg); }
+.bar-purged { fill: none; stroke: var(--text-3); stroke-dasharray: 3 2; }
+.purge-row.is-purged .row-label { fill: var(--text-3); }
+.ring-muted { fill: none; stroke: var(--text-3); stroke-width: 1.25; }
 .end-label { font-weight: 600; }
 .end-value { fill: var(--text-2); }
 .line-2 { stroke-width: 2; }
@@ -710,6 +724,9 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 .whisker { stroke-width: 1.5; }
 .thin-range { stroke-width: 2; stroke: var(--text-4); }
 .row-label.is-strong { fill: var(--text-1); font-weight: 600; }
+.row-label .row-tag { fill: var(--text-3); }
+/* A label drawn over data: a stroke in the panel colour behind the glyphs keeps it legible. */
+.has-halo { paint-order: stroke; stroke: var(--bg-1); stroke-width: 4px; stroke-linejoin: round; }
 .value-label { fill: var(--text-2); }
 
 .fill-truth { fill: var(--s-truth); }
@@ -843,4 +860,9 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
   .site-footer-inner { padding: var(--sp-4) var(--sp-4) var(--sp-6); }
   .reference-list li { flex-direction: column; gap: 0; }
   .reference-list li .muted { text-align: left; }
+  /* A sticky row header takes at most about two fifths of a phone's width and wraps (a chip moves
+     to its own line), so the columns scrolling past it stay readable. */
+  .data-table.has-sticky tbody th[scope="row"],
+  .data-table.has-sticky thead th:first-child { white-space: normal; min-width: 112px; max-width: 40vw; }
+  .data-table.has-sticky .model-cell { flex-wrap: wrap; row-gap: 2px; }
 }

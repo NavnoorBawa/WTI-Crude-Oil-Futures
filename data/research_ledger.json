@@ -2285,7 +2285,7 @@
       "id": "vol_record_biased",
       "date": "2026-10-20",
       "family": "volatility forecast",
-      "hypothesis": "HAR-IV's variance forecast is biased (Mincer-Zarnowitz intercept 0, slope 1 rejected).",
+      "hypothesis": "HAR-IV's variance forecast is biased (its Mincer-Zarnowitz intercept differs from 0 or its slope from 1).",
       "test": "HAC Wald test of the Mincer-Zarnowitz regression",
       "statistic": {
         "name": "MZ slope",

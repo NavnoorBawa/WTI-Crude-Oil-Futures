@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { loadDashboard, readFixture, visibleText } from "./load.mjs";
+import { SECTIONS } from "../../src/app/sections.js";
+import { loadDashboard, readFixture, readSource, visibleText } from "./load.mjs";
 
 const FIXED_NOW = Date.parse("2026-10-21T12:00:00Z");
 Date.now = () => FIXED_NOW;
@@ -118,7 +119,7 @@ test("degraded payloads say exactly what is missing", () => {
   const fcst = none.html.match(/<section id="fcst"[\s\S]*?<\/section>/)[0];
   assert.ok(visibleText(fcst).includes(`${recent} weeks drawn`), "FCST meta describes the rows drawn");
   assert.ok(!visibleText(fcst).includes(`${data.vol_forecast.validation.n} weeks drawn`));
-  assert.match(visibleText(fcst), /band drawn \(production validation\) covered/);
+  assert.match(visibleText(fcst), /The band drawn is the production validation 80% interval, which covered /);
 
   const noLive = structuredClone(data);
   delete noLive.vol_forecast.live;
@@ -158,7 +159,7 @@ test("LEAK labels each Sharpe with its basis and shows the anatomy's caveats", (
   const gross = anatomy.design.sharpe.split(":")[0].trim();
   assert.ok(leak.includes(`Sharpe ${anatomy.unpurged_sharpe_mean.toFixed(2)}, ${gross}`), "the noise tile is gross");
   assert.ok(leak.includes(`Sharpe ${anatomy.retracted_reference.sharpe.toFixed(2)} ${anatomy.retracted_reference.sharpe_basis}`), "the retracted tile is after costs");
-  assert.ok(leak.includes(anatomy.conclusion), "the artifact's conclusion, caveats included");
+  assert.ok(leak.includes(m.format.tidyProse(anatomy.conclusion).replace(/\s+/g, " ")), "the artifact's conclusion, caveats included");
   // CL=F rows mark their own base rate; 50% is named as the random walk's no-skill line only.
   const svgSource = m.svg.LeakDumbbell.toString();
   assert.match(svgSource, /50% = no skill on the random walk/);
@@ -176,12 +177,19 @@ test("STDY shows both placebo tests and highlights a group only when both reject
     || m.assertions.placeboVerdict(group.settleP, group.settlePYear) === "both");
   assert.ok(passing.length > 0, "the fixture has a group that passes both placebos");
   assert.equal((stdy.match(/<tr class="passes-rule"/g) ?? []).length, passing.length);
-  const unmatchedOnly = study.groups.find((group) => m.assertions.placeboVerdict(group.peakP, group.peakPYear) === "one");
-  assert.ok(unmatchedOnly, "the fixture has a group that passes one placebo only");
-  const sentence = research.supply_study.conclusion.split(/(?<=\.)\s/).find((item) => /not the year-matched/.test(item));
-  assert.ok(sentence && text.includes(sentence), "the groups that pass only the unmatched placebo are named");
+  const oneSided = study.groups.filter((group) => m.assertions.placeboVerdict(group.peakP, group.peakPYear) === "one");
+  assert.ok(oneSided.length > 0, "the fixture has a group that passes one placebo only");
+  for (const group of oneSided) {
+    assert.ok(text.includes(`${group.name} (n = ${group.n}; ${m.format.fmtP(group.peakP).replace(/\s/g, " ")} vs placebo`), `${group.key} is named with its n and p`);
+  }
   assert.ok(text.includes(research.supply_study.overlapping_events.definition), "the overlap caveat");
   assert.match(stdy, /title="Windows share sessions: /);
+  // The overlapping events are named, not keyed, and the study's p-values print like the table's.
+  for (const pair of research.supply_study.overlapping_events.pairs) {
+    assert.ok(text.includes(pair.events.map(m.research.eventName).join(" and ")), pair.events.join(" "));
+    for (const id of pair.events) assert.ok(!text.includes(id), id);
+  }
+  assert.doesNotMatch(text, /p = 0\.\d{4}|data\/research_ledger\.json/);
 });
 
 test("canvas charts carry an accessible summary of what they draw", async () => {
@@ -211,7 +219,7 @@ test("without research.json every panel still renders, with an explicit note", (
     assert.ok(!/could not be displayed/.test(text));
     assert.ok(text.includes(`${data.vol_forecast.live.forecast_next_week_vol_annualized_pct} %`), "the hero still comes from data.json");
     assert.ok(text.includes(status === "loading" ? "Loading research.json" : "research.json is not available"));
-    assert.ok(text.includes("Forward record started"), "the live record needs only data.json");
+    assert.ok(text.includes("No live forecast has resolved yet"), "the live record needs only data.json");
   }
 });
 
@@ -221,12 +229,11 @@ test("an empty live record says when the first result is due instead of showing 
   const none = render(empty, research).text;
   assert.ok(none.includes("No calls recorded yet"));
   assert.ok(none.includes("Results appear once the first target window closes."), "next_result_due null: no date");
-  assert.doesNotMatch(none, /first result due/);
+  assert.doesNotMatch(none, /the first is due/);
   empty.vol_forecast.live_record.next_result_due = "2026-10-27";
-  assert.match(render(empty, research).text, /first result due Oct 27, 2026/, "the record's own date, not an estimate");
+  assert.match(render(empty, research).text, /the first is due Oct 27, 2026/, "the record's own date, not an estimate");
   delete empty.vol_forecast.live_record.next_result_due;
-  const { text } = render(empty, research);
-  assert.match(text, /first result due about [A-Z][a-z]{2} \d+, \d{4}/, "older payloads: estimated from the start date");
+  assert.doesNotMatch(render(empty, research).text, /the first is due/, "no date is estimated");
   const missing = structuredClone(data);
   delete missing.vol_forecast.live_record;
   assert.ok(render(missing, research).text.includes("No live record is in this snapshot"));
@@ -269,7 +276,8 @@ test("every headline statistic moves with the payload (none is hardcoded)", () =
     `${research.supply_study.placebo.median_peak_pct}% on an ordinary date`,
     // The computed anatomy title (the artifact's conclusion prose, also shown, quotes the same figure).
     `unpurged forest scores ${research.leak_anatomy.unpurged_dir_acc_pct_mean.toFixed(1)}%`,
-    `${research.ledger.summary.supported_surviving_bh_5pct.length} of ${research.ledger.summary.supported.length} supported claims`,
+    `${research.ledger.summary.supported_surviving_bh_5pct.length} of ${research.ledger.summary.supported.length
+      - research.ledger.summary.supported_selected_after_search.length} supported claims`,
   ];
   const original = render(data, research).text;
   for (const snippet of headline) assert.ok(original.includes(snippet), `fixture render shows "${snippet}"`);
@@ -345,4 +353,143 @@ test("the ledger filter narrows by family and status", () => {
   assert.ok(retracted.length > 0 && retracted.every((row) => row.status === "retracted"));
   const family = rows[0].family;
   assert.ok(filterLedger(rows, family, "all").every((row) => row.family === family));
+});
+
+const section = (html, id) => html.match(new RegExp(`<section id="${id}"[\\s\\S]*?</section>`))?.[0] ?? "";
+
+test("every section title makes one claim, short enough to scan", () => {
+  const { html } = render(data, research);
+  const titles = [...html.matchAll(/<(h2|h3)[^>]*>([\s\S]*?)<\/\1>/g)].map((match) => visibleText(match[2]).trim());
+  assert.ok(titles.length >= 20);
+  for (const title of titles) assert.ok(title.length <= 90, `${title.length}: ${title}`);
+});
+
+test("the ledger shows a failure to reject as not supported, and keeps the post-selection row out of the adjustment", () => {
+  const { html } = render(data, research);
+  const ledg = section(html, "ledg");
+  const summary = research.ledger.summary;
+  assert.doesNotMatch(visibleText(ledg), /\brejected\b/);
+  assert.equal((ledg.match(/class="chip chip--muted"[^>]*>not supported</g) ?? []).length, summary.by_status.not_supported);
+  assert.equal((ledg.match(/>underpowered</g) ?? []).length, summary.underpowered.length);
+  assert.match(visibleText(ledg), /a failure to reject, not evidence against the hypothesis/);
+  for (const id of summary.selected_after_search) {
+    const rowHtml = ledg.match(new RegExp(`<tr[^>]*>(?:(?!</tr>)[\\s\\S])*?>${id}</code>[\\s\\S]*?</tr>`))?.[0];
+    assert.ok(rowHtml, id);
+    assert.match(rowHtml, />selected after search</);
+    assert.equal((rowHtml.match(/>excluded</g) ?? []).length, 2, "no BH or t > 3 verdict");
+    assert.doesNotMatch(rowHtml, />yes</, "never shown as surviving an adjustment it was not in");
+  }
+  assert.ok(visibleText(ledg).includes(`${summary.selected_after_search.length} selected after a search, outside the adjustment`));
+});
+
+test("the hero names the OVX-only regression as the leaderboard does, with the leaderboard's DM sign", () => {
+  const { text } = render(data, research);
+  const v = data.vol_forecast.validation;
+  const label = m.research.ovxOnlyLabel(research.vol_lab);
+  const f = m.format;
+  assert.ok(text.includes(`DM t (+ = lower loss than HAR-IV): persistence ${f.fmtSigned(-v.har_vs_persistence_qlike_dm, 2)}, `
+    + `${label} ${f.fmtSigned(-v.har_vs_ovx_only_qlike_dm, 2)} (${f.fmtP(v.har_vs_ovx_only_qlike_dm_p_value).replace(/\s/g, " ")})`), "hero DM");
+  assert.ok(text.includes(`${f.fmtNum(v.ovx_only_qlike, 3)} ${label}`), "hero comparator name");
+  assert.ok(text.includes(`not distinguishable from the ${label}`), "FCST title");
+  assert.ok(visibleText(section(render(data, research).html, "modl")).includes(label), "the same name in the leaderboard");
+});
+
+test("LIVE compares the two models on the same weeks and labels the all-weeks QLIKE as its own sample", () => {
+  const payload = structuredClone(data);
+  const record = payload.vol_forecast.live_record;
+  Object.assign(record, {
+    n_recorded: 3, n_resolved: 3, n_pending: 0, n_independent: 3, next_result_due: null,
+    champion: { ...record.champion, n: 3, qlike: 0.815, interval_80_coverage_pct: 66.7, mean_forecast_pct: 40.1, mean_realized_pct: 44.2 },
+    challenger: { ...record.challenger, n: 2, qlike: 0.0187, champion_qlike: 0.0213 },
+    promotion: { ...record.promotion, n_independent_paired: 2, n_excluded_no_challenger: 1 },
+  });
+  const { html, text } = render(payload, research);
+  const live = visibleText(section(html, "live"));
+  const f = m.format;
+  const same = `${f.fmtNum(record.challenger.champion_qlike, 3)} for the model of record vs ${f.fmtNum(record.challenger.qlike, 3)} for the challenger`;
+  assert.ok(live.includes(`On the same ${record.challenger.n} live weeks, QLIKE ${same}`), "title");
+  assert.ok(live.includes(`QLIKE, same weeks ${f.fmtNum(record.challenger.champion_qlike, 3)} / ${f.fmtNum(record.challenger.qlike, 3)}`
+    + ` record / HAR-IV-range, n ${record.challenger.n}`), "paired fact");
+  assert.ok(live.includes(`QLIKE, record, all weeks ${f.fmtNum(record.champion.qlike, 3)} ${record.champion.model_version}, n ${record.champion.n}`), "all-weeks fact");
+  assert.ok(live.includes(`pinned pair: HAR-IV (${record.promotion.model_version}) vs HAR-IV-range`));
+  assert.ok(live.includes("Resolved weeks left out of it: 1 with no challenger forecast."));
+  assert.ok(text.includes(`QLIKE ${f.fmtNum(record.challenger.champion_qlike, 3)} record vs ${f.fmtNum(record.challenger.qlike, 3)} challenger, same ${record.challenger.n} wk`), "verdict tile");
+  assert.ok(!text.includes(`QLIKE ${f.fmtNum(record.champion.qlike, 3)} for the model of record`), "never the mixed-sample pair");
+});
+
+test("a missing challenger, OVX source or economic block says why in one neutral note", () => {
+  const payload = structuredClone(data);
+  Object.assign(payload.vol_forecast.live, {
+    challenger: null, challenger_error: "RuntimeError: CL=F OHLC bars unavailable",
+    implied_vol_ovx_pct: null, ovx_error: "Yahoo ^OVX: timeout; FRED OVXCLS: timeout",
+  });
+  payload.vol_forecast.economic = { unavailable_reason: "no same-contract returns (HTTPError)" };
+  const { html, text, errors } = render(payload, research);
+  assert.deepEqual(errors, []);
+  assert.ok(text.includes("Challenger — not published this session"), "hero challenger");
+  assert.ok(text.includes("no OVX source this session; forecast without OVX"), "hero OVX");
+  const live = visibleText(section(html, "live"));
+  assert.ok(live.includes("No challenger forecast in this snapshot, so this session's call cannot enter the promotion test."));
+  assert.ok(live.includes("Reason recorded: RuntimeError: CL=F OHLC bars unavailable"));
+  for (const [id, what] of [["risk", "Volatility targeting"], ["vrp", "The variance risk premium"]]) {
+    const body = visibleText(section(html, id));
+    assert.ok(body.includes(`${what} is not in this snapshot`), id);
+    assert.ok(body.includes("The economic tests did not run: no same-contract returns (HTTPError)."), id);
+  }
+});
+
+test("VRP reads the share of positive periods against the zero-premium null, and the premium in variance units", () => {
+  const { html } = render(data, research);
+  const vrp = data.vol_forecast.economic.variance_risk_premium;
+  const body = visibleText(section(html, "vrp"));
+  const f = m.format;
+  const pFor = f.fmtP(vrp.zero_premium_null.p_value_one_sided).replace(/\s/g, " ");
+  assert.ok(body.includes(`OVX was above realized vol in ${f.fmtPct(vrp.share_positive_pct)} of periods against `
+    + `${f.fmtPct(vrp.zero_premium_null.share_positive_pct)} expected with no premium (${pFor}, one-sided block bootstrap)`), "caption");
+  assert.ok(body.includes("the premium in variance units is the measure"));
+  const rows = m.vrp.vrpStatRows(vrp);
+  assert.equal(rows[1].key, "meanVariance", "the variance-unit premium leads the statistics");
+  assert.ok(rows.find((row) => row.key === "share").note.includes(`${f.fmtPct(vrp.zero_premium_null.share_positive_pct)} expected with no premium`));
+  assert.ok(body.includes("Cboe Crude Oil ETF Volatility Index") && !body.includes("CBOE"), "the index's own spelling");
+});
+
+test("the economic tests state their span and why it ends before the other panels", () => {
+  const { html } = render(data, research);
+  const returns = data.vol_forecast.economic.returns;
+  const span = m.format.fmtSpan(returns.sample_start, returns.sample_end);
+  const vrp = visibleText(section(html, "vrp"));
+  assert.ok(vrp.includes(`${span} (same-contract returns end with the committed EIA curve)`), "VRP meta");
+  const risk = visibleText(section(html, "risk"));
+  assert.ok(risk.includes(`${data.vol_forecast.economic.vol_target_overlay.n_weeks} weeks, ${span}`), "sizing caption");
+  for (const body of [vrp, risk]) assert.ok(body.includes(`The sample ends in ${m.format.fmtMonthYear(returns.sample_end)} because these tests use same-contract returns`));
+});
+
+test("every section with a code chip is in the top-bar navigation, in page order", () => {
+  const { html } = render(data, research);
+  const ids = [...html.matchAll(/<section id="([a-z]+)" class="panel/g)].map((match) => match[1]);
+  assert.deepEqual(SECTIONS.map((item) => item.id), ids);
+});
+
+test("no internal identifier or repository path is shown as text", () => {
+  const payload = structuredClone(data);
+  payload.vol_forecast.live_record.recent = [{ ...payload.vol_forecast.live_record.recent[0], status: "late_commit" }];
+  const text = render(payload, research).text.replace(/\b(?:dir|vol|carry|leak|var|vrp|shock)_[a-z0-9_]+\b/g, "");   // ledger row ids
+  for (const token of ["har_iv_sameday", "late_commit", "skipped_roll", "hurricane_katrina_2005", "with_macro", "same_day vs",
+    "supply_shock_study.json", "mcs_size", "mcs_members", "data/research_ledger.json", "Gibbs-Candes"]) {
+    assert.ok(!text.includes(token), token);
+  }
+});
+
+test("the share image is a static 1200x630 PNG behind absolute URLs", () => {
+  const head = readSource("index.html");
+  const meta = (attr, name) => head.match(new RegExp(`<meta\\s+${attr}="${name}"\\s+content="([^"]+)"`))?.[1];
+  const site = "https://navnoorbawa.github.io/WTI-Crude-Oil-Futures/";
+  assert.equal(meta("property", "og:image"), `${site}og-image.png`);
+  assert.equal(meta("name", "twitter:image"), `${site}og-image.png`);
+  assert.equal(meta("name", "twitter:card"), "summary_large_image");
+  assert.deepEqual([meta("property", "og:image:width"), meta("property", "og:image:height")], ["1200", "630"]);
+  const png = readFileSync(new URL("../../public/og-image.png", import.meta.url));
+  assert.equal(png.subarray(1, 4).toString("latin1"), "PNG");
+  assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [1200, 630], "IHDR width and height");
+  assert.ok(png.length < 200 * 1024, `${png.length} bytes`);
 });

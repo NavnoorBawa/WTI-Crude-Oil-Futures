@@ -3,7 +3,7 @@ import { getPriceChart } from "../charts/lazy";
 import LazyMount from "../components/LazyMount";
 import Panel from "../components/Panel";
 import Segmented from "../components/Segmented";
-import { fmtUsd, num } from "../lib/format";
+import { fmtDate, fmtUsd, num } from "../lib/format";
 import { asArray, asText } from "../lib/research";
 
 const RANGES = [
@@ -31,7 +31,7 @@ export default function MarketPanel({ data }) {
       title={`${historySymbol} continuous front month (unadjusted; rolls at expiry)`}
       meta={[
         values.length ? `${values.length.toLocaleString("en-US")} prices` : null,
-        first ? `since ${first}` : null,
+        first ? `since ${fmtDate(first)}` : null,
         values.length ? `last ${fmtUsd(values[values.length - 1])}` : null,
         "times in CT",
       ]}

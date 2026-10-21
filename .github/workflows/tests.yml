@@ -157,9 +157,9 @@ jobs:
         # on every event. The full tree (dev tooling included: eslint, vite) is strict on pull
         # requests, pushes and manual runs; on the weekly schedule a dev-only advisory is a warning
         # annotation instead, so an upstream advisory in build tooling, with no fix to take yet,
-        # does not turn main's badge red between pull requests. A registry/network error (the
-        # 2026-09-03 deploy died on an npm advisory-endpoint timeout) is retried, then only
-        # warned: an unreachable audit endpoint is not a vulnerability.
+        # does not turn main's badge red between pull requests. A registry or network error from
+        # the advisory endpoint is retried, then only warned: an unreachable audit endpoint is not
+        # a vulnerability.
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |

@@ -48,8 +48,9 @@ select = [
 ]
 
 # ------------------------------------------------------------------------------------------------
-# mypy: strict on the evaluation statistics, the data snapshot, the contract calendar and the
-# research lab. Other modules are followed for their types but not reported on.
+# mypy: strict on the evaluation statistics, the data snapshot, the contract calendar, the
+# research lab, the model of record, the live track record and the research ledger. Other modules
+# are followed for their types but not reported on.
 # ------------------------------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.12"
@@ -59,6 +60,9 @@ files = [
     "backend/market_data.py",
     "backend/contract_calendar.py",
     "backend/vol_lab.py",
+    "backend/vol_forecast.py",
+    "backend/vol_record.py",
+    "backend/research_ledger.py",
 ]
 follow_imports = "silent"
 warn_unreachable = true

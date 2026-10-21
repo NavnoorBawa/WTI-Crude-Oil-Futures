@@ -2,9 +2,11 @@ import { useMemo } from "react";
 import Chip from "../components/Chip";
 import DataTable from "../components/DataTable";
 import Panel from "../components/Panel";
-import { ALPHA, leaderboardAssertion, spaAssertion } from "../lib/assertions";
+import { ALPHA, leaderboardAssertion, leaderboardDetail, spaAssertion } from "../lib/assertions";
 import { DASH, fmtInt, fmtNum, fmtP, fmtPValue, fmtSpan, num, withCentralTime } from "../lib/format";
-import { asArray, asObject, asText, getLab, getVol, hasMcsResults, leaderboardRows, mcsLevel, shortLabel } from "../lib/research";
+import {
+  asArray, asObject, asText, getLab, getVol, hasMcsResults, leaderboardRows, mcsLevel, modelLabels, shortLabel, withModelLabels,
+} from "../lib/research";
 import { ResearchUnavailable } from "./common";
 
 const INPUT_TEXT = (info) => {
@@ -60,6 +62,7 @@ export default function LeaderboardPanel({ data, research, researchStatus }) {
   const record = rows.find((row) => row.role === "record");
   const lags = num(asArray(board?.models).find((model) => model?.dm_qlike_vs_har_iv?.lags != null)?.dm_qlike_vs_har_iv?.lags);
   const recordName = record ? shortLabel(record.label) : "the model of record";
+  const labels = modelLabels(lab);
 
   if (!rows.length) {
     return (
@@ -80,7 +83,7 @@ export default function LeaderboardPanel({ data, research, researchStatus }) {
           {controls.map((row) => shortLabel(row.label)).join(", ")}: a timing control, listed below the ranking and left out of
           every Model Confidence Set and every count above.{" "}
           {asText(board?.mcs_note)
-            ? withCentralTime(board.mcs_note)
+            ? withModelLabels(withCentralTime(board.mcs_note), labels)
             : "It reads the test day's OVX close, published after the forecast is made, so it is not a feasible forecast; its losses and DM t are shown for comparison."}
         </li>
       )}
@@ -94,7 +97,7 @@ export default function LeaderboardPanel({ data, research, researchStatus }) {
         <li>
           Switching each day to the model with the best trailing {fmtInt(lab?.config?.selection_window_weeks)}-week QLIKE
           scores {fmtNum(selection.qlike, 4)} vs {fmtNum(selection.qlike_har_iv, 4)} for {recordName}
-          {selectionP != null ? ` (DM ${fmtP(selectionP)})` : ""}{selectionP != null && selectionP >= ALPHA ? ": no gain from model picking." : "."}
+          {selectionP != null ? ` (DM ${fmtP(selectionP)})` : ""}{selectionP != null && selectionP >= ALPHA ? `: not a significant gain over always using ${recordName}.` : "."}
         </li>
       )}
       {noise && num(noise.har_direction_acc_pct_mean) != null && (
@@ -120,6 +123,7 @@ export default function LeaderboardPanel({ data, research, researchStatus }) {
       title={leaderboardAssertion(rows, { level, available: mcsAvailable })}
       fallbackTitle="Models ranked by out-of-sample QLIKE"
       meta={[
+        ...leaderboardDetail(rows, { available: mcsAvailable }),
         controls.length ? `${fmtInt(eligibleCount)} models + ${fmtInt(controls.length)} timing control` : `${fmtInt(rows.length)} models`,
         board?.n_days != null ? `n ${fmtInt(board.n_days)} days` : null,
         fmtSpan(lab?.sample?.first, lab?.sample?.last),

@@ -1,4 +1,6 @@
-// The section codes in the top bar, in page order. `id` is the panel's anchor.
+// The section codes in the top bar, in page order. `id` is the panel's anchor. Every section with a
+// code chip is listed, the price chart included: it stays last, after the research it gives context
+// to, and the bar still reaches it.
 export const SECTIONS = [
   { id: "fcst", code: "FCST", name: "Forecast vs realized" },
   { id: "modl", code: "MODL", name: "Model leaderboard" },
@@ -12,4 +14,5 @@ export const SECTIONS = [
   { id: "stdy", code: "STDY", name: "Side studies" },
   { id: "ledg", code: "LEDG", name: "Research ledger" },
   { id: "meth", code: "METH", name: "Methodology" },
+  { id: "mkt", code: "MKT", name: "Market" },
 ];

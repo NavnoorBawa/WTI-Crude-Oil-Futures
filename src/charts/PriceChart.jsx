@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { AreaSeries, CrosshairMode, TickMarkType, createChart } from "lightweight-charts";
 import { DASH, fmtNum, fmtUsd, num, toMs } from "../lib/format";
-import { SERIES, SURFACE, baseChartOptions, fontsReady, labelAttribution, withAlpha } from "../theme/chartTheme";
+import { SERIES, SURFACE, baseChartOptions, fontsReady, withAlpha } from "../theme/chartTheme";
 
 // The CL=F continuous front-month price (unadjusted; it jumps at each roll). Context only: no model
 // output is drawn on it. Times are US Central (CME wall clock).
@@ -55,7 +55,7 @@ const sessionDay = (wallSec) => Math.floor((wallSec + 7 * HOUR) / DAY);
 const sessionClose = (day) => day * DAY + 16 * HOUR;
 
 const wallFormat = (options) => new Intl.DateTimeFormat("en-US", { timeZone: "UTC", ...options });
-const WALL_DAY = wallFormat({ weekday: "short", month: "short", day: "numeric", year: "numeric" });
+const WALL_DAY = wallFormat({ month: "short", day: "numeric", year: "numeric" });
 const WALL_TIME = wallFormat({ month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 const WALL_CLOCK = wallFormat({ hour: "numeric", minute: "2-digit" });
 const WALL_MONTH = wallFormat({ month: "short" });
@@ -238,7 +238,9 @@ function PriceChart({ actualPayload = null, snapshotPrice = null, range = "ALL" 
         topColor: withAlpha(SERIES.truth, 0.08),
         bottomColor: withAlpha(SERIES.truth, 0.0),
         lineWidth: 1.5,
-        lastValueVisible: true,
+        // No last-value tag on the price axis: it covers the nearest tick label, and the legend and
+        // the panel's meta already give the latest price.
+        lastValueVisible: false,
         priceLineVisible: true,
         priceLineColor: withAlpha(SERIES.truth, 0.4),
         crosshairMarkerRadius: 3,
@@ -259,7 +261,6 @@ function PriceChart({ actualPayload = null, snapshotPrice = null, range = "ALL" 
         if (entry) chart.resize(Math.floor(entry.contentRect.width), Math.floor(entry.contentRect.height));
       });
       observer.observe(host);
-      labelAttribution(host);
       chartRef.current = state;
       setReady(true);
       teardown = () => {

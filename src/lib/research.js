@@ -1,7 +1,7 @@
 // Pure selectors over data.json (schema 3) and research.json (schema 1). See docs/DATA_CONTRACT.md.
 // Every function tolerates a missing or malformed field and returns null / [] instead of throwing:
 // research.json is optional, and one bad field must cost a figure, not the page.
-import { addWeekdays, num } from "./format";
+import { num } from "./format";
 
 export const asObject = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : null);
 export const asArray = (value) => (Array.isArray(value) ? value : []);
@@ -78,16 +78,34 @@ export const informationSet = (model, { comboMembers = [], byKey = new Map() } =
 
 // ------------------------------------------------------------------------------------ leaderboard
 
-// Payloads written before the timing_control flag existed carry the same-day-OVX variant unflagged.
-const LEGACY_TIMING_CONTROL = "har_iv_sameday";
+/**
+ * A timing control (leaderboard timing_control: true) uses information published after the
+ * decision (same-day OVX): its losses are reported for comparison, but it is not a feasible
+ * forecast, so it takes no part in the Model Confidence Set or in any "best model" statement.
+ */
+export const isTimingControl = (model) => model?.timing_control === true;
+
+/** The lab key of the regression on OVX alone, the strongest simple benchmark on the page. */
+export const OVX_ONLY_KEY = "ovx_only";
 
 /**
- * A timing control uses information published after the decision (same-day OVX): its losses are
- * reported for comparison, but it is not a feasible forecast, so it takes no part in the Model
- * Confidence Set or in any "best model" statement.
+ * The OVX-only regression's display name: the benchmark lab's label for it, so the hero, the
+ * forecast panel and the leaderboard name it alike (the weekly validation fits the same model).
  */
-export const isTimingControl = (model) =>
-  typeof model?.timing_control === "boolean" ? model.timing_control : model?.key === LEGACY_TIMING_CONTROL;
+export const ovxOnlyLabel = (lab) => shortLabel(modelLabels(lab).get(OVX_ONLY_KEY) ?? "OVX-only regression");
+
+/**
+ * Replaces each snake_case model key the lab knows ("har_iv_sameday") with its display label
+ * wherever it appears as a word in payload prose. Single-word keys ("persistence") are ordinary
+ * words in prose and are left alone.
+ */
+export const withModelLabels = (text, labels) => {
+  if (typeof text !== "string" || !labels?.size) return text;
+  const keys = [...labels.keys()].filter((key) => key.includes("_")).sort((a, b) => b.length - a.length);
+  if (!keys.length) return text;
+  const pattern = new RegExp(`\\b(${keys.map((key) => key.replace(/[^\w]/g, "\\$&")).join("|")})\\b`, "g");
+  return text.replace(pattern, (key) => shortLabel(labels.get(key)));
+};
 
 /** The Model Confidence Set's confidence level in percent (90 for size 0.10), or null. */
 export const mcsLevel = (lab) => {
@@ -165,12 +183,11 @@ export const leaderboardRows = (lab) => {
   });
 };
 
-/** Whether the leaderboard carries Model Confidence Set results at all (an older or partial payload may not). */
-export const hasMcsResults = (lab) => {
-  const board = asObject(lab?.leaderboard);
-  return Boolean(board) && (Array.isArray(board.mcs_qlike_included)
-    || asArray(board.models).some((model) => typeof model?.in_mcs_qlike === "boolean"));
-};
+/**
+ * Whether the leaderboard carries its Model Confidence Set (mcs_qlike_included). Without it no
+ * survivor count is stated: an absent set is never reported as an empty one.
+ */
+export const hasMcsResults = (lab) => Array.isArray(asObject(lab?.leaderboard)?.mcs_qlike_included);
 
 /**
  * Model Confidence Set headline numbers over the eligible models. `survivors` is null when the
@@ -394,25 +411,14 @@ export const coverageByYear = (lab, key) => {
 
 // ------------------------------------------------------------------------------------ live record
 
-/**
- * The session a call issued on `dateText` resolves: it is scored on the `horizon` settlement-to-
- * settlement returns after the first settlement following the issue, so its window ends `horizon`
- * weekdays after the issue session. Exchange holidays and late-day issues are not modelled, so the
- * result is labelled as an estimate wherever it is shown.
- */
-export const estimateTargetEnd = (dateText, horizon = 5) => {
-  const start = addWeekdays(dateText, 0);
-  if (!start) return null;
-  const day = new Date(`${start}T00:00:00Z`).getUTCDay();
-  const issueSession = day === 0 || day === 6 ? addWeekdays(start, 1) : start;
-  return addWeekdays(issueSession, horizon);
-};
-
 const PROMOTION_STATUSES = new Set(["accruing", "promote", "keep"]);
 
 /**
  * live_record.promotion, normalized: where the challenger stands against the promotion rule.
  * `paired` independent resolved weeks have both forecasts; the test runs once `required` accrue.
+ * The test is pinned to one pair, the model of record at `modelVersion` against the challenger
+ * `challengerKey`; resolved weeks of any other version or challenger, or with no challenger
+ * forecast, are counted in `excluded` and never enter it.
  */
 export const promotionStatus = (raw) => {
   const promotion = asObject(raw);
@@ -425,6 +431,13 @@ export const promotionStatus = (raw) => {
     dmStat: num(promotion.dm_stat),
     p: num(promotion.p_value),
     meanDifference: num(promotion.mean_qlike_difference),
+    modelVersion: asText(promotion.model_version),
+    challengerKey: asText(promotion.challenger_key),
+    excluded: {
+      otherVersion: num(promotion.n_excluded_other_version),
+      otherChallenger: num(promotion.n_excluded_other_challenger),
+      noChallenger: num(promotion.n_excluded_no_challenger),
+    },
   };
 };
 
@@ -432,31 +445,22 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}/;
 
 /**
  * The live forward record (data.json vol_forecast.live_record), normalized. `firstResult` is the
- * record's own next_result_due when the payload carries that key (the earliest target_end of a
- * pending call whose window does not span a contract roll; null means no result is due). Older
- * payloads without it fall back to the earliest pending call's target_end, or (no calls yet) an
- * estimate from the start date.
+ * record's next_result_due: the earliest target_end of a pending call whose window does not span
+ * a contract roll, or null when no result is due.
+ *
+ * Two samples of QLIKE appear. `paired` compares the two models on the same resolved weeks (the
+ * pinned pair's, challenger.n of them); `champion` scores the model of record on every resolved
+ * week of its pinned version (champion.n), a larger sample, and is only ever shown labelled as such.
  */
-export const liveRecordSummary = (record, horizon = 5) => {
+export const liveRecordSummary = (record) => {
   const lr = asObject(record);
   if (!lr) return null;
   const recent = asArray(lr.recent).filter((row) => asObject(row));
   const started = asText(lr.started);
-  let firstResult;
-  let firstResultIsEstimate = false;
-  if (Object.hasOwn(lr, "next_result_due")) {
-    const due = asText(lr.next_result_due);
-    firstResult = due && ISO_DATE.test(due) ? due.slice(0, 10) : null;
-  } else {
-    const pendingEnds = recent
-      .filter((row) => row.status === "pending" && asText(row.target_end))
-      .map((row) => row.target_end)
-      .sort();
-    // With calls on record but none pending (e.g. the first was skipped at a roll), there is no
-    // honest date to quote, so none is estimated.
-    firstResult = pendingEnds[0] ?? (started && recent.length === 0 ? estimateTargetEnd(started, horizon) : null);
-    firstResultIsEstimate = pendingEnds.length === 0 && firstResult != null;
-  }
+  const due = asText(lr.next_result_due);
+  const firstResult = due && ISO_DATE.test(due) ? due.slice(0, 10) : null;
+  const champion = asObject(lr.champion) ?? {};
+  const challenger = asObject(lr.challenger) ?? {};
   return {
     started,
     recorded: num(lr.n_recorded),
@@ -466,15 +470,20 @@ export const liveRecordSummary = (record, horizon = 5) => {
     expired: num(lr.n_expired),
     lateCommit: num(lr.n_late_commit),
     independent: num(lr.n_independent),
-    champion: asObject(lr.champion) ?? {},
-    challenger: asObject(lr.challenger) ?? {},
+    champion,
+    challenger,
+    paired: {
+      n: num(challenger.n),
+      record: num(challenger.champion_qlike),
+      challenger: num(challenger.qlike),
+    },
+    recordAll: { n: num(champion.n), qlike: num(champion.qlike), modelVersion: asText(champion.model_version) },
     recent,
     promotion: promotionStatus(lr.promotion),
     promotionRule: asText(lr.promotion_rule),
     note: asText(lr.note),
     directionNote: asText(lr.direction_note),
     firstResult,
-    firstResultIsEstimate,
   };
 };
 
@@ -489,15 +498,12 @@ const MODEL_LABELS = { nearest_neighbour: "1-NN", decision_tree: "Tree", random_
 // Experiments on symmetric i.i.d. returns, where 50% is the no-skill accuracy. On CL=F returns it is
 // each run's base rate (the share of the more common sign), reported per arm as base_rate_pct_mean.
 const SYMMETRIC_EXPERIMENTS = new Set(["synthetic_random_walk"]);
-// Used only when research.json predates design.sharpe / retracted_reference.sharpe_basis.
-const EXPERIMENT_SHARPE_BASIS = "gross (no transaction costs)";
-const REFERENCE_SHARPE_BASIS = "after transaction costs";
 
 /**
  * research.json leak_anatomy, normalized: the analytic sign-agreement ladder by training row and
  * one row per experiment x model with unpurged and purged accuracy / Sharpe. The experiments'
  * Sharpe ratios are gross and the retracted model's is after costs; `sharpeBasis` carries both
- * labels (from the artifact when it states them).
+ * labels as the artifact states them (design.sharpe, retracted_reference.sharpe_basis).
  */
 export const leakAnatomy = (research) => {
   const anatomy = asObject(research?.leak_anatomy);
@@ -554,8 +560,8 @@ export const leakAnatomy = (research) => {
     ladder,
     experiments,
     sharpeBasis: {
-      experiments: designBasis ?? EXPERIMENT_SHARPE_BASIS,
-      reference: asText(reference?.sharpe_basis) ?? REFERENCE_SHARPE_BASIS,
+      experiments: designBasis,
+      reference: asText(reference?.sharpe_basis),
     },
     upSharePct: num(design?.cl_5_session_up_share_pct),
     formula: asText(anatomy.analytic?.formula),
@@ -567,11 +573,22 @@ export const leakAnatomy = (research) => {
     signAgreement: num(anatomy.analytic_sign_agreement_pct),
     reference: reference ? { accuracy: num(reference.accuracy_pct), sharpe: num(reference.sharpe), n: num(reference.n) } : null,
     conclusion: asText(anatomy.conclusion),
-    note: asText(anatomy.note),
   };
 };
 
 // --------------------------------------------------------------------------------- supply study
+
+const EVENT_WORDS = { opec: "OPEC", irgc: "IRGC", us: "US", uk: "UK", uae: "UAE", jan: "Jan", feb: "Feb", mar: "Mar",
+  apr: "Apr", jun: "Jun", jul: "Jul", aug: "Aug", sep: "Sep", oct: "Oct", nov: "Nov", dec: "Dec" };
+
+/** An event id as a name: "hurricane_katrina_2005" -> "Hurricane Katrina (2005)". */
+export const eventName = (id) => {
+  if (typeof id !== "string" || !id) return id;
+  const words = id.split("_").filter(Boolean);
+  const year = /^\d{4}$/.test(words[words.length - 1] ?? "") ? words.pop() : null;
+  const name = words.map((word) => EVENT_WORDS[word] ?? `${word.charAt(0).toUpperCase()}${word.slice(1)}`).join(" ");
+  return year ? `${name} (${year})` : name;
+};
 
 /** research.json supply_study, normalized: the placebo and each event group vs that placebo. */
 export const supplyStudy = (research) => {
@@ -635,20 +652,30 @@ export const supplyStudy = (research) => {
 
 // --------------------------------------------------------------------------------------- ledger
 
-/** research.json ledger: every tested hypothesis with multiplicity-adjusted p-values. */
+/**
+ * research.json ledger: every tested hypothesis with multiplicity-adjusted p-values. A row
+ * `selectedAfterSearch` tests a model chosen as the best of a field on the same sample: it is left
+ * out of the multiplicity family, so its q, Holm p and survival flags are null by design. A row
+ * `underpowered` failed to reject with a test whose recorded power is below its target.
+ */
 export const researchLedger = (research) => {
   const ledger = asObject(research?.ledger);
-  const rows = asArray(ledger?.rows ?? research?.ledger)
+  const summary = asObject(ledger?.summary) ?? {};
+  // The flags are read from each row, or from the summary's lists of row ids.
+  const afterSearch = new Set(asArray(summary.selected_after_search));
+  const underpowered = new Set(asArray(summary.underpowered));
+  const rows = asArray(ledger?.rows)
     .filter((row) => asObject(row) && (asText(row.id) || asText(row.hypothesis)))
     .map((row) => ({
       ...row,
-      statistic: num(row.statistic_value ?? row.statistic),
+      statistic: num(row.statistic_value),
       p: num(row.p_value),
       q: num(row.q_bh),
       holm: num(row.p_holm),
+      selectedAfterSearch: row.selected_after_search === true || afterSearch.has(row.id),
+      underpowered: row.underpowered === true || underpowered.has(row.id),
     }));
   if (!rows.length) return null;
-  const summary = asObject(ledger?.summary) ?? {};
   return {
     rows,
     byId: new Map(rows.filter((row) => asText(row.id)).map((row) => [row.id, row])),
@@ -658,10 +685,38 @@ export const researchLedger = (research) => {
     byFamily: asObject(summary.by_family),
     byStatus: asObject(summary.by_status) ?? rows.reduce((acc, row) => ({ ...acc, [row.status]: (acc[row.status] ?? 0) + 1 }), {}),
     supported: asArray(summary.supported).length || rows.filter((row) => row.status === "supported").length,
+    // Supported rows outside the multiplicity family (selected after a search): never counted as
+    // surviving an adjustment they did not take part in.
+    supportedAfterSearch: rows.filter((row) => row.status === "supported" && row.selectedAfterSearch).length,
     survivingBh: Array.isArray(summary.supported_surviving_bh_5pct) ? summary.supported_surviving_bh_5pct.length : null,
     clearingHurdle: Array.isArray(summary.supported_clearing_hlz_t3) ? summary.supported_clearing_hlz_t3.length : null,
     preSpecified: num(summary.pre_specified_rows),
+    underpowered: rows.filter((row) => row.underpowered).length,
   };
+};
+
+/** Ledger statuses as words ("not_supported" -> "not supported"). */
+export const ledgerStatusLabel = (status) => (typeof status === "string" ? status.replace(/_/g, " ") : status);
+
+// Internal names in the ledger's test and statistic text, with the words the page uses for them.
+const LEDGER_TERMS = [
+  [/\bwith_macro vs no_macro\b/g, "with vs without macro features"],
+  [/\bwith_macro accuracy\b/g, "accuracy with macro features"],
+  [/\bsame_day vs lagged_1d\b/g, "same-day vs one-day-lagged context"],
+  [/\s*\(supply_shock_study\.json method\)/g, " (the supply study's method)"],
+];
+
+/**
+ * Ledger prose (hypothesis, test or statistic name) in display words: the terms above, the Model
+ * Confidence Set's level in place of its formula, each lab model key as its label, and any other
+ * snake_case name with spaces.
+ */
+export const ledgerText = (text, { labels = new Map(), mcsLevel = null } = {}) => {
+  if (typeof text !== "string") return text;
+  const named = LEDGER_TERMS.reduce((out, [pattern, words]) => out.replace(pattern, words), text)
+    .replace(/\s*\(mcs_members\) is the 1 - mcs_size confidence set/g,
+      mcsLevel != null ? ` is the ${mcsLevel}% confidence set` : " is its own confidence set");
+  return withModelLabels(named, labels).replace(/\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g, (key) => key.replace(/_/g, " "));
 };
 
 // ---------------------------------------------------------------------------------- vol target
@@ -700,13 +755,57 @@ export const volTargetRisk = (overlay) => {
 };
 
 /**
+ * A Diebold-Mariano t from the weekly validation (har_vs_*_qlike_dm, positive when the model of
+ * record has the lower loss) in the page's convention, the leaderboard's: positive when the named
+ * benchmark has the lower loss than the model of record.
+ */
+const versusRecord = (value) => {
+  const n = num(value);
+  return n == null ? null : -n;
+};
+
+/**
  * The strongest simple benchmark in the weekly validation: a regression on OVX alone. `dm` is
- * signed so that a positive value favours the model of record.
+ * the Diebold-Mariano t in the page's convention (positive = lower loss than the model of record).
  */
 export const ovxOnlyBenchmark = (validation) => {
   const qlike = num(validation?.ovx_only_qlike);
   if (qlike == null) return null;
-  return { qlike, dm: num(validation?.har_vs_ovx_only_qlike_dm), p: num(validation?.har_vs_ovx_only_qlike_dm_p_value) };
+  return { qlike, dm: versusRecord(validation?.har_vs_ovx_only_qlike_dm), p: num(validation?.har_vs_ovx_only_qlike_dm_p_value) };
+};
+
+/** Persistence in the weekly validation, its DM t in the page's convention (see ovxOnlyBenchmark()). */
+export const persistenceBenchmark = (validation) => {
+  const qlike = num(validation?.persistence_qlike);
+  if (qlike == null) return null;
+  return { qlike, dm: versusRecord(validation?.har_vs_persistence_qlike_dm) };
+};
+
+/**
+ * data.json vol_forecast.economic.variance_risk_premium with its zero-premium null. With no
+ * premium a 20-session realized vol still falls below implied vol in most periods and the mean
+ * gap in vol points is positive (Jensen's inequality), so the share of positive periods is read
+ * against `nullShare` (with its one-sided test `nullP`), never against 50%. The premium in
+ * variance units, with its interval, is the one that measures a premium directly.
+ */
+export const vrpSummary = (vrp) => {
+  const block = asObject(vrp);
+  if (!block) return null;
+  const zero = asObject(block.zero_premium_null);
+  const ci = asArray(block.mean_premium_variance_ci95).map(num);
+  return {
+    n: num(block.n_periods),
+    share: num(block.share_positive_pct),
+    meanVolPts: num(block.mean_premium_vol_pts),
+    meanVariance: num(block.mean_premium_variance_pts),
+    varianceCi: ci.length === 2 && ci.every((value) => value != null) ? ci : null,
+    nullShare: num(zero?.share_positive_pct),
+    nullMeanVolPts: num(zero?.mean_premium_vol_pts),
+    nullP: num(zero?.p_value_one_sided),
+    excessShare: num(zero?.excess_share_pct),
+    caveat: asText(block.vol_points_caveat),
+    worst: num(block.worst_period_vol_pts),
+  };
 };
 
 // ------------------------------------------------------------------------------------ postmortem

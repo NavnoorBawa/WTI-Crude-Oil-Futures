@@ -50,6 +50,11 @@ def _dates(values: list[str]) -> list[date]:
     return [date.fromisoformat(v) for v in values]
 
 
+def _level(share: float) -> str:
+    """A confidence level from the lab's config as text: 0.9 -> '90%'."""
+    return f"{round(share * 100, 6):g}%"
+
+
 def _save(fig, name: str) -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     fig.savefig(OUT / name, format="svg", bbox_inches="tight", metadata={"Date": None})
@@ -62,7 +67,7 @@ def forecast_vs_realized() -> None:
     x = _dates(s["date"])
     fig, ax = plt.subplots(figsize=(9, 3.4))
     ax.fill_between(x, _arr(s["lo80"]), _arr(s["hi80"]), color=MODEL, alpha=0.14, linewidth=0,
-                    label="80% conformal interval")
+                    label=f"{_level(1 - lab['config']['conformal']['alpha'])} conformal interval")
     ax.plot(x, _arr(s["actual"]), color=TRUTH, linewidth=0.7, label="Realized next-week vol")
     ax.plot(x, _arr(s["har_iv"]), color=MODEL, linewidth=1.1, label="HAR-IV forecast (model of record)")
     ax.plot(x, _arr(s["ovx"]), color=IMPLIED, linewidth=0.8, linestyle=(0, (3, 2)), label="OVX (implied)")
@@ -108,7 +113,7 @@ def model_field() -> None:
     ax.set_xlim(0.3, cap + 0.06)
     ax.set_xlabel("QLIKE on variance-consistent forecasts, every out-of-sample day (lower is better)")
     ax.grid(axis="y", visible=False)
-    handles = [mpatches.Patch(color=MODEL, label=f"in the 90% MCS ({len(board['mcs_qlike_included'])} of "
+    handles = [mpatches.Patch(color=MODEL, label=f"in the {_level(1 - lab['config']['mcs']['size'])} MCS ({len(board['mcs_qlike_included'])} of "
                                                    f"{len(feasible)} feasible models)"),
                mpatches.Patch(color=outside, label="outside the MCS")]
     if len(feasible) < len(models):

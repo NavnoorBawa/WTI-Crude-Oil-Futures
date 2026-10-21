@@ -215,8 +215,9 @@ class VolForecastValidationTest(unittest.TestCase):
         live = self.valid["vol_forecast"]["live"]
         self.assertEqual(live["model_version"], "har-iv/2")
         self.assertIsNotNone(live["interval_80"])
-        # With the challenger published, the freeze says so with a null challenger_error.
-        self.assertEqual((live["challenger"]["key"], live["challenger_error"]), ("har_iv_range", None))
+        # With the challenger and OVX published, the freeze says so with null challenger_error and ovx_error.
+        self.assertEqual((live["challenger"]["key"], live["challenger_error"], live["ovx_error"]),
+                         ("har_iv_range", None, None))
 
     def test_vol_forecast_is_required(self):
         for value in (None, [], "missing"):
@@ -325,6 +326,9 @@ class VolForecastValidationTest(unittest.TestCase):
         errors, notes = check(lambda vol: vol["live"].pop("challenger"))
         self.assertEqual((errors, notes), ([], [f"{no_challenger}; the payload gives no reason"]))
         self.assertEqual(check(lambda vol: vol["live"].update(challenger_error=None)), ([], []))
+        # A failed first OVX source with a working second one keeps the model of record: no note.
+        self.assertEqual(check(lambda vol: vol["live"].update(ovx_error="Yahoo ^OVX: timeout")), ([], []))
+        self.assertEqual(check(lambda vol: vol["live"].pop("ovx_error")), ([], []))
         errors, notes = check(lambda vol: vol["economic"].update(unavailable_reason="ValueError"))
         self.assertEqual((errors, notes), ([], ["vol_forecast.economic is unavailable; "
                                                 "vol_forecast.economic.unavailable_reason gives the reason"]))
@@ -334,6 +338,8 @@ class VolForecastValidationTest(unittest.TestCase):
             with self.subTest(bad=bad):
                 self.assertIn("vol_forecast.live.challenger_error must be a non-empty string or null",
                               self.live_with(challenger=None, challenger_error=bad))
+                self.assertIn("vol_forecast.live.ovx_error must be a non-empty string or null",
+                              self.live_with(ovx_error=bad))
                 self.assertIn("vol_forecast.economic.unavailable_reason must be a non-empty string or null",
                               self.errors_with(lambda vol: vol["economic"].update(unavailable_reason=bad)))
 

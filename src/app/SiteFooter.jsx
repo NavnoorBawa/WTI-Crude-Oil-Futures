@@ -21,9 +21,10 @@ export default function SiteFooter({ data }) {
         </p>
         <p className="footer-credits">
           Data: Yahoo Finance (CL=F futures, exchange-delayed; ^OVX), FRED (OVXCLS), U.S. EIA (spot and
-          contract prices). OVX is a Cboe index. Charts:{" "}
-          <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener noreferrer">TradingView Lightweight Charts™</a>
-          {" "}(Apache-2.0) and d3. Fonts: Inter and JetBrains Mono (SIL OFL 1.1). Clock times are US Central (CT); where a source quotes ET, the CT time is given beside it.
+          contract prices). OVX is a Cboe index. Charts: TradingView Lightweight Charts™, Copyright © 2025 TradingView,
+          Inc.,{" "}
+          <a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">tradingview.com</a>
+          {" "}(Apache-2.0), and d3. Fonts: Inter and JetBrains Mono (SIL OFL 1.1). Clock times are US Central (CT); where a source quotes ET, the CT time is given beside it.
         </p>
       </div>
     </footer>

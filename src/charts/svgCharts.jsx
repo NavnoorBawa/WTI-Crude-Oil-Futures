@@ -54,6 +54,54 @@ export const fitLabel = (text, px) => {
   return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
 };
 
+/**
+ * Breaks a row label at spaces into at most `maxLines` lines that fit `px`, so a phone shows the
+ * whole name instead of a cut one (a hover title is out of reach on touch). Only text that still
+ * does not fit is shortened, with an ellipsis on the last line.
+ */
+export const wrapLabel = (text, px, maxLines = 2) => {
+  const max = Math.max(4, Math.floor(px / MONO_CHAR_PX));
+  const lines = [];
+  for (const word of String(text).split(/\s+/).filter(Boolean)) {
+    const last = lines[lines.length - 1];
+    if (last != null && `${last} ${word}`.length <= max) lines[lines.length - 1] = `${last} ${word}`;
+    else lines.push(word);
+  }
+  if (lines.length > maxLines) lines.splice(maxLines - 1, lines.length, lines.slice(maxLines - 1).join(" "));
+  return lines.map((line) => fitLabel(line, px));
+};
+
+const LINE_PX = 12;
+
+/**
+ * Vertical layout of labelled rows: each row is at least `rowHeight` tall and grows with the lines
+ * its wrapped label (plus an optional muted tag line) needs. Returns each row's centre and lines.
+ */
+const layoutRows = (rows, labelWidth, rowHeight, top = 0) => {
+  let y = top;
+  return rows.map((row) => {
+    const lines = [...wrapLabel(row.label, labelWidth), ...(row.tag ? [row.tag] : [])];
+    const height = Math.max(rowHeight, lines.length * LINE_PX + 6);
+    const placed = { row, lines, tagged: Boolean(row.tag), cy: y + height / 2, height };
+    y += height;
+    return placed;
+  });
+};
+
+/** A row label of one or more lines centred on `cy`, right-aligned at `x`; a tag line is muted. */
+function RowLabel({ x, cy, lines, tagged, className, title }) {
+  const first = cy - ((lines.length - 1) * LINE_PX) / 2;
+  return (
+    <text className={className} textAnchor="end">
+      <title>{title}</title>
+      {lines.map((line, index) => (
+        <tspan key={index} x={x} y={first + index * LINE_PX} dy="0.32em"
+          className={tagged && index === lines.length - 1 ? "row-tag" : undefined}>{line}</tspan>
+      ))}
+    </text>
+  );
+}
+
 /** Pushes label y positions apart so none is closer than `gap` px to the previous one. */
 export const spreadLabels = (items, gap = 12) => {
   const sorted = items.map((item, index) => ({ ...item, index })).sort((a, b) => a.y - b.y);
@@ -191,22 +239,24 @@ export function YearlySmallMultiples({ years, models }) {
 /**
  * Diebold-Mariano t of each model vs the model of record, full sample (large dot) and on each of
  * the 5-session sampling grids (small dots on the min-max range). Positive = lower loss than the record.
+ * A row's optional `tag` ("timing control") is printed as a muted line under its label.
  *
- * @param {{rows: {key:string,label:string,dmStat:number|null,dmMin:number|null,dmMax:number|null,
+ * @param {{rows: {key:string,label:string,tag?:string,dmStat:number|null,dmMin:number|null,dmMax:number|null,
  *   grid:number[], tone:string}[], critical?: number}} props
  */
 export function DmGridStrip({ rows, critical = 1.96 }) {
   const rowHeight = 20;
-  const height = rows.length * rowHeight + 34;
   return (
     <Frame
-      height={height}
+      height={rows.length * rowHeight + 34}
       draw={(width) => {
         const labelWidth = Math.min(220, width * 0.4);
         const values = rows.flatMap((row) => [row.dmStat, row.dmMin, row.dmMax, ...row.grid]);
         const [lo, hi] = extent([...values, -critical, critical]);
         const x = scaleLinear().domain([Math.floor(lo - 0.25), Math.ceil(hi + 0.25)]).range([labelWidth + 10, width - 12]);
-        const bottom = rows.length * rowHeight + 8;
+        const placed = layoutRows(rows, labelWidth, rowHeight, 2);
+        const bottom = (placed.length ? placed[placed.length - 1].cy + placed[placed.length - 1].height / 2 : 0) + 6;
+        const height = bottom + 26;
         return (
           <svg width={width} height={height} className="svg-chart" role="img"
             aria-label="Diebold-Mariano statistics versus the model of record by 5-session sampling grid">
@@ -214,13 +264,11 @@ export function DmGridStrip({ rows, critical = 1.96 }) {
             {[-critical, 0, critical].map((value) => (
               <line key={value} className={value === 0 ? "stroke-axis" : "stroke-reference dashed"} x1={x(value)} x2={x(value)} y1={0} y2={bottom} />
             ))}
-            {rows.map((row, index) => {
-              const cy = index * rowHeight + rowHeight / 2 + 2;
+            {placed.map(({ row, lines, tagged, cy }) => {
               return (
                 <g key={row.key}>
-                  <text className={`row-label label-${row.tone}`} x={labelWidth} y={cy} dy="0.32em" textAnchor="end">
-                    <title>{row.label}</title>{fitLabel(row.label, labelWidth)}
-                  </text>
+                  <RowLabel x={labelWidth} cy={cy} lines={lines} tagged={tagged} className={`row-label label-${row.tone}`}
+                    title={row.tag ? `${row.label} (${row.tag})` : row.label} />
                   {row.dmMin != null && row.dmMax != null && (
                     <line className="stroke-range" x1={x(row.dmMin)} x2={x(row.dmMax)} y1={cy} y2={cy} />
                   )}
@@ -269,7 +317,6 @@ export function CoverageByYear({ series, target }) {
             aria-label={`Interval coverage by year, ${years[0]}–${years[1]}, against a ${target}% target`}>
             <YAxis scale={y} ticks={y.ticks(5)} format={(t) => `${t}%`} left={MARGIN.left} right={width - MARGIN.right} />
             <line className="stroke-target" x1={MARGIN.left} x2={width - MARGIN.right} y1={y(target)} y2={y(target)} />
-            <text className="label-target" x={MARGIN.left + 4} y={y(target) - 5} textAnchor="start">target {target}%</text>
             {series.map((s, index) => (
               <g key={s.key}>
                 {index === 0 && (
@@ -285,6 +332,36 @@ export function CoverageByYear({ series, target }) {
                 ))}
               </g>
             ))}
+            {(() => {
+              // Drawn over the series with a halo, at whichever end and side of the target line
+              // leaves the most room between the label and the nearest point or line segment.
+              const text = `target ${target}%`;
+              const textWidth = text.length * MONO_CHAR_PX;
+              const marks = series.flatMap((s, index) => s.points.flatMap((p, k) => {
+                const here = { px: x(p.year), py: y(p.coverage) };
+                const next = index === 0 ? s.points[k + 1] : null;   // the first series is also drawn as a line
+                if (!next) return [here];
+                return Array.from({ length: 8 }, (_, step) => ({
+                  px: here.px + ((x(next.year) - here.px) * step) / 8,
+                  py: here.py + ((y(next.coverage) - here.py) * step) / 8,
+                }));
+              }));
+              const ends = [
+                { x0: MARGIN.left + 4, anchor: "start" },
+                { x0: width - MARGIN.right - 4 - textWidth, anchor: "end" },
+              ];
+              const candidates = ends.flatMap((end) => [-5, 13].map((offset) => ({ ...end, offset })));
+              const clearance = ({ x0, offset }) => {
+                const centre = y(target) + offset - 4;
+                const near = marks.filter((m) => m.px >= x0 - 8 && m.px <= x0 + textWidth + 8);
+                return near.length ? Math.min(...near.map((m) => Math.abs(m.py - centre))) : Infinity;
+              };
+              const best = candidates.reduce((a, b) => (clearance(b) > clearance(a) ? b : a));
+              return (
+                <text className="label-target has-halo" x={best.anchor === "start" ? best.x0 : best.x0 + textWidth}
+                  y={y(target) + best.offset} textAnchor={best.anchor}>{text}</text>
+              );
+            })()}
             <XAxis scale={x} ticks={yearTicks} format={String} y={height - MARGIN.bottom} />
           </svg>
         );
@@ -296,31 +373,31 @@ export function CoverageByYear({ series, target }) {
 // ---------------------------------------------------------------------------- MZ (CALB)
 
 /**
- * Mincer-Zarnowitz slope with a ±1.96 SE whisker per model; 1 = unbiased scaling.
- * @param {{rows: {key:string,label:string,slope:number,se:number|null,tone:string}[]}} props
+ * Mincer-Zarnowitz slope with a ±1.96 SE whisker per model; 1 = unbiased scaling. A row's optional
+ * `tag` is printed as a muted line under its label.
+ * @param {{rows: {key:string,label:string,tag?:string,slope:number,se:number|null,tone:string}[]}} props
  */
 export function MzForest({ rows }) {
   const rowHeight = 18;
-  const height = rows.length * rowHeight + 30;
   return (
     <Frame
-      height={height}
+      height={rows.length * rowHeight + 30}
       draw={(width) => {
         const labelWidth = Math.min(220, width * 0.4);
         const values = rows.flatMap((row) => (row.se != null ? [row.slope - 1.96 * row.se, row.slope + 1.96 * row.se] : [row.slope]));
         const [lo, hi] = extent([...values, 1]);
         const x = scaleLinear().domain([Math.min(0, lo), hi]).nice().range([labelWidth + 8, width - 12]);
-        const bottom = rows.length * rowHeight + 6;
+        const placed = layoutRows(rows, labelWidth, rowHeight);
+        const bottom = (placed.length ? placed[placed.length - 1].cy + placed[placed.length - 1].height / 2 : 0) + 6;
+        const height = bottom + 24;
         return (
           <svg width={width} height={height} className="svg-chart" role="img" aria-label="Mincer-Zarnowitz slopes on every out-of-sample day, with 95% intervals">
             <line className="stroke-target" x1={x(1)} x2={x(1)} y1={0} y2={bottom} />
-            {rows.map((row, index) => {
-              const cy = index * rowHeight + rowHeight / 2;
+            {placed.map(({ row, lines, tagged, cy }) => {
               return (
                 <g key={row.key}>
-                  <text className={`row-label label-${row.tone}`} x={labelWidth} y={cy} dy="0.32em" textAnchor="end">
-                    <title>{row.label}</title>{fitLabel(row.label, labelWidth)}
-                  </text>
+                  <RowLabel x={labelWidth} cy={cy} lines={lines} tagged={tagged} className={`row-label label-${row.tone}`}
+                    title={row.tag ? `${row.label} (${row.tag})` : row.label} />
                   {row.se != null && (
                     <line className={`stroke-${row.tone} whisker`} x1={x(row.slope - 1.96 * row.se)} x2={x(row.slope + 1.96 * row.se)} y1={cy} y2={cy} />
                   )}
@@ -394,7 +471,7 @@ export function VrpScatter({ points }) {
 const fmtK = (value) => {
   if (!Number.isFinite(value)) return "";
   if (value === 0) return "$0";
-  return `${value < 0 ? "−" : ""}$${Math.abs(value / 1000).toFixed(0)}k`;
+  return `${value < 0 ? "−" : ""}$${Math.abs(value / 1000).toFixed(0)}K`;
 };
 
 /**
@@ -578,7 +655,7 @@ export function PurgeDiagram({ purgeRows, horizon, shown = 8 }) {
                   <text className="row-label" x={m.left - 8} y={cy} dy="0.32em" textAnchor="end">
                     {purged ? "purged" : "train"} t{offset}
                   </text>
-                  <circle cx={x(offset)} cy={cy} r={2.5} className={purged ? "fill-neg" : "fill-muted"} />
+                  <circle cx={x(offset)} cy={cy} r={2.5} className={purged ? "ring-muted" : "fill-muted"} />
                   <rect x={x(offset) + 4} width={cell * horizon - 4} y={cy - 3} height={6}
                     className={purged ? "bar-purged" : "bar-train"} />
                 </g>

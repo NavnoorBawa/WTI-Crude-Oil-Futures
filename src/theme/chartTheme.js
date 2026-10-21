@@ -30,10 +30,13 @@ export const SERIES = {
   alt2: "#D55181",
 };
 
-/** Status colours (tokens.css --pos/--neg/--warn). Never encode rising volatility as --pos. */
+/**
+ * Status colours (tokens.css --pos/--neg/--warn). Never encode rising volatility as --pos. --neg is
+ * a red kept apart from the implied (OVX) orange, so a breach never reads as an OVX mark.
+ */
 export const STATUS = {
   pos: "#1AA385",
-  neg: "#E0603A",
+  neg: "#F2555A",
   warn: "#E0A030",
 };
 
@@ -68,10 +71,14 @@ export const withAlpha = (hex, alpha) => {
 
 export const MONO_FONT = '"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace';
 
-/** Shared lightweight-charts options: calm grid, mono axis labels, page scroll wins over the chart. */
+/**
+ * Shared lightweight-charts options: calm grid, mono axis labels, page scroll wins over the chart.
+ * No logo is drawn inside the plots: the site footer carries the library's attribution notice and a
+ * link to https://www.tradingview.com/, which is what its licence asks for.
+ */
 export const baseChartOptions = () => ({
-  attributionLogo: true, // TradingView licence requirement; labelled for screen readers after creation
   layout: {
+    attributionLogo: false,
     background: { type: "solid", color: SURFACE.bg1 },
     textColor: TEXT.text3,
     fontFamily: MONO_FONT,
@@ -90,18 +97,6 @@ export const baseChartOptions = () => ({
   handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
   handleScale: { mouseWheel: false, pinch: true, axisPressedMouseMove: true, axisDoubleClickReset: true },
 });
-
-/** Lightweight-charts injects an unlabeled TradingView link; give it an accessible name. */
-export const labelAttribution = (host, attempt = 0) => {
-  const link = host?.querySelector?.('a[href*="tradingview"]');
-  if (link) {
-    link.setAttribute("aria-label", "Charts by TradingView Lightweight Charts (opens tradingview.com)");
-    link.setAttribute("rel", "noopener noreferrer");
-  } else if (attempt < 5 && typeof requestAnimationFrame === "function") {
-    // The library may add its logo on the first paint rather than at creation.
-    requestAnimationFrame(() => labelAttribution(host, attempt + 1));
-  }
-};
 
 /** Resolves once web fonts are ready so canvas text measures with the final font, never later than 3 s. */
 export const fontsReady = () => {

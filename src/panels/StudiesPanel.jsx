@@ -1,8 +1,12 @@
 import DataTable from "../components/DataTable";
 import Panel, { REPRODUCE } from "../components/Panel";
-import { ALPHA, carryAssertion, placeboVerdict, studiesAssertion, supplyPlaybookAssertion, supplyStudyAssertion } from "../lib/assertions";
-import { DASH, fmtInt, fmtNum, fmtP, fmtPValue, fmtSigned, fmtSignedPct, num } from "../lib/format";
-import { asObject, asText, researchLedger, supplyStudy } from "../lib/research";
+import {
+  ALPHA, carryAssertion, carryDetail, placeboVerdict, studiesAssertion, supplyPlaybookAssertion, supplyStudyAssertion,
+  supplyStudyDetail,
+} from "../lib/assertions";
+import { DASH, NBSP, fmtInt, fmtNum, fmtP, fmtPValue, fmtPct, fmtSigned, fmtSignedPct, num, tidyProse } from "../lib/format";
+import { asObject, asText, eventName, researchLedger, supplyStudy } from "../lib/research";
+import { StudyHead } from "./common";
 
 // Fallback labels for data.json playbook groups that carry no `label` of their own.
 const SUPPLY_LABELS = {
@@ -68,6 +72,36 @@ const YEAR_MATCHED_TITLE = "the same test with each event's placebo dates drawn 
 const passesRule = (row) => placeboVerdict(row.peakP, row.peakPYear) === "both"
   || placeboVerdict(row.settleP, row.settlePYear) === "both";
 
+/** An overlapping event pair in words: "Hurricane Katrina (2005) and Hurricane Rita (2005), 19 sessions apart". */
+const pairText = (pair) => `${pair.events.map(eventName).join(" and ")}${pair.apart != null ? `, ${fmtInt(pair.apart)} sessions apart` : ""}`;
+
+/**
+ * The supply study's reading, built from its fields: what an ordinary date does, which groups pass
+ * only one of the two placebo tests (in either direction), and the caveats. The per-group numbers
+ * are in the table.
+ */
+export const supplyStudyNotes = (study) => {
+  if (!study) return [];
+  const placebo = study.placebo;
+  const notes = [];
+  if (placebo?.peak != null && placebo.settle != null) {
+    notes.push(`On an ordinary (placebo) date the median 20-session peak is ${fmtSignedPct(placebo.peak)} and the session-10 settle `
+      + `${fmtSignedPct(placebo.settle)}${placebo.shareUp != null ? `; the peak is positive on ${fmtPct(placebo.shareUp, 0)} of ordinary dates` : ""}, `
+      + "so a group's peak means something only relative to that.");
+  }
+  const oneSided = study.groups.filter((group) => placeboVerdict(group.peakP, group.peakPYear) === "one");
+  if (oneSided.length) {
+    notes.push(`Significant on peak against only one of the two placebos: ${oneSided
+      .map((group) => `${group.name} (n${NBSP}=${NBSP}${fmtInt(group.n)}; ${fmtP(group.peakP)} vs placebo, ${fmtPValue(group.peakPYear)} year-matched)`)
+      .join("; ")}.`);
+  }
+  const pairs = study.overlapping?.pairs ?? [];
+  notes.push(`Caveats: event dates and groupings were chosen with hindsight, and the groups overlap${pairs.length
+    ? `; some events are close enough that their windows share sessions (${pairs.map(pairText).join("; ")}), so members of a group are not all independent`
+    : ""}.`);
+  return notes;
+};
+
 /** The placebo-controlled event study (research.json supply_study). */
 function SupplyStudyTable({ study }) {
   const rows = [
@@ -106,7 +140,7 @@ function SupplyStudyTable({ study }) {
             <span className="num">
               {fmtInt(row.n)}
               {row.overlaps?.length > 0 && (
-                <span className="muted" title={`Windows share sessions: ${row.overlaps.map((pair) => `${pair.events.join(" and ")}${pair.apart != null ? ` (${fmtInt(pair.apart)} sessions apart)` : ""}`).join("; ")}`}>†</span>
+                <span className="muted" title={`Windows share sessions: ${row.overlaps.map(pairText).join("; ")}`}>†</span>
               )}
             </span>
           ),
@@ -171,10 +205,10 @@ export default function StudiesPanel({ data, research }) {
       }}
       resetKey={data}
     >
-      <div className="split split--even">
+      <div className="studies">
         {carryRows.length > 0 && (
           <div className="study">
-            <h3 className="study-title">{carryAssertion(carry, ledger) ?? "Carry"}</h3>
+            <StudyHead title={carryAssertion(carry) ?? "Carry"} detail={carryDetail(carry, ledger)} />
             <DataTable
               caption="Carry: second-nearby holding return when carry is above vs at or below its prior-months median"
               captionHidden
@@ -208,14 +242,17 @@ export default function StudiesPanel({ data, research }) {
               rows={carryRows}
               footnote={signSplit ? `By the sign of carry (backwardation vs contango) the full-sample spread is ${fmtNum(signSplit.mean_ret_carry_positive_pct, 2)} vs ${fmtNum(signSplit.mean_ret_carry_nonpositive_pct, 2)} %/month (${fmtP(signSplit.spread_p_value_one_sided)}); the two splits agree in ${fmtNum(signSplit.share_agreeing_with_median_rule_pct, 1)}% of months.` : null}
             />
-            {asText(carry.verdict) && <p className="prose-note">{carry.verdict}</p>}
-            {asText(carry.method) && <p className="prose-note is-muted">{carry.method}</p>}
+            {asText(carry.verdict) && <p className="prose-note">{tidyProse(carry.verdict)}</p>}
+            {asText(carry.method) && <p className="prose-note is-muted">{tidyProse(carry.method)}</p>}
           </div>
         )}
 
         {(hasStudy || rows.length > 0) && (
           <div className="study">
-            <h3 className="study-title">{(hasStudy ? supplyStudyAssertion(study) : null) ?? supplyPlaybookAssertion(playbook) ?? "Supply shocks"}</h3>
+            <StudyHead
+              title={(hasStudy ? supplyStudyAssertion(study) : null) ?? supplyPlaybookAssertion(playbook) ?? "Supply shocks"}
+              detail={hasStudy ? supplyStudyDetail(study) : []}
+            />
             {hasStudy ? <SupplyStudyTable study={study} /> : (
               <DataTable
                 caption={`Historical WTI price response by supply event type: median move across ${eventCount != null ? `${fmtInt(eventCount)} events` : "events"}${eventSpan ? ` ${eventSpan}` : ""}, from EIA daily spot`}
@@ -235,20 +272,7 @@ export default function StudiesPanel({ data, research }) {
                 rows={rows}
               />
             )}
-            {hasStudy && study.conclusion && (
-              <p className="prose-note">
-                {(() => {
-                  // The baseline sentence, the groups that pass only one of the two placebo tests (in
-                  // either direction), and the caveats: the per-group numbers are in the table.
-                  const sentences = study.conclusion.split(/(?<=\.)\s/);
-                  return [
-                    sentences[0],
-                    ...sentences.slice(1).filter((sentence) => /not the (year-matched|unmatched) one/i.test(sentence)),
-                    sentences.find((sentence) => /^caveat/i.test(sentence)),
-                  ].filter(Boolean).join(" ");
-                })()}
-              </p>
-            )}
+            {hasStudy && <p className="prose-note">{supplyStudyNotes(study).join(" ")}</p>}
             {hasStudy && study.superseded.length > 0 && (
               <ul className="footnotes superseded">
                 {study.superseded.map((text) => <li key={text}><span className="micro">Superseded</span> {text}</li>)}
@@ -260,7 +284,7 @@ export default function StudiesPanel({ data, research }) {
                 {priced.definition && <span className="muted"> Definition: {priced.definition}.</span>}
               </p>
             )}
-            {hasStudy && study.method && <p className="prose-note is-muted">{study.method.split(/(?<=\.)\s/)[0]}</p>}
+            {hasStudy && study.method && <p className="prose-note is-muted">{tidyProse(study.method.split(/(?<=\.)\s/)[0])}</p>}
           </div>
         )}
       </div>

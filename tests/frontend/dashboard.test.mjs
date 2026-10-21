@@ -14,8 +14,11 @@ after(() => dashboard.close());
 const fixture = readFixture("chart_actual_2026-09-24.json");
 
 // ------------------------------------------------------------------------------------ formatting
+// fmtP joins "p", the relation and the value with no-break spaces; the tests read them as spaces.
+const spaced = (text) => (typeof text === "string" ? text.replace(/\u00a0/g, " ") : text);
+
 test("fmtP never prints a p-value as a threshold it is below", () => {
-  const { fmtP } = dashboard.format;
+  const fmtP = (value) => spaced(dashboard.format.fmtP(value));
   assert.equal(fmtP(0.0496), "p = 0.0496");
   assert.equal(fmtP(0.04999), "p < 0.05");
   assert.equal(fmtP(0.9996), "p = 0.9996");
@@ -34,7 +37,8 @@ test("fmtP never prints a p-value as a threshold it is below", () => {
 });
 
 test("fmtP never rounds a p-value down onto a threshold it is above", () => {
-  const { fmtP, fmtPValue } = dashboard.format;
+  const fmtP = (value) => spaced(dashboard.format.fmtP(value));
+  const fmtPValue = (value) => spaced(dashboard.format.fmtPValue(value));
   assert.equal(fmtP(0.0548), "p = 0.055");      // the SPA lower bound that printed as "0.05"
   assert.equal(fmtP(0.1048), "p = 0.105");
   assert.equal(fmtP(0.0104), "p = 0.0104");
@@ -51,6 +55,26 @@ test("fmtP never rounds a p-value down onto a threshold it is above", () => {
       assert.ok(!(p > threshold && shown === threshold), `fmtP(${p}) = ${out}`);
     }
   }
+});
+
+test("a p-value never breaks across lines: fmtP and fmtPValue use no-break spaces", () => {
+  const { fmtP, fmtPValue, NBSP } = dashboard.format;
+  assert.equal(NBSP, "\u00a0");
+  assert.equal(fmtP(0.63), "p\u00a0=\u00a00.63");
+  assert.equal(fmtP(0.0004), "p\u00a0<\u00a00.001");
+  assert.equal(fmtP(0.05004), "p\u00a0>\u00a00.05");
+  assert.equal(fmtPValue(0.0004), "<\u00a00.001");
+  assert.equal(fmtPValue(0.63), "0.63");
+  for (const p of [0.0004, 0.0368, 0.05004, 0.63]) assert.doesNotMatch(fmtP(p), / /, `fmtP(${p}) has no breaking space`);
+});
+
+test("tidyProse prints payload p-values, minus signs and names in the page's style", () => {
+  const { tidyProse } = dashboard.format;
+  assert.equal(spaced(tidyProse("fell from 0.20 to -0.03 (difference p = 0.0210)")), "fell from 0.20 to −0.03 (difference p = 0.02)");
+  assert.equal(tidyProse("adaptive conformal (Gibbs-Candes 2021)"), "adaptive conformal (Gibbs-Candès 2021)");
+  assert.equal(tidyProse("OVX (the CBOE Crude Oil ETF Volatility Index)"), "OVX (the Cboe Crude Oil ETF Volatility Index)");
+  assert.equal(tidyProse("5-session t-1 2007-2024"), "5-session t-1 2007-2024", "hyphens between words and numbers stay");
+  assert.equal(tidyProse(null), null);
 });
 
 test("withCentralTime gives every ET clock time its CT twin", () => {
@@ -121,7 +145,7 @@ test("a daily bar overlapping the hourly window is not drawn at 11 PM the night 
     const labels = intraday.map((p) => dashboard.chart.formatWallTime(p.time, "intraday"));
     assert.ok(!labels.includes("Sep 13, 2026, 11:00 PM CT"), `tagged=${tagged}: ${labels.slice(0, 4)}`);
     assert.ok(!intraday.some((p) => p.value === 63.4), `tagged=${tagged}`);
-    const monday = daily.find((p) => dashboard.chart.formatWallTime(p.time, "daily") === "Mon, Sep 14, 2026");
+    const monday = daily.find((p) => dashboard.chart.formatWallTime(p.time, "daily") === "Sep 14, 2026");
     assert.equal(monday.volume, 300000, `tagged=${tagged}`);
   }
 });
@@ -135,7 +159,7 @@ test("with kinds, an hourly window opening at exactly 00:00 ET keeps its first h
   for (let h = 4; h <= 8; h += 1) push(`2026-09-14T${String(h).padStart(2, "0")}:00:00Z`, 63 + h / 100, 20000, "1h");
   const { intraday, daily } = views(actual);
   assert.ok(intraday.some((p) => p.value === 63.04), "the 00:00 ET hourly bar is plotted");
-  const monday = daily.find((p) => dashboard.chart.formatWallTime(p.time, "daily") === "Mon, Sep 14, 2026");
+  const monday = daily.find((p) => dashboard.chart.formatWallTime(p.time, "daily") === "Sep 14, 2026");
   assert.equal(monday.volume, 5 * 20000);
 });
 

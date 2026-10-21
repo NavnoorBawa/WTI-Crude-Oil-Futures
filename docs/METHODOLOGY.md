@@ -10,7 +10,7 @@ only; numbers that depend on the data are generated into the README from the art
   close equals EIA's contract-1 settlement on almost every day. Only finished sessions are used
   (`backend/contract_calendar.py`: a CME session runs 18:00 ET to 17:00 ET; settlement is 14:30 ET).
   The daily high and low run to 17:00 ET, two and a half hours after the settlement.
-- **Implied volatility.** OVX, the CBOE Crude Oil ETF Volatility Index: a 30-calendar-day implied
+- **Implied volatility.** OVX, the Cboe Crude Oil ETF Volatility Index: a 30-calendar-day implied
   vol computed from options on the USO ETF (not on CL futures), settled at 16:15 ET.
 - **Entry-time rule.** A forecast for session *t* may use only information available at *t*'s 14:30 ET
   settlement, which is where the target window begins. OVX's 16:15 close comes later, so the models
@@ -66,13 +66,13 @@ only; numbers that depend on the data are generated into the README from the art
 | Key | Model |
 |---|---|
 | `persistence` | next week's vol = the last five sessions' realized vol |
-| `raw_ovx` | OVX itself (previous session), no fitting |
+| `raw_ovx` | Raw OVX: OVX itself (previous session), no fitting |
 | `ewma` | RiskMetrics, λ = 0.94, recursive on all returns since 2000 |
 | `garch`, `gjr` | GARCH(1,1) and GJR-GARCH(1,1) with Student-t errors (`arch`) on all returns since 2000, re-estimated weekly (warm-started, optimizer tolerance 1e-9) and filtered daily with the latest estimates |
 | `har_rv` | log-HAR on close-to-close RV5, RV22, RV66 |
 | `har_rs` | `har_rv` plus one term, the five-session downside semivolatility (after Patton and Sheppard 2015) |
 | `har_range` | log-HAR on the range-based RV5, RV22, RV66 as known at the settlement |
-| `ovx_only` | log regression on the previous session's OVX alone |
+| `ovx_only` | the OVX-only regression: log regression on the previous session's OVX alone |
 | `har_iv` | **model of record**: log-HAR on close-to-close RV5, RV22, RV66 plus the previous session's OVX |
 | `har_iv_sameday` | `har_iv` with the test day's own OVX close: the timing control (section 1) |
 | `har_iv_range` | `har_iv` with the range-based terms in place of the close-to-close ones |
@@ -81,8 +81,10 @@ only; numbers that depend on the data are generated into the README from the art
 
 The challenger is the lowest-QLIKE feasible model in the full-sample 90% Model Confidence Set
 other than the model of record (`vol_lab.choose_challenger`; the timing control is never
-eligible). It is chosen on the same sample it is evaluated on, which is why it is promoted only on
-its forward record (section 12).
+eligible). It is chosen on the same sample it is evaluated on, so its pairwise Diebold-Mariano test
+against the model of record ignores the search: the SPA test (section 7) is the search-adjusted one,
+the research ledger leaves the pairwise test out of its multiplicity family (section 17), and the
+challenger is promoted only on its forward record (section 12), whose test is pinned to it.
 
 ## 4. Walk-forward and purge
 
@@ -164,8 +166,8 @@ with probability `E[max(U, 1−U)] = 3/4` (U uniform), because the next value is
 model with **no** forecasting skill scores about 75% through this pipeline. Both the lab and the
 production validator simulate it: i.i.d. Student-t(5) returns with the sample's volatility, a world
 with nothing to forecast and no implied volatility, run through the identical feature builder and
-the production weekly walk-forward with **HAR without OVX** (10 simulations in the lab, 5 in the
-production validation). The same simulations score the mean-reversion rule, and HAR beats it there
+the production weekly walk-forward with **HAR without OVX** (`vol_forecast.noise_floor`, which the
+lab calls as well, so both report the same simulations). The same simulations score the mean-reversion rule, and HAR beats it there
 too, so beating that rule is not evidence of skill either. Direction accuracy is therefore reported
 only next to this floor and never as evidence of skill; skill is judged by the losses above.
 
@@ -198,14 +200,27 @@ data).
 - **Vol-target overlay.** Weekly long position `min(2, 35% / forecast)`, 5 bp per unit of turnover,
   against buy-and-hold and trailing-22-day sizing. Judged on what vol targeting is for (Harvey et al.
   2018): realized vol against the target, vol of vol, kurtosis, worst week, 97.5% expected shortfall
-  and drawdown; Sharpe differences with a stationary-bootstrap p-value.
+  and drawdown, reported for each book; the Sharpe differences, with a stationary-bootstrap p-value,
+  are the only differences tested. Trailing-22-day sizing separates what scaling by volatility does
+  from what the forecast adds.
 - **Variance risk premium.** OVX against the realized vol of the next 20 sessions, non-overlapping,
-  in vol points (with a one-sided sign test of the share of positive periods) and in variance points
-  (with a Newey-West CI). Short-vol proxies: a vol swap, `IV − RV`, and a variance swap per unit of
+  in variance points (with a Newey-West CI), the unit a variance seller is paid in and the measure
+  that matters, and in vol points. In vol points the null is a zero premium, not 50%
+  (`vol_forecast._zero_premium_null`). With a zero premium, `IV² = E[RV²]`, a 20-session realized
+  vol is still noisy and right-skewed and `E[RV] < sqrt(E[RV²])` (Jensen's inequality), so OVX
+  exceeds RV in more than half the periods and `E[IV − RV] > 0`. The null keeps the observed shape
+  of the per-period ratios `RV²/IV²` and rescales them to mean 1: the share of rescaled ratios below
+  1 is the share of periods with `IV > RV` expected with no premium, and `IV (1 − sqrt(ratio))` the
+  vol-point gap. The observed share is tested against it with a one-sided stationary block bootstrap
+  of the rescaled ratios that re-estimates the null share in every draw. Variation of the premium
+  across periods widens the observed ratios and raises the null share, so the test errs on the
+  conservative side. Short-vol proxies: a vol swap, `IV − RV`, and a variance swap per unit of
   vega, `(IV² − RV²) / (2 IV)`. Each proxy's Sharpe ratio is tested for being positive with the
   standard error of Mertens (2002) and Opdyke (2007), which allows for the skewness and kurtosis of
   i.i.d. non-normal returns, `sqrt((1 − skew·SR + (kurt − 1)/4 · SR²) / n)` with SR per period and
   raw kurtosis; the Lo (2002) normal-returns standard error would understate it for these returns.
+  The vol-swap proxy's mean has the same Jensen bias, so its test against zero overstates the
+  evidence for a premium.
   Timing: short-variance P&L regressed on OVX minus the forecast (Newey-West t), and a one-sided
   Welch t-test of the P&L in periods when that spread is above its trailing median against the rest.
 
@@ -235,16 +250,25 @@ data).
   finished sessions. A window that spans a CL contract roll is `skipped_roll` and never scored; an
   entry whose closes are still missing ten sessions after `k0+5` is `expired`.
 - **Scoring.** QLIKE for the model of record and, on the entries where it was published, the
-  challenger; 80% interval coverage; direction (reported beside its noise floor). Overlapping
-  windows are reported, but `n_independent` counts only the resolved entries whose windows do not
-  overlap (greedy in time order). The summary's `next_result_due` is the earliest window end
+  challenger; 80% interval coverage; direction (reported beside its noise floor). The summary's
+  model-of-record statistics (`champion`, with its count `n`) cover the pinned model version only,
+  so a plain-HAR fallback forecast is counted but not pooled with them, and its challenger
+  comparison (`challenger`) covers the entries of the pinned pair. Overlapping windows are reported,
+  but `n_independent` counts only the resolved entries whose windows do not overlap (greedy in time
+  order). The summary's `next_result_due` is the earliest window end
   (`target_end`) among pending entries whose windows do not span a roll, or null: the earliest date
   a pending entry can be scored.
-- **Promotion.** One test, run once, on a fixed sample (`vol_record.promotion_test`). In record
-  order, take the resolved entries on which both the current model of record and the current
-  challenger were forecast, keep those whose windows do not overlap, and stop at the first such
-  entry still pending (it may still resolve, and it precedes everything after it). The first
-  `PROMOTION_WEEKS` (52) entries selected are the sample. On it, a one-sided Diebold-Mariano test of
+- **Promotion.** One test, run once, on a fixed sample (`vol_record.promotion_test`), pinned to
+  one pair: the model of record at version `vol_record.PROMOTION_MODEL_VERSION` against the
+  challenger `vol_record.PROMOTION_CHALLENGER`. An entry of another model version, with another
+  challenger or with no challenger forecast is recorded and counted by reason
+  (`promotion.n_excluded_other_version`, `n_excluded_other_challenger`, `n_excluded_no_challenger`)
+  but never enters the sample, so it can neither hold the sample back nor restart it; a different
+  pair is a new test, declared by changing the two constants, and a unit test fails if the live
+  model version or the lab's challenger changes without that declaration. In record order, take
+  the resolved entries of the pinned pair, keep those whose windows do not overlap, and stop at the
+  first entry of the pair still pending (it may still resolve, and it precedes everything after
+  it). The first `PROMOTION_WEEKS` (52) entries selected are the sample. On it, a one-sided Diebold-Mariano test of
   the QLIKE differences, model of record minus challenger: the mean difference over its standard
   error from the sample variance (n − 1 denominator, no autocovariance terms, because the windows do
   not overlap; for one-step forecasts this equals the Harvey-Leybourne-Newbold statistic). As
@@ -256,9 +280,9 @@ data).
   sample is full, and entries added later never change it. Applying a `promote` verdict, which swaps
   the models in code, is a maintainer's change. The rule's text is `vol_record.PROMOTION_RULE`, fixed
   before the first live forecast and published with every record summary, together with the test's
-  status, sample size, statistic, p-value and mean difference. Its power at the challenger's
-  historical edge is computed in the README (section 3) from the noncentral t with the same 51
-  degrees of freedom.
+  pair, status, sample size, statistic, p-value, mean difference and excluded counts. Its power at
+  the challenger's historical edge is computed in the README (section 3) from the noncentral t with
+  the same 51 degrees of freedom.
 
 ## 13. The retracted direction model
 
@@ -352,12 +376,19 @@ another. That test replaced a pooled one after the runs were seen, so those rows
 pre-specified.
 
 - **Status**, from the test as run: supported (p < 0.05 in the hypothesis's direction),
-  inconclusive (0.05 ≤ p < 0.10), rejected, or retracted (the evidence was invalid when produced:
-  the leaked walk-forward, roll-contaminated returns, or a test whose null was wrong). Retracted rows
-  keep their p-values and stay in the multiplicity count.
-- **Multiplicity**, across all rows with a p-value, on the two-sided p (a one-sided p doubled,
+  inconclusive (0.05 ≤ p < 0.10), not supported (p ≥ 0.10, or the estimate points the other way),
+  or retracted (the evidence was invalid when produced: the leaked walk-forward, roll-contaminated
+  returns, or a test whose null was wrong). Not supported is a failure to reject the null, not
+  evidence against the hypothesis. Where the artifact records the test's power, `underpowered` is
+  true when it is below the artifact's target power (null where no power figure exists). Retracted
+  rows keep their p-values and stay in the multiplicity count, but are never counted as survivors.
+- **Multiplicity**, across the rows with a p-value, on the two-sided p (a one-sided p doubled,
   capped at 1): Benjamini-Hochberg (1995) q-values, Holm (1979) adjusted p-values, and the
-  Harvey, Liu and Zhu (2016) hurdle t > 3 on the normal quantile of that p.
+  Harvey, Liu and Zhu (2016) hurdle t > 3 on the normal quantile of that p. A row marked
+  `selected_after_search` tests a model picked as the best of a field on the same sample (the
+  challenger against the model of record): its pairwise p-value ignores the search, so it is left
+  out of the family, its adjusted fields are null, and its note names the search-adjusted test of
+  the same question (the SPA row).
 - `pre_specified` is true only where the code documents the test as fixed before the data were
   seen; most of the project was exploratory.
 

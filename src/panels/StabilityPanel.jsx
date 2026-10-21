@@ -32,13 +32,14 @@ export default function StabilityPanel({ research, researchStatus }) {
       .map((model) => ({ ...model, label: shortLabel(labels.get(model.key) ?? model.key) }));
   }, [lab, labels, champion, challenger]);
   const years = useMemo(() => yearlyQlike(lab, models.map((model) => model.key)), [lab, models]);
-  // A timing control is drawn last and named first in its label: a comparison, not a ranked model.
+  // A timing control is drawn last and tagged under its name: a comparison, not a ranked model.
   const dmRows = useMemo(() => leaderboardRows(lab)
     .filter((row) => row.role !== "record" && row.dmStat != null)
     .sort((a, b) => Number(a.timingControl) - Number(b.timingControl) || b.dmStat - a.dmStat)
     .map((row) => ({
       key: row.key,
-      label: `${row.timingControl ? "Timing control: " : ""}${shortLabel(row.label)}`,
+      label: shortLabel(row.label),
+      tag: row.timingControl ? "timing control" : null,
       dmStat: row.dmStat,
       dmMin: row.dmMin,
       dmMax: row.dmMax,

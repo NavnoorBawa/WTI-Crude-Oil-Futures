@@ -41,15 +41,26 @@ import argparse
 import json
 import re
 from dataclasses import dataclass, field, replace
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, TypedDict, cast
 
 import numpy as np
 from scipy import stats
 
+if TYPE_CHECKING:
+    # A parsed JSON artifact, and a p-value source: called on an artifact, it returns the p-value and
+    # the fields it read (field path -> value).
+    Artifact = dict[str, Any]
+    PValueSource = Callable[[Artifact], tuple[float, dict[str, Any]]]
+
+    # _power's result: context labels (label -> field path) and the underpowered_if pair, or neither.
+    class Power(TypedDict, total=False):
+        context: dict[str, str]
+        underpowered_if: tuple[str, str]
+
 try:
     from .safe_paths import DATA_ROOT, data_json_path
 except ImportError:  # Direct invocation: python backend/research_ledger.py
-    from safe_paths import DATA_ROOT, data_json_path
+    from safe_paths import DATA_ROOT, data_json_path  # type: ignore[import-not-found, no-redef]
 
 ARTIFACT = "research_ledger.json"
 ALPHA = 0.05
@@ -94,7 +105,7 @@ class Field:
     """A p-value stored in the artifact."""
     path: str
 
-    def __call__(self, doc):
+    def __call__(self, doc: Artifact) -> tuple[float, dict[str, Any]]:
         return float(resolve(doc, self.path)), {self.path: resolve(doc, self.path)}
 
 
@@ -106,7 +117,7 @@ class Binomial:
     acc_pct: str
     null: float | str = 0.5
 
-    def __call__(self, doc):
+    def __call__(self, doc: Artifact) -> tuple[float, dict[str, Any]]:
         n = int(resolve(doc, self.n))
         acc = float(resolve(doc, self.acc_pct))
         hits = int(round(acc * n / 100.0))
@@ -125,7 +136,7 @@ class TwoProportion:
     acc_b: str
     n_b: str
 
-    def __call__(self, doc):
+    def __call__(self, doc: Artifact) -> tuple[float, dict[str, Any]]:
         pa, pb = float(resolve(doc, self.acc_a)) / 100.0, float(resolve(doc, self.acc_b)) / 100.0
         na, nb = int(resolve(doc, self.n_a)), int(resolve(doc, self.n_b))
         pooled = (pa * na + pb * nb) / (na + nb)
@@ -140,7 +151,7 @@ class NormalZ:
     path: str
     sided: str = "one"
 
-    def __call__(self, doc):
+    def __call__(self, doc: Artifact) -> tuple[float, dict[str, Any]]:
         z = float(resolve(doc, self.path))
         p = stats.norm.sf(z) if self.sided == "one" else 2 * stats.norm.sf(abs(z))
         return float(p), {self.path: z}
@@ -152,7 +163,7 @@ class LargestOf:
     reject (e.g. an event group against both the unmatched and the year-matched placebo)."""
     paths: tuple[str, ...]
 
-    def __call__(self, doc):
+    def __call__(self, doc: Artifact) -> tuple[float, dict[str, Any]]:
         used = {path: resolve(doc, path) for path in self.paths}
         return max(float(v) for v in used.values()), used
 
@@ -166,7 +177,7 @@ class LargestOverRuns:
     runs: str
     p: str
 
-    def __call__(self, doc):
+    def __call__(self, doc: Artifact) -> tuple[float, dict[str, Any]]:
         runs = resolve(doc, self.runs)
         if not isinstance(runs, list) or not runs:
             raise FieldError(f"{self.runs}: not a non-empty list of runs")
@@ -181,7 +192,7 @@ class SignTest:
     share_pct: str
     n: str
 
-    def __call__(self, doc):
+    def __call__(self, doc: Artifact) -> tuple[float, dict[str, Any]]:
         share, n = float(resolve(doc, self.share_pct)), int(resolve(doc, self.n))
         k = int(round(share * n / 100.0))
         return float(stats.binom.sf(k - 1, n, 0.5)), {self.share_pct: share, self.n: n}
@@ -196,7 +207,7 @@ class Row:
     test: str
     source: str                         # artifact file name under data/
     statistic: tuple[str, str]          # (label, field path)
-    p: Callable | None                  # p-value source, or None when the artifact holds no test
+    p: PValueSource | None              # p-value source, or None when the artifact holds no test
     sided: str                          # "one" or "two": how the stored/computed p-value is defined
     expects: Callable[[float], bool] | None = None   # the direction the hypothesis claims
     beats: str | None = None            # or: the statistic must exceed this field to point the right way
@@ -204,9 +215,9 @@ class Row:
     retracted: str | None = None        # reason, when the evidence was invalid when produced;
                                         # "{label}" inserts that context value
     note: str = ""
-    context: dict = field(default_factory=dict)     # label -> field path, shown beside the statistic
-    names: dict = field(default_factory=dict)       # label -> field path of a display name; "{label}"
-                                                    # in the hypothesis inserts it
+    context: dict[str, str] = field(default_factory=dict)  # label -> field path, shown beside the statistic
+    names: dict[str, str] = field(default_factory=dict)    # label -> field path of a display name; "{label}"
+                                                           # in the hypothesis inserts it
     underpowered_if: tuple[str, str] | None = None  # (power, target power) context labels
     selected_after_search: bool = False             # the tested model was chosen as the best of a field
 
@@ -218,9 +229,9 @@ SHOCK = "supply_shock_study.json"
 LEAK = "leak_anatomy.json"
 LEAKED_PIPELINE = ("look-ahead leak: the walk-forward trained on rows whose 5-session labels matured "
                    "after the decision (see data/leak_anatomy.json)")
-ABOVE_50 = lambda s: s > 50.0                                     # noqa: E731
-POSITIVE = lambda s: s > 0.0                                      # noqa: E731
-NEGATIVE = lambda s: s < 0.0                                      # noqa: E731
+ABOVE_50: Callable[[float], bool] = lambda s: s > 50.0            # noqa: E731
+POSITIVE: Callable[[float], bool] = lambda s: s > 0.0             # noqa: E731
+NEGATIVE: Callable[[float], bool] = lambda s: s < 0.0             # noqa: E731
 _LM = "leaderboard.models[key={}]"
 
 
@@ -292,6 +303,7 @@ def _leak_rows() -> list[Row]:
         for purged in (False, True):
             b = f"{block}.{'purged' if purged else 'unpurged_leaked'}"
             setting = f"Walk-forward {'with' if purged else 'without'} the purge, {desc}"
+            claim: dict[str, Any]               # the Row fields that state the claim and its test
             if pooled:
                 claim = dict(
                     hypothesis=f"{setting} scores above 50% direction accuracy.",
@@ -319,7 +331,7 @@ def _leak_rows() -> list[Row]:
     return rows
 
 
-def _power(tag: str, test: str) -> dict:
+def _power(tag: str, test: str) -> Power:
     """For the post-2007 sample: the power of its `test` against the pre-2007 effect size, with the
     target power, as context, and the row marked underpowered when it falls short."""
     if tag != "post2007":
@@ -401,7 +413,7 @@ def _vrp_rows() -> list[Row]:
     vrp = "economic.variance_risk_premium"
     null = f"{vrp}.zero_premium_null"
 
-    def sharpe_row(name, hypothesis, note="", extra=None):
+    def sharpe_row(name: str, hypothesis: str, note: str = "", extra: dict[str, str] | None = None) -> Row:
         test = f"{vrp}.sharpe_positive_test.{name}"
         return Row(id=f"vrp_{name}_sharpe", family="variance risk premium", hypothesis=hypothesis,
                    test=("one-sided test of Sharpe > 0 with the Mertens (2002) / Opdyke (2007) standard error, "
@@ -452,7 +464,8 @@ def _vrp_rows() -> list[Row]:
 
 
 def _vol_rows() -> list[Row]:
-    def lab_dm(rid, model, metric, hypothesis, expects, note="", retracted=None):
+    def lab_dm(rid: str, model: str, metric: str, hypothesis: str, expects: Callable[[float], bool], note: str = "",
+               retracted: str | None = None) -> Row:
         base = f"{_LM.format(model)}.dm_{metric}_vs_har_iv"
         return Row(id=rid, family="volatility forecast", hypothesis=hypothesis,
                    test=f"Diebold-Mariano on daily {metric.upper()} losses (Newey-West, HLN), two-sided; "
@@ -542,7 +555,8 @@ def _vol_rows() -> list[Row]:
             statistic=("DM statistic", "oos_selection.dm_vs_har_iv.stat"), p=Field("oos_selection.dm_vs_har_iv.p_value"),
             sided="two", expects=POSITIVE),
         Row(id="vol_record_biased", family="volatility forecast",
-            hypothesis="HAR-IV's variance forecast is biased (Mincer-Zarnowitz intercept 0, slope 1 rejected).",
+            hypothesis=("HAR-IV's variance forecast is biased (its Mincer-Zarnowitz intercept differs from 0 or its "
+                        "slope from 1)."),
             test="HAC Wald test of the Mincer-Zarnowitz regression", source=LAB,
             statistic=("MZ slope", f"{_LM.format('har_iv')}.mincer_zarnowitz.slope"),
             p=Field(f"{_LM.format('har_iv')}.mincer_zarnowitz.p_unbiased"), sided="two",
@@ -644,14 +658,14 @@ def source_names() -> set[str]:
     return {row.source for row in ledger_rows()}
 
 
-def load_artifact(name: str) -> dict:
+def load_artifact(name: str) -> Artifact:
     """Read one of the ledger's own source artifacts from data/."""
     if name not in source_names():
         raise ValueError(f"{name} is not a research-ledger source")
     path = DATA_ROOT / name
     if path.parent != DATA_ROOT or path.name != name:
         raise ValueError(f"{name} is not a file in data/")
-    return json.loads(path.read_text(encoding="utf-8"))
+    return cast("Artifact", json.loads(path.read_text(encoding="utf-8")))
 
 
 # ── Multiplicity ─────────────────────────────────────────────────────────────
@@ -701,7 +715,7 @@ def _status(row: Row, p: float | None, direction_ok: bool | None) -> str:
     return "not_supported"
 
 
-def _artifact_date(doc: dict) -> str | None:
+def _artifact_date(doc: Artifact) -> str | None:
     for path in ("generated_at", "timestamp", "generated_from.retrieved_at"):
         try:
             return str(resolve(doc, path))[:10]
@@ -710,7 +724,7 @@ def _artifact_date(doc: dict) -> str | None:
     return None
 
 
-def _num(x):
+def _num(x: Any) -> Any:
     if isinstance(x, (bool, np.bool_)):
         return bool(x)
     if isinstance(x, (int, np.integer)):
@@ -720,9 +734,9 @@ def _num(x):
     return x
 
 
-def _by_family(rows: list[dict]) -> dict:
+def _by_family(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Per family: rows by status, and how many supported rows survive BH at 5% and clear t > 3."""
-    out = {}
+    out: dict[str, dict[str, Any]] = {}
     for fam in dict.fromkeys(r["family"] for r in rows):
         members = [r for r in rows if r["family"] == fam]
         supported = [r for r in members if r["status"] == "supported"]
@@ -735,11 +749,11 @@ def _by_family(rows: list[dict]) -> dict:
     return out
 
 
-def build(load=None) -> dict:
+def build(load: Callable[[str], Artifact] | None = None) -> dict[str, Any]:
     """The ledger from the committed artifacts (`load(name)` returns a parsed artifact)."""
     load = load or load_artifact
-    docs: dict[str, dict] = {}
-    rows = []
+    docs: dict[str, Artifact] = {}
+    rows: list[dict[str, Any]] = []
     for row in ledger_rows():
         doc = docs.setdefault(row.source, load(row.source))
         stat_label, stat_path = row.statistic
@@ -846,8 +860,10 @@ def main() -> None:
                                               ("T", r["clears_hlz_t3"])) if on)
         print(f"{r['id']:34s} {r['status']:13s} p={p} q={q} {flags:3s} {'pre' if r['pre_specified'] else ''}")
     s = ledger["summary"]
+    in_family = len(s["supported"]) - len(s["supported_selected_after_search"])
     print(f"\n{s['rows']} rows ({s['by_status']}); supported surviving BH: {len(s['supported_surviving_bh_5pct'])}"
-          f"/{len(s['supported'])}; clearing t > 3: {len(s['supported_clearing_hlz_t3'])}")
+          f"/{in_family} in the multiplicity family; clearing t > 3: {len(s['supported_clearing_hlz_t3'])}; "
+          f"selected after a search (outside the family): {', '.join(s['selected_after_search']) or 'none'}")
     print(f"wrote data/{ARTIFACT}")
 
 

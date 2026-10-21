@@ -5,12 +5,13 @@ import DataTable from "../components/DataTable";
 import LazyMount from "../components/LazyMount";
 import Panel, { REPRODUCE } from "../components/Panel";
 import Segmented from "../components/Segmented";
-import { riskAssertion, volTargetAssertion } from "../lib/assertions";
+import { riskAssertion, riskDetail, volTargetAssertion, volTargetDetail } from "../lib/assertions";
 import { DASH, fmtDate, fmtInt, fmtNum, fmtP, fmtPValue, fmtPct, fmtSigned, fmtSpan } from "../lib/format";
 import {
-  countExceedances, getLab, getRoles, getVol, logToSimplePct, modelLabels, recordVar, varRows, varSeries, volTargetRisk,
+  asText, countExceedances, getLab, getRoles, getVol, logToSimplePct, modelLabels, recordVar, shortLabel, varRows, varSeries,
+  volTargetRisk,
 } from "../lib/research";
-import { ResearchUnavailable } from "./common";
+import { EconomicUnavailable, ResearchUnavailable, StudyHead, economicSpan } from "./common";
 
 const RANGES = [
   { value: "3Y", label: "3Y" },
@@ -37,10 +38,12 @@ const SOURCE = {
 /**
  * RISK: does the forecast-scaled VaR breach as often as it should, and independently? The VaR
  * series and its returns are 5-session LOG returns; the vol-targeting table below reports simple
- * returns, so the caption converts the worst week to make the two comparable.
+ * returns, so the caption converts the worst week to make the two comparable. The chart opens on
+ * the last three years, where ordinary weeks are readable; over the full history a few extreme
+ * weeks set the scale. The backtest statistics cover the full sample whatever the range.
  */
 export default function RiskPanel({ data, research, researchStatus }) {
-  const [range, setRange] = useState("ALL");
+  const [range, setRange] = useState("3Y");
   const [level, setLevel] = useState("0.01");
   const lab = getLab(research);
   const labels = useMemo(() => modelLabels(lab), [lab]);
@@ -55,7 +58,7 @@ export default function RiskPanel({ data, research, researchStatus }) {
       <Panel id="risk" code="RISK" name="VaR backtest" title={null} fallbackTitle="Value-at-Risk backtest"
         source={SOURCE}>
         <ResearchUnavailable status={researchStatus} what="the VaR backtest" />
-        <VolTargeting overlay={getVol(data).economic?.vol_target_overlay} />
+        <VolTargeting economic={getVol(data).economic} />
       </Panel>
     );
   }
@@ -67,7 +70,7 @@ export default function RiskPanel({ data, research, researchStatus }) {
   const hsWorst = historical.sort((a, b) => a.independencePass - b.independencePass)[0];
   const evaluationWeeks = lab?.var_backtest?.grid0?.evaluation_weeks;
   const firstVar = series.find((row) => row.var95 != null);
-  const recordName = labels.get(champion)?.replace(/\s*\(model of record\)\s*$/i, "") ?? "the model of record";
+  const recordName = shortLabel(labels.get(champion)) ?? "the model of record";
   const worst = series.reduce((low, row) => (low == null || row.ret < low.ret ? row : low), null);
   const worstNote = worst
     ? ` The worst week, ${fmtDate(worst.date)}, is ${fmtSigned(worst.ret, 1, "%")} as a log return, ${fmtSigned(logToSimplePct(worst.ret), 1, "%")} as a simple return (the vol-targeting table reports simple returns).`
@@ -81,13 +84,14 @@ export default function RiskPanel({ data, research, researchStatus }) {
       title={riskAssertion(methods, labels, champion)}
       fallbackTitle="Value-at-Risk backtest"
       meta={[
+        ...riskDetail(methods),
         evaluationWeeks != null ? `n ${fmtInt(evaluationWeeks)} weeks` : null,
         fmtSpan(firstVar?.date, series[series.length - 1]?.date),
         `${methods[0]?.gridCount ?? DASH} 5-session sampling grids`,
         "Kupiec 1995 · Christoffersen 1998 · DQ (Engle-Manganelli 2004)",
       ]}
       actions={<Segmented label="VaR chart range" options={RANGES} value={range} onChange={setRange} />}
-      caption={`Bars: weekly 5-session log returns, in percent. Lines: −VaR on the same log-return scale, from ${recordName} scaled by filtered historical simulation. In this series ${fmtInt(counts.e99)} of ${fmtInt(counts.n)} weeks breached the 99% line and ${fmtInt(counts.e95)} the 95% line (grid 0, rounded series).${worstNote}`}
+      caption={`Bars: weekly 5-session log returns, in percent. Lines: −VaR on the same log-return scale, from ${recordName} scaled by filtered historical simulation (95% solid, 99% dashed). In this series ${fmtInt(counts.e99)} of ${fmtInt(counts.n)} weeks breached the 99% line and ${fmtInt(counts.e95)} the 95% line (grid 0, rounded series); ALL shows the full history.${worstNote}`}
       source={SOURCE}
       resetKey={research}
       table={() => (
@@ -159,7 +163,7 @@ export default function RiskPanel({ data, research, researchStatus }) {
         ]}
         rows={shown}
       />
-      <VolTargeting overlay={getVol(data).economic?.vol_target_overlay} />
+      <VolTargeting economic={getVol(data).economic} />
     </Panel>
   );
 }
@@ -169,9 +173,14 @@ export default function RiskPanel({ data, research, researchStatus }) {
  * is risk control (realized vol near target, thinner tails), not return; the Sharpe difference
  * test is shown beside it.
  */
-function VolTargeting({ overlay }) {
-  const risk = volTargetRisk(overlay);
-  if (!risk?.rows.length) return null;
+function VolTargeting({ economic }) {
+  const risk = volTargetRisk(economic?.vol_target_overlay);
+  if (!risk?.rows.length) {
+    return asText(economic?.unavailable_reason)
+      ? <div className="subsection ruled"><EconomicUnavailable economic={economic} what="Volatility targeting" /></div>
+      : null;
+  }
+  const span = economicSpan(economic);
   const test = risk.vsBuyHold;
   const trailing = risk.vsTrailing;
   const describe = (name, value) => (value?.difference != null
@@ -180,9 +189,9 @@ function VolTargeting({ overlay }) {
   const differences = [describe("buy-and-hold", test), describe("trailing-vol target", trailing)].filter(Boolean);
   return (
     <div className="subsection ruled">
-      <h3 className="study-title">{volTargetAssertion(risk) ?? "Volatility targeting on the forecast"}</h3>
+      <StudyHead title={volTargetAssertion(risk) ?? "Volatility targeting on the forecast"} detail={volTargetDetail(risk)} />
       <DataTable
-        caption={`Long front-month WTI, weekly rebalanced${risk.weeks != null ? `, ${fmtInt(risk.weeks)} weeks` : ""}${risk.target != null ? `, ${fmtNum(risk.target, 0)}% vol target` : ""}; simple returns, percent`}
+        caption={`Long front-month WTI, weekly rebalanced${risk.weeks != null ? `, ${fmtInt(risk.weeks)} weeks` : ""}${span ? `, ${span.text}` : ""}${risk.target != null ? `, ${fmtNum(risk.target, 0)}% vol target` : ""}; simple returns, percent`}
         rowKey={(row) => row.key}
         rowClass={(row) => (row.key === "forecast_vol_target" ? "is-record" : undefined)}
         dense
@@ -197,9 +206,12 @@ function VolTargeting({ overlay }) {
           { key: "sharpe", label: "Sharpe", align: "right", render: (row) => <span className="num">{fmtNum(row.sharpe, 2)}</span> },
         ]}
         rows={risk.rows}
-        footnote={differences.length
-          ? `Sharpe difference, ${differences.join("; ")}. No return advantage is claimed; the use is risk control, and sizing on trailing realized vol is the simple alternative it must beat.`
-          : null}
+        footnote={[
+          differences.length
+            ? `Sharpe difference, ${differences.join("; ")}. No return advantage is claimed; the use is risk control, and sizing on trailing realized vol is the simple alternative it must beat.`
+            : null,
+          span?.reason ?? null,
+        ].filter(Boolean).join(" ") || null}
       />
     </div>
   );

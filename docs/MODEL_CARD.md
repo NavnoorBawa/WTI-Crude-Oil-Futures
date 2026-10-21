@@ -10,7 +10,7 @@ generated from the committed artifacts (`scripts/readme_blocks.py`, checked in C
 - **Specification.** A heterogeneous autoregressive model in logs (Corsi 2009) with implied
   volatility: `log RV(t+1..t+5) = b0 + b1 log RV5 + b2 log RV22 + b3 log RV66 + b4 log OVX(t-1) + e`,
   fitted by OLS on every matured row (expanding window). RV is close-to-close realized vol over the
-  last 5, 22 and 66 sessions; OVX is the CBOE Crude Oil ETF Volatility Index.
+  last 5, 22 and 66 sessions; OVX is the Cboe Crude Oil ETF Volatility Index.
 - **Version.** `har-iv/2`. Version 1 (June 2026) used the test day's own OVX close and published
   the median forecast; see the [changelog](../CHANGELOG.md) for why both changed.
 - **Outputs.** The variance-consistent forecast (`median * sqrt(smearing)`, Duan 1983), used for
@@ -20,7 +20,11 @@ generated from the committed artifacts (`scripts/readme_blocks.py`, checked in C
 - **Challenger.** The lab (`backend/vol_lab.py`, `choose_challenger`) picks the lowest-QLIKE model
   in the full-sample 90% Model Confidence Set of the feasible models, other than the model of
   record. The timing control, which reads OVX published after the decision, is never eligible. The
-  challenger is forecast live alongside the model of record.
+  challenger is forecast live alongside the model of record. The live promotion test is pinned to
+  this challenger and this model version (`vol_record.PROMOTION_CHALLENGER`,
+  `vol_record.PROMOTION_MODEL_VERSION`): a forecast from another version, such as the plain-HAR
+  fallback published when no lagged OVX print is available, is recorded but never enters the test,
+  and a different challenger would be a new, separately declared test.
 - **Code.** `backend/vol_forecast.py` (model of record), `backend/vol_lab.py` (benchmarks and
   evaluation), `backend/forecast_eval.py` (statistics), `backend/vol_record.py` (live record).
   MIT license.
@@ -28,9 +32,13 @@ generated from the committed artifacts (`scripts/readme_blocks.py`, checked in C
 ## Intended use
 
 - A **risk input**: sizing positions to a volatility target, and setting a weekly Value-at-Risk.
+  Most of that benefit comes from scaling by a volatility estimate at all: raw OVX passes the VaR
+  tests as often as this model, and sizing on trailing realized volatility comes close in the
+  overlay; between the sized books only the Sharpe difference is tested (README section 2.4).
 - **Not** a signal for whether implied volatility is rich or cheap: timing short-variance positions
-  on OVX minus the forecast was tested and rejected (`data/research_ledger.json`, row `vrp_timing`;
-  README section 2.5).
+  on OVX minus the forecast was tested and is not supported, a failure to reject rather than
+  evidence that timing cannot work (`data/research_ledger.json`, row `vrp_timing`; README section
+  2.5).
 - **Not** a directional trading signal, and not a source of return on its own: the vol-target
   overlay's Sharpe difference from buy-and-hold is in the table below. What it is for is risk
   control (realized vol near target, thinner tails).
@@ -67,10 +75,10 @@ generated from the committed artifacts (`scripts/readme_blocks.py`, checked in C
 
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("model_card_metrics") ]]] -->
 
-| Metric | Model of record (HAR-IV v2) | Challenger (HAR-IV-range) | Reference |
+| Metric | Model of record (`har-iv/2`) | Challenger (HAR-IV-range) | Reference |
 |---|---:|---:|---|
-| QLIKE, every OOS day (lower is better) | 0.370 | 0.353 | persistence 0.952; implied-vol regression 0.368; raw OVX 0.374 |
-| Diebold-Mariano on QLIKE vs the model of record | — | +3.10 (p = 0.002) | implied-vol regression +0.47 (p = 0.641) |
+| QLIKE, every OOS day (lower is better) | 0.370 | 0.353 | persistence 0.952; OVX-only regression 0.368; Raw OVX 0.374 |
+| Diebold-Mariano on QLIKE vs the model of record (pairwise) | — | +3.10 (p = 0.002; before adjusting for the search that chose it) | OVX-only regression +0.47 (p = 0.641) |
 | In the 90% Model Confidence Set (full sample; sampling grids) | no, MCS p 0.037 (2/5 grids) | yes, MCS p 1.000 (5/5 grids) | 4 of 13 feasible models; the timing control is excluded |
 | Hansen SPA, null: no model beats the model of record | p = 0.072 | — | 12 feasible alternatives; significant at 10% but not at 5% |
 | Mincer-Zarnowitz slope (joint unbiasedness p) | 0.86 (0.161) | 0.81 (0.142) | 1 (unbiased) |
@@ -78,7 +86,7 @@ generated from the committed artifacts (`scripts/readme_blocks.py`, checked in C
 | Realized utility (% per year) | 3.25 | 3.30 | maximum 4.0 |
 | OVX elasticity (HAC t), full-sample fit | 1.03 (13.2) | — | 1 = proportional to implied vol |
 | Vol-target overlay: Sharpe minus buy-and-hold (p) | −0.12 (0.408) | — | production run, 800 weeks |
-| Direction accuracy, every OOS day (not skill evidence) | 72.6% | 72.4% | noise floor 75.2% (HAR without OVX on simulated returns with nothing to forecast); production run: model of record 74.4% on the weekly grid vs a floor of 75.5% |
+| Direction accuracy, every OOS day (not skill evidence) | 72.6% | 72.4% | noise floor 75.2% (HAR without OVX on simulated returns with nothing to forecast); production run: model of record 74.4% on the weekly grid vs a floor of 75.2% |
 
 Every-day rows and the SPA test are from the lab (`data/vol_lab.json`, rebuilt in CI); the overlay and production-grid direction figures are from a recorded run on downloaded data (`data/vol_forecast_validation.json`).
 <!-- [[[end]]] -->
@@ -108,16 +116,18 @@ data is for personal use).
 
 ## Caveats and recommendations
 
-- Most of the model's skill is implied volatility: compare the OVX elasticity and the implied-vol
+- Most of the model's skill is implied volatility: compare the OVX elasticity and the OVX-only
   regression's Diebold-Mariano test in the table above. The options market already prices most of
   this information.
 - OVX is built from options on the USO ETF, not on CL futures, so it carries a basis to the
   front-month contract.
-- The challenger's historical edge was found on the same sample it is evaluated on; the SPA test in
-  the table above discounts for that search. It is promoted only by a single one-sided
-  Diebold-Mariano test on its first 52 independent live weeks, with a Student t(51) reference (see
-  the promotion rule and its power in the README, section 3). A `keep` verdict, a failure to
-  reject, does not by itself show that the challenger is no better.
+- The challenger's historical edge was found on the same sample it is evaluated on, so its pairwise
+  Diebold-Mariano p-value in the table above ignores that search; the SPA test discounts for it, and
+  the research ledger leaves the pairwise test out of its multiplicity adjustments. The challenger is
+  promoted only by a single one-sided Diebold-Mariano test on its first 52 independent live weeks of
+  the pinned pair, with a Student t(51) reference (see the promotion rule and its power in the
+  README, section 3). A `keep` verdict, a failure to reject, does not by itself show that the
+  challenger is no better.
 - Free daily data cannot measure intraday volatility; the range-based measure (Rogers-Satchell plus
   the overnight return, with the test day's bar taken only to its settlement) is the free
   substitute used here and is what the challenger uses.

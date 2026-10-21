@@ -40,3 +40,12 @@ test("text tokens used for words meet WCAG AA (4.5:1) on every surface", () => {
 test("withAlpha converts a hex colour to rgba", () => {
   assert.equal(theme.withAlpha("#3987E5", 0.5), "rgba(57, 135, 229, 0.5)");
 });
+
+test("no logo is drawn inside the charts, and the footer carries the library's notice and link", () => {
+  // lightweight-charts reads the option from `layout`; a top-level key would be ignored.
+  assert.equal(theme.baseChartOptions().layout.attributionLogo, false);
+  assert.ok(!("attributionLogo" in theme.baseChartOptions()));
+  const footer = readSource("src/app/SiteFooter.jsx");
+  assert.match(footer, /TradingView Lightweight Charts™, Copyright © \d{4} TradingView,\s+Inc\./);
+  assert.match(footer, /href="https:\/\/www\.tradingview\.com\/"/);
+});

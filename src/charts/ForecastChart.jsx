@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LineSeries, LineStyle, createChart, createSeriesMarkers } from "lightweight-charts";
 import { BandSeries } from "./bandSeries";
-import { SERIES, SURFACE, baseChartOptions, fontsReady, labelAttribution, withAlpha } from "../theme/chartTheme";
+import { SERIES, SURFACE, baseChartOptions, fontsReady, withAlpha } from "../theme/chartTheme";
 import { DASH, fmtDate, fmtNum } from "../lib/format";
 import { frameRange, timeKey } from "./lwUtil";
 
@@ -86,7 +86,6 @@ export default function ForecastChart({ rows, live, range = "3Y", modelLabel = "
         if (entry) chart.resize(Math.floor(entry.contentRect.width), Math.floor(entry.contentRect.height));
       });
       observer.observe(host);
-      labelAttribution(host);
       stateRef.current = { chart, band, ovx, actual, forecast, markers, rangeKey: null };
       setReady(true);
       teardown = () => {

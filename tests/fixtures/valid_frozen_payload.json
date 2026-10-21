@@ -454,6 +454,7 @@
    "issued_at": "2026-10-20T12:01:59.455021Z",
    "model": "HAR-IV (RV5,RV22,RV66,OVX)",
    "model_version": "har-iv/2",
+   "ovx_error": null,
    "prob_vol_rises_pct": 58.3,
    "residual_sd": 0.408,
    "smearing_factor": 1.4134

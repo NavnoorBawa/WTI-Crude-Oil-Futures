@@ -11,7 +11,8 @@ only.
 
 Sources. data/vol_lab.json is rebuilt from the pinned snapshot (data/market) and checked in CI;
 data/vol_forecast_validation.json and data/wf_*.json are records of runs on downloaded data, not
-rebuilt in CI. Blocks that quote them say so.
+rebuilt in CI. Blocks that quote them say so. The design levels the text quotes (the number of
+sampling grids, the confidence-set level, the interval level) are read from the lab's config.
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ import ast
 import json
 import math
 from pathlib import Path
+
+from backend.vol_record import PROMOTION_ALPHA, PROMOTION_RULE, PROMOTION_WEEKS, student_t_sf
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
@@ -130,6 +133,37 @@ def _count(n: int, total: int) -> str:
     return f"all {total}" if n == total else f"{n} of {total}"
 
 
+def _word(n: int) -> str:
+    """A small count in words ('five'), as prose writes it next to another number ('five 5-session grids')."""
+    words = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
+    return words[n] if 0 <= n < len(words) else str(n)
+
+
+def _pct_level(share: float) -> str:
+    """A confidence level as text: 0.9 -> '90%'."""
+    return f"{round(share * 100, 6):g}%"
+
+
+def _grids(lab: dict) -> int:
+    """The number of sampling grids: one per offset of the forecast step (config.step sessions)."""
+    return lab["config"]["step"]
+
+
+def _grid_weeks(lab: dict) -> str:
+    """Non-overlapping weeks per sampling grid ("926 or 927"): offset k keeps every step-th day from k."""
+    step, n = _grids(lab), lab["sample"]["n_days"]
+    sizes = sorted({-(-(n - k) // step) for k in range(step)})
+    return str(sizes[0]) if len(sizes) == 1 else " or ".join(str(s) for s in sizes)
+
+
+def _mcs_level(lab: dict) -> str:
+    return _pct_level(1 - lab["config"]["mcs"]["size"])
+
+
+def _interval_level(lab: dict) -> str:
+    return _pct_level(1 - lab["config"]["conformal"]["alpha"])
+
+
 # --------------------------------------------------------------------------- the lab's field
 
 def _model(lab: dict, key: str) -> dict:
@@ -174,17 +208,8 @@ def _var(lab: dict, method: str, level: str) -> dict:
     return lab["var_backtest"]["summary"][f"{method}@{level}"]
 
 
-def sample_line() -> str:
-    lab = _lab()
-    s = lab["sample"]
-    m = lab["generated_from"]
-    return (f"{s['n_days']:,} out-of-sample days ({s['n_weeks']} non-overlapping weeks on the production grid), "
-            f"{s['first']} to {s['last']}; data snapshot of {m['sessions_through']} "
-            f"(`data/market/MANIFEST.json`).")
-
-
 def key_numbers() -> dict:
-    """The handful of numbers the abstract quotes, keyed by name."""
+    """The handful of numbers the abstract and the summary tables quote, keyed by name."""
     lab, prod = _lab(), _prod()
     board = lab["leaderboard"]
     champ, chall = _champ(lab), _chall(lab)
@@ -193,27 +218,38 @@ def key_numbers() -> dict:
     econ = ov["risk"]
     champion = lab["config"]["champion"]
     return {
-        "n_days": lab["sample"]["n_days"], "n_weeks": lab["sample"]["n_weeks"],
-        "first": lab["sample"]["first"], "last": lab["sample"]["last"],
+        "n_days": lab["sample"]["n_days"], "first": lab["sample"]["first"], "last": lab["sample"]["last"],
         "n_models": len(board["models"]), "n_feasible": len(_feasible(lab)),
-        "mcs_size": len(board["mcs_qlike_included"]),
         "champ_qlike": champ["qlike"], "persistence_qlike": _model(lab, "persistence")["qlike"],
-        "chall_label": chall["label"], "chall_qlike": chall["qlike"],
+        "chall_qlike": chall["qlike"],
         "chall_dm": chall["dm_qlike_vs_har_iv"]["stat"], "chall_dm_p": chall["dm_qlike_vs_har_iv"]["p_value"],
-        "chall_grids": chall["in_mcs_qlike_grids"], "spa_p": board["spa_qlike_vs_har_iv"]["p_consistent"],
+        "spa_p": board["spa_qlike_vs_har_iv"]["p_consistent"],
         "lab_noise_floor": lab["noise_floor"]["har_direction_acc_pct_mean"],
         "prod_noise_floor": o["direction_noise_floor"]["dir_acc_pct_mean"],
         "dir_acc": o["har_dir_acc_pct"],
         "coverage": lab["conformal"][champion]["coverage_pct"],
-        "mz_slope": o["har_mincer_zarnowitz"]["slope"], "mz_p": o["har_mincer_zarnowitz"]["p_unbiased"],
         "target_vol": ov["target_vol_pct"], "overlay_weeks": ov["n_weeks"],
         "fc_realized_vol": econ["forecast_vol_target"]["realized_vol_pct"],
+        "tr_realized_vol": econ["trailing_vol_target"]["realized_vol_pct"],
         "bh_kurt": econ["buy_hold"]["excess_kurtosis"], "fc_kurt": econ["forecast_vol_target"]["excess_kurtosis"],
-        "bh_worst": econ["buy_hold"]["worst_week_pct"], "fc_worst": econ["forecast_vol_target"]["worst_week_pct"],
-        "hs_ind_pass": _var(lab, "historical_simulation", "0.05")["independence_pass_grids"],
-        "champ_ind_pass": _var(lab, f"{champion}:fhs", "0.05")["independence_pass_grids"],
+        "tr_kurt": econ["trailing_vol_target"]["excess_kurtosis"],
         "ovx_coef": next(t for t in lab["har_iv_coefficients"]["terms"] if t["term"] == "log OVX"),
     }
+
+
+def _scaling_share(k: dict) -> float | None:
+    """The share of the forecast-sized book's cut in excess kurtosis (from buy-and-hold) that sizing on
+    trailing volatility, with no forecast, already achieves."""
+    cut = k["bh_kurt"] - k["fc_kurt"]
+    return (k["bh_kurt"] - k["tr_kurt"]) / cut if cut > 0 else None
+
+
+def _zero_premium(vrp: dict) -> tuple[dict, bool, bool]:
+    """The variance risk premium's zero-premium null, and whether the share of periods with implied
+    above realized vol exceeds it significantly and whether the variance-unit premium is significant."""
+    null = vrp["zero_premium_null"]
+    ci = vrp["mean_premium_variance_ci95"]
+    return null, _sig(null["p_value_one_sided"]), ci[0] > 0 or ci[1] < 0
 
 
 def _sharpe_clause(test: dict) -> str:
@@ -240,14 +276,17 @@ def abstract() -> str:
     ovx_only = _model(lab, "ovx_only")
     mcs = [_model(lab, key) for key in board["mcs_qlike_included"]]
     champion = lab["config"]["champion"]
+    grids = _grids(lab)
     var99 = _var(lab, f"{champion}:fhs", "0.01")
     hs99 = _var(lab, "historical_simulation", "0.01")
+    raw99 = _var(lab, "raw_ovx:fhs", "0.01")
     summary = ledger["summary"]
     overlay = prod["economic"]["vol_target_overlay"]
+    vrp = prod["economic"]["variance_risk_premium"]
 
     tied = not _sig(ovx_only["dm_qlike_vs_har_iv"]["p_value"])
-    ovx_clause = (f"a regression on OVX alone ({_fmt(ovx_only['qlike'])}, DM "
-                  f"{_peq(ovx_only['dm_qlike_vs_har_iv']['p_value'])}) is "
+    ovx_clause = (f"the {ovx_only['label']}, a log regression on OVX alone ({_fmt(ovx_only['qlike'])}, DM "
+                  f"{_peq(ovx_only['dm_qlike_vs_har_iv']['p_value'])}), is "
                   + ("statistically tied with the full model" if tied else "statistically distinguishable from it"))
     control_text = ""
     if len(controls) == 1:
@@ -257,10 +296,10 @@ def abstract() -> str:
         control_text = f"; {len(controls)} timing controls that read data published after the decision are excluded"
     if champ["in_mcs_qlike"]:
         record = (f"The model of record is in the set (MCS p = {_fmt(champ['mcs_qlike_p'])}) and on "
-                  f"{_count(champ['in_mcs_qlike_grids'], 5)} sampling grids.")
+                  f"{_count(champ['in_mcs_qlike_grids'], grids)} sampling grids.")
     else:
         record = (f"The model of record is outside it (MCS p = {_fmt(champ['mcs_qlike_p'])}), and inside it on "
-                  f"{champ['in_mcs_qlike_grids']} of the 5 five-session sampling grids.")
+                  f"{champ['in_mcs_qlike_grids']} of the {grids} non-overlapping sampling grids.")
     lowest_all = chall["qlike"] == min(m["qlike"] for m in board["models"])
     lowest_feasible = chall["qlike"] == min(m["qlike"] for m in feasible)
     rank = (f"has the lowest loss of all {k['n_models']} models" if lowest_all else
@@ -283,6 +322,50 @@ def abstract() -> str:
                  + ("not evidence of skill" if dir_row["status"] != "supported" else "above its noise floor")
                  + f": the same pipeline, run as HAR without OVX on simulated i.i.d. returns with nothing to "
                    f"forecast, scores {k['prod_noise_floor']}%.")
+
+    var_text = (f"its weekly 99% Value-at-Risk breaches {var99['exceedances_by_grid'][0]} times against "
+                f"{var99['expected']} expected on the production grid, with breaches that pass the independence test "
+                f"on {var99['independence_pass_grids']}/{grids} grids against {hs99['independence_pass_grids']}/{grids} "
+                f"for historical simulation")
+    if raw99["independence_pass_grids"] >= var99["independence_pass_grids"]:
+        var_text += (f"; a VaR scaled by raw OVX, with nothing fitted, passes on "
+                     f"{raw99['independence_pass_grids']}/{grids} too, so that gain comes from scaling by volatility "
+                     f"and is not specific to this model")
+    tests = overlay["sharpe_difference_tests"]
+    share = _scaling_share(k)
+    overlay_text = (f"In the production validation (a recorded run on downloaded data), sizing a {k['target_vol']:g}% "
+                    f"volatility target on the forecast over {k['overlay_weeks']} weeks gives a realized volatility of "
+                    f"{k['fc_realized_vol']}% and an excess kurtosis of {k['fc_kurt']} (buy-and-hold: {k['bh_kurt']}), "
+                    f"and {_sharpe_clause(tests['forecast_minus_buy_hold'])}. Sizing on trailing 22-day volatility, "
+                    f"with no forecast, gives {k['tr_realized_vol']}% and {k['tr_kurt']}")
+    if share is not None and share >= 0.9:
+        overlay_text += (", so most of that risk control comes from scaling by volatility at all; between the two "
+                         "sized books only the Sharpe difference is tested "
+                         f"({_fmt(tests['forecast_minus_trailing']['difference'], 2, True)}, "
+                         f"{_peq(tests['forecast_minus_trailing']['p_value'])}).")
+    else:
+        overlay_text += "."
+    null, share_sig, var_sig = _zero_premium(vrp)
+    vrp_text = (f"OVX is above the next month's realized volatility in {vrp['share_positive_pct']}% of periods, "
+                + (f"which is not evidence of a variance risk premium: with no premium, a noisy, right-skewed 20-session "
+                   f"realized volatility would be below OVX in {null['share_positive_pct']}% of periods "
+                   f"(one-sided {_peq(null['p_value_one_sided'])} for the difference)" if not share_sig else
+                   f"more than the {null['share_positive_pct']}% a zero premium would give (one-sided "
+                   f"{_peq(null['p_value_one_sided'])})")
+                + ", and the premium in variance units, the relevant measure, is "
+                + ("significant." if var_sig else "not significant."))
+    s = summary
+    selected = s.get("supported_selected_after_search", [])
+    family = s["by_status"]["supported"] - len(selected)
+    ledger_text = (f"All {s['rows']} hypotheses the project has tested are listed in a research ledger with "
+                   f"multiplicity adjustments: of the {family} supported ones in the adjusted family, "
+                   f"{len(s['supported_surviving_bh_5pct'])} survive Benjamini-Hochberg at 5%; "
+                   f"{s['by_status']['not_supported']} are not supported (a failure to reject, not evidence against "
+                   f"them) and {s['by_status']['retracted']} are retracted.")
+    if "vol_challenger_qlike" in selected:
+        ledger_text += (" The challenger's pairwise test is left out of that family, because the challenger was "
+                        "picked by searching the field on the same sample; the SPA test is its search-adjusted "
+                        "counterpart.")
     return (
         f"This project forecasts the realized volatility of front-month NYMEX WTI crude oil over the next five "
         f"sessions from free data, and keeps a public forward record of its live forecasts that scores only entries "
@@ -292,26 +375,16 @@ def abstract() -> str:
         f"{_fmt(k['persistence_qlike'])} for a random-walk forecast. It is significantly better than "
         f"{_names(worse)} (Diebold-Mariano p < 0.05 each). Most of that skill is the options market's: the "
         f"elasticity on OVX is {_fmt(k['ovx_coef']['coef'], 2)}, and {ovx_clause}. Of the {k['n_feasible']} models "
-        f"that use only information available at the decision, the 90% Model Confidence Set keeps "
+        f"that use only information available at the decision, the {_mcs_level(lab)} Model Confidence Set keeps "
         f"{len(mcs)} ({_names(mcs)}){control_text}. {record} {chall['label']}, {_gloss(lab, chall)}, {rank} "
-        f"({_fmt(k['chall_qlike'])}, DM {_peq(k['chall_dm_p'])}) and {in_set}"
-        f"{_count(chall['in_mcs_qlike_grids'], 5)} grids. {spa_text} The model of record's 80% adaptive conformal "
-        f"intervals cover {k['coverage']}% of outcomes (the method steers long-run coverage to its target), and its "
-        f"weekly 99% Value-at-Risk breaches "
-        f"{var99['exceedances_by_grid'][0]} times against {var99['expected']} expected on the production grid, with "
-        f"breaches that pass the independence test on {var99['independence_pass_grids']}/5 grids against "
-        f"{hs99['independence_pass_grids']}/5 for historical simulation. In the production validation (a recorded "
-        f"run on downloaded data), sizing a {k['target_vol']:g}% volatility target on the forecast over "
-        f"{k['overlay_weeks']} weeks keeps realized volatility at {k['fc_realized_vol']}%, cuts excess kurtosis from "
-        f"{k['bh_kurt']} to {k['fc_kurt']}, and "
-        f"{_sharpe_clause(overlay['sharpe_difference_tests']['forecast_minus_buy_hold'])}. {direction}\n\n"
+        f"({_fmt(k['chall_qlike'])}, pairwise DM {_peq(k['chall_dm_p'])}) and {in_set}"
+        f"{_count(chall['in_mcs_qlike_grids'], grids)} grids. {spa_text} The model of record's "
+        f"{_interval_level(lab)} adaptive conformal intervals cover {k['coverage']}% of outcomes (the method steers "
+        f"long-run coverage to its target), and {var_text}. {overlay_text} {direction} {vrp_text}\n\n"
         f"The project began as a machine-learning direction model whose backtest Sharpe ratio of "
         f"{_fmt(lk, 2)} after costs was a look-ahead leak; purged, it is {_fmt(pm, 2)}. The same leak gives a "
         f"20-tree random forest a gross (before costs) Sharpe ratio of {_fmt(leak['unpurged_leaked']['sharpe_mean'], 2)} "
-        f"on a pure random walk. All {summary['rows']} hypotheses the project has tested are listed in a research "
-        f"ledger with multiplicity adjustments: {len(summary['supported_surviving_bh_5pct'])} of the "
-        f"{summary['by_status']['supported']} supported ones survive Benjamini-Hochberg at 5%, and "
-        f"{summary['by_status']['retracted']} are retracted."
+        f"on a pure random walk. {ledger_text}"
     )
 
 
@@ -322,9 +395,12 @@ def results_at_a_glance() -> str:
     champion = lab["config"]["champion"]
     persistence = _model(lab, "persistence")
     raw, ovx_only = _model(lab, "raw_ovx"), _model(lab, "ovx_only")
+    grids, mcs_level = _grids(lab), _mcs_level(lab)
     var95, var99 = _var(lab, f"{champion}:fhs", "0.05"), _var(lab, f"{champion}:fhs", "0.01")
     hs95, hs99 = _var(lab, "historical_simulation", "0.05"), _var(lab, "historical_simulation", "0.01")
-    tests = prod["economic"]["vol_target_overlay"]["sharpe_difference_tests"]["forecast_minus_buy_hold"]
+    raw95, raw99 = _var(lab, "raw_ovx:fhs", "0.05"), _var(lab, "raw_ovx:fhs", "0.01")
+    sharpe_tests = prod["economic"]["vol_target_overlay"]["sharpe_difference_tests"]
+    tests, vs_trailing = sharpe_tests["forecast_minus_buy_hold"], sharpe_tests["forecast_minus_trailing"]
     vrp = prod["economic"]["variance_risk_premium"]
     swap = vrp["sharpe_positive_test"]["short_vol_swap"]
     ci = vrp["mean_premium_variance_ci95"]
@@ -349,15 +425,22 @@ def results_at_a_glance() -> str:
         better = "Not shown"
     mz = champ["mincer_zarnowitz"]
     calibrated = "Unbiasedness not rejected" if not _sig(mz["p_unbiased"]) else "Biased (Mincer-Zarnowitz rejects)"
-    clusters = (var95["independence_pass_grids"] == 5 and var99["independence_pass_grids"] == 5
-                and hs95["independence_pass_grids"] + hs99["independence_pass_grids"] < 10)
-    var_answer = "Yes: its breaches do not cluster" if clusters else "Partly"
-    money = "No, it controls risk" if not _sig(tests["p_value"]) else (
+    clean = var95["independence_pass_grids"] == grids and var99["independence_pass_grids"] == grids
+    hs_clusters = hs95["independence_pass_grids"] + hs99["independence_pass_grids"] < 2 * grids
+    raw_as_good = (raw95["independence_pass_grids"] >= var95["independence_pass_grids"]
+                   and raw99["independence_pass_grids"] >= var99["independence_pass_grids"])
+    if clean and hs_clusters:
+        var_answer = ("Better than no volatility model, but so is raw OVX: the gain is from volatility scaling"
+                      if raw_as_good else "Yes: its breaches do not cluster")
+    else:
+        var_answer = "Partly"
+    money = "No; volatility scaling controls risk" if not _sig(tests["p_value"]) else (
         "Yes" if tests["difference"] > 0 else "No: it lowers the Sharpe ratio")
-    vol_pts = _ledger_row(ledger, "vrp_exists")["status"] == "supported"
-    var_sig = ci[0] > 0 or ci[1] < 0
+    null, share_sig, var_sig = _zero_premium(vrp)
     swap_sig = _sig(swap["p_value_one_sided"])
-    vrp_answer = (("In vol points, yes" if vol_pts else "In vol points, not shown") + "; in variance, "
+    findings = [share_sig, var_sig, swap_sig]
+    vrp_answer = (("Not established" if not any(findings) else "Partly") + ": in vol points, "
+                  + ("significantly above" if share_sig else "not significantly above") + " what a zero premium gives; in variance, "
                   + ("significant" if var_sig else "not significant") + "; as a short vol-swap return, "
                   + ("significant" if swap_sig else "not significant"))
     direction = "No" if _ledger_row(ledger, "vol_dir_vs_noise_floor")["status"] != "supported" else "Above its floor"
@@ -367,30 +450,37 @@ def results_at_a_glance() -> str:
                 f"{_fmt(k['champ_qlike'])} vs {_fmt(k['persistence_qlike'])} for persistence (DM "
                 f"{_peq(pdm['p_value'])}); {len(_worse_than_record(lab))} of the {feasible_benchmarks} feasible "
                 f"benchmarks significantly worse | lab |")
-    rows.append(f"| Does it add to implied volatility? | {adds} | OVX regression {_fmt(ovx_only['qlike'])} (DM "
-                f"{_peq(ovx_only['dm_qlike_vs_har_iv']['p_value'])}), raw OVX {_fmt(raw['qlike'])} (DM "
+    rows.append(f"| Does it add to implied volatility? | {adds} | {ovx_only['label']} {_fmt(ovx_only['qlike'])} (DM "
+                f"{_peq(ovx_only['dm_qlike_vs_har_iv']['p_value'])}), {raw['label']} {_fmt(raw['qlike'])} (DM "
                 f"{_peq(raw['dm_qlike_vs_har_iv']['p_value'])}); OVX elasticity {_fmt(k['ovx_coef']['coef'], 2)} "
                 f"(HAC t {_fmt(k['ovx_coef']['t_hac'], 1)}) | lab |")
-    rows.append(f"| Is anything better? | {better} | {chall['label']} QLIKE {_fmt(k['chall_qlike'])} (DM "
-                f"{_peq(k['chall_dm_p'])}); model of record {'inside' if champ['in_mcs_qlike'] else 'outside'} the "
-                f"90% MCS (p = {_fmt(champ['mcs_qlike_p'])}); SPA p = {_fmt(k['spa_p'])} after the search; "
-                f"challenger on the live record | lab |")
+    rows.append(f"| Is anything better? | {better} | {chall['label']} QLIKE {_fmt(k['chall_qlike'])} (pairwise DM "
+                f"{_peq(k['chall_dm_p'])}, before the search is accounted for); model of record "
+                f"{'inside' if champ['in_mcs_qlike'] else 'outside'} the {mcs_level} MCS "
+                f"(p = {_fmt(champ['mcs_qlike_p'])}); SPA p = {_fmt(k['spa_p'])} after the search; challenger on the "
+                f"live record | lab |")
     rows.append(f"| Are the forecasts calibrated? | {calibrated} | Mincer-Zarnowitz slope {_fmt(mz['slope'], 2)} "
-                f"(joint p = {_p(mz['p_unbiased'])}); 80% intervals cover {k['coverage']}% (adaptive conformal: on "
-                f"target by construction) | lab |")
+                f"(joint p = {_p(mz['p_unbiased'])}); {_interval_level(lab)} intervals cover {k['coverage']}% "
+                f"(adaptive conformal: on target by construction) | lab |")
     rows.append(f"| Does it make a better weekly VaR? | {var_answer} | Breach independence passes on "
-                f"{var95['independence_pass_grids']}/5 grids at 95% and {var99['independence_pass_grids']}/5 at 99%, "
-                f"vs {hs95['independence_pass_grids']}/5 and {hs99['independence_pass_grids']}/5 for historical "
-                f"simulation; 99%: {var99['exceedances_by_grid'][0]} breaches vs {var99['expected']} expected on the "
-                f"production grid (Kupiec passes {var99['kupiec_pass_grids']}/5) | lab |")
+                f"{var95['independence_pass_grids']}/{grids} grids at 95% and {var99['independence_pass_grids']}/{grids} "
+                f"at 99%, vs {hs95['independence_pass_grids']}/{grids} and {hs99['independence_pass_grids']}/{grids} for "
+                f"historical simulation and {raw95['independence_pass_grids']}/{grids} and "
+                f"{raw99['independence_pass_grids']}/{grids} for raw OVX scaling; 99%: {var99['exceedances_by_grid'][0]} "
+                f"breaches vs {var99['expected']} expected on the production grid (Kupiec passes "
+                f"{var99['kupiec_pass_grids']}/{grids}) | lab |")
     rows.append(f"| Does it make money as a vol target? | {money} | Sharpe difference vs buy-and-hold "
-                f"{_fmt(tests['difference'], 2, True)} ({_peq(tests['p_value'])}); excess kurtosis "
-                f"{k['fc_kurt']} vs {k['bh_kurt']} | production run |")
+                f"{_fmt(tests['difference'], 2, True)} ({_peq(tests['p_value'])}), vs trailing-vol sizing "
+                f"{_fmt(vs_trailing['difference'], 2, True)} ({_peq(vs_trailing['p_value'])}); excess kurtosis "
+                f"{k['fc_kurt']}, against {k['tr_kurt']} sized on trailing vol (difference not tested) and "
+                f"{k['bh_kurt']} for buy-and-hold | production run |")
     rows.append(f"| Is there a variance risk premium? | {vrp_answer} | IV above next-month RV in "
-                f"{vrp['share_positive_pct']}% of periods; mean variance premium "
+                f"{vrp['share_positive_pct']}% of periods, vs {null['share_positive_pct']}% expected with zero premium "
+                f"(one-sided bootstrap {_peq(null['p_value_one_sided'])}); mean variance premium "
                 f"{_fmt(vrp['mean_premium_variance_pts'], 0)} (95% CI {_fmt(ci[0], 0)} to {_fmt(ci[1], 0)}); short "
-                f"vol-swap Sharpe {vrp['short_vol_swap_sharpe']} (one-sided {_peq(swap['p_value_one_sided'])}, "
-                f"non-normal test) | production run |")
+                f"vol-swap Sharpe {vrp['short_vol_swap_sharpe']} (one-sided {_peq(swap['p_value_one_sided'])} "
+                f"against a zero mean, though with no premium the vol-point gap would still average "
+                f"{null['mean_premium_vol_pts']}) | production run |")
     rows.append(f"| Is volatility-direction accuracy evidence of skill? | {direction} | {k['dir_acc']}% observed vs "
                 f"{k['prod_noise_floor']}% for HAR without OVX on simulated returns with nothing to forecast | "
                 f"production run |")
@@ -428,12 +518,12 @@ def design_block() -> str:
         f"the last {c['purge_rows']} training rows are purged, because their targets overlap the test target and "
         f"are not known at the decision.",
         f"- **Sample.** {smp['n_days']:,} out-of-sample days, {smp['first']} to {smp['last']}. Losses and "
-        f"tests use every day. Each of the five {c['step']}-session sampling grids (offsets 0–4, "
-        f"{smp['n_weeks']} non-overlapping weeks each; grid 0 is the production validator's) is also scored on its "
-        f"own, and VaR is scored only there, since it needs independent outcomes.",
+        f"tests use every day. Each of the {_word(_grids(lab))} {c['step']}-session sampling grids (offsets "
+        f"0–{_grids(lab) - 1}, {_grid_weeks(lab)} non-overlapping weeks each; grid 0 is the production validator's) is "
+        f"also scored on its own, and VaR is scored only there, since it needs independent outcomes.",
         "- **Forecasts.** Losses, VaR and risk use the variance-consistent forecast (the median times a Duan "
         "smearing factor). The direction call and the intervals use the median.",
-        f"- **Inference.** Model Confidence Set at {100 - mcs['size'] * 100:g}% ({mcs['statistic']} statistic, "
+        f"- **Inference.** Model Confidence Set at {_mcs_level(lab)} ({mcs['statistic']} statistic, "
         f"{mcs['reps']:,} {mcs['bootstrap']}-bootstrap replications, blocks of {mcs['block_daily']} days or "
         f"{mcs['block_weekly']} weeks, seed {mcs['seed']}); Diebold-Mariano with Newey-West variance and the "
         f"Harvey-Leybourne-Newbold correction; Hansen's SPA against the model of record.{control_text}",
@@ -446,8 +536,9 @@ def leaderboard_table() -> str:
     lab = _lab()
     champ_key, chall_key = lab["config"]["champion"], lab["config"]["challenger"]
     board = lab["leaderboard"]
-    rows = ["| Model | Family | QLIKE | DM vs model of record (p) | DM range over the 5 sampling grids | "
-            "MCS p | In 90% MCS (grids) | Realized utility (% / yr) |",
+    grids = _grids(lab)
+    rows = [f"| Model | Family | QLIKE | DM vs model of record (p) | DM range over the {grids} sampling grids | "
+            f"MCS p | In {_mcs_level(lab)} MCS (grids) | Realized utility (% / yr) |",
             "|---|---|---:|---:|---:|---:|---:|---:|"]
     for m in board["models"]:
         name = m["label"]
@@ -461,7 +552,7 @@ def leaderboard_table() -> str:
             mcs_p, mcs = "—", "excluded: timing control"
         else:
             mcs_p = _fmt(m["mcs_qlike_p"], 2)
-            mcs = f"{'yes' if m['in_mcs_qlike'] else 'no'} ({m['in_mcs_qlike_grids']}/5)"
+            mcs = f"{'yes' if m['in_mcs_qlike'] else 'no'} ({m['in_mcs_qlike_grids']}/{grids})"
         rows.append(f"| {name} | {m['family']} | {_fmt(m['qlike'])} | {dm_text} | {grid_text} | {mcs_p} | {mcs} | "
                     f"{_fmt(m['realized_utility_pct'], 2)} |")
     spa = board["spa_qlike_vs_har_iv"]
@@ -500,14 +591,14 @@ def field_findings() -> str:
             f" ({_names(also)} also uses the daily range)" if also else "")
     else:
         use_text = f"{len(uses)} of them use implied volatility"
-    para = [f"The 90% Model Confidence Set keeps {len(mcs)} of the {len(feasible)} feasible models ({_names(mcs)}), "
-            f"and {use_text}."]
+    para = [f"The {_mcs_level(lab)} Model Confidence Set keeps {len(mcs)} of the {len(feasible)} feasible models "
+            f"({_names(mcs)}), and {use_text}."]
     row = _ledger_row(ledger, "vol_mcs_excludes_record")
     if not champ["in_mcs_qlike"]:
         bh = "survives" if row.get("survives_bh_5pct") else "does not survive"
         para.append(f"The model of record is outside it (MCS p = {_fmt(champ['mcs_qlike_p'])}; the ledger counts "
                     f"this as supported, but it {bh} the Benjamini-Hochberg adjustment) and is inside it on "
-                    f"{champ['in_mcs_qlike_grids']} of the 5 sampling grids.")
+                    f"{champ['in_mcs_qlike_grids']} of the {_grids(lab)} sampling grids.")
     else:
         para.append(f"The model of record is in it (MCS p = {_fmt(champ['mcs_qlike_p'])}).")
     returns_only = [m for m in feasible if _inputs(m["key"]) == {"returns"}]
@@ -529,11 +620,11 @@ def field_findings() -> str:
     ovx_only = _model(lab, "ovx_only")
     op = ovx_only["dm_qlike_vs_har_iv"]["p_value"]
     if not _sig(op):
-        para.append(f"The model of record and the implied-vol regression are statistically indistinguishable "
+        para.append(f"The model of record and the {ovx_only['label']} are statistically indistinguishable "
                     f"({_peq(op)}): the options market already prices most of what the realized-volatility terms "
                     f"know.")
     else:
-        para.append(f"The model of record and the implied-vol regression differ significantly ({_peq(op)}).")
+        para.append(f"The model of record and the {ovx_only['label']} differ significantly ({_peq(op)}).")
     out.append(" ".join(para))
 
     para = []
@@ -542,8 +633,8 @@ def field_findings() -> str:
     udm = chall["dm_utility_vs_har_iv"]
     if top_q and top_u:
         para.append(f"{chall['label']} has the lowest QLIKE and the highest realized utility in the field, and "
-                    f"beats the model of record on both (DM {_peq(chall['dm_qlike_vs_har_iv']['p_value'])} on "
-                    f"QLIKE, {_peq(udm['p_value'])} on utility).")
+                    f"beats the model of record on both in a pairwise test (DM "
+                    f"{_peq(chall['dm_qlike_vs_har_iv']['p_value'])} on QLIKE, {_peq(udm['p_value'])} on utility).")
     else:
         para.append(f"{chall['label']} has a QLIKE of {_fmt(chall['qlike'])} and a realized utility of "
                     f"{_fmt(chall['realized_utility_pct'], 2)}% (DM vs the model of record "
@@ -559,9 +650,12 @@ def field_findings() -> str:
                     f"{len(feasible)} feasible models; the challenger's MSE difference from the model of record has "
                     f"DM {_peq(mdm['p_value'])}.")
     spa = board["spa_qlike_vs_har_iv"]["p_consistent"]
-    para.append(f"The variant was also found by searching this sample, which is what the SPA test discounts for "
-                f"(p = {_fmt(spa)}, {_level(spa)}). That is why it competes live rather than replacing the model of "
-                f"record on its historical record.")
+    after = ("its edge holds at 5% after the search" if _sig(spa) else
+             "after the search its edge is inconclusive" if spa < 0.10 else
+             "after the search its edge is not significant")
+    para.append(f"The variant was found by searching this sample, and those pairwise p-values do not account for "
+                f"the search. Hansen's SPA test does: p = {_fmt(spa)}, {_level(spa)}, so {after}. That is why it "
+                f"competes live rather than replacing the model of record on its historical record.")
     out.append(" ".join(para))
     return "\n\n".join(out)
 
@@ -605,16 +699,48 @@ def coefficients_reading() -> str:
         text.append(f"The significant pair has opposite signs and nearly offsets (the three realized coefficients "
                     f"sum to {_fmt(total, 3, True)}), so the realized terms enter mainly as the slope between the past "
                     f"month's and the past quarter's volatility, not as a level.")
-    raw = _model(lab, "raw_ovx")
-    ratio = raw["mean_ratio_actual_to_forecast"]
+    raw, champ = _model(lab, "raw_ovx"), _champ(lab)
+    ratio, champ_ratio = raw["mean_ratio_actual_to_forecast"], champ["mean_ratio_actual_to_forecast"]
     const = terms["const"]["coef"]
     units = -ovx["coef"] * math.log(100.0)
     text.append(f"Most of the constant is a change of units: OVX enters in index points and realized volatility as a "
                 f"decimal, which accounts for {_fmt(units, 3, True)} of the {_fmt(const, 3, True)}; with OVX as a decimal "
                 f"the constant is {_fmt(const - units, 3, True)}.")
-    text.append(f"Used directly, OVX {'overstates' if ratio < 1 else 'understates'} realized volatility: realized "
-                f"averages {_fmt(ratio)} times the previous session's OVX, the variance risk premium (section 2.5) plus "
-                f"OVX's basis to the front-month future. The remaining constant and the realized terms carry that gap.")
+    if ratio >= 1:
+        text.append(f"Used directly, OVX is below realized volatility in vol units: realized averages {_fmt(ratio)} "
+                    f"times the previous session's OVX.")
+        return " ".join(text)
+    text.append(f"Used directly, OVX is above realized volatility in vol units: realized averages {_fmt(ratio)} times "
+                f"the previous session's OVX. That gap does not measure the variance risk premium. A five-session "
+                f"realized volatility is a noisy estimate, and its mean is below the square root of its expected "
+                f"variance (Jensen's inequality), so a forecast that is right in variance is too high in vol units.")
+    mz_p = champ["mincer_zarnowitz"]["p_unbiased"]
+    if not _sig(mz_p) and champ_ratio < 1:
+        share = math.log(champ_ratio) / math.log(ratio)
+        part = "more than half" if share > 0.5 else "part"
+        text.append(f"The model of record gives a measure of that effect: Mincer-Zarnowitz does not reject that its "
+                    f"variance forecast is unbiased ({_peq(mz_p)}), yet realized averages {_fmt(champ_ratio)} times "
+                    f"it: in logs, {part} of OVX's gap. The rest is OVX's level against the front-month future: a "
+                    f"30-calendar-day horizon rather than five sessions, its basis to the future (section 9) and "
+                    f"whatever premium it carries (section 2.5).")
+    # Variance units, from the production-grid weeks the lab publishes (weekly series, percent).
+    s = lab["series"]
+    weeks = [(d, a, o) for d, a, o in zip(s["date"], s["actual"], s["ovx"]) if a is not None and o is not None]
+
+    def var_ratio(rows: list[tuple[str, float, float]]) -> float:
+        return sum(a * a for _, a, _ in rows) / sum(o * o for _, _, o in rows)
+
+    full = var_ratio(weeks)
+    years = sorted({d[:4] for d, _, _ in weeks})
+    # The calendar year whose removal moves the ratio most: a ratio of means is dominated by its largest weeks.
+    drop = max(years, key=lambda y: abs(var_ratio([w for w in weeks if w[0][:4] != y]) - full))
+    without = var_ratio([w for w in weeks if w[0][:4] != drop])
+    sign = ("has no stable sign" if (full - 1) * (without - 1) < 0 else
+            "points the same way as in vol units" if full < 1 else "points the other way")
+    text.append(f"In variance units, the units of the target and of QLIKE, the gap {sign}: over the {len(weeks)} "
+                f"weeks of the production grid, mean realized variance is {full:.2f} times the mean squared lagged OVX, "
+                f"and {without:.2f} without {drop}. In the log regression the constant and the realized terms absorb "
+                f"the gap, and the smearing factor (section 1, Forecasts) returns the forecast to the variance scale.")
     return " ".join(text)
 
 
@@ -625,8 +751,9 @@ def calibration_block() -> str:
     champ_key, chall_key = lab["config"]["champion"], lab["config"]["challenger"]
     conf = lab["conformal"]
     o = _prod()["overall"]
-    rows = ["| Model, sample | MZ intercept | MZ slope (SE) | Joint p (unbiased) | Actual / forecast | 80% coverage | "
-            "Coverage by year (min to max) | Interval score |", "|---|---:|---:|---:|---:|---:|---|---:|"]
+    rows = ["| Model, sample | MZ intercept | MZ slope (SE) | Joint p (unbiased) | Actual / forecast | "
+            f"{_interval_level(lab)} coverage | Coverage by year (min to max) | Interval score |",
+            "|---|---:|---:|---:|---:|---:|---|---:|"]
     for key in (champ_key, chall_key):
         m, c = _model(lab, key), conf[key]
         mz = m["mincer_zarnowitz"]
@@ -640,7 +767,8 @@ def calibration_block() -> str:
                 f"{_fmt(o['har_mean_ratio_actual_to_forecast'], 3)} | — | — | — |")
     rows.append("")
     rows.append(f"Mincer-Zarnowitz regression of realized on forecast variance with a HAC covariance. Intervals: "
-                f"{lab['config']['conformal']['method']}, step {lab['config']['conformal']['gamma']}, scored only "
+                f"{lab['config']['conformal']['method'].replace('Gibbs-Candes', 'Gibbs and Candès')}, step "
+                f"{lab['config']['conformal']['gamma']}, scored only "
                 f"after each target has settled; interval score of Gneiting and Raftery (2007), in vol points "
                 f"(lower is better). The every-day rows are from the lab; the production-grid row is from "
                 f"`data/vol_forecast_validation.json`, a recorded run on downloaded data.")
@@ -689,7 +817,8 @@ def var_table() -> str:
     lab = _lab()
     summary = lab["var_backtest"]["summary"]
     label = {m["key"]: m["label"] for m in lab["leaderboard"]["models"]}
-    rows = ["| Method | Level | Exceedances by grid (expected) | Kupiec | Independence | Cond. coverage | DQ |",
+    grids, c = _grids(lab), lab["config"]
+    rows = ["| Method | Level | Exceedances by grid (expected on grid 0) | Kupiec | Independence | Cond. coverage | DQ |",
             "|---|---:|---|---:|---:|---:|---:|"]
     for key, s in summary.items():
         method, level = key.split("@")
@@ -698,13 +827,13 @@ def var_table() -> str:
         name = "Historical simulation (no vol model)" if method == "historical_simulation" else \
             f"{label.get(method.split(':')[0], method)} + filtered HS"
         rows.append(f"| {name} | {float(level) * 100:.0f}% | {', '.join(map(str, s['exceedances_by_grid']))} "
-                    f"({s['expected']}) | {s['kupiec_pass_grids']}/5 | {s['independence_pass_grids']}/5 | "
-                    f"{s['conditional_coverage_pass_grids']}/5 | {s['dq_pass_grids']}/5 |")
+                    f"({s['expected']}) | {s['kupiec_pass_grids']}/{grids} | {s['independence_pass_grids']}/{grids} | "
+                    f"{s['conditional_coverage_pass_grids']}/{grids} | {s['dq_pass_grids']}/{grids} |")
     rows.append("")
-    rows.append("Weekly (5-session) VaR of a long front-month position, scored on each of the five 5-session "
-                "sampling grids (non-overlapping outcomes); a test passes at 5%. Kupiec (1995) unconditional "
-                "coverage, Christoffersen (1998) independence and conditional coverage, Engle-Manganelli (2004) DQ. "
-                "Source: lab.")
+    rows.append(f"Weekly ({c['horizon_sessions']}-session) VaR of a long front-month position, scored on each of the "
+                f"{_word(grids)} {c['step']}-session sampling grids (non-overlapping outcomes); a test passes at 5%. Kupiec "
+                f"(1995) unconditional coverage, Christoffersen (1998) independence and conditional coverage, "
+                f"Engle-Manganelli (2004) DQ. Source: lab.")
     return "\n".join(rows)
 
 
@@ -713,30 +842,35 @@ def var_reading() -> str:
     summary = lab["var_backtest"]["summary"]
     label = {m["key"]: m["label"] for m in lab["leaderboard"]["models"]}
     levels = ("0.05", "0.01")
+    grids, champion = _grids(lab), lab["config"]["champion"]
     hs = {lvl: summary[f"historical_simulation@{lvl}"] for lvl in levels}
     fhs = {lvl: {k.split(":")[0]: v for k, v in summary.items() if k.endswith(f":fhs@{lvl}")} for lvl in levels}
     methods = list(fhs["0.05"])
     text = [f"Historical simulation, with no volatility model, passes Kupiec's coverage test on "
-            f"{hs['0.05']['kupiec_pass_grids']}/5 grids at 95% and {hs['0.01']['kupiec_pass_grids']}/5 at 99%; at 99% "
-            f"it breaches {min(hs['0.01']['exceedances_by_grid'])} to {max(hs['0.01']['exceedances_by_grid'])} times "
-            f"per grid against {hs['0.01']['expected']} expected. Its breaches cluster: it passes the independence "
-            f"test on {hs['0.05']['independence_pass_grids']}/5 grids at 95% and {hs['0.01']['independence_pass_grids']}/5 "
-            f"at 99%."]
-    clean = [m for m in methods if all(fhs[lvl][m]["independence_pass_grids"] == 5 for lvl in levels)]
+            f"{hs['0.05']['kupiec_pass_grids']}/{grids} grids at 95% and {hs['0.01']['kupiec_pass_grids']}/{grids} at "
+            f"99%; at 99% it breaches {min(hs['0.01']['exceedances_by_grid'])} to "
+            f"{max(hs['0.01']['exceedances_by_grid'])} times per grid against {hs['0.01']['expected']} expected. Its "
+            f"breaches cluster: it passes the independence test on {hs['0.05']['independence_pass_grids']}/{grids} "
+            f"grids at 95% and {hs['0.01']['independence_pass_grids']}/{grids} at 99%."]
+    clean = [m for m in methods if all(fhs[lvl][m]["independence_pass_grids"] == grids for lvl in levels)]
     if len(clean) == len(methods):
         text.append("Scaling by any of the volatility forecasts removes the clustering: every scaled method passes "
                     "the independence test on every grid at both levels.")
     else:
         rest = []
         for lvl in levels:
-            fails = [f"{label.get(m, m)} {fhs[lvl][m]['independence_pass_grids']}/5" for m in methods
-                     if fhs[lvl][m]["independence_pass_grids"] < 5]
+            fails = [f"{label.get(m, m)} {fhs[lvl][m]['independence_pass_grids']}/{grids}" for m in methods
+                     if fhs[lvl][m]["independence_pass_grids"] < grids]
             if fails:
                 rest.append(f"at {100 - float(lvl) * 100:.0f}%, {_join(fails)}")
         text.append(f"Scaling by a volatility forecast removes most of the clustering: with "
                     f"{_join([label.get(m, m) for m in clean])} the breaches pass the independence test on every grid "
                     f"at both levels; the other scaled methods pass on fewer grids ({'; '.join(rest)}).")
-    pairs = [(m, g) for m in methods for g in range(5)]
+    if "raw_ovx" in clean and champion in clean:
+        text.append(f"{label['raw_ovx']}, with nothing fitted, does as well as the model of record here, so these pass "
+                    f"counts show what scaling by volatility does; they do not rank the forecasts, and no test here "
+                    f"compares the scaled methods' VaR losses directly.")
+    pairs = [(m, g) for m in methods for g in range(grids)]
     over = sum(fhs["0.01"][m]["exceedances_by_grid"][g] > fhs["0.01"][m]["expected"] for m, g in pairs)
     kupiec = sum(fhs["0.01"][m]["kupiec_pass_grids"] for m in methods)
     text.append(f"At 99% the scaled methods breach more often than nominal on {over} of {len(pairs)} grid-method "
@@ -775,29 +909,34 @@ def overlay_reading() -> str:
     r, target = ov["risk"], ov["target_vol_pct"]
     fc, tr, bh = r["forecast_vol_target"], r["trailing_vol_target"], r["buy_hold"]
     tests = ov["sharpe_difference_tests"]
-    text = []
-    gap = fc["realized_vol_pct"] - target
-    if abs(gap) <= 1:
-        text.append(f"Sized on the forecast, the book's realized volatility lands on the target ({fc['realized_vol_pct']}% "
-                    f"against {target:g}%)")
-    else:
-        text.append(f"Sized on the forecast, the book's realized volatility is {fc['realized_vol_pct']}% against a "
-                    f"{target:g}% target")
-    text[-1] += (f", and excess kurtosis falls from {bh['excess_kurtosis']} to {fc['excess_kurtosis']}.")
-    tgap = tr["realized_vol_pct"] - target
-    if tgap > 1:
-        text.append(f"Sizing on trailing volatility overshoots the target ({tr['realized_vol_pct']}%).")
-    elif tgap < -1:
-        text.append(f"Sizing on trailing volatility undershoots the target ({tr['realized_vol_pct']}%).")
+    text = [f"Sized on the forecast, the book's realized volatility is {fc['realized_vol_pct']}% against the "
+            f"{target:g}% target and its excess kurtosis {fc['excess_kurtosis']}, against {bh['excess_kurtosis']} for "
+            f"buy-and-hold."]
+    k = {"bh_kurt": bh["excess_kurtosis"], "fc_kurt": fc["excess_kurtosis"], "tr_kurt": tr["excess_kurtosis"]}
+    share = _scaling_share(k)
+    text.append(f"Sizing on trailing 22-day volatility, with no forecast, gives {tr['realized_vol_pct']}% and "
+                f"{tr['excess_kurtosis']}"
+                + (", so most of the risk control is a property of scaling by volatility at all, not of this "
+                   "forecast." if share is not None and share >= 0.9 else "."))
+    closer = abs(tr["realized_vol_pct"] - target) - abs(fc["realized_vol_pct"] - target)
+    kurt = tr["excess_kurtosis"] - fc["excess_kurtosis"]
+    es = fc["expected_shortfall_97_5_pct"] - tr["expected_shortfall_97_5_pct"]
+    dd = tr["max_drawdown_pct"] - fc["max_drawdown_pct"]
+    text.append(f"Against trailing sizing, the forecast's book is {abs(closer):.1f} points "
+                f"{'closer to' if closer >= 0 else 'further from'} the target, its excess kurtosis is "
+                f"{abs(kurt):.2f} {'lower' if kurt >= 0 else 'higher'}, its 97.5% expected shortfall {abs(es):.1f} points "
+                f"{'smaller' if es >= 0 else 'larger'} and its maximum drawdown {abs(dd):.1f} points "
+                f"{'smaller' if dd >= 0 else 'larger'}; none of these differences is tested.")
     p1, p2 = tests["forecast_minus_buy_hold"]["p_value"], tests["forecast_minus_trailing"]["p_value"]
+    d1, d2 = tests["forecast_minus_buy_hold"]["difference"], tests["forecast_minus_trailing"]["difference"]
     if not _sig(p1) and not _sig(p2):
-        text.append(f"Neither raises the Sharpe ratio detectably: the differences are small and not significant "
-                    f"({_peq(p1)} against buy-and-hold, {_peq(p2)} against trailing sizing). This matches the "
-                    f"evidence on volatility targeting outside equities (Harvey et al. 2018). The forecast controls "
-                    f"risk; it does not create return.")
+        text.append(f"The Sharpe ratio is the one difference tested, and sizing on the forecast does not change it "
+                    f"detectably, against buy-and-hold ({_fmt(d1, 2, True)}, {_peq(p1)}) or against trailing sizing "
+                    f"({_fmt(d2, 2, True)}, {_peq(p2)}). This matches the evidence on volatility targeting outside "
+                    f"equities (Harvey et al. 2018): scaling by volatility controls risk; it does not create return.")
     else:
-        text.append(f"The Sharpe differences have {_peq(p1)} against buy-and-hold and {_peq(p2)} against trailing "
-                    f"sizing.")
+        text.append(f"The Sharpe differences, the one comparison tested, have {_peq(p1)} against buy-and-hold and "
+                    f"{_peq(p2)} against trailing sizing.")
     return " ".join(text)
 
 
@@ -810,15 +949,31 @@ def vrp_block() -> str:
     ci = vrp["mean_premium_variance_ci95"]
     swap, short_var = vrp["sharpe_positive_test"]["short_vol_swap"], vrp["sharpe_positive_test"]["short_variance"]
     worst = "; ".join(f"from {w['start']}, {_fmt(w['premium_vol_pts'], 1)} vol pts" for w in vrp["worst_periods"])
-    exists = _ledger_row(ledger, "vrp_exists")["status"] == "supported"
-    var_sig = ci[0] > 0 or ci[1] < 0
+    null, share_sig, var_sig = _zero_premium(vrp)
+    boot = null["bootstrap"]
+    retracted = _ledger_row(ledger, "vrp_exists")["status"] == "retracted"
     swap_p = swap["p_value_one_sided"]
     timing_p = vrp["timing_p_value"]
+    timing_sig = _sig(t["p_value"]) or _sig(timing_p)
+    same_way = t["slope"] > 0 and vrp["timed_rich_mean_pnl"] > vrp["timed_cheap_mean_pnl"]
     return "\n".join([
-        f"- **In vol points the premium is {'there' if exists else 'not established'}.** OVX exceeded the realized "
+        f"- **In vol points, the share of periods with OVX above realized is "
+        f"{'significantly' if share_sig else 'not significantly'} above what a zero premium gives.** OVX exceeded the "
+        f"realized "
         f"volatility of the following 20 sessions in {vrp['share_positive_pct']}% of {vrp['n_periods']} "
-        f"non-overlapping periods, by {vrp['mean_premium_vol_pts']} points on average.",
-        f"- **In variance units, the units an option seller is paid in, it is "
+        f"non-overlapping periods, by {vrp['mean_premium_vol_pts']} points on average. With no premium (implied "
+        f"variance equal to expected realized variance), OVX would still be above realized volatility in most "
+        f"periods: a 20-session realized volatility is a noisy, right-skewed estimate, and as the square root of a "
+        f"variance its mean is below the square root of its expected variance (Jensen's inequality). Keeping the observed shape of the per-period "
+        f"ratio of realized to implied variance and rescaling it to a mean of 1, a zero premium gives OVX above "
+        f"realized in {null['share_positive_pct']}% of periods, by {null['mean_premium_vol_pts']} points on average. "
+        f"The observed share is {null['excess_share_pct']} points above that, one-sided {_peq(null['p_value_one_sided'])} "
+        f"({_level(null['p_value_one_sided'])}; stationary block bootstrap, {boot['reps']:,} draws, mean block "
+        f"{boot['mean_block_periods']} periods). Variation of the premium across periods also widens the ratios the "
+        f"null is built from, which raises the null share, so the test errs on the conservative side."
+        + (" The ledger retracts the earlier sign test against 50%: that is not the share a zero premium gives."
+           if retracted else ""),
+        f"- **In variance units, the units an option seller is paid in and the relevant measure, it is "
         f"{'significant' if var_sig else 'not significant'}.** The mean premium is "
         f"{_fmt(vrp['mean_premium_variance_pts'], 1)} variance points (95% Newey-West CI {_fmt(ci[0], 0)} to "
         f"{_fmt(ci[1], 0)}): the few periods where realized volatility explodes ({worst}) "
@@ -826,13 +981,17 @@ def vrp_block() -> str:
         f"- **Harvesting it.** A short vol-swap proxy has an annualized Sharpe ratio of {vrp['short_vol_swap_sharpe']}, "
         f"but its period returns are skewed ({_fmt(swap['skewness'], 2)}) and fat-tailed (excess kurtosis "
         f"{swap['excess_kurtosis']}); the one-sided test of a positive Sharpe ratio with the Mertens (2002) / Opdyke "
-        f"(2007) standard error, which allows for both, gives {_peq(swap_p)} ({_level(swap_p)}). The convex "
-        f"short-variance position has a Sharpe ratio of {vrp['short_variance_sharpe']} ({_peq(short_var['p_value_one_sided'])}; "
+        f"(2007) standard error, which allows for both, gives {_peq(swap_p)} ({_level(swap_p)}). That test is "
+        f"against a zero mean, but with no premium the proxy's mean is still {null['mean_premium_vol_pts']} vol "
+        f"points (the same Jensen gap), so it overstates the evidence for a premium. The convex short-variance "
+        f"position has a Sharpe ratio of {vrp['short_variance_sharpe']} ({_peq(short_var['p_value_one_sided'])}; "
         f"{vrp['short_variance_sharpe_ex_worst_year']} without {vrp['worst_year']}).",
-        f"- **Timing it with the forecast {'does not help' if not _sig(t['p_value']) and not _sig(timing_p) else 'may help'}.** "
+        f"- **Timing it with the forecast: {'a significant gain' if timing_sig else 'no significant gain'}.** "
         f"Regressing short-variance P&L on OVX minus the forecast: slope {_fmt(t['slope'], 2)}, HAC t {t['t_hac']}, "
         f"{_peq(t['p_value'])} (n = {t['n']}); short-variance P&L in periods when OVX minus the forecast is above "
-        f"its trailing median against the other periods (one-sided Welch t-test): {_peq(timing_p)}.",
+        f"its trailing median against the other periods (one-sided Welch t-test): {_peq(timing_p)}."
+        + (" Both estimates point the way timing would need, so this is a failure to show a gain, not evidence "
+           "against one." if same_way and not timing_sig else ""),
         "",
         "Source: production run (`data/vol_forecast_validation.json`).",
     ])
@@ -840,17 +999,27 @@ def vrp_block() -> str:
 
 def vrp_reading() -> str:
     vrp = _prod()["economic"]["variance_risk_premium"]
-    ci = vrp["mean_premium_variance_ci95"]
+    null, share_sig, var_sig = _zero_premium(vrp)
     text = []
-    if vrp["share_positive_pct"] > 50:
-        text.append("The usual statement, that implied volatility exceeds realized most of the time, is true here. "
-                    "It is also the wrong unit.")
-    if vrp["mean_premium_variance_pts"] < 0 and vrp["short_variance_sharpe_ex_worst_year"] > 0:
-        text.append(f"A variance seller is paid in variance, and in variance the {vrp['worst_year']} periods "
-                    f"outweigh the rest of the sample.")
-    elif ci[0] <= 0 <= ci[1]:
-        text.append("A variance seller is paid in variance, and in variance the premium is not distinguishable "
-                    "from zero.")
+    if vrp["share_positive_pct"] > 50 and not share_sig:
+        text.append(f"The usual statement, that implied volatility exceeds realized most of the time, is true here "
+                    f"({vrp['share_positive_pct']}% of periods), but it is not evidence of a premium: with none, the "
+                    f"noise and skew of a 20-session realized volatility would give about "
+                    f"{null['share_positive_pct']}%.")
+    elif vrp["share_positive_pct"] > 50:
+        text.append(f"Implied volatility exceeds realized in {vrp['share_positive_pct']}% of periods, more than the "
+                    f"{null['share_positive_pct']}% a zero premium would give.")
+    if var_sig:
+        text.append("In variance, the unit a variance seller is paid in, the premium is significant.")
+    elif vrp["mean_premium_variance_pts"] < 0 and vrp["short_variance_sharpe_ex_worst_year"] > 0:
+        text.append(f"The relevant measure is the premium in variance, the unit a variance seller is paid in, and in "
+                    f"variance the {vrp['worst_year']} periods outweigh the rest of the sample, so the premium is not "
+                    f"distinguishable from zero.")
+    else:
+        text.append("The relevant measure is the premium in variance, the unit a variance seller is paid in, and in "
+                    "variance it is not distinguishable from zero.")
+    if not share_sig and not var_sig:
+        text.append("So a premium is not established here; neither test shows that there is none.")
     text.append("Measuring the premium properly needs a long history of oil option prices, which is not freely "
                 "available.")
     return " ".join(text)
@@ -866,17 +1035,26 @@ def noise_block() -> str:
     board = lab["leaderboard"]
     mr_row = _ledger_row(ledger, "vol_dir_vs_mean_reversion")
     sim = f"Simulated {nf['process'][0].lower()}{nf['process'][1:]}, HAR without OVX"
+    prod_sim = (pnf["sims"], pnf["dir_acc_pct_mean"], list(pnf["dir_acc_pct_range"]),
+                pnf["mean_reversion_dir_acc_pct_mean"])
+    lab_sim = (nf["sims"], nf["har_direction_acc_pct_mean"], list(nf["har_direction_acc_pct_range"]),
+               nf["mean_reversion_acc_pct_mean"])
+
+    def sim_row(source: str, sims: int, mean: float, span: list[float], rule: float) -> str:
+        return f"| {sim}, weekly grid, {sims} simulations | {source} | {mean}% ({span[0]}–{span[1]}) | {rule}% |"
+
     lines = [
         "| Pipeline run on | Source | Direction accuracy | Mean-reversion rule |", "|---|---|---:|---:|",
         f"| WTI, production weekly grid ({o['n']} weeks) | production run | {o['har_dir_acc_pct']}% | "
         f"{o['mean_reversion_dir_acc_pct']}% |",
-        f"| {sim}, weekly grid, {pnf['sims']} simulations | production run | {pnf['dir_acc_pct_mean']}% "
-        f"({pnf['dir_acc_pct_range'][0]}–{pnf['dir_acc_pct_range'][1]}) | {pnf['mean_reversion_dir_acc_pct_mean']}% |",
         f"| WTI, every out-of-sample day | lab | {_fmt(_champ(lab)['direction_acc_pct'], 1)}% | "
         f"{board['mean_reversion_acc_pct']}% |",
-        f"| {sim}, weekly grid, {nf['sims']} simulations | lab | {nf['har_direction_acc_pct_mean']}% "
-        f"({nf['har_direction_acc_pct_range'][0]}–{nf['har_direction_acc_pct_range'][1]}) | "
-        f"{nf['mean_reversion_acc_pct_mean']}% |",
+    ]
+    if prod_sim == lab_sim:
+        lines.append(sim_row("production run and lab (the same simulation)", *prod_sim))
+    else:
+        lines += [sim_row("production run", *prod_sim), sim_row("lab", *lab_sim)]
+    lines += [
         "",
         f"{nf['note']} The call compares next week's realized volatility with this week's, and a five-session "
         f"realized volatility is a noisy estimate that reverts toward its mean whether or not the underlying "
@@ -912,10 +1090,11 @@ def robustness_block() -> str:
 
     blocks = sorted((int(key.split("_")[1]), value) for key, value in rob.items() if key.startswith("block_"))
     periods = [(key, value) for key, value in rob.items() if isinstance(value, dict)]
+    grids = _grids(lab)
     out = [
-        f"- **Sampling grids.** The model of record's QLIKE on the five 5-session sampling grids ranges "
-        f"{_fmt(min(qby))} to {_fmt(max(qby))}; the challenger is in the 90% MCS on "
-        f"{chall['in_mcs_qlike_grids']}/5 and the model of record on {champ['in_mcs_qlike_grids']}/5. A "
+        f"- **Sampling grids.** The model of record's QLIKE on the {_word(grids)} {lab['config']['step']}-session sampling "
+        f"grids ranges {_fmt(min(qby))} to {_fmt(max(qby))}; the challenger is in the {_mcs_level(lab)} MCS on "
+        f"{chall['in_mcs_qlike_grids']}/{grids} and the model of record on {champ['in_mcs_qlike_grids']}/{grids}. A "
         f"conclusion that holds on one grid and not the next is reported as fragile.",
         f"- **Confidence-set settings.** The full-sample QLIKE set (blocks of {lab['config']['mcs']['block_daily']} "
         f"days) keeps {members(board['mcs_qlike_included'])}. "
@@ -1060,7 +1239,7 @@ def carry_table() -> str:
     rows.append("")
     rows.append(f"Second-nearby contract held over each contract cycle on EIA's futures curve (no roll gap in any "
                 f"return). After 2007 the spread test (one-sided 5%) could detect only a spread of "
-                f"{pw['mde_spread_pct_per_month']}%/month with 80% power, and had "
+                f"{pw['mde_spread_pct_per_month']}%/month with {pw['target_power'] * 100:.0f}% power, and had "
                 f"{round(pw['power_vs_pre_2007_spread'] * 100)}% power against the pre-2007 spread; the rank test "
                 f"(two-sided 5%) could detect a correlation of {_fmt(pw['mde_rank_corr'])} and had "
                 f"{round(pw['power_vs_pre_2007_rank_corr'] * 100)}% power against the pre-2007 correlation. The change "
@@ -1086,7 +1265,7 @@ def carry_reading() -> str:
         text.append(f"Over the full sample the spread is not significant at 5% (one-sided p = {_fmt(p)}).")
     spread_power = pw["power_vs_pre_2007_spread"]
     rank_changed = _sig(rc["rank_corr_difference_p_value"])
-    if not _sig(post["spread_p_value_one_sided"]) and spread_power < 0.8:
+    if not _sig(post["spread_p_value_one_sided"]) and spread_power < pw["target_power"]:
         text.append(f"Whether the effect survived 2007 is not something this sample can settle: the post-2007 spread "
                     f"test had {round(spread_power * 100)}% power against the pre-2007 spread, too little to call the "
                     f"effect dead, while the rank correlation, whose test had "
@@ -1183,22 +1362,52 @@ def supply_reading() -> str:
 
 # --------------------------------------------------------------------------- 6. ledger
 
+def _power(row: dict) -> tuple[float, float] | None:
+    """(power, target power) from a ledger row's context, where the artifact records them."""
+    ctx = row.get("context") or {}
+    power = next((v for key, v in ctx.items() if key.startswith("power")), None)
+    return (power, ctx["target_power"]) if power is not None and "target_power" in ctx else None
+
+
 def ledger_block() -> str:
     led = _ledger()
     s = led["summary"]
+    b = s["by_status"]
     rows_by_id = {r["id"]: r for r in led["rows"]}
-    out = [f"{s['rows']} hypotheses: {s['by_status']['supported']} supported, {s['by_status']['rejected']} rejected, "
-           f"{s['by_status']['inconclusive']} inconclusive, {s['by_status']['retracted']} retracted. Of the "
-           f"supported ones, {len(s['supported_surviving_bh_5pct'])} survive Benjamini-Hochberg at 5%, "
-           f"{len(s['supported_surviving_holm_5pct'])} survive Holm, and {len(s['supported_clearing_hlz_t3'])} clear "
-           f"the t > 3 hurdle of Harvey, Liu and Zhu (2016). By family:", "",
-           "| Family | Hypotheses | Supported | Rejected | Inconclusive | Retracted | Supported, surviving BH | "
+    alpha = led["alpha"]
+    inconclusive_below = _code_constant("backend/research_ledger.py", "INCONCLUSIVE_BELOW")
+    selected = s.get("selected_after_search", [])
+    family_supported = b["supported"] - len(s.get("supported_selected_after_search", []))
+    text = [f"{s['rows']} hypotheses: {b['supported']} supported (p < {alpha:.2f} in the direction the hypothesis "
+            f"states), {b['inconclusive']} inconclusive ({alpha:.2f} ≤ p < {inconclusive_below:.2f}), "
+            f"{b['not_supported']} not supported and {b['retracted']} retracted. Not supported means "
+            f"p ≥ {inconclusive_below:.2f} or an estimate pointing the other way: a failure to reject, not evidence "
+            f"against the hypothesis."]
+    under = [rows_by_id[key] for key in s.get("underpowered", [])]
+    if under:
+        def described(r: dict) -> str:
+            power = _power(r)
+            quoted = f"\"{r['hypothesis'].rstrip('.')}\""
+            return quoted + (f" (power {power[0] * 100:.0f}% against a target of {power[1] * 100:.0f}%)" if power else "")
+
+        text.append(f"Where the artifact records a test's power, a row whose power is below its target is marked "
+                    f"underpowered. {_word(len(under)).capitalize()} not-supported row{' is' if len(under) == 1 else 's are'}: "
+                    f"{'; '.join(described(r) for r in under)}.")
+    text.append(f"The multiplicity adjustments run over {s['rows_in_multiplicity_family']} rows: every row with a "
+                f"p-value, the retracted ones included"
+                + (f", except {len(selected)} selected after a search (below)" if selected else "") + ".")
+    text.append(f"Of the {family_supported} supported rows in that family, {len(s['supported_surviving_bh_5pct'])} "
+                f"survive Benjamini-Hochberg at 5%, {len(s['supported_surviving_holm_5pct'])} survive Holm, and "
+                f"{len(s['supported_clearing_hlz_t3'])} clear the t > 3 hurdle of Harvey, Liu and Zhu (2016). By "
+                f"family:")
+    out = [" ".join(text), "",
+           "| Family | Hypotheses | Supported | Inconclusive | Not supported | Retracted | Supported, surviving BH | "
            "Supported, clearing t > 3 |", "|---|---:|---:|---:|---:|---:|---:|---:|"]
     for family, f in s["by_family"].items():
-        b = f["by_status"]
-        out.append(f"| {family} | {f['rows']} | {b['supported']} | {b['rejected']} | {b['inconclusive']} | "
-                   f"{b['retracted']} | {f['supported_surviving_bh_5pct']} | {f['supported_clearing_hlz_t3']} |")
-    out += ["", "The supported hypotheses that survive Benjamini-Hochberg at 5%:", "",
+        fb = f["by_status"]
+        out.append(f"| {family} | {f['rows']} | {fb['supported']} | {fb['inconclusive']} | {fb['not_supported']} | "
+                   f"{fb['retracted']} | {f['supported_surviving_bh_5pct']} | {f['supported_clearing_hlz_t3']} |")
+    out += ["", "The supported hypotheses in the multiplicity family that survive Benjamini-Hochberg at 5%:", "",
             "| Claim | p | BH q | Clears t > 3 |", "|---|---:|---:|:---:|"]
     for key in s["supported_surviving_bh_5pct"]:
         r = rows_by_id[key]
@@ -1237,24 +1446,41 @@ def ledger_reading() -> str:
         else:
             text.append(f"The block-shuffled one pools {runs} runs that permute the same returns, so its p-value "
                         f"overstates the evidence (section 4); the synthetic runs draw independent returns.")
+    rows_by_id = {r["id"]: r for r in led["rows"]}
+    spa = rows_by_id.get("vol_spa_beats_record")
+    for key in s.get("supported_selected_after_search", []):
+        row = rows_by_id[key]
+        verdict = ""
+        if spa is not None and spa.get("p_value") is not None:
+            word = {"supported": "significant at 5%", "inconclusive": "inconclusive",
+                    "not_supported": "not significant"}.get(spa["status"], spa["status"])
+            verdict = (f" The search-adjusted test of the same question, Hansen's SPA, gives {_peq(spa['p_value'])}, "
+                       f"so after the search the edge is {word}; the live promotion test (section 3) decides whether "
+                       f"the challenger replaces the model of record.")
+        picked = ("The challenger is the lowest-loss model of the field on the same sample" if key == "vol_challenger_qlike"
+                  else "The model it tests was picked as the best of a field on the same sample")
+        text.append(f"One supported row is not in the table: \"{row['hypothesis'].rstrip('.')}\" "
+                    f"({_peq(row['p_value'])}). {picked}, so that pairwise p-value ignores the search, and the row is "
+                    f"left out of the multiplicity family.{verdict}")
     retracted = s["by_status"]["retracted"]
-    text.append(f"The {retracted} retracted rows stay in the multiplicity count: they were tested.")
+    vrp = rows_by_id.get("vrp_exists")
+    text.append(f"The {retracted} retracted rows stay in the multiplicity count, since they were tested, but none is "
+                f"counted as a survivor"
+                + ("; one of them is the share of periods with OVX above realized volatility tested against 50%, the "
+                   "wrong null for a premium (section 2.5)." if vrp is not None and vrp["status"] == "retracted"
+                   else "."))
     return " ".join(text)
 
 
 # --------------------------------------------------------------------------- 3. live record
 
 def promotion_rule() -> str:
-    from backend.vol_record import PROMOTION_RULE
-
     return f"> {PROMOTION_RULE}"
 
 
 def _t_critical(alpha: float, df: int) -> float:
     """The upper-alpha quantile of Student's t(df), by bisection on vol_record.student_t_sf (the
     function the promotion test takes its p-value from)."""
-    from backend.vol_record import student_t_sf
-
     lo, hi = 0.0, 1.0
     while student_t_sf(hi, df) > alpha:
         hi *= 2.0
@@ -1287,28 +1513,27 @@ def _noncentral_t_sf(c: float, df: int, delta: float, steps: int = 2000) -> floa
     return (integrand(lo) + inner + integrand(hi)) * h / 3
 
 
-def promotion_power(min_weeks: int = 52, alpha: float = 0.10) -> str:
+def promotion_power(min_weeks: int = PROMOTION_WEEKS, alpha: float = PROMOTION_ALPHA) -> str:
     """Power of the promotion test if the challenger's historical edge is its true edge.
 
     The per-grid Diebold-Mariano statistics are on n_weeks non-overlapping weeks, so the edge per
     week, the mean loss difference over its standard deviation, is about stat / sqrt(n_weeks). With
     normal weekly differences the test's statistic on w weeks is then noncentral t with w - 1 degrees
     of freedom and noncentrality stat * sqrt(w / n_weeks), and the test rejects above the t(w - 1)
-    critical value, as vol_record.promotion_test does."""
+    critical value, as vol_record.promotion_test does. The defaults are the promotion rule's own
+    sample size and level."""
     from statistics import median
 
-    from backend.vol_record import PROMOTION_ALPHA, PROMOTION_WEEKS
-
-    if (min_weeks, alpha) != (PROMOTION_WEEKS, PROMOTION_ALPHA):
-        raise ValueError("promotion_power's constants no longer match vol_record.PROMOTION_WEEKS / PROMOTION_ALPHA")
     lab = _lab()
     chall = _chall(lab)
     n_weeks = lab["sample"]["n_weeks"]
     stat = median(chall["dm_qlike_vs_har_iv_by_grid"])
     crit = _t_critical(alpha, min_weeks - 1)
-    edge = (f"How much the single test can tell: on the five sampling grids the challenger's Diebold-Mariano "
-            f"statistic against the model of record has a median of {_fmt(stat, 1)}, each over {n_weeks} "
-            f"non-overlapping weeks.")
+    edge = (f"How much the single test can tell: on the {_word(_grids(lab))} sampling grids the challenger's "
+            f"Diebold-Mariano statistic against the model of record has a median of {_fmt(stat, 1)}, each over "
+            f"{_grid_weeks(lab)} non-overlapping weeks. That edge was measured on the sample that selected the challenger, "
+            f"so it is more likely to overstate the true edge than to understate it, and the power below is "
+            f"correspondingly optimistic.")
     size = (f"If the challenger is no better, the test promotes it with probability at most {alpha * 100:.0f}%, "
             f"its size.")
     if stat <= 0:
@@ -1359,30 +1584,34 @@ def model_card_metrics() -> str:
     k = key_numbers()
     tests = prod["economic"]["vol_target_overlay"]["sharpe_difference_tests"]["forecast_minus_buy_hold"]
     controls = _controls(lab)
+    grids, interval = _grids(lab), _interval_level(lab)
+    version = _code_constant("backend/vol_forecast.py", "MODEL_VERSION")
+    raw = _model(lab, "raw_ovx")
 
     def in_set(m: dict) -> str:
         return (f"{'yes' if m['in_mcs_qlike'] else 'no'}, MCS p {_fmt(m['mcs_qlike_p'], 3)} "
-                f"({m['in_mcs_qlike_grids']}/5 grids)")
+                f"({m['in_mcs_qlike_grids']}/{grids} grids)")
 
     cdm = chall["dm_qlike_vs_har_iv"]
     odm = ovx_only["dm_qlike_vs_har_iv"]
-    rows = ["| Metric | Model of record (HAR-IV v2) | Challenger (" + chall["label"] + ") | Reference |",
+    rows = [f"| Metric | Model of record (`{version}`) | Challenger ({chall['label']}) | Reference |",
             "|---|---:|---:|---|"]
     rows.append(f"| QLIKE, every OOS day (lower is better) | {_fmt(champ['qlike'])} | {_fmt(chall['qlike'])} | "
-                f"persistence {_fmt(_model(lab, 'persistence')['qlike'])}; implied-vol regression "
-                f"{_fmt(ovx_only['qlike'])}; raw OVX {_fmt(_model(lab, 'raw_ovx')['qlike'])} |")
-    rows.append(f"| Diebold-Mariano on QLIKE vs the model of record | — | {_fmt(cdm['stat'], 2, True)} "
-                f"({_peq(cdm['p_value'])}) | implied-vol regression {_fmt(odm['stat'], 2, True)} ({_peq(odm['p_value'])}) |")
-    rows.append(f"| In the 90% Model Confidence Set (full sample; sampling grids) | {in_set(champ)} | {in_set(chall)} | "
-                f"{len(board['mcs_qlike_included'])} of {len(feasible)} feasible models"
+                f"persistence {_fmt(_model(lab, 'persistence')['qlike'])}; {ovx_only['label']} "
+                f"{_fmt(ovx_only['qlike'])}; {raw['label']} {_fmt(raw['qlike'])} |")
+    rows.append(f"| Diebold-Mariano on QLIKE vs the model of record (pairwise) | — | {_fmt(cdm['stat'], 2, True)} "
+                f"({_peq(cdm['p_value'])}; before adjusting for the search that chose it) | {ovx_only['label']} "
+                f"{_fmt(odm['stat'], 2, True)} ({_peq(odm['p_value'])}) |")
+    rows.append(f"| In the {_mcs_level(lab)} Model Confidence Set (full sample; sampling grids) | {in_set(champ)} | "
+                f"{in_set(chall)} | {len(board['mcs_qlike_included'])} of {len(feasible)} feasible models"
                 + ("; the timing control is excluded" if controls else "") + " |")
     rows.append(f"| Hansen SPA, null: no model beats the model of record | p = {_fmt(k['spa_p'])} | — | "
                 f"{len(board['spa_qlike_vs_har_iv']['models'])} feasible alternatives; {_level(k['spa_p'])} |")
     rows.append(f"| Mincer-Zarnowitz slope (joint unbiasedness p) | {_fmt(champ['mincer_zarnowitz']['slope'], 2)} "
                 f"({_p(champ['mincer_zarnowitz']['p_unbiased'])}) | {_fmt(chall['mincer_zarnowitz']['slope'], 2)} "
                 f"({_p(chall['mincer_zarnowitz']['p_unbiased'])}) | 1 (unbiased) |")
-    rows.append(f"| 80% conformal interval coverage | {conf[lab['config']['champion']]['coverage_pct']}% | "
-                f"{conf[lab['config']['challenger']]['coverage_pct']}% | target 80% |")
+    rows.append(f"| {interval} conformal interval coverage | {conf[lab['config']['champion']]['coverage_pct']}% | "
+                f"{conf[lab['config']['challenger']]['coverage_pct']}% | target {interval} |")
     rows.append(f"| Realized utility (% per year) | {_fmt(champ['realized_utility_pct'], 2)} | "
                 f"{_fmt(chall['realized_utility_pct'], 2)} | maximum {board['realized_utility_max_pct']} |")
     rows.append(f"| OVX elasticity (HAC t), full-sample fit | {_fmt(k['ovx_coef']['coef'], 2)} "

@@ -22,9 +22,13 @@ function QuoteStamp({ quote }) {
       </span>
     );
   }
-  const label = { quote: "Quote", backend: "Updated" }[quote.kind] || "Snapshot";
+  // "Quote", not "Snapshot": the time shown is the price's market time, while the footer's data
+  // snapshot time is when the payload was frozen.
+  const label = { backend: "Updated" }[quote.kind] || "Quote";
+  const title = quote.kind === "quote" ? DELAY_NOTE : quote.kind === "backend" ? undefined
+    : "Exchange time of the price in this data snapshot (exchange-delayed)";
   return (
-    <span className="quote-stamp" title={quote.kind === "quote" ? DELAY_NOTE : undefined}>
+    <span className="quote-stamp" title={title}>
       <Chip tone="muted">{label}</Chip>
       <span className="num">
         {quote.kind === "quote" ? `fetched ${fmtCT(quote.fetchedAtMs)}` : quote.timeMs != null ? fmtCT(quote.timeMs) : DASH}
