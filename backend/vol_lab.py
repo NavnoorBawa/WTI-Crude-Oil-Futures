@@ -10,7 +10,7 @@ exception is a timing control, below):
      GARCH(1,1)-t and GJR-GARCH(1,1)-t (arch), HAR-RV (Corsi 2009), HAR-RV with a downside
      semivolatility term (Patton-Sheppard 2015), HAR on a range-based realized measure
      (Rogers-Satchell + overnight, Yang-Zhang 2000 style; the test day's own bar enters only up to
-     its settlement), an implied-vol-only regression, HAR-IV (OVX lagged one session), HAR-IV on
+     its settlement), an OVX-only regression, HAR-IV (OVX lagged one session), HAR-IV on
      the range measure, a gradient-boosted tree model (LightGBM) on the same features, and an
      equal-weight combination. A timing control, HAR-IV with the test day's own OVX close (which
      settles at 16:15 ET, after the decision), is reported but kept out of every Model Confidence
@@ -126,7 +126,7 @@ class ModelSpec:
 
 MODELS = [
     ModelSpec("persistence", "Persistence (RV5)", "naive", "Next week's vol equals the last 5 sessions' realized vol."),
-    ModelSpec("raw_ovx", "Implied vol (raw OVX)", "implied", "OVX itself (previous session's close) as the forecast: no fitting."),
+    ModelSpec("raw_ovx", "Raw OVX", "implied", "OVX itself (previous session's close) as the forecast: no fitting."),
     ModelSpec("ewma", "EWMA (RiskMetrics)", "time-series", "Exponentially weighted variance, lambda 0.94, all returns since 2000."),
     ModelSpec("garch", "GARCH(1,1)-t", "time-series", "Student-t GARCH(1,1), refit weekly on all returns since 2000."),
     ModelSpec("gjr", "GJR-GARCH(1,1)-t", "time-series", "Asymmetric (leverage) GARCH, Student-t, refit weekly."),
@@ -134,14 +134,14 @@ MODELS = [
     ModelSpec("har_rs", "HAR-RV + downside semivol", "HAR", "HAR-RV plus 5-session downside semivolatility (Patton-Sheppard 2015)."),
     ModelSpec("har_range", "HAR-range", "HAR", "Log-HAR on a range-based measure: Rogers-Satchell plus squared overnight "
               "return, with the test day's own bar taken only to its settlement."),
-    ModelSpec("ovx_only", "Implied-vol regression", "implied", "Log-regression of next-week realized vol on OVX alone."),
+    ModelSpec("ovx_only", "OVX-only regression", "implied", "Log-regression of next-week realized vol on OVX alone."),
     ModelSpec("har_iv", "HAR-IV (model of record)", "HAR", "Log-HAR on 5/22/66-session realized vol plus OVX; the production model."),
     ModelSpec("har_iv_sameday", "HAR-IV, same-day OVX (v1 timing)", "HAR",
               "HAR-IV with the test day's own OVX close, which settles ~1h45m after CL: overlaps the target."),
     ModelSpec("har_iv_range", "HAR-IV-range", "HAR", "HAR-IV with the range-based realized measure in place of close-to-close."),
     ModelSpec("lgbm", "LightGBM", "machine learning", "Gradient-boosted trees on all of the above features, retrained quarterly."),
     ModelSpec("combo", "Combination", "combination",
-              "Equal-weight pool of the variances of HAR-IV, GJR-GARCH-t and the implied-vol regression."),
+              "Equal-weight pool of the variances of HAR-IV, GJR-GARCH-t and the OVX-only regression."),
 ]
 MODEL_KEYS = [m.key for m in MODELS]
 # Models that read information published after the decision: reported (losses, DM) as controls,
@@ -151,7 +151,6 @@ TIMING_CONTROLS = ("har_iv_sameday",)
 FEASIBLE = [m for m in MODEL_KEYS if m not in TIMING_CONTROLS]
 LOG_MODELS = ("har_rv", "har_rs", "har_range", "ovx_only", "har_iv", "har_iv_sameday", "har_iv_range", "lgbm")
 COMBO_MEMBERS = ("har_iv", "gjr", "ovx_only")
-NOISE_FLOOR_SIMS = 10
 SPA_REPS = 5000
 UTILITY_SR, UTILITY_GAMMA = 0.4, 2.0   # Bollerslev-Hood-Huss-Pedersen (2018) baseline investor
 ROLL_OVERNIGHT_WINDOW = 250            # trailing sessions (roll days left out) for the roll-day overnight proxy
@@ -298,13 +297,12 @@ class _GarchState:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             if refit or self.params is None:
-                # Each refit is warm-started from the last, so with the default tolerance a last-bit
-                # difference in a BLAS result (thread count, CPU kernel) carried through ~930 refits
-                # and moved published GJR figures (direction accuracy, an MCS p-value). Converging
-                # tightly keeps every figure within REPRO_REL_TOL relative or one unit of its last
-                # published decimal (compare_reports), measured with 4 BLAS threads and with one. A
-                # rounded figure can still move by that one unit: a rebuild on the unpinned AVX-512 kernels gives
-                # yearly[18] gjr_qlike 0.5471 against the committed 0.5472.
+                # Each refit is warm-started from the last, so a last-bit difference in a BLAS result
+                # (thread count, CPU kernel) would be carried through every later refit, and at the
+                # default tolerance it moves published GJR figures. Converging tightly keeps every
+                # figure within REPRO_REL_TOL relative or one unit of its last published decimal
+                # (compare_reports) across BLAS thread counts and CPU kernels; a figure that sits next
+                # to a rounding boundary can still move by that one unit.
                 res = model.fit(disp="off", starting_values=self.params, show_warning=False, tol=GARCH_TOL)
                 self.params = res.params.to_numpy()
             else:
@@ -319,6 +317,44 @@ def _lgbm() -> Any:
     return lgb.LGBMRegressor(n_estimators=300, learning_rate=0.03, num_leaves=15, min_child_samples=40,
                              subsample=0.8, subsample_freq=1, colsample_bytree=0.8, random_state=SEED % 9973,
                              n_jobs=1, deterministic=True, force_row_wise=True, verbose=-1)
+
+
+class _TreeModel:
+    """LightGBM as benchmarked. It is fitted on the purged training rows of the first out-of-sample
+    row and refitted every LGBM_RETRAIN_WEEKS weeks counted from MIN_TRAIN (it is the slow model). A
+    boosted model's in-sample residuals understate its error, so once WARMUP weeks of its own MATURED
+    out-of-sample log errors exist, the smearing factor of the latest CONFORMAL_WINDOW of them
+    replaces the in-sample one."""
+
+    def __init__(self, feats: np.ndarray, y: np.ndarray, first: int) -> None:
+        self.feats, self.y, self.first = feats, y, first
+        self.tree: Any = None
+        self.fitted_for = -1                         # the row whose purged training set the tree used
+        self.in_sample_smear = 1.0
+        self.errors: list[tuple[int, float]] = []    # (row, log error), in row order
+
+    def median(self, end: int) -> float:
+        """Median forecast for row `end`, from the tree of the latest scheduled fit at or before it."""
+        period = LGBM_RETRAIN_WEEKS * vf.STEP
+        fit_row = max(self.first, vf.MIN_TRAIN + (end - vf.MIN_TRAIN) // period * period)
+        if fit_row != self.fitted_for:
+            train_end = fit_row - (vf.H - 1)
+            self.tree = _lgbm()
+            self.tree.fit(self.feats[:train_end], np.log(self.y[:train_end]))
+            fitted = self.tree.predict(self.feats[:train_end])
+            self.in_sample_smear = float(np.mean(np.exp(2.0 * (np.log(self.y[:train_end]) - fitted))))
+            self.fitted_for = fit_row
+        return float(np.exp(self.tree.predict(self.feats[end:end + 1])[0]))
+
+    def oos_smear(self, end: int) -> float | None:
+        """Smearing factor of the out-of-sample errors matured by row `end` (rows <= end - H), or None
+        while fewer than WARMUP weeks of them exist."""
+        matured = np.array([e for row, e in self.errors if row <= end - vf.H][-CONFORMAL_WINDOW:])
+        return float(np.mean(np.exp(2.0 * matured))) if matured.size >= WARMUP * vf.STEP else None
+
+    def record(self, end: int, median: float) -> None:
+        """Row `end`'s log error; oos_smear uses it only once its outcome has matured."""
+        self.errors.append((end, float(np.log(self.y[end]) - np.log(median))))
 
 
 def _fit_log(X_train: np.ndarray, y_train: np.ndarray) -> tuple[np.ndarray, float]:
@@ -368,8 +404,7 @@ def walk_forward(d: Design, *, include_slow: bool = True, progress: Progress | N
     designs = _regression_designs(X, XR, d.lev, d.ovx_same)
     feats = np.log(np.column_stack([X, XR, d.lev]))
     garch, gjr = _GarchState(False), _GarchState(True)
-    tree, tree_smear = None, 1.0
-    lgbm_err: list[tuple[int, float]] = []           # (row, log error), usable once matured
+    tree = _TreeModel(feats, y, d.ends[0] if d.ends else vf.MIN_TRAIN)
     ewma_s = ewma_w = 0.0
     ewma_t = -1
     rows = []
@@ -395,17 +430,10 @@ def walk_forward(d: Design, *, include_slow: bool = True, progress: Progress | N
         if include_slow:
             for key, state in (("garch", garch), ("gjr", gjr)):
                 f[key] = f[f"{key}__med"] = state.forecast(past, vf.H, refit=grid == 0)
-            if tree is None or (end - vf.MIN_TRAIN) % (LGBM_RETRAIN_WEEKS * vf.STEP) == 0:
-                tree = _lgbm()
-                tree.fit(feats[:train_end], np.log(y[:train_end]))
-                tree_smear = float(np.mean(np.exp(2.0 * (np.log(y[:train_end]) - tree.predict(feats[:train_end])))))
-            med = float(np.exp(tree.predict(feats[end:end + 1])[0]))
-            # A boosted model's in-sample residuals understate its error; once a year of its own
-            # MATURED out-of-sample log errors exists, their smearing factor replaces the in-sample one.
-            matured = np.array([e for row, e in lgbm_err if row <= end - vf.H][-CONFORMAL_WINDOW:])
-            smear = float(np.mean(np.exp(2.0 * matured))) if matured.size >= WARMUP * vf.STEP else tree_smear
-            f["lgbm__med"], f["lgbm"] = med, med * float(np.sqrt(smear))
-            lgbm_err.append((end, float(np.log(y[end]) - np.log(med))))
+            med = tree.median(end)
+            oos = tree.oos_smear(end)
+            f["lgbm__med"], f["lgbm"] = med, med * float(np.sqrt(tree.in_sample_smear if oos is None else oos))
+            tree.record(end, med)
             # Linear pool of the members' variance forecasts (a geometric pool of means is biased low).
             f["combo"] = float(np.sqrt(np.mean([f[m] ** 2 for m in COMBO_MEMBERS])))
             f["combo__med"] = float(np.exp(np.mean([np.log(f[f"{m}__med"]) for m in COMBO_MEMBERS])))
@@ -430,9 +458,23 @@ def walk_forward(d: Design, *, include_slow: bool = True, progress: Progress | N
 
 def live_model_forecast(key: str, r: np.ndarray, dates: pd.DatetimeIndex, ovx_same: np.ndarray,
                         ohlc: pd.DataFrame) -> dict[str, Any]:
-    """Today's forecast from any model in MODELS, fitted on every matured row (the production
-    challenger uses this, so it is computed by exactly the definition that was benchmarked,
-    including the range features' settlement-time construction for today's bar)."""
+    """Today's forecast from any model in MODELS (the production challenger uses this): see
+    _live_forecast for how it matches the benchmarked definition."""
+    median, mean = _live_forecast(key, r, dates, ovx_same, ohlc)
+    spec = next(m for m in MODELS if m.key == key)
+    return {"key": key, "label": spec.label, "forecast_next_week_vol_annualized_pct": round(mean * 100, 1),
+            "forecast_median_pct": round(median * 100, 1), "as_of": str(dates[-1].date())}
+
+
+def _live_forecast(key: str, r: np.ndarray, dates: pd.DatetimeIndex, ovx_same: np.ndarray,
+                   ohlc: pd.DataFrame) -> tuple[float, float]:
+    """(median, variance-consistent) forecast for the session after the last return, by the
+    definition walk_forward benchmarks: the same features (the range features built from today's bar
+    only to its settlement), every matured row for training, the same smearing (the tree model's from
+    its walk-forward out-of-sample errors). The slow models are refitted today, where the walk-forward
+    refits them on a schedule: GARCH and GJR-GARCH weekly (warm-started from the previous fit) and
+    LightGBM quarterly. On a day the walk-forward refits both, the two forecasts agree, the GARCH ones
+    to the optimizer's tolerance (tests/test_vol_lab.py)."""
     if key not in MODEL_KEYS:
         raise ValueError(f"unknown model {key!r}")
     d = build_design(r, dates, ovx_same, ohlc)
@@ -467,36 +509,34 @@ def live_model_forecast(key: str, r: np.ndarray, dates: pd.DatetimeIndex, ovx_sa
                    float(np.sqrt(np.mean([b ** 2 for _, b in members]))))
         else:                                                   # lgbm
             feats = np.log(np.column_stack([d.X, d.XR, d.lev]))
+            # The walk-forward's out-of-sample errors over the smearing window (every row of the design
+            # has matured by today), then a tree fitted on every row.
+            path, n = _TreeModel(feats, d.y, vf.MIN_TRAIN), len(d.y)
+            for row in range(max(vf.MIN_TRAIN, n - CONFORMAL_WINDOW), n):
+                path.record(row, path.median(row))
             tree = _lgbm()
             tree.fit(feats, np.log(d.y))
-            smear = float(np.mean(np.exp(2.0 * (np.log(d.y) - tree.predict(feats)))))
+            oos = path.oos_smear(n - 1 + vf.H)
+            if oos is None:
+                oos = float(np.mean(np.exp(2.0 * (np.log(d.y) - tree.predict(feats)))))
             med = float(np.exp(tree.predict(np.log(np.column_stack([x_now, xr_now, lev_now])))[0]))
-            out = (med, med * float(np.sqrt(smear)))
+            out = (med, med * float(np.sqrt(oos)))
         cache[m] = out
         return out
 
-    median, mean = forecast(key)
-    spec = next(m for m in MODELS if m.key == key)
-    return {"key": key, "label": spec.label, "forecast_next_week_vol_annualized_pct": round(mean * 100, 1),
-            "forecast_median_pct": round(median * 100, 1), "as_of": str(dates[-1].date())}
+    return forecast(key)
 
 
-def noise_floor(r: np.ndarray, dates: pd.DatetimeIndex, sims: int = NOISE_FLOOR_SIMS) -> dict[str, Any]:
+def noise_floor(r: np.ndarray, dates: pd.DatetimeIndex) -> dict[str, Any]:
     """Direction accuracy when there is nothing to forecast: i.i.d. Student-t(5) returns with the
-    sample's volatility, run through the identical feature builder and walk-forward (HAR, no OVX)."""
-    sd = float(np.std(r))
-    har, mr = [], []
-    for seed in range(sims):
-        rng = np.random.default_rng(SEED + seed)
-        z = rng.standard_t(5, len(r)) / np.sqrt(5 / 3) * sd
-        X, y, tdate = vf._build_matrix(z, dates, None)
-        sim = vf._walk_forward(X, y, tdate, has_ovx=False)
-        har.append(float(sim["hit"].mean()))
-        mr.append(float(sim["hit_mr"].mean()))
-    return {"sims": sims, "process": "i.i.d. Student-t(5), constant volatility (nothing to forecast)",
-            "har_direction_acc_pct_mean": round(float(np.mean(har)) * 100, 1),
-            "har_direction_acc_pct_range": [round(min(har) * 100, 1), round(max(har) * 100, 1)],
-            "mean_reversion_acc_pct_mean": round(float(np.mean(mr)) * 100, 1),
+    sample's volatility, run through the identical feature builder and walk-forward (HAR, no OVX).
+    It is the production validator's procedure (vol_forecast.noise_floor, same simulations and
+    seeds), reported under the lab's key names."""
+    floor = vf.noise_floor(r, dates)
+    return {"sims": floor["sims"], "process": "i.i.d. Student-t(5), constant volatility (nothing to forecast)",
+            "har_direction_acc_pct_mean": floor["dir_acc_pct_mean"],
+            "har_direction_acc_pct_range": floor["dir_acc_pct_range"],
+            "mean_reversion_acc_pct_mean": floor["mean_reversion_dir_acc_pct_mean"],
             "theoretical_floor_pct": 75.0,
             "note": ("For any continuous i.i.d. series, calling 'up' exactly when the current 5-session vol is "
                      "below its median is right with probability E[max(U, 1-U)] = 75%.")}
@@ -513,16 +553,6 @@ def coefficient_report(d: Design) -> dict[str, Any]:
     return {"terms": [{"term": n, "coef": round(float(b), 4), "t_hac": round(float(t), 2)}
                       for n, b, t in zip(names, res.params, res.tvalues)],
             "r2_log": round(float(res.rsquared), 3), "n_rows": int(len(d.y)), "hac_lags": 10}
-
-
-# ----------------------------------------------------------------------------------------------
-# Losses and tests
-# ----------------------------------------------------------------------------------------------
-
-
-# ----------------------------------------------------------------------------------------------
-# Conformal intervals
-# ----------------------------------------------------------------------------------------------
 
 
 # ----------------------------------------------------------------------------------------------
@@ -545,6 +575,12 @@ def _losses(frame: pd.DataFrame, target: str = "actual") -> tuple[pd.DataFrame, 
     LQ = pd.DataFrame({m: qlike(y, frame[m].to_numpy()) for m in MODEL_KEYS})
     LM = pd.DataFrame({m: mse_var(y, frame[m].to_numpy()) for m in MODEL_KEYS})
     return LQ, LM
+
+
+def _mcs(losses: pd.DataFrame, block: int) -> dict[str, Any]:
+    """The Model Confidence Set at the lab's settings (MCS_SIZE, MCS_REPS, SEED; config.mcs records
+    them) with mean bootstrap block length `block`."""
+    return model_confidence_set(losses, block=block, size=MCS_SIZE, reps=MCS_REPS, seed=SEED)
 
 
 def realized_utility(actual: npt.ArrayLike, forecast: npt.ArrayLike, sr: float = UTILITY_SR,
@@ -577,19 +613,19 @@ def leaderboard(frame: pd.DataFrame) -> dict[str, Any]:
     and DM tests, with null MCS fields."""
     y = frame["actual"].to_numpy()
     LQ, LM = _losses(frame)
-    mcs_q = model_confidence_set(LQ[FEASIBLE], block=MCS_BLOCK)
-    mcs_m = model_confidence_set(LM[FEASIBLE], block=MCS_BLOCK)
+    mcs_q = _mcs(LQ[FEASIBLE], MCS_BLOCK)
+    mcs_m = _mcs(LM[FEASIBLE], MCS_BLOCK)
     grids = {}
     for g in range(vf.STEP):
         mask = (frame["grid"] == g).to_numpy()
         LQg = LQ[mask].reset_index(drop=True)
-        grids[g] = {"mcs": model_confidence_set(LQg[FEASIBLE], block=MCS_BLOCK_WEEKLY)["included"],
+        grids[g] = {"mcs": _mcs(LQg[FEASIBLE], MCS_BLOCK_WEEKLY)["included"],
                     "dm": {m: dm_test(LQg[CHAMPION], LQg[m]) for m in MODEL_KEYS if m != CHAMPION},
                     "qlike": {m: float(LQg[m].mean()) for m in MODEL_KEYS}}
     mr = _mr_hit(frame)
     U = pd.DataFrame({m: realized_utility(y, frame[m].to_numpy()) for m in MODEL_KEYS})
     LQr, _ = _losses(frame, "actual_range")
-    mcs_range = model_confidence_set(LQr[FEASIBLE], block=MCS_BLOCK)
+    mcs_range = _mcs(LQr[FEASIBLE], MCS_BLOCK)
     rows: list[dict[str, Any]] = []
     for spec in MODELS:
         m = spec.key
@@ -626,13 +662,12 @@ def leaderboard(frame: pd.DataFrame) -> dict[str, Any]:
     rows.sort(key=lambda r: r["qlike"])
     for rank, row in enumerate(rows, 1):
         row["rank_qlike"] = rank
-    robustness = {f"block_{b}": model_confidence_set(LQ[FEASIBLE], block=b)["included"] for b in (10, 40)}
+    robustness = {f"block_{b}": _mcs(LQ[FEASIBLE], b)["included"] for b in (10, 40)}
     for start, end in (("2008-01-01", "2016-12-31"), ("2017-01-01", "2099-12-31")):
         mask = ((frame["date"] >= start) & (frame["date"] <= end)).to_numpy()
         label = f"{start[:4]}-{min(int(end[:4]), int(frame['date'].max().year))}"
         robustness[label] = {"n_days": int(mask.sum()),
-                             "included": model_confidence_set(LQ[FEASIBLE][mask].reset_index(drop=True),
-                                                              block=MCS_BLOCK)["included"]}
+                             "included": _mcs(LQ[FEASIBLE][mask].reset_index(drop=True), MCS_BLOCK)["included"]}
     up = (frame["actual"] > frame["rv5"]).to_numpy()
     return {"models": rows, "mcs_qlike_included": mcs_q["included"], "mcs_mse_included": mcs_m["included"],
             "mcs_qlike_range_proxy_included": mcs_range["included"],
@@ -706,11 +741,11 @@ def var_backtest(frame: pd.DataFrame,
                         q = np.full(n, stats.norm.ppf(p))
                     else:
                         q = np.array([np.quantile(z[:i], p) if i >= WARMUP else np.nan for i in range(n)])
-                    methods.append(_var_scores(f"{m}:{kind}", m, kind, p, ret, -q * s5, eval_idx, wk))
+                    methods.append(_var_scores(f"{m}:{kind}", m, kind, p, ret, -q * s5, eval_idx))
             hs = np.array([np.quantile(ret[max(0, i - SELECTION_WINDOW): i], p) if i >= WARMUP else np.nan
                            for i in range(n)])
             methods.append(_var_scores("historical_simulation", None, "historical_simulation", p, ret, -hs,
-                                       eval_idx, wk))
+                                       eval_idx))
         out["grids"][str(g)] = {"evaluation_weeks": int(eval_idx.size), "methods": methods}
     # How often each method passes each test at 5%, across the five grids.
     for entry in out["grids"]["0"]["methods"]:
@@ -729,7 +764,7 @@ def var_backtest(frame: pd.DataFrame,
 
 
 def _var_scores(key: str, model: str | None, kind: str, p: float, ret: np.ndarray, var: np.ndarray,
-                idx: np.ndarray, frame: pd.DataFrame) -> dict[str, Any]:
+                idx: np.ndarray) -> dict[str, Any]:
     exceed = ret[idx] < -var[idx]
     last = exceed[-250:]
     return {
@@ -749,11 +784,9 @@ def choose_challenger(frame: pd.DataFrame) -> str:
     the choice; its forward live record is the clean test (see the promotion rule in the README)."""
     LQ, _ = _losses(frame)
     eligible = set(FEASIBLE) - {CHAMPION}
-    included = set(model_confidence_set(LQ[FEASIBLE], block=MCS_BLOCK)["included"]) & eligible
+    included = set(_mcs(LQ[FEASIBLE], MCS_BLOCK)["included"]) & eligible
     pool: set[str] = included or eligible
     return min(pool, key=lambda m: (float(cast(Any, LQ[m].mean())), m))
-
-
 
 
 def conformal_report(frame: pd.DataFrame, challenger: str) -> dict[str, dict[str, Any]]:
@@ -841,15 +874,14 @@ def chart_series(frame: pd.DataFrame, conf: dict[str, dict[str, Any]], challenge
     }
 
 
-def build_report(snapshot: market_data.MarketSnapshot, *, include_slow: bool = True,
-                 progress: Progress | None = None) -> dict[str, Any]:
+def build_report(snapshot: market_data.MarketSnapshot, *, progress: Progress | None = None) -> dict[str, Any]:
     ovx: np.ndarray | None
     r, dates, ovx, ohlc = market_data.research_inputs(snapshot)
     ovx = vf._pick_ovx(ovx)
     if ovx is None:
         raise RuntimeError("OVX history too short for the research lab")
     design = build_design(r, dates, ovx, ohlc)
-    frame = walk_forward(design, include_slow=include_slow, progress=progress)
+    frame = walk_forward(design, progress=progress)
     challenger = choose_challenger(frame)
     conf = conformal_report(frame, challenger)
     var = var_backtest(frame, models=tuple(dict.fromkeys((CHAMPION, challenger, "gjr", "ewma", "raw_ovx"))))
@@ -955,7 +987,7 @@ def compare_reports(committed: Any, rebuilt: Any) -> dict[str, Any]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Volatility research lab (benchmarks, MCS, VaR, conformal).")
     parser.add_argument("--refresh", action="store_true", help="download a new data snapshot first")
-    parser.add_argument("--out", default="data/vol_lab.json", help="artifact path (allowlisted)")
+    parser.add_argument("--out", default=f"data/{ARTIFACT}", help="artifact path (allowlisted)")
     args = parser.parse_args(argv)
     out_path = data_json_path(args.out)
     if args.refresh:

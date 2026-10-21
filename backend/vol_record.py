@@ -57,17 +57,25 @@ Rules (conservative by construction; sessions are CME business days, see contrac
   business days after k0+5, instead of scoring it later against whatever data turns up.
 - SCORE resolved entries: QLIKE on variances (Patton 2011) for the model of record's
   variance-consistent forecast and, on the entries where it was published, the challenger's;
-  80% interval coverage; and the direction call (median vs the current 5-session RV). Direction
-  accuracy is not evidence of skill: it has a noise floor of about 75% (on simulated returns with
-  no volatility dynamics the same forecaster is right three times in four, because a 5-session
-  realized vol is a noisy estimate that reverts toward its mean). Daily forecasts of a
-  five-session window overlap, so `n_independent` counts the resolved entries whose windows do
-  not overlap (greedy in time order): that, not `n_resolved`, is the effective sample size.
-- PROMOTION: one test, run once, on a fixed sample (summary["promotion"]). In record order, take
-  the resolved entries on which both the current model of record (its model_version) and the
-  current challenger (its key) were forecast, keep the ones whose windows do not overlap (greedy,
-  as for `n_independent`), and stop at the first entry of that pair still pending: it may still
-  resolve, and its window comes before those of later entries, while everything before it is
+  80% interval coverage; and the direction call (median vs the current 5-session RV). The model of
+  record's statistics (summary["champion"]) cover its pinned version, PROMOTION_MODEL_VERSION,
+  only: an entry of another version, such as the plain-HAR forecast ("har/2") the forecaster
+  publishes when it has no lagged OVX print, comes from a different model and is counted but not
+  pooled with them. Direction accuracy is not evidence of skill: it has a noise floor of about 75%
+  (on simulated returns with no volatility dynamics the same forecaster is right three times in
+  four, because a 5-session realized vol is a noisy estimate that reverts toward its mean). Daily
+  forecasts of a five-session window overlap, so `n_independent` counts the resolved entries whose
+  windows do not overlap (greedy in time order): that, not `n_resolved`, is the effective sample
+  size.
+- PROMOTION: one test, run once, on a fixed sample (summary["promotion"]). The test is pinned to
+  the pair it was declared for: the model of record at model_version PROMOTION_MODEL_VERSION
+  against the challenger PROMOTION_CHALLENGER. An entry of any other model version, with another
+  challenger, or with no challenger forecast is recorded and counted (summary["promotion"]
+  n_excluded_*) but never enters the sample, so it can neither hold the sample back nor restart
+  it. A different pair is a new test, declared by changing those two constants. In record order,
+  take the resolved entries of the pinned pair, keep the ones whose windows do not overlap
+  (greedy, as for `n_independent`), and stop at the first entry of that pair still pending: it may
+  still resolve, and its window comes before those of later entries, while everything before it is
   final. The first PROMOTION_WEEKS entries selected are the sample. On it, a one-sided
   Diebold-Mariano test of the QLIKE differences, model of record minus challenger (positive
   favours the challenger): the mean difference over its standard error, from the plain sample
@@ -135,11 +143,20 @@ _SEALED_IN_TIME = ("resolved", "skipped_roll", "expired")    # only entries seal
 DIRECTIONS = ("RISING", "FALLING")
 PROMOTION_WEEKS = 52
 PROMOTION_ALPHA = 0.10
-PROMOTION_RULE = (f"The challenger replaces the model of record if, on the first {PROMOTION_WEEKS} independent "
-                  f"resolved weeks where both were forecast, its mean QLIKE is lower with a one-sided "
-                  f"Diebold-Mariano p below {PROMOTION_ALPHA:.2f} (Harvey-Leybourne-Newbold, Student t with "
-                  f"{PROMOTION_WEEKS - 1} degrees of freedom). The test is run once, on that fixed sample; "
-                  f"a maintainer applies the verdict.")
+# The pair the promotion test was declared for: the model of record's version (vol_forecast.MODEL_VERSION)
+# and the challenger's key (data/vol_lab.json config.challenger). tests/test_vol_record.py checks both
+# against their sources, so a new model version or challenger fails CI until it is declared here.
+PROMOTION_MODEL_VERSION = "har-iv/2"
+PROMOTION_CHALLENGER = "har_iv_range"
+PROMOTION_RULE = (f"The promotion test is pinned to one pair: HAR-IV v2 (model version "
+                  f"{PROMOTION_MODEL_VERSION}), the model of record, against the HAR-IV-range challenger (key "
+                  f"{PROMOTION_CHALLENGER}). The challenger replaces the model of record if, on the first "
+                  f"{PROMOTION_WEEKS} independent resolved weeks where both were forecast, its mean QLIKE is lower "
+                  f"with a one-sided Diebold-Mariano p below {PROMOTION_ALPHA:.2f} (Harvey-Leybourne-Newbold, "
+                  f"Student t with {PROMOTION_WEEKS - 1} degrees of freedom). The test is run once, on that fixed "
+                  f"sample. Forecasts from another model version or challenger are recorded but never enter it; a "
+                  f"different challenger would start a new, separately declared test. A maintainer applies the "
+                  f"verdict.")
 WINDOW_NOTE = ("Each forecast is scored on the realized volatility of the five settlement-to-settlement "
                "returns after the first CL settlement (14:30 ET) at least an hour after it was issued and "
                "recorded, one session or more later than the backtest's window. The record is sealed just "
@@ -641,13 +658,16 @@ def _pair(entry: dict) -> tuple:
     return entry["model_version"], (entry.get("challenger") or {}).get("key")
 
 
-def promotion_sample(entries: list[dict], model_version, challenger_key) -> list[dict]:
+def promotion_sample(entries: list[dict], model_version: str = PROMOTION_MODEL_VERSION,
+                     challenger_key: str | None = PROMOTION_CHALLENGER) -> list[dict]:
     """The first PROMOTION_WEEKS (or fewer, while accruing) independent resolved entries of the pair.
 
-    Entries are taken in record order; those whose windows overlap an already selected one are
-    skipped (greedy, as independent_entries does). The scan stops at the first entry of the pair
-    that is still pending: it may resolve and its window precedes later ones, whereas every entry
-    before it is final. So the selection only grows, and once full it never changes.
+    The pair defaults to the declared one. Entries of any other pair are passed over, so they never
+    enter the selection or stop the scan. Entries are taken in record order; those whose windows
+    overlap an already selected one are skipped (greedy, as independent_entries does). The scan
+    stops at the first entry of the pair that is still pending: it may resolve and its window
+    precedes later ones, whereas every entry before it is final. So the selection only grows, and
+    once full it never changes.
     """
     if challenger_key is None:
         return []
@@ -663,6 +683,23 @@ def promotion_sample(entries: list[dict], model_version, challenger_key) -> list
             if len(chosen) == PROMOTION_WEEKS:
                 break
     return chosen
+
+
+def promotion_exclusions(entries: list[dict], model_version: str = PROMOTION_MODEL_VERSION,
+                         challenger_key: str | None = PROMOTION_CHALLENGER) -> dict:
+    """Resolved entries kept out of the pair's comparison, counted by reason.
+
+    An entry of another model version counts under that reason whatever its challenger; an entry of
+    the pair's model version counts under another challenger or under no challenger. Together with
+    the entries of the pair they add up to every resolved entry.
+    """
+    resolved = [e for e in entries if e["status"] == "resolved"]
+    keys = [_pair(e)[1] for e in resolved if e["model_version"] == model_version]
+    return {
+        "n_excluded_other_version": len(resolved) - len(keys),
+        "n_excluded_other_challenger": sum(key is not None and key != challenger_key for key in keys),
+        "n_excluded_no_challenger": sum(key is None for key in keys),
+    }
 
 
 def student_t_sf(t: float, df: int) -> float:
@@ -703,18 +740,23 @@ def student_t_sf(t: float, df: int) -> float:
     return 0.5 * two_tailed if t >= 0 else 1.0 - 0.5 * two_tailed
 
 
-def promotion_test(entries: list[dict], model_version, challenger_key) -> dict:
+def promotion_test(entries: list[dict], model_version: str = PROMOTION_MODEL_VERSION,
+                   challenger_key: str | None = PROMOTION_CHALLENGER) -> dict:
     """The promotion rule (PROMOTION_RULE), computed once on its fixed sample (module docstring).
 
-    The loss difference is QLIKE(model of record) - QLIKE(challenger), so a positive mean favours the
-    challenger. The Diebold-Mariano statistic is the mean over its standard error from the sample
-    variance (n - 1 denominator), with no autocovariance terms because the windows do not overlap;
-    for one-step forecasts that is the Harvey-Leybourne-Newbold statistic, and the one-sided p-value
-    is P(T >= stat) for T ~ Student t(n - 1), as they recommend.
+    The pair defaults to the declared one, and the result names it, with the resolved entries left
+    out of it by reason (promotion_exclusions). The loss difference is QLIKE(model of record) -
+    QLIKE(challenger), so a positive mean favours the challenger. The Diebold-Mariano statistic is
+    the mean over its standard error from the sample variance (n - 1 denominator), with no
+    autocovariance terms because the windows do not overlap; for one-step forecasts that is the
+    Harvey-Leybourne-Newbold statistic, and the one-sided p-value is P(T >= stat) for
+    T ~ Student t(n - 1), as they recommend.
     """
     sample = promotion_sample(entries, model_version, challenger_key)
     result = {"status": "accruing", "n_independent_paired": len(sample), "required": PROMOTION_WEEKS,
-              "dm_stat": None, "p_value": None, "mean_qlike_difference": None}
+              "dm_stat": None, "p_value": None, "mean_qlike_difference": None,
+              "model_version": model_version, "challenger_key": challenger_key,
+              **promotion_exclusions(entries, model_version, challenger_key)}
     if len(sample) < PROMOTION_WEEKS:
         return result
     diffs = [qlike(e["realized_pct"], e["forecast_pct"]) - qlike(e["realized_pct"], e["challenger"]["forecast_pct"])
@@ -747,7 +789,7 @@ def next_result_due(entries: list[dict]) -> str | None:
 def _recent(entry: dict) -> dict:
     challenger = entry.get("challenger") or {}
     return {
-        "as_of": entry["as_of"], "issued_at": entry["issued_at"],
+        "as_of": entry["as_of"], "issued_at": entry["issued_at"], "model_version": entry["model_version"],
         "target_start": entry["target_start"], "target_end": entry["target_end"],
         "forecast_pct": entry["forecast_pct"], "median_pct": entry.get("median_pct"),
         "lo80_pct": entry.get("lo80_pct"), "hi80_pct": entry.get("hi80_pct"),
@@ -769,19 +811,21 @@ def direction_note(noise_floor_pct=None) -> str:
 def summarize(record: dict, noise_floor_pct=None) -> dict:
     """The dashboard summary (vol_forecast.live_record in docs/DATA_CONTRACT.md).
 
-    Every statistic is over the resolved entries and stays null until one exists. The challenger is
-    compared with the current model of record (the newest entry's model_version) on the entries
-    where both were forecast; `promotion` is the promotion rule's single test. `next_result_due` is
-    the date the next score can arrive (next_result_due()). `recent` lists up to RECENT_ENTRIES
-    entries, newest first.
+    Every statistic stays null until a resolved entry it covers exists. The top-level counts cover
+    the whole record. `champion` scores the resolved entries of the pinned model version
+    (PROMOTION_MODEL_VERSION; `n` of them), whatever the newest entry's version: a fallback forecast
+    from another model is not pooled with it. `challenger` compares the pinned challenger
+    (PROMOTION_CHALLENGER) with the model of record on the resolved entries of exactly that pair;
+    `promotion` is the promotion rule's single test on the same pair. `next_result_due` is the date
+    the next score can arrive (next_result_due()). `recent` lists up to RECENT_ENTRIES entries,
+    newest first, each with its model_version.
     """
     entries = record["entries"]
     resolved = [e for e in entries if e["status"] == "resolved"]
-    with_interval = [e for e in resolved if e.get("lo80_pct") is not None]
-    with_direction = [e for e in resolved if e.get("direction") in DIRECTIONS and e.get("rv5_pct") is not None]
-    model_version = entries[-1]["model_version"] if entries else None
-    challenger_key = next((e["challenger"]["key"] for e in reversed(entries) if e.get("challenger")), None)
-    paired = [e for e in resolved if _pair(e) == (model_version, challenger_key)] if challenger_key else []
+    champion = [e for e in resolved if e["model_version"] == PROMOTION_MODEL_VERSION]
+    with_interval = [e for e in champion if e.get("lo80_pct") is not None]
+    with_direction = [e for e in champion if e.get("direction") in DIRECTIONS and e.get("rv5_pct") is not None]
+    paired = [e for e in champion if _pair(e)[1] == PROMOTION_CHALLENGER]
     return {
         "started": record["started"],
         "n_recorded": len(entries),
@@ -793,24 +837,25 @@ def summarize(record: dict, noise_floor_pct=None) -> dict:
         "n_independent": len(independent_entries(resolved)),
         "next_result_due": next_result_due(entries),
         "champion": {
-            "model_version": model_version,
-            "qlike": _mean([qlike(e["realized_pct"], e["forecast_pct"]) for e in resolved], 4),
+            "model_version": PROMOTION_MODEL_VERSION,
+            "n": len(champion),
+            "qlike": _mean([qlike(e["realized_pct"], e["forecast_pct"]) for e in champion], 4),
             "interval_80_coverage_pct": _share_pct(
                 [e["lo80_pct"] <= e["realized_pct"] <= e["hi80_pct"] for e in with_interval]),
             "direction_hit_pct": _share_pct(
                 [(e["realized_pct"] > e["rv5_pct"]) == (e["direction"] == "RISING") for e in with_direction]),
-            "mean_forecast_pct": _mean([e["forecast_pct"] for e in resolved], 2),
-            "mean_realized_pct": _mean([e["realized_pct"] for e in resolved], 2),
+            "mean_forecast_pct": _mean([e["forecast_pct"] for e in champion], 2),
+            "mean_realized_pct": _mean([e["realized_pct"] for e in champion], 2),
         },
         "challenger": {
-            "key": challenger_key,
+            "key": PROMOTION_CHALLENGER,
             "qlike": _mean([qlike(e["realized_pct"], e["challenger"]["forecast_pct"]) for e in paired], 4),
             # Descriptive: both models on every paired resolved entry, overlapping windows included.
             # The promotion decision is `promotion`, on independent windows only.
             "n": len(paired),
             "champion_qlike": _mean([qlike(e["realized_pct"], e["forecast_pct"]) for e in paired], 4),
         },
-        "promotion": promotion_test(entries, model_version, challenger_key),
+        "promotion": promotion_test(entries),
         "recent": [_recent(e) for e in reversed(entries[-RECENT_ENTRIES:])],
         "promotion_rule": PROMOTION_RULE,
         "note": WINDOW_NOTE,
@@ -900,7 +945,8 @@ def main(argv: list[str] | None = None, now: datetime | None = None) -> int:
     print(f"vol_record: {summary['n_recorded']} recorded, {summary['n_resolved']} resolved "
           f"({summary['n_independent']} independent), {summary['n_pending']} pending, "
           f"{summary['n_skipped_roll']} skipped (roll), {summary['n_expired']} expired, "
-          f"{summary['n_late_commit']} late commits; QLIKE {champion['qlike']}; promotion "
+          f"{summary['n_late_commit']} late commits; QLIKE {champion['qlike']} ({champion['model_version']}, "
+          f"n {champion['n']}); promotion {promotion['model_version']} vs {promotion['challenger_key']} "
           f"{promotion['status']} ({promotion['n_independent_paired']}/{promotion['required']})")
     return 0
 

@@ -14,6 +14,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import pandas as pd
@@ -166,6 +167,8 @@ class NoLookAheadTest(unittest.TestCase):
         np.testing.assert_allclose(grid0["har_iv__med"].to_numpy(), prod["pred"].to_numpy(), rtol=1e-10)
         np.testing.assert_allclose(grid0["har_iv"].to_numpy(), prod["pred_mean"].to_numpy(), rtol=1e-10)
         np.testing.assert_allclose(grid0["har_rv__med"].to_numpy(), prod["pred_har"].to_numpy(), rtol=1e-10)
+        np.testing.assert_allclose(grid0["har_rv"].to_numpy(), prod["pred_har_mean"].to_numpy(), rtol=1e-10)
+        np.testing.assert_allclose(grid0["ovx_only"].to_numpy(), prod["pred_ovx_mean"].to_numpy(), rtol=1e-10)
         self.assertEqual(list(grid0["date"]), list(prod["date"]))
         self.assertEqual(sorted(frame["grid"].unique()), list(range(vf.STEP)))   # every day is forecast
 
@@ -204,18 +207,33 @@ class NoLookAheadTest(unittest.TestCase):
                 expected.add(later[0])
         self.assertEqual(set(dates[mask]), expected)
 
-    def test_live_model_forecast_matches_a_fit_on_all_rows(self):
-        r, dates, ovx, ohlc = _synthetic_market()
-        out = lab.live_model_forecast("har_iv", r, dates, ovx, ohlc)
+    def test_live_forecast_is_the_walk_forward_forecast_of_the_same_day(self):
+        # Sized so the walk-forward's last row is a day on which it refits GARCH (grid 0) and the tree
+        # model (a quarterly refit), with more than WARMUP weeks of matured tree errors behind it, so
+        # the tree's out-of-sample smearing factor is in use.
+        r, dates, ovx, ohlc = _synthetic_market(n=322 + 5 * lab.LGBM_RETRAIN_WEEKS * vf.STEP)
         design = lab.build_design(r, dates, ovx, ohlc)
-        beta, smear = lab._fit_log(design.X, design.y)
-        t = len(r) - 1
-        x = np.array([vf._rvol(r[t - 4: t + 1]), vf._rvol(r[t - 21: t + 1]), vf._rvol(r[t - 65: t + 1]), ovx[t - 1]])
-        med, mean = lab._median_mean(beta, smear, x)
-        self.assertAlmostEqual(out["forecast_next_week_vol_annualized_pct"], round(mean * 100, 1))
-        self.assertAlmostEqual(out["forecast_median_pct"], round(med * 100, 1))
-        combo = lab.live_model_forecast("combo", r, dates, ovx, ohlc)
-        self.assertGreater(combo["forecast_next_week_vol_annualized_pct"], 0)
+        end = design.ends[-1]
+        self.assertEqual((end - vf.MIN_TRAIN) % (lab.LGBM_RETRAIN_WEEKS * vf.STEP), 0)
+        self.assertGreaterEqual(end - vf.H - vf.MIN_TRAIN + 1, lab.WARMUP * vf.STEP)
+        last = lab.walk_forward(design).iloc[-1]
+        t = int(design.pos[end])                              # the walk-forward's last test day
+        today = (r[:t + 1], dates[:t + 1], ovx[:t + 1], ohlc.iloc[:t + 1])
+        for key in lab.MODEL_KEYS:
+            # The GARCH fits start cold live and warm-started in the walk-forward: same optimum, last digits.
+            rtol = 1e-5 if key in ("garch", "gjr", "combo") else 1e-12
+            median, mean = lab._live_forecast(key, *today)
+            np.testing.assert_allclose(median, last[f"{key}__med"], rtol=rtol, err_msg=key)
+            np.testing.assert_allclose(mean, last[key], rtol=rtol, err_msg=key)
+        # The tree model's smearing factor is its out-of-sample one, not its in-sample residuals'.
+        live = lab._live_forecast("lgbm", *today)
+        feats = np.log(np.column_stack([design.X, design.XR, design.lev]))[:end - vf.H + 1]
+        tree = lab._lgbm().fit(feats, np.log(design.y[:end - vf.H + 1]))
+        in_sample = float(np.mean(np.exp(2.0 * (np.log(design.y[:end - vf.H + 1]) - tree.predict(feats)))))
+        self.assertGreater(abs(live[1] / live[0] - np.sqrt(in_sample)), 1e-3)
+        out = lab.live_model_forecast("har_iv", *today)
+        self.assertEqual(out["forecast_next_week_vol_annualized_pct"], round(last["har_iv"] * 100, 1))
+        self.assertEqual(out["label"], "HAR-IV (model of record)")
 
     def test_live_range_forecast_uses_the_settlement_time_features(self):
         r, dates, ovx, ohlc = _synthetic_market()
@@ -285,7 +303,7 @@ class LossAndTestTest(unittest.TestCase):
         good = rng.normal(1.0, 0.2, 500)
         losses = pd.DataFrame({"good": good, "also_good": good + rng.normal(0, 0.05, 500),
                                "bad": good + 0.5})
-        res = fe.model_confidence_set(losses, reps=500)
+        res = fe.model_confidence_set(losses, block=10, size=0.10, reps=500, seed=lab.SEED)
         self.assertIn("good", res["included"])
         self.assertNotIn("bad", res["included"])
 
@@ -372,6 +390,19 @@ class ArtifactContractTest(unittest.TestCase):
         floor = self.report["noise_floor"]
         self.assertGreater(floor["har_direction_acc_pct_mean"], 70)            # ~75% with nothing to forecast
         self.assertEqual(floor["theoretical_floor_pct"], 75.0)
+        # One procedure for the lab and the production validator: the same simulations.
+        prod = json.loads((ROOT / "data" / "vol_forecast_validation.json").read_text())["overall"]
+        self.assertEqual(floor["sims"], vf.NOISE_FLOOR_SIMS)
+        self.assertEqual(prod["direction_noise_floor"]["sims"], vf.NOISE_FLOOR_SIMS)
+
+    def test_mcs_settings_are_the_ones_recorded(self):
+        self.assertEqual(self.report["config"]["mcs"]["size"], lab.MCS_SIZE)
+        self.assertEqual(self.report["config"]["mcs"]["reps"], lab.MCS_REPS)
+        self.assertEqual(self.report["config"]["mcs"]["seed"], lab.SEED)
+        losses = pd.DataFrame({"a": [1.0, 2.0], "b": [2.0, 1.0]})
+        with mock.patch.object(lab, "model_confidence_set", return_value={}) as mcs:
+            lab._mcs(losses, 7)
+        mcs.assert_called_once_with(losses, block=7, size=lab.MCS_SIZE, reps=lab.MCS_REPS, seed=lab.SEED)
 
     def test_mcs_membership_matches_p_values(self):
         board = self.report["leaderboard"]

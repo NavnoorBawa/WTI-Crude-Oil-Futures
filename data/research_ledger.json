@@ -1,17 +1,24 @@
 {
-  "method": "One row per tested hypothesis; statistics and p-values read from the named artifact fields (or computed from them by the formula in `test`). Status uses the p-value as the test was run (alpha 0.05; 0.05-0.10 inconclusive). Benjamini-Hochberg q-values and Holm adjusted p-values are computed across every row with a p-value, on p_two_sided (the directional one-sided p doubled, capped at 1). t_equivalent = normal quantile of p_two_sided; clears_hlz_t3 applies the Harvey-Liu-Zhu (2016) t > 3 hurdle.",
+  "method": "One row per tested hypothesis; statistics and p-values read from the named artifact fields (or computed from them by the formula in `test`). Status uses the p-value as the test was run: supported below alpha 0.05, inconclusive from 0.05 to 0.10, not_supported at 0.10 or above or when the estimate points the wrong way (a failure to reject, not evidence against the hypothesis; underpowered marks a test whose recorded power is below its target). Benjamini-Hochberg q-values and Holm adjusted p-values are computed across the rows with a p-value, on p_two_sided (the directional one-sided p doubled, capped at 1), leaving out rows selected_after_search (a model picked as the best of a field on the same sample; their adjusted fields are null and their note names the search-adjusted test). t_equivalent = normal quantile of p_two_sided; clears_hlz_t3 applies the Harvey-Liu-Zhu (2016) t > 3 hurdle.",
   "alpha": 0.05,
   "hlz_t": 3.0,
   "summary": {
-    "rows": 75,
-    "rows_with_p_value": 75,
+    "rows": 76,
+    "rows_with_p_value": 76,
+    "rows_in_multiplicity_family": 75,
     "by_status": {
-      "supported": 19,
-      "rejected": 43,
-      "retracted": 8,
+      "supported": 18,
+      "not_supported": 44,
+      "retracted": 9,
       "inconclusive": 5
     },
     "pre_specified_rows": 3,
+    "selected_after_search": [
+      "vol_challenger_qlike"
+    ],
+    "underpowered": [
+      "carry_spread_post2007"
+    ],
     "supported": [
       "leak_forest_noise_unpurged",
       "leak_nn_shuffled_cl_unpurged",
@@ -21,7 +28,6 @@
       "carry_rank_pre2007",
       "carry_sign_split_full",
       "carry_rank_changed_after_2007",
-      "vrp_exists",
       "vol_qlike_vs_persistence",
       "vol_ovx_gain_qlike",
       "vol_same_day_ovx",
@@ -37,18 +43,15 @@
       "leak_forest_noise_unpurged",
       "leak_nn_shuffled_cl_unpurged",
       "carry_rank_pre2007",
-      "vrp_exists",
       "vol_qlike_vs_persistence",
       "vol_ovx_gain_qlike",
       "vol_same_day_ovx",
-      "vol_challenger_qlike",
       "vol_ovx_coefficient",
       "shock_supply_lost_peak"
     ],
     "supported_surviving_holm_5pct": [
       "leak_forest_noise_unpurged",
       "leak_nn_shuffled_cl_unpurged",
-      "vrp_exists",
       "vol_qlike_vs_persistence",
       "vol_ovx_gain_qlike",
       "vol_same_day_ovx",
@@ -57,11 +60,9 @@
     "supported_clearing_hlz_t3": [
       "leak_forest_noise_unpurged",
       "leak_nn_shuffled_cl_unpurged",
-      "vrp_exists",
       "vol_qlike_vs_persistence",
       "vol_ovx_gain_qlike",
       "vol_same_day_ovx",
-      "vol_challenger_qlike",
       "vol_ovx_coefficient",
       "shock_supply_lost_peak"
     ],
@@ -76,12 +77,15 @@
       "var_hs_95_clustering",
       "shock_removal_vs_threat_peak"
     ],
+    "supported_selected_after_search": [
+      "vol_challenger_qlike"
+    ],
     "by_family": {
       "direction model": {
         "rows": 9,
         "by_status": {
           "supported": 0,
-          "rejected": 4,
+          "not_supported": 4,
           "retracted": 5,
           "inconclusive": 0
         },
@@ -92,7 +96,7 @@
         "rows": 4,
         "by_status": {
           "supported": 2,
-          "rejected": 2,
+          "not_supported": 2,
           "retracted": 0,
           "inconclusive": 0
         },
@@ -103,7 +107,7 @@
         "rows": 17,
         "by_status": {
           "supported": 6,
-          "rejected": 9,
+          "not_supported": 9,
           "retracted": 1,
           "inconclusive": 1
         },
@@ -111,32 +115,32 @@
         "supported_clearing_hlz_t3": 0
       },
       "variance risk premium": {
-        "rows": 4,
+        "rows": 5,
         "by_status": {
-          "supported": 1,
-          "rejected": 2,
-          "retracted": 0,
+          "supported": 0,
+          "not_supported": 3,
+          "retracted": 1,
           "inconclusive": 1
         },
-        "supported_surviving_bh_5pct": 1,
-        "supported_clearing_hlz_t3": 1
+        "supported_surviving_bh_5pct": 0,
+        "supported_clearing_hlz_t3": 0
       },
       "volatility forecast": {
         "rows": 18,
         "by_status": {
           "supported": 6,
-          "rejected": 8,
+          "not_supported": 8,
           "retracted": 2,
           "inconclusive": 2
         },
-        "supported_surviving_bh_5pct": 5,
-        "supported_clearing_hlz_t3": 5
+        "supported_surviving_bh_5pct": 4,
+        "supported_clearing_hlz_t3": 4
       },
       "value at risk": {
         "rows": 4,
         "by_status": {
           "supported": 2,
-          "rejected": 2,
+          "not_supported": 2,
           "retracted": 0,
           "inconclusive": 0
         },
@@ -147,7 +151,7 @@
         "rows": 19,
         "by_status": {
           "supported": 2,
-          "rejected": 16,
+          "not_supported": 16,
           "retracted": 0,
           "inconclusive": 1
         },
@@ -175,7 +179,9 @@
       "sided": "one",
       "p_two_sided": 1.53348504089696e-06,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "retracted",
+      "underpowered": null,
       "retraction_reason": "look-ahead leak: the walk-forward trained on rows whose 5-session labels matured after the decision (see data/leak_anatomy.json)",
       "note": "",
       "artifact": {
@@ -188,7 +194,8 @@
         "context_fields": {
           "n": "results.1w.samples",
           "sharpe_after_costs": "results.1w.pnl_metrics.sharpe_ratio_annualized"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 1.6430196866753145e-05,
       "p_holm": 0.00010581046782189024,
@@ -215,7 +222,9 @@
       "sided": "one",
       "p_two_sided": 2.6906927071225285e-10,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "retracted",
+      "underpowered": null,
       "retraction_reason": "look-ahead leak: the walk-forward trained on rows whose 5-session labels matured after the decision (see data/leak_anatomy.json)",
       "note": "",
       "artifact": {
@@ -228,7 +237,8 @@
         "context_fields": {
           "n": "results.1w.samples",
           "sharpe_after_costs": "results.1w.pnl_metrics.sharpe_ratio_annualized"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 3.3633658839031605e-09,
       "p_holm": 1.88348489498577e-08,
@@ -255,7 +265,9 @@
       "sided": "one",
       "p_two_sided": 1.0,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -268,7 +280,8 @@
         "context_fields": {
           "n": "results.1w.samples",
           "sharpe_after_costs": "results.1w.pnl_metrics.sharpe_ratio_annualized"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 1.0,
       "p_holm": 1.0,
@@ -295,7 +308,9 @@
       "sided": "one",
       "p_two_sided": 0.7414539774351558,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -308,7 +323,8 @@
         "context_fields": {
           "n": "results.1w.samples",
           "sharpe_after_costs": "results.1w.pnl_metrics.sharpe_ratio_annualized"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 0.9527312982523835,
       "p_holm": 1.0,
@@ -335,7 +351,9 @@
       "sided": "one",
       "p_two_sided": 1.0,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -348,7 +366,8 @@
         "context_fields": {
           "n": "results.1d.samples",
           "sharpe_after_costs": "results.1d.pnl_metrics.sharpe_ratio_annualized"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 1.0,
       "p_holm": 1.0,
@@ -375,7 +394,9 @@
       "sided": "one",
       "p_two_sided": 0.6342594825615946,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -388,7 +409,8 @@
         "context_fields": {
           "n": "results.1d.samples",
           "sharpe_after_costs": "results.1d.pnl_metrics.sharpe_ratio_annualized"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 0.9258173076923077,
       "p_holm": 1.0,
@@ -414,7 +436,9 @@
       "sided": "one",
       "p_two_sided": 0.13014365902576772,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "retracted",
+      "underpowered": null,
       "retraction_reason": "look-ahead leak: the walk-forward trained on rows whose 5-session labels matured after the decision (see data/leak_anatomy.json)",
       "note": "",
       "artifact": {
@@ -428,9 +452,10 @@
         },
         "context_fields": {
           "no_macro_accuracy_pct": "results.no_macro_1w.direction_accuracy"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.31928571428571423,
+      "q_value_bh": 0.32867647058823524,
       "p_holm": 1.0,
       "t_equivalent": 1.51,
       "survives_bh_5pct": false,
@@ -454,7 +479,9 @@
       "sided": "one",
       "p_two_sided": 0.7494819546252083,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "retracted",
+      "underpowered": null,
       "retraction_reason": "look-ahead leak: the walk-forward trained on rows whose 5-session labels matured after the decision (see data/leak_anatomy.json)",
       "note": "",
       "artifact": {
@@ -468,7 +495,8 @@
         },
         "context_fields": {
           "lagged_accuracy_pct": "results.lagged_1d.direction_accuracy"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 0.9527312982523835,
       "p_holm": 1.0,
@@ -495,7 +523,9 @@
       "sided": "one",
       "p_two_sided": 2.8e-05,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "retracted",
+      "underpowered": null,
       "retraction_reason": "look-ahead leak: the walk-forward trained on rows whose 5-session labels matured after the decision (see data/leak_anatomy.json)",
       "note": "",
       "artifact": {
@@ -507,7 +537,8 @@
         "context_fields": {
           "hit_rate_pct": "hit_rate_pct",
           "ess": "ess_bartlett_L5"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 0.00023333333333333333,
       "p_holm": 0.001876,
@@ -536,7 +567,9 @@
       "sided": "one",
       "p_two_sided": 1.5201610587806517e-17,
       "pre_specified": true,
+      "selected_after_search": false,
       "status": "supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "Predicted analytically before the simulation: 1/2 + arcsin(0.8)/pi = 79.5% for the newest leaked label.",
       "artifact": {
@@ -550,7 +583,8 @@
           "runs": "synthetic_random_walk.random_forest.unpurged_leaked.n_runs",
           "base_rate_pct_mean": "synthetic_random_walk.random_forest.unpurged_leaked.base_rate_pct_mean",
           "runs_beating_base_rate": "synthetic_random_walk.random_forest.unpurged_leaked.runs_beating_base_rate_5pct"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 3.800402646951629e-16,
       "p_holm": 1.1097175729098758e-15,
@@ -579,7 +613,9 @@
       "sided": "one",
       "p_two_sided": 0.7237035058992429,
       "pre_specified": true,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "Predicted analytically before the simulation: 1/2 + arcsin(0.8)/pi = 79.5% for the newest leaked label.",
       "artifact": {
@@ -593,7 +629,8 @@
           "runs": "synthetic_random_walk.random_forest.purged.n_runs",
           "base_rate_pct_mean": "synthetic_random_walk.random_forest.purged.base_rate_pct_mean",
           "runs_beating_base_rate": "synthetic_random_walk.random_forest.purged.runs_beating_base_rate_5pct"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 0.9527312982523835,
       "p_holm": 1.0,
@@ -622,7 +659,9 @@
       "sided": "one",
       "p_two_sided": 3.8906845954299195e-05,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "Predicted analytically before the simulation: 1/2 + arcsin(0.8)/pi = 79.5% for the newest leaked label. The shuffled runs permute the same CL=F returns, so they are not independent samples and a test pooled over them (pooled_binomial_p_value_vs_50) would overstate the evidence; real 5-session returns rise more often than they fall, so each run's no-skill accuracy is its base rate, not 50%. The p-value is therefore the largest of the runs' own binomial p-values against their base rates. This test replaced the pooled one after the runs were seen, so the row is not marked pre-specified.",
       "artifact": {
@@ -645,7 +684,8 @@
           "runs": "block_shuffled_cl.nearest_neighbour.unpurged_leaked.n_runs",
           "base_rate_pct_mean": "block_shuffled_cl.nearest_neighbour.unpurged_leaked.base_rate_pct_mean",
           "runs_beating_base_rate": "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs_beating_base_rate_5pct"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 0.0002652739496884036,
       "p_holm": 0.0025302457384919577,
@@ -674,7 +714,9 @@
       "sided": "one",
       "p_two_sided": 1.0,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "Predicted analytically before the simulation: 1/2 + arcsin(0.8)/pi = 79.5% for the newest leaked label. The shuffled runs permute the same CL=F returns, so they are not independent samples and a test pooled over them (pooled_binomial_p_value_vs_50) would overstate the evidence; real 5-session returns rise more often than they fall, so each run's no-skill accuracy is its base rate, not 50%. The p-value is therefore the largest of the runs' own binomial p-values against their base rates. This test replaced the pooled one after the runs were seen, so the row is not marked pre-specified.",
       "artifact": {
@@ -697,7 +739,8 @@
           "runs": "block_shuffled_cl.nearest_neighbour.purged.n_runs",
           "base_rate_pct_mean": "block_shuffled_cl.nearest_neighbour.purged.base_rate_pct_mean",
           "runs_beating_base_rate": "block_shuffled_cl.nearest_neighbour.purged.runs_beating_base_rate_5pct"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 1.0,
       "p_holm": 1.0,
@@ -724,7 +767,9 @@
       "sided": "one",
       "p_two_sided": 0.0352,
       "pre_specified": true,
+      "selected_after_search": false,
       "status": "supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "Rule fixed a priori (carry_signal_test.py docstring); the 2007 split was chosen later.",
       "artifact": {
@@ -736,9 +781,10 @@
         "context_fields": {
           "below_median_pct": "full_sample.mean_ret_below_median_carry_pct",
           "n_months": "full_sample.n_months"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.12000000000000001,
+      "q_value_bh": 0.12571428571428572,
       "p_holm": 1.0,
       "t_equivalent": 2.11,
       "survives_bh_5pct": false,
@@ -760,7 +806,9 @@
       "sided": "two",
       "p_two_sided": 0.0378,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -769,9 +817,10 @@
         "p_value_fields": {
           "full_sample.carry_rank_corr_p_value": 0.0378
         },
-        "context_fields": {}
+        "context_fields": {},
+        "name_fields": {}
       },
-      "q_value_bh": 0.1232608695652174,
+      "q_value_bh": 0.12886363636363637,
       "p_holm": 1.0,
       "t_equivalent": 2.08,
       "survives_bh_5pct": false,
@@ -795,7 +844,9 @@
       "sided": "one",
       "p_two_sided": 1.0,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -806,7 +857,8 @@
         },
         "context_fields": {
           "base_rate_pct": "full_sample.base_rate_pct"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 1.0,
       "p_holm": 1.0,
@@ -832,7 +884,9 @@
       "sided": "two",
       "p_two_sided": 0.1121,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -843,9 +897,10 @@
         },
         "context_fields": {
           "bootstrap_p_value": "full_sample.sharpe_difference.bootstrap_p_value"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.30026785714285714,
+      "q_value_bh": 0.31138888888888894,
       "p_holm": 1.0,
       "t_equivalent": 1.59,
       "survives_bh_5pct": false,
@@ -870,7 +925,9 @@
       "sided": "one",
       "p_two_sided": 0.0142,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -882,10 +939,11 @@
         "context_fields": {
           "below_median_pct": "pre_2007.mean_ret_below_median_carry_pct",
           "n_months": "pre_2007.n_months"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.06264705882352942,
-      "p_holm": 0.8378000000000001,
+      "q_value_bh": 0.06656250000000001,
+      "p_holm": 0.8520000000000001,
       "t_equivalent": 2.45,
       "survives_bh_5pct": false,
       "survives_holm_5pct": false,
@@ -906,7 +964,9 @@
       "sided": "two",
       "p_two_sided": 0.0036,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -915,10 +975,11 @@
         "p_value_fields": {
           "pre_2007.carry_rank_corr_p_value": 0.0036
         },
-        "context_fields": {}
+        "context_fields": {},
+        "name_fields": {}
       },
-      "q_value_bh": 0.018000000000000002,
-      "p_holm": 0.2196,
+      "q_value_bh": 0.019285714285714288,
+      "p_holm": 0.22319999999999998,
       "t_equivalent": 2.91,
       "survives_bh_5pct": true,
       "survives_holm_5pct": false,
@@ -941,7 +1002,9 @@
       "sided": "one",
       "p_two_sided": 0.1378,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "inconclusive",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -952,9 +1015,10 @@
         },
         "context_fields": {
           "base_rate_pct": "pre_2007.base_rate_pct"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.31928571428571423,
+      "q_value_bh": 0.32867647058823524,
       "p_holm": 1.0,
       "t_equivalent": 1.48,
       "survives_bh_5pct": false,
@@ -978,7 +1042,9 @@
       "sided": "two",
       "p_two_sided": 0.2061,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -989,9 +1055,10 @@
         },
         "context_fields": {
           "bootstrap_p_value": "pre_2007.sharpe_difference.bootstrap_p_value"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.40677631578947365,
+      "q_value_bh": 0.41777027027027025,
       "p_holm": 1.0,
       "t_equivalent": 1.26,
       "survives_bh_5pct": false,
@@ -1010,13 +1077,17 @@
       },
       "context": {
         "below_median_pct": 0.07,
-        "n_months": 206
+        "n_months": 206,
+        "power_vs_pre_2007_spread": 0.673,
+        "target_power": 0.8
       },
       "p_value": 0.2726,
       "sided": "one",
       "p_two_sided": 0.5452,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": true,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -1027,10 +1098,13 @@
         },
         "context_fields": {
           "below_median_pct": "post_2007.mean_ret_below_median_carry_pct",
-          "n_months": "post_2007.n_months"
-        }
+          "n_months": "post_2007.n_months",
+          "power_vs_pre_2007_spread": "power_post_2007.power_vs_pre_2007_spread",
+          "target_power": "power_post_2007.target_power"
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.87,
+      "q_value_bh": 0.8889130434782608,
       "p_holm": 1.0,
       "t_equivalent": 0.6,
       "survives_bh_5pct": false,
@@ -1047,12 +1121,17 @@
         "name": "rank correlation",
         "value": -0.03
       },
-      "context": {},
+      "context": {
+        "power_vs_pre_2007_rank_corr": 0.815,
+        "target_power": 0.8
+      },
       "p_value": 0.665,
       "sided": "two",
       "p_two_sided": 1.0,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": false,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -1061,7 +1140,11 @@
         "p_value_fields": {
           "post_2007.carry_rank_corr_p_value": 0.665
         },
-        "context_fields": {}
+        "context_fields": {
+          "power_vs_pre_2007_rank_corr": "power_post_2007.power_vs_pre_2007_rank_corr",
+          "target_power": "power_post_2007.target_power"
+        },
+        "name_fields": {}
       },
       "q_value_bh": 1.0,
       "p_holm": 1.0,
@@ -1087,7 +1170,9 @@
       "sided": "one",
       "p_two_sided": 1.0,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -1098,7 +1183,8 @@
         },
         "context_fields": {
           "base_rate_pct": "post_2007.base_rate_pct"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 1.0,
       "p_holm": 1.0,
@@ -1124,7 +1210,9 @@
       "sided": "two",
       "p_two_sided": 0.5718,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -1135,9 +1223,10 @@
         },
         "context_fields": {
           "bootstrap_p_value": "post_2007.sharpe_difference.bootstrap_p_value"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.8934375,
+      "q_value_bh": 0.9124468085106383,
       "p_holm": 1.0,
       "t_equivalent": 0.57,
       "survives_bh_5pct": false,
@@ -1161,7 +1250,9 @@
       "sided": "one",
       "p_two_sided": 0.029,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -1172,9 +1263,10 @@
         },
         "context_fields": {
           "carry_nonpositive_pct": "sign_split.full_sample.mean_ret_carry_nonpositive_pct"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.10875000000000001,
+      "q_value_bh": 0.11447368421052632,
       "p_holm": 1.0,
       "t_equivalent": 2.18,
       "survives_bh_5pct": false,
@@ -1198,7 +1290,9 @@
       "sided": "one",
       "p_two_sided": 0.3316,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -1209,9 +1303,10 @@
         },
         "context_fields": {
           "carry_nonpositive_pct": "sign_split.post_2007.mean_ret_carry_nonpositive_pct"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.62175,
+      "q_value_bh": 0.6376923076923077,
       "p_holm": 1.0,
       "t_equivalent": 0.97,
       "survives_bh_5pct": false,
@@ -1235,7 +1330,9 @@
       "sided": "two",
       "p_two_sided": 0.2564,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -1246,9 +1343,10 @@
         },
         "context_fields": {
           "post_2007_power_vs_pre_spread": "power_post_2007.power_vs_pre_2007_spread"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.4930769230769231,
+      "q_value_bh": 0.5060526315789474,
       "p_holm": 1.0,
       "t_equivalent": 1.13,
       "survives_bh_5pct": false,
@@ -1270,7 +1368,9 @@
       "sided": "two",
       "p_two_sided": 0.021,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -1279,9 +1379,10 @@
         "p_value_fields": {
           "regime_change_test.rank_corr_difference_p_value": 0.021
         },
-        "context_fields": {}
+        "context_fields": {},
+        "name_fields": {}
       },
-      "q_value_bh": 0.08289473684210527,
+      "q_value_bh": 0.08750000000000001,
       "p_holm": 1.0,
       "t_equivalent": 2.31,
       "survives_bh_5pct": false,
@@ -1305,7 +1406,9 @@
       "sided": "one",
       "p_two_sided": 0.5334,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "retracted",
+      "underpowered": null,
       "retraction_reason": "roll-gap contamination: the unadjusted front-month return subtracts the carry itself",
       "note": "",
       "artifact": {
@@ -1316,9 +1419,10 @@
         },
         "context_fields": {
           "corr_contamination_carry": "roll_bias_of_original_method.corr_contamination_carry"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.8696739130434782,
+      "q_value_bh": 0.8889130434782608,
       "p_holm": 1.0,
       "t_equivalent": 0.62,
       "survives_bh_5pct": false,
@@ -1336,14 +1440,17 @@
         "value": 73.5
       },
       "context": {
-        "mean_premium_vol_pts": 2.5
+        "mean_premium_vol_pts": 2.5,
+        "zero_premium_share_pct": 69.5
       },
       "p_value": 1.0277388494221291e-11,
       "sided": "one",
       "p_two_sided": 2.0554776988442582e-11,
       "pre_specified": false,
-      "status": "supported",
-      "retraction_reason": null,
+      "selected_after_search": false,
+      "status": "retracted",
+      "underpowered": null,
+      "retraction_reason": "invalid null: read as evidence of a variance risk premium, but with zero premium a 20-session realized vol, noisy and right-skewed, still falls below implied vol in about 69.5% of periods (economic.variance_risk_premium.zero_premium_null), not 50%; vrp_exists_vs_zero_premium tests the share against that null",
       "note": "",
       "artifact": {
         "path": "data/vol_forecast_validation.json",
@@ -1353,8 +1460,10 @@
           "economic.variance_risk_premium.n_periods": 200
         },
         "context_fields": {
-          "mean_premium_vol_pts": "economic.variance_risk_premium.mean_premium_vol_pts"
-        }
+          "mean_premium_vol_pts": "economic.variance_risk_premium.mean_premium_vol_pts",
+          "zero_premium_share_pct": "economic.variance_risk_premium.zero_premium_null.share_positive_pct"
+        },
+        "name_fields": {}
       },
       "q_value_bh": 3.083216548266387e-10,
       "p_holm": 1.4593891661794232e-09,
@@ -1362,6 +1471,52 @@
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
       "clears_hlz_t3": true
+    },
+    {
+      "id": "vrp_exists_vs_zero_premium",
+      "date": "2026-10-20",
+      "family": "variance risk premium",
+      "hypothesis": "OVX exceeds the realized vol of the following month in more periods than it would with no variance risk premium.",
+      "test": "one-sided stationary block bootstrap of the share of periods with OVX above realized vol against the share expected with zero premium (the per-period ratios RV^2 / IV^2 rescaled to mean 1, the null share re-estimated in every draw; p stored in the artifact)",
+      "statistic": {
+        "name": "share of periods with a positive premium %",
+        "value": 73.5
+      },
+      "context": {
+        "zero_premium_share_pct": 69.5,
+        "n_periods": 200,
+        "mean_premium_vol_pts": 2.5,
+        "zero_premium_mean_premium_vol_pts": 1.5
+      },
+      "p_value": 0.3176,
+      "sided": "one",
+      "p_two_sided": 0.6352,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_forecast_validation.json",
+        "statistic_field": "economic.variance_risk_premium.share_positive_pct",
+        "p_value_fields": {
+          "economic.variance_risk_premium.zero_premium_null.p_value_one_sided": 0.3176
+        },
+        "context_fields": {
+          "zero_premium_share_pct": "economic.variance_risk_premium.zero_premium_null.share_positive_pct",
+          "n_periods": "economic.variance_risk_premium.n_periods",
+          "mean_premium_vol_pts": "economic.variance_risk_premium.mean_premium_vol_pts",
+          "zero_premium_mean_premium_vol_pts": "economic.variance_risk_premium.zero_premium_null.mean_premium_vol_pts"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.9258173076923077,
+      "p_holm": 1.0,
+      "t_equivalent": 0.47,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
     },
     {
       "id": "vrp_short_vol_swap_sharpe",
@@ -1376,15 +1531,19 @@
       "context": {
         "skewness": -4.95,
         "excess_kurtosis": 39.7,
-        "n_periods": 200
+        "n_periods": 200,
+        "mean_premium_vol_pts": 2.5,
+        "zero_premium_mean_premium_vol_pts": 1.5
       },
       "p_value": 0.0695,
       "sided": "one",
       "p_two_sided": 0.139,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "inconclusive",
+      "underpowered": null,
       "retraction_reason": null,
-      "note": "",
+      "note": "OVX is a variance-swap-style rate: with zero variance premium E[IV - RV] > 0 (Jensen's inequality), so this proxy's mean is positive even with no premium (zero_premium_mean_premium_vol_pts) and a Sharpe test against 0 overstates the evidence for a premium.",
       "artifact": {
         "path": "data/vol_forecast_validation.json",
         "statistic_field": "economic.variance_risk_premium.short_vol_swap_sharpe",
@@ -1394,10 +1553,13 @@
         "context_fields": {
           "skewness": "economic.variance_risk_premium.sharpe_positive_test.short_vol_swap.skewness",
           "excess_kurtosis": "economic.variance_risk_premium.sharpe_positive_test.short_vol_swap.excess_kurtosis",
-          "n_periods": "economic.variance_risk_premium.n_periods"
-        }
+          "n_periods": "economic.variance_risk_premium.n_periods",
+          "mean_premium_vol_pts": "economic.variance_risk_premium.mean_premium_vol_pts",
+          "zero_premium_mean_premium_vol_pts": "economic.variance_risk_premium.zero_premium_null.mean_premium_vol_pts"
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.31928571428571423,
+      "q_value_bh": 0.32867647058823524,
       "p_holm": 1.0,
       "t_equivalent": 1.48,
       "survives_bh_5pct": false,
@@ -1423,7 +1585,9 @@
       "sided": "one",
       "p_two_sided": 1.0,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -1436,7 +1600,8 @@
           "skewness": "economic.variance_risk_premium.sharpe_positive_test.short_variance.skewness",
           "excess_kurtosis": "economic.variance_risk_premium.sharpe_positive_test.short_variance.excess_kurtosis",
           "n_periods": "economic.variance_risk_premium.n_periods"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 1.0,
       "p_holm": 1.0,
@@ -1462,7 +1627,9 @@
       "sided": "one",
       "p_two_sided": 0.47,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -1473,9 +1640,10 @@
         },
         "context_fields": {
           "cheap_mean_pnl": "economic.variance_risk_premium.timed_cheap_mean_pnl"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.8011363636363636,
+      "q_value_bh": 0.8197674418604651,
       "p_holm": 1.0,
       "t_equivalent": 0.72,
       "survives_bh_5pct": false,
@@ -1500,7 +1668,9 @@
       "sided": "one",
       "p_two_sided": 3.443719025316235e-47,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "retracted",
+      "underpowered": null,
       "retraction_reason": "invalid null: with constant volatility the same pipeline scores about 75% (overall.direction_noise_floor; vol_lab.json noise_floor)",
       "note": "",
       "artifact": {
@@ -1512,7 +1682,8 @@
         "context_fields": {
           "base_rate_pct": "overall.majority_class_pct",
           "z_hac": "overall.har_dir_z_score_hac"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 2.582789268987176e-45,
       "p_holm": 2.582789268987176e-45,
@@ -1532,13 +1703,15 @@
         "value": 74.4
       },
       "context": {
-        "noise_floor_pct": 75.5
+        "noise_floor_pct": 75.2
       },
-      "p_value": 0.7868304867512198,
+      "p_value": 0.7198973688640692,
       "sided": "one",
       "p_two_sided": 1.0,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -1547,11 +1720,12 @@
         "p_value_fields": {
           "overall.n": 927,
           "overall.har_dir_acc_pct": 74.4,
-          "overall.direction_noise_floor.dir_acc_pct_mean": 75.5
+          "overall.direction_noise_floor.dir_acc_pct_mean": 75.2
         },
         "context_fields": {
           "noise_floor_pct": "overall.direction_noise_floor.dir_acc_pct_mean"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 1.0,
       "p_holm": 1.0,
@@ -1573,15 +1747,17 @@
       "context": {
         "har_pct": 74.4,
         "mean_reversion_pct": 68.5,
-        "noise_floor_har_pct": 75.5,
-        "noise_floor_mean_reversion_pct": 71.6
+        "noise_floor_har_pct": 75.2,
+        "noise_floor_mean_reversion_pct": 71.8
       },
       "p_value": 1.1879979978384312e-05,
       "sided": "one",
       "p_two_sided": 2.3759959956768624e-05,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "retracted",
-      "retraction_reason": "invalid null: with nothing to forecast (i.i.d. returns, constant volatility) the same pipeline's HAR already beats this rule, 75.5% vs 71.6% (overall.direction_noise_floor; vol_lab.json noise_floor shows the same gap), so a positive z is expected without any forecasting skill",
+      "underpowered": null,
+      "retraction_reason": "invalid null: with nothing to forecast (i.i.d. returns, constant volatility) the same pipeline's HAR already beats this rule, 75.2% vs 71.8% (overall.direction_noise_floor; vol_lab.json noise_floor shows the same gap), so a positive z is expected without any forecasting skill",
       "note": "",
       "artifact": {
         "path": "data/vol_forecast_validation.json",
@@ -1594,7 +1770,8 @@
           "mean_reversion_pct": "overall.mean_reversion_dir_acc_pct",
           "noise_floor_har_pct": "overall.direction_noise_floor.dir_acc_pct_mean",
           "noise_floor_mean_reversion_pct": "overall.direction_noise_floor.mean_reversion_dir_acc_pct_mean"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 0.00022274962459470585,
       "p_holm": 0.0016156772770602665,
@@ -1621,7 +1798,9 @@
       "sided": "two",
       "p_two_sided": 1.7835188421373328e-12,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -1633,7 +1812,8 @@
         "context_fields": {
           "qlike_model": "leaderboard.models[key=persistence].qlike",
           "qlike_har_iv": "leaderboard.models[key=har_iv].qlike"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 3.344097829007499e-11,
       "p_holm": 1.2841335663388797e-10,
@@ -1660,7 +1840,9 @@
       "sided": "two",
       "p_two_sided": 3.833705664381754e-05,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -1672,7 +1854,8 @@
         "context_fields": {
           "qlike_model": "leaderboard.models[key=har_rv].qlike",
           "qlike_har_iv": "leaderboard.models[key=har_iv].qlike"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 0.0002652739496884036,
       "p_holm": 0.0025302457384919577,
@@ -1699,7 +1882,9 @@
       "sided": "one",
       "p_two_sided": 0.12356035342362377,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "inconclusive",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -1711,9 +1896,10 @@
         "context_fields": {
           "har_iv_pct": "overall.har_dir_acc_pct",
           "har_no_ovx_pct": "overall.har_no_ovx_dir_acc_pct"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.31928571428571423,
+      "q_value_bh": 0.32867647058823524,
       "p_holm": 1.0,
       "t_equivalent": 1.54,
       "survives_bh_5pct": false,
@@ -1731,14 +1917,16 @@
         "value": -0.82
       },
       "context": {
-        "leverage_qlike": 0.44,
+        "leverage_qlike": 0.375,
         "har_iv_qlike": 0.376
       },
       "p_value": 0.7938919464141869,
       "sided": "one",
       "p_two_sided": 1.0,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -1750,7 +1938,8 @@
         "context_fields": {
           "leverage_qlike": "overall.leverage_variant_qlike",
           "har_iv_qlike": "overall.har_qlike"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 1.0,
       "p_holm": 1.0,
@@ -1763,7 +1952,7 @@
       "id": "vol_vs_implied_regression",
       "date": "2026-10-20",
       "family": "volatility forecast",
-      "hypothesis": "HAR-IV beats a regression on implied vol (OVX) alone on QLIKE.",
+      "hypothesis": "HAR-IV beats the OVX-only regression on QLIKE.",
       "test": "Diebold-Mariano on daily QLIKE losses (Newey-West, HLN), two-sided; a positive statistic means the named model beats HAR-IV",
       "statistic": {
         "name": "DM statistic",
@@ -1777,7 +1966,9 @@
       "sided": "two",
       "p_two_sided": 1.0,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -1789,7 +1980,8 @@
         "context_fields": {
           "qlike_model": "leaderboard.models[key=ovx_only].qlike",
           "qlike_har_iv": "leaderboard.models[key=har_iv].qlike"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 1.0,
       "p_holm": 1.0,
@@ -1816,7 +2008,9 @@
       "sided": "two",
       "p_two_sided": 0.6195055986055698,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -1828,7 +2022,8 @@
         "context_fields": {
           "qlike_model": "leaderboard.models[key=raw_ovx].qlike",
           "qlike_har_iv": "leaderboard.models[key=har_iv].qlike"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 0.9258173076923077,
       "p_holm": 1.0,
@@ -1855,7 +2050,9 @@
       "sided": "two",
       "p_two_sided": 6.646258039278556e-05,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "An information advantage the deployed model cannot use: the reason v2 lags OVX.",
       "artifact": {
@@ -1867,7 +2064,8 @@
         "context_fields": {
           "qlike_model": "leaderboard.models[key=har_iv_sameday].qlike",
           "qlike_har_iv": "leaderboard.models[key=har_iv].qlike"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 0.0004153911274549097,
       "p_holm": 0.004253605145138276,
@@ -1894,9 +2092,11 @@
       "sided": "two",
       "p_two_sided": 0.0019392254394052656,
       "pre_specified": false,
+      "selected_after_search": true,
       "status": "supported",
+      "underpowered": null,
       "retraction_reason": null,
-      "note": "One pairwise test chosen after seeing the leaderboard; the SPA row controls for the search.",
+      "note": "Selected after a search: the challenger is the lowest-QLIKE model of the field on this same sample (vol_lab.choose_challenger), so this pairwise p-value ignores the search. The row is left out of the multiplicity family (no q-value, Holm p-value or t > 3 flag); the search-adjusted test of the same question is vol_spa_beats_record.",
       "artifact": {
         "path": "data/vol_lab.json",
         "statistic_field": "leaderboard.models[key=har_iv_range].dm_qlike_vs_har_iv.stat",
@@ -1906,14 +2106,15 @@
         "context_fields": {
           "qlike_model": "leaderboard.models[key=har_iv_range].qlike",
           "qlike_har_iv": "leaderboard.models[key=har_iv].qlike"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.010388707711099636,
-      "p_holm": 0.12023197724312647,
+      "q_value_bh": null,
+      "p_holm": null,
       "t_equivalent": 3.1,
-      "survives_bh_5pct": true,
-      "survives_holm_5pct": false,
-      "clears_hlz_t3": true
+      "survives_bh_5pct": null,
+      "survives_holm_5pct": null,
+      "clears_hlz_t3": null
     },
     {
       "id": "vol_challenger_mse",
@@ -1933,7 +2134,9 @@
       "sided": "two",
       "p_two_sided": 0.7021907871764801,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -1945,7 +2148,8 @@
         "context_fields": {
           "qlike_model": "leaderboard.models[key=har_iv_range].qlike",
           "qlike_har_iv": "leaderboard.models[key=har_iv].qlike"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 0.9527312982523835,
       "p_holm": 1.0,
@@ -1971,7 +2175,9 @@
       "sided": "one",
       "p_two_sided": 0.144,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "inconclusive",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -1982,9 +2188,10 @@
         },
         "context_fields": {
           "p_lower": "leaderboard.spa_qlike_vs_har_iv.p_lower"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.31928571428571423,
+      "q_value_bh": 0.32867647058823524,
       "p_holm": 1.0,
       "t_equivalent": 1.46,
       "survives_bh_5pct": false,
@@ -2014,7 +2221,9 @@
       "sided": "one",
       "p_two_sided": 0.0736,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2026,9 +2235,10 @@
         "context_fields": {
           "mcs_members": "leaderboard.mcs_qlike_included",
           "mcs_size": "config.mcs.size"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.22999999999999998,
+      "q_value_bh": 0.24,
       "p_holm": 1.0,
       "t_equivalent": 1.79,
       "survives_bh_5pct": false,
@@ -2050,7 +2260,9 @@
       "sided": "two",
       "p_two_sided": 0.3802070844249102,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2059,9 +2271,10 @@
         "p_value_fields": {
           "oos_selection.dm_vs_har_iv.p_value": 0.3802070844249102
         },
-        "context_fields": {}
+        "context_fields": {},
+        "name_fields": {}
       },
-      "q_value_bh": 0.6917857142857143,
+      "q_value_bh": 0.7086585365853659,
       "p_holm": 1.0,
       "t_equivalent": 0.88,
       "survives_bh_5pct": false,
@@ -2085,7 +2298,9 @@
       "sided": "two",
       "p_two_sided": 0.1609,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2096,9 +2311,10 @@
         },
         "context_fields": {
           "intercept": "leaderboard.models[key=har_iv].mincer_zarnowitz.intercept"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.33520833333333333,
+      "q_value_bh": 0.34478571428571425,
       "p_holm": 1.0,
       "t_equivalent": 1.4,
       "survives_bh_5pct": false,
@@ -2120,7 +2336,9 @@
       "sided": "two",
       "p_two_sided": 1.4908587064550795e-39,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "In-sample; the out-of-sample version is vol_ovx_gain_qlike.",
       "artifact": {
@@ -2129,7 +2347,8 @@
         "p_value_fields": {
           "har_iv_coefficients.terms[term=log OVX].t_hac": 13.16
         },
-        "context_fields": {}
+        "context_fields": {},
+        "name_fields": {}
       },
       "q_value_bh": 5.590720149206548e-38,
       "p_holm": 1.103235442776759e-37,
@@ -2161,7 +2380,9 @@
       "sided": "two",
       "p_two_sided": 1.0,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "Vol targeting is a risk control: its effect on realized vol, kurtosis and drawdown is in economic.vol_target_overlay.risk.",
       "artifact": {
@@ -2175,7 +2396,8 @@
           "buy_hold_sharpe": "economic.vol_target_overlay.sharpe_buy_hold",
           "trailing_vol_target_sharpe": "economic.vol_target_overlay.sharpe_trailing_vol_target",
           "difference_ci95": "economic.vol_target_overlay.sharpe_difference_tests.forecast_minus_buy_hold.ci95"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 1.0,
       "p_holm": 1.0,
@@ -2201,7 +2423,9 @@
       "sided": "two",
       "p_two_sided": 0.01306527454382452,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2212,10 +2436,11 @@
         },
         "context_fields": {
           "expected": "var_backtest.grids.0.methods[key=har_iv:normal,level=0.01].kupiec.expected"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.061243474424177435,
-      "p_holm": 0.7839164726294712,
+      "q_value_bh": 0.0653263727191226,
+      "p_holm": 0.7969817471732957,
       "t_equivalent": 2.48,
       "survives_bh_5pct": false,
       "survives_holm_5pct": false,
@@ -2238,7 +2463,9 @@
       "sided": "two",
       "p_two_sided": 0.10085414906918035,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2249,9 +2476,10 @@
         },
         "context_fields": {
           "expected": "var_backtest.grids.0.methods[key=har_iv:fhs,level=0.01].kupiec.expected"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.28527777777777774,
+      "q_value_bh": 0.29625,
       "p_holm": 1.0,
       "t_equivalent": 1.64,
       "survives_bh_5pct": false,
@@ -2275,7 +2503,9 @@
       "sided": "two",
       "p_two_sided": 0.40610670821132033,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2286,9 +2516,10 @@
         },
         "context_fields": {
           "expected": "var_backtest.grids.0.methods[key=har_iv:fhs,level=0.05].kupiec.expected"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.708325653856954,
+      "q_value_bh": 0.7251905503773577,
       "p_holm": 1.0,
       "t_equivalent": 0.83,
       "survives_bh_5pct": false,
@@ -2312,7 +2543,9 @@
       "sided": "two",
       "p_two_sided": 0.01991211288552337,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2323,9 +2556,10 @@
         },
         "context_fields": {
           "expected": "var_backtest.grids.0.methods[key=historical_simulation,level=0.05].kupiec.expected"
-        }
+        },
+        "name_fields": {}
       },
-      "q_value_bh": 0.08289473684210527,
+      "q_value_bh": 0.08750000000000001,
       "p_holm": 1.0,
       "t_equivalent": 2.33,
       "survives_bh_5pct": false,
@@ -2336,7 +2570,7 @@
       "id": "shock_supply_lost_peak",
       "date": "2026-10-20",
       "family": "supply shock",
-      "hypothesis": "Events in group 'supply_lost' move WTI differently from a random non-event date (peak).",
+      "hypothesis": "Events in group 'Announced or physical supply removal >0.5 mbpd' move WTI differently from a random non-event date (peak).",
       "test": "two-sided resampling tests of the group's median peak vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
       "statistic": {
         "name": "median peak %",
@@ -2350,7 +2584,9 @@
       "sided": "two",
       "p_two_sided": 0.0015,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2363,6 +2599,9 @@
         "context_fields": {
           "n": "groups[key=supply_lost].n",
           "placebo_median_pct": "placebo.median_peak_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=supply_lost].name"
         }
       },
       "q_value_bh": 0.008653846153846154,
@@ -2376,7 +2615,7 @@
       "id": "shock_supply_lost_settle",
       "date": "2026-10-20",
       "family": "supply shock",
-      "hypothesis": "Events in group 'supply_lost' move WTI differently from a random non-event date (settled move).",
+      "hypothesis": "Events in group 'Announced or physical supply removal >0.5 mbpd' move WTI differently from a random non-event date (settled move).",
       "test": "two-sided resampling tests of the group's median settle vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
       "statistic": {
         "name": "median settle %",
@@ -2390,7 +2629,9 @@
       "sided": "two",
       "p_two_sided": 0.1027,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2403,9 +2644,12 @@
         "context_fields": {
           "n": "groups[key=supply_lost].n",
           "placebo_median_pct": "placebo.median_settle_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=supply_lost].name"
         }
       },
-      "q_value_bh": 0.28527777777777774,
+      "q_value_bh": 0.29625,
       "p_holm": 1.0,
       "t_equivalent": 1.63,
       "survives_bh_5pct": false,
@@ -2416,7 +2660,7 @@
       "id": "shock_threat_only_peak",
       "date": "2026-10-20",
       "family": "supply shock",
-      "hypothesis": "Events in group 'threat_only' move WTI differently from a random non-event date (peak).",
+      "hypothesis": "Events in group 'Geopolitical threat, no supply removed' move WTI differently from a random non-event date (peak).",
       "test": "two-sided resampling tests of the group's median peak vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
       "statistic": {
         "name": "median peak %",
@@ -2430,7 +2674,9 @@
       "sided": "two",
       "p_two_sided": 0.6419,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2443,6 +2689,9 @@
         "context_fields": {
           "n": "groups[key=threat_only].n",
           "placebo_median_pct": "placebo.median_peak_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=threat_only].name"
         }
       },
       "q_value_bh": 0.9258173076923077,
@@ -2456,7 +2705,7 @@
       "id": "shock_threat_only_settle",
       "date": "2026-10-20",
       "family": "supply shock",
-      "hypothesis": "Events in group 'threat_only' move WTI differently from a random non-event date (settled move).",
+      "hypothesis": "Events in group 'Geopolitical threat, no supply removed' move WTI differently from a random non-event date (settled move).",
       "test": "two-sided resampling tests of the group's median settle vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
       "statistic": {
         "name": "median settle %",
@@ -2470,7 +2719,9 @@
       "sided": "two",
       "p_two_sided": 0.9564,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2483,6 +2734,9 @@
         "context_fields": {
           "n": "groups[key=threat_only].n",
           "placebo_median_pct": "placebo.median_settle_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=threat_only].name"
         }
       },
       "q_value_bh": 1.0,
@@ -2496,7 +2750,7 @@
       "id": "shock_opec_cut_peak",
       "date": "2026-10-20",
       "family": "supply shock",
-      "hypothesis": "Events in group 'opec_cut' move WTI differently from a random non-event date (peak).",
+      "hypothesis": "Events in group 'Announced OPEC(+) production cut' move WTI differently from a random non-event date (peak).",
       "test": "two-sided resampling tests of the group's median peak vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
       "statistic": {
         "name": "median peak %",
@@ -2510,7 +2764,9 @@
       "sided": "two",
       "p_two_sided": 0.0898,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "inconclusive",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2523,9 +2779,12 @@
         "context_fields": {
           "n": "groups[key=opec_cut].n",
           "placebo_median_pct": "placebo.median_peak_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=opec_cut].name"
         }
       },
-      "q_value_bh": 0.26940000000000003,
+      "q_value_bh": 0.280625,
       "p_holm": 1.0,
       "t_equivalent": 1.7,
       "survives_bh_5pct": false,
@@ -2536,7 +2795,7 @@
       "id": "shock_opec_cut_settle",
       "date": "2026-10-20",
       "family": "supply shock",
-      "hypothesis": "Events in group 'opec_cut' move WTI differently from a random non-event date (settled move).",
+      "hypothesis": "Events in group 'Announced OPEC(+) production cut' move WTI differently from a random non-event date (settled move).",
       "test": "two-sided resampling tests of the group's median settle vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
       "statistic": {
         "name": "median settle %",
@@ -2550,7 +2809,9 @@
       "sided": "two",
       "p_two_sided": 0.149,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2563,9 +2824,12 @@
         "context_fields": {
           "n": "groups[key=opec_cut].n",
           "placebo_median_pct": "placebo.median_settle_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=opec_cut].name"
         }
       },
-      "q_value_bh": 0.31928571428571423,
+      "q_value_bh": 0.32867647058823524,
       "p_holm": 1.0,
       "t_equivalent": 1.44,
       "survives_bh_5pct": false,
@@ -2576,7 +2840,7 @@
       "id": "shock_weather_peak",
       "date": "2026-10-20",
       "family": "supply shock",
-      "hypothesis": "Events in group 'weather' move WTI differently from a random non-event date (peak).",
+      "hypothesis": "Events in group 'Hurricane / weather shut-in' move WTI differently from a random non-event date (peak).",
       "test": "two-sided resampling tests of the group's median peak vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
       "statistic": {
         "name": "median peak %",
@@ -2590,7 +2854,9 @@
       "sided": "two",
       "p_two_sided": 0.939,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2603,6 +2869,9 @@
         "context_fields": {
           "n": "groups[key=weather].n",
           "placebo_median_pct": "placebo.median_peak_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=weather].name"
         }
       },
       "q_value_bh": 1.0,
@@ -2616,7 +2885,7 @@
       "id": "shock_weather_settle",
       "date": "2026-10-20",
       "family": "supply shock",
-      "hypothesis": "Events in group 'weather' move WTI differently from a random non-event date (settled move).",
+      "hypothesis": "Events in group 'Hurricane / weather shut-in' move WTI differently from a random non-event date (settled move).",
       "test": "two-sided resampling tests of the group's median settle vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
       "statistic": {
         "name": "median settle %",
@@ -2630,7 +2899,9 @@
       "sided": "two",
       "p_two_sided": 0.1464,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2643,9 +2914,12 @@
         "context_fields": {
           "n": "groups[key=weather].n",
           "placebo_median_pct": "placebo.median_settle_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=weather].name"
         }
       },
-      "q_value_bh": 0.31928571428571423,
+      "q_value_bh": 0.32867647058823524,
       "p_holm": 1.0,
       "t_equivalent": 1.45,
       "survives_bh_5pct": false,
@@ -2656,7 +2930,7 @@
       "id": "shock_conflict_peak",
       "date": "2026-10-20",
       "family": "supply shock",
-      "hypothesis": "Events in group 'conflict' move WTI differently from a random non-event date (peak).",
+      "hypothesis": "Events in group 'Armed conflict' move WTI differently from a random non-event date (peak).",
       "test": "two-sided resampling tests of the group's median peak vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
       "statistic": {
         "name": "median peak %",
@@ -2670,7 +2944,9 @@
       "sided": "two",
       "p_two_sided": 0.2016,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2683,9 +2959,12 @@
         "context_fields": {
           "n": "groups[key=conflict].n",
           "placebo_median_pct": "placebo.median_peak_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=conflict].name"
         }
       },
-      "q_value_bh": 0.40677631578947365,
+      "q_value_bh": 0.41777027027027025,
       "p_holm": 1.0,
       "t_equivalent": 1.28,
       "survives_bh_5pct": false,
@@ -2696,7 +2975,7 @@
       "id": "shock_conflict_settle",
       "date": "2026-10-20",
       "family": "supply shock",
-      "hypothesis": "Events in group 'conflict' move WTI differently from a random non-event date (settled move).",
+      "hypothesis": "Events in group 'Armed conflict' move WTI differently from a random non-event date (settled move).",
       "test": "two-sided resampling tests of the group's median settle vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
       "statistic": {
         "name": "median settle %",
@@ -2710,7 +2989,9 @@
       "sided": "two",
       "p_two_sided": 0.4961,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2723,9 +3004,12 @@
         "context_fields": {
           "n": "groups[key=conflict].n",
           "placebo_median_pct": "placebo.median_settle_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=conflict].name"
         }
       },
-      "q_value_bh": 0.8268333333333332,
+      "q_value_bh": 0.845625,
       "p_holm": 1.0,
       "t_equivalent": 0.68,
       "survives_bh_5pct": false,
@@ -2736,7 +3020,7 @@
       "id": "shock_sanctions_peak",
       "date": "2026-10-20",
       "family": "supply shock",
-      "hypothesis": "Events in group 'sanctions' move WTI differently from a random non-event date (peak).",
+      "hypothesis": "Events in group 'Sanctions' move WTI differently from a random non-event date (peak).",
       "test": "two-sided resampling tests of the group's median peak vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
       "statistic": {
         "name": "median peak %",
@@ -2750,7 +3034,9 @@
       "sided": "two",
       "p_two_sided": 0.7186,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2763,6 +3049,9 @@
         "context_fields": {
           "n": "groups[key=sanctions].n",
           "placebo_median_pct": "placebo.median_peak_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=sanctions].name"
         }
       },
       "q_value_bh": 0.9527312982523835,
@@ -2776,7 +3065,7 @@
       "id": "shock_sanctions_settle",
       "date": "2026-10-20",
       "family": "supply shock",
-      "hypothesis": "Events in group 'sanctions' move WTI differently from a random non-event date (settled move).",
+      "hypothesis": "Events in group 'Sanctions' move WTI differently from a random non-event date (settled move).",
       "test": "two-sided resampling tests of the group's median settle vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
       "statistic": {
         "name": "median settle %",
@@ -2790,7 +3079,9 @@
       "sided": "two",
       "p_two_sided": 0.6243,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2803,6 +3094,9 @@
         "context_fields": {
           "n": "groups[key=sanctions].n",
           "placebo_median_pct": "placebo.median_settle_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=sanctions].name"
         }
       },
       "q_value_bh": 0.9258173076923077,
@@ -2816,7 +3110,7 @@
       "id": "shock_iran_driven_peak",
       "date": "2026-10-20",
       "family": "supply shock",
-      "hypothesis": "Events in group 'iran_driven' move WTI differently from a random non-event date (peak).",
+      "hypothesis": "Events in group 'Iran-driven' move WTI differently from a random non-event date (peak).",
       "test": "two-sided resampling tests of the group's median peak vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
       "statistic": {
         "name": "median peak %",
@@ -2830,7 +3124,9 @@
       "sided": "two",
       "p_two_sided": 0.6876,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2843,6 +3139,9 @@
         "context_fields": {
           "n": "groups[key=iran_driven].n",
           "placebo_median_pct": "placebo.median_peak_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=iran_driven].name"
         }
       },
       "q_value_bh": 0.9527312982523835,
@@ -2856,7 +3155,7 @@
       "id": "shock_iran_driven_settle",
       "date": "2026-10-20",
       "family": "supply shock",
-      "hypothesis": "Events in group 'iran_driven' move WTI differently from a random non-event date (settled move).",
+      "hypothesis": "Events in group 'Iran-driven' move WTI differently from a random non-event date (settled move).",
       "test": "two-sided resampling tests of the group's median settle vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
       "statistic": {
         "name": "median settle %",
@@ -2870,7 +3169,9 @@
       "sided": "two",
       "p_two_sided": 0.9688,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2883,6 +3184,9 @@
         "context_fields": {
           "n": "groups[key=iran_driven].n",
           "placebo_median_pct": "placebo.median_settle_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=iran_driven].name"
         }
       },
       "q_value_bh": 1.0,
@@ -2896,7 +3200,7 @@
       "id": "shock_strait_risk_peak",
       "date": "2026-10-20",
       "family": "supply shock",
-      "hypothesis": "Events in group 'strait_risk' move WTI differently from a random non-event date (peak).",
+      "hypothesis": "Events in group 'Hormuz / transit-strait risk' move WTI differently from a random non-event date (peak).",
       "test": "two-sided resampling tests of the group's median peak vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
       "statistic": {
         "name": "median peak %",
@@ -2910,7 +3214,9 @@
       "sided": "two",
       "p_two_sided": 0.8501,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2923,6 +3229,9 @@
         "context_fields": {
           "n": "groups[key=strait_risk].n",
           "placebo_median_pct": "placebo.median_peak_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=strait_risk].name"
         }
       },
       "q_value_bh": 1.0,
@@ -2936,7 +3245,7 @@
       "id": "shock_strait_risk_settle",
       "date": "2026-10-20",
       "family": "supply shock",
-      "hypothesis": "Events in group 'strait_risk' move WTI differently from a random non-event date (settled move).",
+      "hypothesis": "Events in group 'Hormuz / transit-strait risk' move WTI differently from a random non-event date (settled move).",
       "test": "two-sided resampling tests of the group's median settle vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
       "statistic": {
         "name": "median settle %",
@@ -2950,7 +3259,9 @@
       "sided": "two",
       "p_two_sided": 0.7877,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2963,6 +3274,9 @@
         "context_fields": {
           "n": "groups[key=strait_risk].n",
           "placebo_median_pct": "placebo.median_settle_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=strait_risk].name"
         }
       },
       "q_value_bh": 0.9846249999999999,
@@ -2976,7 +3290,7 @@
       "id": "shock_removal_vs_threat_peak",
       "date": "2026-10-20",
       "family": "supply shock",
-      "hypothesis": "Supply-removal events peak higher than threat-only events.",
+      "hypothesis": "Events in group 'Announced or physical supply removal >0.5 mbpd' peak higher than events in group 'Geopolitical threat, no supply removed'.",
       "test": "two-sided permutation test of the difference in medians",
       "statistic": {
         "name": "median peak difference %",
@@ -2987,7 +3301,9 @@
       "sided": "two",
       "p_two_sided": 0.0309,
       "pre_specified": false,
+      "selected_after_search": false,
       "status": "supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -2996,9 +3312,13 @@
         "p_value_fields": {
           "between_groups.p_value.peak": 0.0309
         },
-        "context_fields": {}
+        "context_fields": {},
+        "name_fields": {
+          "removal": "groups[key=supply_lost].name",
+          "threat": "groups[key=threat_only].name"
+        }
       },
-      "q_value_bh": 0.11035714285714285,
+      "q_value_bh": 0.11587499999999999,
       "p_holm": 1.0,
       "t_equivalent": 2.16,
       "survives_bh_5pct": false,
@@ -3009,7 +3329,7 @@
       "id": "shock_removal_vs_threat_settle",
       "date": "2026-10-20",
       "family": "supply shock",
-      "hypothesis": "Supply-removal events keep more of their move than threat-only events (settle).",
+      "hypothesis": "Events in group 'Announced or physical supply removal >0.5 mbpd' keep more of their move than events in group 'Geopolitical threat, no supply removed' (settle).",
       "test": "two-sided permutation test of the difference in medians",
       "statistic": {
         "name": "median settle difference %",
@@ -3020,7 +3340,9 @@
       "sided": "two",
       "p_two_sided": 0.3874,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -3029,9 +3351,13 @@
         "p_value_fields": {
           "between_groups.p_value.settle": 0.3874
         },
-        "context_fields": {}
+        "context_fields": {},
+        "name_fields": {
+          "removal": "groups[key=supply_lost].name",
+          "threat": "groups[key=threat_only].name"
+        }
       },
-      "q_value_bh": 0.6917857142857143,
+      "q_value_bh": 0.7086585365853659,
       "p_holm": 1.0,
       "t_equivalent": 0.86,
       "survives_bh_5pct": false,
@@ -3057,7 +3383,9 @@
       "sided": "two",
       "p_two_sided": 0.7427,
       "pre_specified": false,
-      "status": "rejected",
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
       "retraction_reason": null,
       "note": "",
       "artifact": {
@@ -3070,7 +3398,8 @@
           "weak_day0_median_further_rise_pct": "priced_in.weak_day0_median_further_rise_pct",
           "strong_day0_n": "priced_in.strong_day0_n",
           "weak_day0_n": "priced_in.weak_day0_n"
-        }
+        },
+        "name_fields": {}
       },
       "q_value_bh": 0.9527312982523835,
       "p_holm": 1.0,

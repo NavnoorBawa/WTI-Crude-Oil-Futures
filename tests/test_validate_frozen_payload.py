@@ -215,6 +215,8 @@ class VolForecastValidationTest(unittest.TestCase):
         live = self.valid["vol_forecast"]["live"]
         self.assertEqual(live["model_version"], "har-iv/2")
         self.assertIsNotNone(live["interval_80"])
+        # With the challenger published, the freeze says so with a null challenger_error.
+        self.assertEqual((live["challenger"]["key"], live["challenger_error"]), ("har_iv_range", None))
 
     def test_vol_forecast_is_required(self):
         for value in (None, [], "missing"):
@@ -307,6 +309,34 @@ class VolForecastValidationTest(unittest.TestCase):
                       validate_payload(payload, warnings=notes))
         self.assertTrue(any("vol_forecast freshness was checked against frozen_at" in n for n in notes))
 
+    def test_a_missing_challenger_or_economic_block_may_say_why(self):
+        # Optional reasons: a non-empty string or null. Their absence is noted, never an error, and the
+        # payload's own text is not echoed into a CI workflow command.
+        def check(mutate):
+            payload = copy.deepcopy(self.valid)
+            mutate(payload["vol_forecast"])
+            notes = []
+            return validate_payload(payload, warnings=notes), notes
+
+        no_challenger = "vol_forecast.live has no challenger forecast, so this session cannot enter the promotion test"
+        errors, notes = check(lambda vol: vol["live"].update(challenger=None, challenger_error="::error::OVX stale"))
+        self.assertEqual(errors, [])
+        self.assertEqual(notes, [f"{no_challenger}; vol_forecast.live.challenger_error gives the reason"])
+        errors, notes = check(lambda vol: vol["live"].pop("challenger"))
+        self.assertEqual((errors, notes), ([], [f"{no_challenger}; the payload gives no reason"]))
+        self.assertEqual(check(lambda vol: vol["live"].update(challenger_error=None)), ([], []))
+        errors, notes = check(lambda vol: vol["economic"].update(unavailable_reason="ValueError"))
+        self.assertEqual((errors, notes), ([], ["vol_forecast.economic is unavailable; "
+                                                "vol_forecast.economic.unavailable_reason gives the reason"]))
+        self.assertEqual(check(lambda vol: vol.update(economic={"unavailable_reason": None})), ([], []))
+        self.assertEqual(check(lambda vol: vol.pop("economic")), ([], []))
+        for bad in ("", "  ", 1, {}, ["x"]):
+            with self.subTest(bad=bad):
+                self.assertIn("vol_forecast.live.challenger_error must be a non-empty string or null",
+                              self.live_with(challenger=None, challenger_error=bad))
+                self.assertIn("vol_forecast.economic.unavailable_reason must be a non-empty string or null",
+                              self.errors_with(lambda vol: vol["economic"].update(unavailable_reason=bad)))
+
     def test_validation_sample_size_must_be_a_positive_integer(self):
         for bad in (0, -1, 1.5, True, "927", None):
             with self.subTest(bad=bad):
@@ -319,24 +349,28 @@ class VolForecastValidationTest(unittest.TestCase):
                 self.assertIn("vol_forecast.validation.har_qlike must be finite",
                               self.errors_with(lambda vol: vol["validation"].update(har_qlike=bad)))
 
+    PAIR = {"model_version": "har-iv/2", "challenger_key": "har_iv_range", "n_excluded_other_version": 0,
+            "n_excluded_other_challenger": 0, "n_excluded_no_challenger": 0}
     LIVE_RECORD = {
         "started": "2026-10-20", "n_recorded": 4, "n_resolved": 1, "n_pending": 2, "n_skipped_roll": 0,
         "n_expired": 0, "n_late_commit": 1, "n_independent": 1, "next_result_due": "2026-10-27",
-        "champion": {"model_version": "har-iv/2", "qlike": 0.2, "interval_80_coverage_pct": 100.0,
+        "champion": {"model_version": "har-iv/2", "n": 1, "qlike": 0.2, "interval_80_coverage_pct": 100.0,
                      "direction_hit_pct": 100.0, "mean_forecast_pct": 47.6, "mean_realized_pct": 44.0},
-        "challenger": {"key": "har_iv_range", "qlike": 0.21},
+        "challenger": {"key": "har_iv_range", "qlike": 0.21, "n": 1, "champion_qlike": 0.2},
         "promotion": {"status": "accruing", "n_independent_paired": 1, "required": 52, "dm_stat": None,
-                      "p_value": None, "mean_qlike_difference": None},
-        "recent": [{"as_of": "2026-10-19", "issued_at": "2026-10-20T12:01:59Z", "target_start": "2026-10-21",
-                    "target_end": "2026-10-27", "forecast_pct": 47.6, "median_pct": 40.0, "lo80_pct": 23.3,
-                    "hi80_pct": 63.9, "challenger_pct": 48.4, "realized_pct": None, "status": "pending"},
-                   {"as_of": "2026-10-16", "issued_at": "2026-10-19T17:50:00Z", "target_start": "2026-10-20",
-                    "target_end": "2026-10-26", "forecast_pct": 46.1, "median_pct": 39.0, "lo80_pct": 22.0,
-                    "hi80_pct": 62.0, "challenger_pct": 47.0, "realized_pct": None, "status": "late_commit"}],
+                      "p_value": None, "mean_qlike_difference": None, **PAIR},
+        "recent": [{"as_of": "2026-10-19", "issued_at": "2026-10-20T12:01:59Z", "model_version": "har-iv/2",
+                    "target_start": "2026-10-21", "target_end": "2026-10-27", "forecast_pct": 47.6,
+                    "median_pct": 40.0, "lo80_pct": 23.3, "hi80_pct": 63.9, "challenger_pct": 48.4,
+                    "realized_pct": None, "status": "pending"},
+                   {"as_of": "2026-10-16", "issued_at": "2026-10-19T17:50:00Z", "model_version": "har-iv/2",
+                    "target_start": "2026-10-20", "target_end": "2026-10-26", "forecast_pct": 46.1,
+                    "median_pct": 39.0, "lo80_pct": 22.0, "hi80_pct": 62.0, "challenger_pct": 47.0,
+                    "realized_pct": None, "status": "late_commit"}],
         "promotion_rule": "...",
     }
     DECIDED = {"status": "keep", "n_independent_paired": 52, "required": 52, "dm_stat": 0.4078,
-               "p_value": 0.342564, "mean_qlike_difference": 0.006543}         # p = P(T > 0.4078), T ~ t(51)
+               "p_value": 0.342564, "mean_qlike_difference": 0.006543, **PAIR}  # p = P(T > 0.4078), T ~ t(51)
 
     def record_errors(self, **changes):
         record = {**copy.deepcopy(self.LIVE_RECORD), **changes}
@@ -350,6 +384,8 @@ class VolForecastValidationTest(unittest.TestCase):
         self.assertEqual(self.record_errors(), [])
         empty = {"n_recorded": 0, "n_resolved": 0, "n_pending": 0, "n_late_commit": 0, "n_independent": 0,
                  "next_result_due": None, "recent": [],
+                 "champion": {**self.LIVE_RECORD["champion"], "n": 0},
+                 "challenger": {**self.LIVE_RECORD["challenger"], "n": 0},
                  "promotion": {**self.LIVE_RECORD["promotion"], "n_independent_paired": 0}}
         self.assertEqual(self.record_errors(**empty), [])
 
@@ -358,13 +394,13 @@ class VolForecastValidationTest(unittest.TestCase):
         # whose promotion test has decided.
         self.assertEqual(LIVE_RECORD_STATUSES, vol_record.STATUSES)
 
-        def entry(week, status, realized=None, challenger=38.0):
+        def entry(week, status, realized=None, challenger=38.0, model_version="har-iv/2", key="har_iv_range"):
             base = date(2026, 11, 2) + timedelta(days=7 * week)       # Mondays; windows Tuesday to Monday
             return {
                 "as_of": (base - timedelta(days=3)).isoformat(), "issued_at": f"{base}T13:00:00Z",
-                "recorded_at": f"{base}T13:05:00Z", "sealed_at": f"{base}T13:15:00Z", "model_version": "har-iv/2",
-                "forecast_pct": 40.0, "challenger": {"key": "har_iv_range", "forecast_pct": challenger,
-                                                     "median_pct": None},
+                "recorded_at": f"{base}T13:05:00Z", "sealed_at": f"{base}T13:15:00Z", "model_version": model_version,
+                "forecast_pct": 40.0,
+                "challenger": {"key": key, "forecast_pct": challenger, "median_pct": None} if challenger else None,
                 "base_session": base.isoformat(), "target_start": (base + timedelta(days=1)).isoformat(),
                 "target_end": (base + timedelta(days=7)).isoformat(), "status": status, "realized_pct": realized,
                 "resolved_at": "2026-12-31T12:00:00Z",
@@ -377,17 +413,29 @@ class VolForecastValidationTest(unittest.TestCase):
                              for week, status in enumerate(vol_record.STATUSES)],
             "decided": [entry(week, "resolved", (30.0, 36.0)[week % 2], (33.0, 34.0)[week % 2])
                         for week in range(52)],
+            # Plain-HAR fallbacks (resolved and pending), another challenger and none: all left out.
+            "other pairs": [entry(0, "resolved", 35.0, None, model_version="har/2"),
+                            entry(1, "resolved", 35.0, key="combo"), entry(2, "resolved", 35.0, None),
+                            entry(3, "resolved", 35.0), entry(4, "pending", None, None, model_version="har/2")],
         }
-        due = {}
+        due, summaries = {}, {}
         for name, entries in records.items():
             with self.subTest(name):
                 summary = vol_record.summarize(vol_record.validate_record(
                     {"schema_version": 1, "started": "2026-10-20", "entries": entries}))
                 self.assertEqual(self.errors_with(lambda vol: vol.update(live_record=summary)), [])
-                due[name] = summary["next_result_due"]
-        self.assertEqual(summary["promotion"]["status"], "promote")
+                due[name], summaries[name] = summary["next_result_due"], summary
+        self.assertEqual(summaries["decided"]["promotion"]["status"], "promote")
         # The one pending entry (week 0) is the next result; with nothing pending there is none.
-        self.assertEqual(due, {"seeded": None, "every status": "2026-11-09", "decided": None})
+        self.assertEqual(due, {"seeded": None, "every status": "2026-11-09", "decided": None,
+                               "other pairs": "2026-12-07"})
+        other = summaries["other pairs"]
+        self.assertEqual({k: other["promotion"][k] for k in self.PAIR},
+                         dict(self.PAIR, n_excluded_other_version=1, n_excluded_other_challenger=1,
+                              n_excluded_no_challenger=1))
+        self.assertEqual((other["n_resolved"], other["champion"]["n"], other["challenger"]["n"]), (4, 3, 1))
+        self.assertEqual([row["model_version"] for row in other["recent"]],
+                         ["har/2", "har-iv/2", "har-iv/2", "har-iv/2", "har/2"])
 
     def test_next_result_due_is_required_and_a_date_or_null(self):
         required = "vol_forecast.live_record.next_result_due is required (an ISO date or null)"
@@ -432,6 +480,73 @@ class VolForecastValidationTest(unittest.TestCase):
         for good in LIVE_RECORD_STATUSES:
             with self.subTest(good=good):
                 self.assertEqual(self.record_errors(recent=[{**self.LIVE_RECORD["recent"][0], "status": good}]), [])
+
+    def test_promotion_names_the_pinned_pair_and_counts_what_it_leaves_out(self):
+        where = "vol_forecast.live_record.promotion"
+        missing = {k: v for k, v in self.DECIDED.items() if k not in self.PAIR}
+        self.assertIn(f"{where} is missing model_version, challenger_key, n_excluded_other_version, "
+                      "n_excluded_other_challenger, n_excluded_no_challenger", self.record_errors(promotion=missing))
+        for key in ("model_version", "challenger_key"):
+            for bad in ("", "  ", None, 2):
+                with self.subTest(key=key, bad=bad):
+                    self.assertIn(f"{where}.{key} must be a non-empty string", self.promotion_errors(**{key: bad}))
+        for key in ("n_excluded_other_version", "n_excluded_other_challenger", "n_excluded_no_challenger"):
+            for bad in (-1, 1.0, True, None, "0"):
+                with self.subTest(key=key, bad=bad):
+                    self.assertIn(f"{where}.{key} must be a non-negative integer", self.promotion_errors(**{key: bad}))
+
+    def test_champion_and_challenger_name_the_promotion_pair(self):
+        where = "vol_forecast.live_record"
+        champion, challenger = self.LIVE_RECORD["champion"], self.LIVE_RECORD["challenger"]
+        champion_shape = (f"{where}.champion must be an object with a non-empty model_version and a non-negative "
+                          "integer n")
+        challenger_shape = f"{where}.challenger must be an object with a non-empty key and a non-negative integer n"
+        cases = {
+            "no champion": (dict(champion=None), champion_shape),
+            "champion without n": (dict(champion={k: v for k, v in champion.items() if k != "n"}), champion_shape),
+            "champion n negative": (dict(champion={**champion, "n": -1}), champion_shape),
+            "champion without a version": (dict(champion={**champion, "model_version": None}), champion_shape),
+            "no challenger": (dict(challenger=[]), challenger_shape),
+            "challenger without a key": (dict(challenger={**challenger, "key": ""}), challenger_shape),
+            "challenger n boolean": (dict(challenger={**challenger, "n": True}), challenger_shape),
+        }
+        pair = (f"{where}: champion.model_version and challenger.key must be the promotion test's model_version "
+                "and challenger_key")
+        cases.update({
+            "champion of a fallback version": (dict(champion={**champion, "model_version": "har/2"}), pair),
+            "another challenger": (dict(challenger={**challenger, "key": "combo"}), pair),
+            "promotion of another pair": (dict(promotion={**self.LIVE_RECORD["promotion"], "challenger_key": "combo"}),
+                                          pair),
+        })
+        for name, (changes, expected) in cases.items():
+            with self.subTest(name):
+                self.assertIn(expected, self.record_errors(**changes))
+
+    def test_resolved_entries_add_up(self):
+        where = "vol_forecast.live_record"
+        resolved_sum = f"{where}: n_resolved must equal champion.n plus promotion.n_excluded_other_version"
+        champion_sum = (f"{where}: champion.n must equal challenger.n plus promotion.n_excluded_other_challenger and "
+                        "promotion.n_excluded_no_challenger")
+        promotion = self.LIVE_RECORD["promotion"]
+        # 4 resolved: 1 fallback, 1 with another challenger, 1 without one, 1 of the pinned pair.
+        balanced = dict(n_resolved=4, champion={**self.LIVE_RECORD["champion"], "n": 3},
+                        promotion={**promotion, "n_excluded_other_version": 1, "n_excluded_other_challenger": 1,
+                                   "n_excluded_no_challenger": 1})
+        self.assertEqual(self.record_errors(**balanced), [])
+        self.assertIn(resolved_sum, self.record_errors(**dict(balanced, n_resolved=3)))
+        self.assertIn(champion_sum, self.record_errors(**dict(balanced, challenger={
+            **self.LIVE_RECORD["challenger"], "n": 2})))
+        self.assertIn(resolved_sum, self.record_errors(promotion={**promotion, "n_excluded_other_version": 2}))
+        self.assertIn(champion_sum, self.record_errors(promotion={**promotion, "n_excluded_no_challenger": 1}))
+
+    def test_recent_rows_name_their_model_version(self):
+        message = "vol_forecast.live_record.recent model_version must be a non-empty string"
+        row = self.LIVE_RECORD["recent"][0]
+        for bad in (None, "", 2):
+            with self.subTest(bad=bad):
+                self.assertIn(message, self.record_errors(recent=[{**row, "model_version": bad}]))
+        self.assertIn(message, self.record_errors(recent=[{k: v for k, v in row.items() if k != "model_version"}]))
+        self.assertEqual(self.record_errors(recent=[{**row, "model_version": "har/2"}]), [])
 
     def test_promotion_verdicts_pass(self):
         self.assertEqual(self.promotion_errors(), [])

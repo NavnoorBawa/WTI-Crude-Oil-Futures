@@ -99,10 +99,12 @@ def mincer_zarnowitz(actual: npt.ArrayLike, forecast: npt.ArrayLike, maxlags: in
             "slope_se": float(res.bse[1]), "r2": float(res.rsquared), "p_unbiased": float(wald.pvalue)}
 
 
-def model_confidence_set(losses: pd.DataFrame, block: int = 10, size: float = 0.10,
-                         reps: int = 5000, seed: int = 20261020) -> dict[str, Any]:
+def model_confidence_set(losses: pd.DataFrame, *, block: int, size: float, reps: int,
+                         seed: int) -> dict[str, Any]:
     """Hansen-Lunde-Nason Model Confidence Set: range statistic, arch's stationary bootstrap with
-    mean block length `block`. Returns MCS p-values and the set retained at confidence 1 - size."""
+    mean block length `block`, `reps` draws seeded with `seed`. Returns MCS p-values and the set
+    retained at confidence 1 - size. Every setting is the caller's (the lab records its own in the
+    artifact), so none has a default here."""
     from arch.bootstrap import MCS
 
     mcs = MCS(losses, size=size, reps=reps, block_size=block, method="R", seed=seed)

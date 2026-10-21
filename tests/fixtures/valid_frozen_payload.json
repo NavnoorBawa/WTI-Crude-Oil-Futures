@@ -424,6 +424,7 @@
     "key": "har_iv_range",
     "label": "HAR-IV-range"
    },
+   "challenger_error": null,
    "coefficients": [
     -4.875887,
     0.038982,

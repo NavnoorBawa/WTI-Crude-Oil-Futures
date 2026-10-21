@@ -37,6 +37,8 @@ class LedgerIsCurrentTest(unittest.TestCase):
                     self.assertEqual(rl.resolve(doc, path), value)
                 for label, path in row["artifact"]["context_fields"].items():
                     self.assertEqual(rl.resolve(doc, path), row["context"][label])
+                for path in row["artifact"]["name_fields"].values():
+                    self.assertIn(rl.resolve(doc, path), row["hypothesis"])
                 if len(row["artifact"]["p_value_fields"]) == 1 and row["p_value"] is not None:
                     stored = next(iter(row["artifact"]["p_value_fields"].values()))
                     if isinstance(stored, float) and 0.0 <= stored <= 1.0:
@@ -66,13 +68,31 @@ class MultiplicityTest(unittest.TestCase):
         np.testing.assert_allclose(rl.holm(p), multipletests(p, method="holm")[1])
 
     def test_committed_adjustments_are_consistent(self):
-        rows = [r for r in _committed()["rows"] if r["p_two_sided"] is not None]
+        ledger = _committed()
+        rows = [r for r in ledger["rows"] if r["p_two_sided"] is not None and not r["selected_after_search"]]
+        self.assertEqual(len(rows), ledger["summary"]["rows_in_multiplicity_family"])
         p2 = np.array([r["p_two_sided"] for r in rows])
         np.testing.assert_allclose([r["q_value_bh"] for r in rows], multipletests(p2, method="fdr_bh")[1])
         np.testing.assert_allclose([r["p_holm"] for r in rows], multipletests(p2, method="holm")[1])
         for r in rows:
             self.assertEqual(r["survives_bh_5pct"], r["q_value_bh"] < rl.ALPHA)
             self.assertEqual(r["clears_hlz_t3"], r["t_equivalent"] > rl.HLZ_T)
+
+    def test_a_model_selected_after_a_search_is_outside_the_family(self):
+        # The challenger is the best of the field on the same sample: its pairwise p ignores the search.
+        ledger = _committed()
+        selected = [r for r in ledger["rows"] if r["selected_after_search"]]
+        self.assertEqual([r["id"] for r in selected], ["vol_challenger_qlike"])
+        self.assertEqual(ledger["summary"]["selected_after_search"], ["vol_challenger_qlike"])
+        s = ledger["summary"]
+        for row in selected:
+            for key in ("q_value_bh", "p_holm", "survives_bh_5pct", "survives_holm_5pct", "clears_hlz_t3"):
+                self.assertIsNone(row[key], key)
+            self.assertIn("vol_spa_beats_record", row["note"])
+            for key in ("supported_surviving_bh_5pct", "supported_surviving_holm_5pct", "supported_clearing_hlz_t3",
+                        "supported_failing_bh_5pct"):
+                self.assertNotIn(row["id"], s[key], key)
+        self.assertEqual(s["rows_in_multiplicity_family"], s["rows_with_p_value"] - len(selected))
 
     def test_a_wrong_way_result_is_never_a_discovery(self):
         # Two-sided p = 0.001 but the estimate points against the hypothesis.
@@ -83,9 +103,9 @@ class MultiplicityTest(unittest.TestCase):
     def test_status_rules(self):
         row = rl.Row(id="x", family="f", hypothesis="h", test="t", source="s", statistic=("s", "a"), p=None, sided="two")
         self.assertEqual(rl._status(row, 0.01, True), "supported")
-        self.assertEqual(rl._status(row, 0.01, False), "rejected")
+        self.assertEqual(rl._status(row, 0.01, False), "not_supported")
         self.assertEqual(rl._status(row, 0.07, None), "inconclusive")
-        self.assertEqual(rl._status(row, 0.2, None), "rejected")
+        self.assertEqual(rl._status(row, 0.2, None), "not_supported")
         self.assertEqual(rl._status(row, None, None), "inconclusive")
         retracted = rl.Row(id="x", family="f", hypothesis="h", test="t", source="s", statistic=("s", "a"),
                            p=None, sided="two", retracted="leak")
@@ -100,7 +120,8 @@ class MultiplicityTest(unittest.TestCase):
             self.assertEqual(by_id[rid]["status"], "supported")
             self.assertTrue(by_id[rid]["survives_bh_5pct"])
         self.assertEqual(set(s["supported"]),
-                         set(s["supported_surviving_bh_5pct"]) | set(s["supported_failing_bh_5pct"]))
+                         set(s["supported_surviving_bh_5pct"]) | set(s["supported_failing_bh_5pct"])
+                         | set(s["supported_selected_after_search"]))
 
     def test_family_summary_adds_up_to_the_overall_one(self):
         ledger = _committed()
@@ -149,7 +170,7 @@ class RowDefinitionTest(unittest.TestCase):
                 self.assertEqual(sorted(fields.values()),
                                  sorted(run["binomial_p_value_vs_base_rate"] for run in block["runs"]))
         self.assertEqual(self.rows["leak_nn_shuffled_cl_unpurged"]["status"], "supported")
-        self.assertEqual(self.rows["leak_nn_shuffled_cl_purged"]["status"], "rejected")
+        self.assertEqual(self.rows["leak_nn_shuffled_cl_purged"]["status"], "not_supported")
         # Synthetic random-walk runs are independent with a 50% no-skill rate: pooled.
         for rid in ("leak_forest_noise_unpurged", "leak_forest_noise_purged"):
             (path,) = self.rows[rid]["artifact"]["p_value_fields"]
@@ -171,6 +192,47 @@ class RowDefinitionTest(unittest.TestCase):
             self.assertIn(f"{row['context'][label]}%", row["retraction_reason"])
         # The reason holds only while HAR beats the rule with nothing to forecast.
         self.assertGreater(row["context"]["noise_floor_har_pct"], row["context"]["noise_floor_mean_reversion_pct"])
+
+    def test_vol_point_premium_is_tested_against_the_zero_premium_null(self):
+        # With no variance premium a noisy, right-skewed realized vol still falls below implied vol in most
+        # periods, so the 50% sign test is retracted and the share is tested against the zero-premium share.
+        old, new = self.rows["vrp_exists"], self.rows["vrp_exists_vs_zero_premium"]
+        self.assertEqual(old["status"], "retracted")
+        self.assertIn(f"{old['context']['zero_premium_share_pct']}%", old["retraction_reason"])
+        self.assertGreater(old["context"]["zero_premium_share_pct"], 50.0)
+        (path,) = new["artifact"]["p_value_fields"]
+        self.assertEqual(path, "economic.variance_risk_premium.zero_premium_null.p_value_one_sided")
+        self.assertEqual(new["context"]["zero_premium_share_pct"], old["context"]["zero_premium_share_pct"])
+        self.assertIn("zero_premium_mean_premium_vol_pts", self.rows["vrp_short_vol_swap_sharpe"]["context"])
+
+    def test_power_is_attached_where_the_artifact_holds_it(self):
+        doc = rl.load_artifact("carry_signal_test.json")["power_post_2007"]
+        for rid, label in (("carry_spread_post2007", "power_vs_pre_2007_spread"),
+                           ("carry_rank_post2007", "power_vs_pre_2007_rank_corr")):
+            row = self.rows[rid]
+            self.assertEqual(row["context"][label], doc[label])
+            self.assertEqual(row["underpowered"], doc[label] < doc["target_power"], rid)
+        self.assertTrue(self.rows["carry_spread_post2007"]["underpowered"])
+        with_power = {"carry_spread_post2007", "carry_rank_post2007"}
+        for rid, row in self.rows.items():
+            if rid not in with_power:
+                self.assertIsNone(row["underpowered"], rid)
+        self.assertEqual(_committed()["summary"]["underpowered"],
+                         [rid for rid in self.rows if self.rows[rid]["underpowered"]])
+
+    def test_supply_groups_are_named_as_the_study_names_them(self):
+        study = rl.load_artifact("supply_shock_study.json")
+        names = {g["key"]: g["name"] for g in study["groups"]}
+        self.assertEqual(study["between_groups"]["groups"], ["supply_lost", "threat_only"])
+        for row in self.rows.values():
+            if row["family"] != "supply shock":
+                continue
+            with self.subTest(row=row["id"]):
+                self.assertFalse(any(f"'{key}'" in row["hypothesis"] for key in names), row["hypothesis"])
+        self.assertIn(f"'{names['supply_lost']}'", self.rows["shock_supply_lost_peak"]["hypothesis"])
+        for rid in ("shock_removal_vs_threat_peak", "shock_removal_vs_threat_settle"):
+            self.assertIn(names["supply_lost"], self.rows[rid]["hypothesis"])
+            self.assertIn(names["threat_only"], self.rows[rid]["hypothesis"])
 
     def test_two_configuration_rows_compare_the_configurations(self):
         for rid, other in (("dir_macro_uplift", "results.no_macro_1w.direction_accuracy"),

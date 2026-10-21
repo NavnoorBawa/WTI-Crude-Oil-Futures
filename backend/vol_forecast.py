@@ -13,8 +13,8 @@ heterogeneous-autoregressive feature set augmented with implied volatility (HAR-
 
 Evaluation design (everything below is computed by validate(); no figure is hand-maintained):
   - Sample: every day since OVX's inception (May 2007), a FIXED anchor. The headline therefore only
-    drifts as new out-of-sample weeks accrue — it does not shift because a rolling window silently
-    drops old years (the previous 10-year window moved the base rate by ~3pp in three weeks).
+    drifts as new out-of-sample weeks accrue; a rolling window would also move it, base rate
+    included, each time an old year dropped out, with nothing changed in the model.
   - Vol-LEVEL losses lead: QLIKE, the loss that ranks volatility forecasts consistently when the
     realized-vol proxy is noisy (Patton 2011), against naive persistence and against a regression on
     OVX alone (the options market's own forecast), each with a Diebold-Mariano statistic; R^2 and
@@ -31,8 +31,9 @@ Evaluation design (everything below is computed by validate(); no figure is hand
     of returns), so an i.i.d. z-score is reported alongside a Newey-West (HAC) one.
   - Economic value: a volatility-targeting overlay (does the forecast size a long
     WTI position better than trailing vol or buy-and-hold?) and the oil variance risk premium (does
-    OVX exceed subsequent realized vol, and does the forecast time it?). Both are out-of-sample and
-    run on same-contract returns (see the data caveat), so they end where EIA's curve ends.
+    OVX exceed subsequent realized vol by more than it would with no premium, and does the forecast
+    time it?). Both are out-of-sample and run on same-contract returns (see the data caveat), so
+    they end where EIA's curve ends.
 
 Scope: this is an implementation of a KNOWN effect, not novel alpha. It is a validated
 volatility/regime INDICATOR, not a directional return signal, and the economic tests below do not
@@ -70,6 +71,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from datetime import datetime, timezone
 
 try:
@@ -89,6 +91,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import binom, kurtosis, norm, skew, ttest_ind
 
+logger = logging.getLogger(__name__)
+
 H = 5                      # forecast horizon in trading days (1 week)
 MIN_TRAIN = 250            # minimum expanding-window rows before the first OOS forecast
 STEP = 5                   # walk-forward stride (non-overlapping weekly test points)
@@ -103,6 +107,7 @@ LEVERAGE_CAP = 2.0
 COST_PER_TURN = 0.0005     # 5 bps per unit of notional traded
 # Variance risk premium: OVX is 30-calendar-day implied vol, ~20 trading days (4 weekly steps).
 VRP_STEPS = 4
+VRP_NULL_REPS = 10000      # bootstrap draws for the zero-premium test of the vol-point share
 # Forecast intervals: adaptive conformal inference on the out-of-sample log errors (Gibbs-Candes 2021).
 INTERVAL_ALPHA = 0.20      # 80% intervals
 RECENT_OOS_WEEKS = 156     # out-of-sample weeks shipped to the dashboard (3 years)
@@ -110,7 +115,7 @@ RECENT_CLOSES = 40         # finished-session closes shipped for the live track 
 # v1 (2026-06): log-OLS on RV5, RV22, RV66 and the same day's OVX; published the median forecast.
 # v2: OVX lagged one session (entry-time clean); losses and risk use the variance-consistent mean.
 MODEL_VERSION = "har-iv/2"
-NOISE_FLOOR_SIMS = 5
+NOISE_FLOOR_SIMS = 10      # the research lab reports this same floor (vol_lab.noise_floor calls noise_floor)
 NOISE_FLOOR_SEED = 20261020
 YF_ATTEMPTS = 3
 # Entry-time-clean implied vol: OVX settles at 16:15 ET, ~1h45m after CL's 14:30 ET settlement that
@@ -163,16 +168,17 @@ def _load_data_full(period: str = HISTORY_PERIOD, now: datetime | None = None):
     metadata about the OVX print: (returns, dates, ovx|None, meta).
 
     OVX (CBOE Crude Oil Volatility Index) comes from Yahoo; if Yahoo fails it falls back to FRED's
-    OVXCLS (the same index, published a day later). meta = {"ovx_source", "ovx_as_of"} where
-    ovx_as_of is the date of the last actual OVX print on or before the last return (the aligned
-    series carries a print forward at most OVX_FFILL_LIMIT sessions).
+    OVXCLS (the same index, published a day later). meta = {"ovx_source", "ovx_as_of", "ovx_error",
+    "ohlc", "ohlc_error", "recent_closes"} where ovx_as_of is the date of the last actual OVX print on
+    or before the last return (the aligned series carries a print forward at most OVX_FFILL_LIMIT
+    sessions), and each *_error is null or the failure that left a source out (also logged).
     """
     df = _yf_history("CL=F", period)
     # Non-positive closes are dropped: the 2020-04-20 negative settlement artifact.
     close = _completed(df["Close"], now)
     logret = np.log(close).diff().dropna()
     tail = close.iloc[-RECENT_CLOSES:]
-    meta: dict = {"ovx_source": None, "ovx_as_of": None, "ohlc": None,
+    meta: dict = {"ovx_source": None, "ovx_as_of": None, "ovx_error": None, "ohlc": None, "ohlc_error": None,
                   # The live track record (backend/vol_record.py) scores forecasts on these closes.
                   "recent_closes": {"date": [str(d.date()) for d in tail.index],
                                     "close": [round(float(v), 4) for v in tail.to_numpy()]}}
@@ -182,13 +188,16 @@ def _load_data_full(period: str = HISTORY_PERIOD, now: datetime | None = None):
         except ImportError:  # pragma: no cover - direct invocation
             from market_data import clean_ohlc
         meta["ohlc"] = clean_ohlc(df, now)[0].loc[logret.index, ["Open", "High", "Low", "Close"]]
-    except Exception:  # noqa: BLE001 - only the challenger's range features need the bar
-        meta["ohlc"] = None
+    except Exception as exc:  # noqa: BLE001 - only the challenger's range features need the bar
+        meta["ohlc_error"] = _failure(exc)
+        logger.warning("CL=F OHLC bars unusable, so no challenger forecast: %s", meta["ohlc_error"])
     raw = None
     try:
         raw = _completed(_yf_history("^OVX", period)["Close"], now)
         meta["ovx_source"] = "yahoo ^OVX"
-    except Exception:  # noqa: BLE001 - FRED is the fallback, then pure HAR
+    except Exception as yahoo_exc:  # noqa: BLE001 - FRED is the fallback, then pure HAR
+        yahoo_error = _failure(yahoo_exc)
+        logger.warning("Yahoo ^OVX unavailable, trying FRED OVXCLS: %s", yahoo_error)
         try:
             from .market_data import _fetch_fred_ovx
         except ImportError:  # pragma: no cover - direct invocation
@@ -196,8 +205,11 @@ def _load_data_full(period: str = HISTORY_PERIOD, now: datetime | None = None):
         try:
             raw = _completed(_fetch_fred_ovx(), now)
             meta["ovx_source"] = "FRED OVXCLS"
-        except Exception:  # noqa: BLE001 - OVX is optional; pure HAR is the documented fallback
+            meta["ovx_error"] = f"Yahoo ^OVX: {yahoo_error}"
+        except Exception as fred_exc:  # noqa: BLE001 - OVX is optional; pure HAR is the documented fallback
             raw = None
+            meta["ovx_error"] = f"Yahoo ^OVX: {yahoo_error}; FRED OVXCLS: {_failure(fred_exc)}"
+            logger.warning("no OVX source, so the forecast falls back to pure HAR: %s", meta["ovx_error"])
     ovx = None
     if raw is not None:
         # Aligned as published: element t is the session-t close, which settles after CL's session-t
@@ -216,7 +228,11 @@ def _load_data(period: str = HISTORY_PERIOD, now: datetime | None = None):
     return r, dates, ovx
 
 
-load_market_data = _load_data
+def _failure(exc: BaseException) -> str:
+    """An exception as recorded in the payload and the log: its type and message, and its cause's."""
+    text = f"{type(exc).__name__}: {exc}"
+    cause = exc.__cause__
+    return f"{text} (from {type(cause).__name__}: {cause})" if cause is not None else text
 
 
 def _rvol(daily_logrets: np.ndarray) -> float:
@@ -334,38 +350,44 @@ def _walk_forward(X: np.ndarray, y: np.ndarray, tdate: pd.DatetimeIndex, has_ovx
 
     Returns one record per OOS week with the HAR(-IV) forecast, the nested pure-HAR forecast fitted
     on the SAME rows (when OVX is in use), the model plus a leverage term (downside semivolatility,
-    when `leverage` is given — the candidate that was tested and rejected), and the persistence /
-    mean-reversion references.
+    when `leverage` is given: the candidate that was tested and left out), and the persistence /
+    mean-reversion references. Every log model gives its median forecast (`pred*`, for the direction
+    call) and its variance-consistent forecast (`pred*_mean`, median * sqrt(Duan smearing factor) on
+    its own training residuals, for every level loss).
     """
     X_lev = np.column_stack([X, leverage]) if leverage is not None else None
     recs = []
+
+    def fit(X_train: np.ndarray, y_train: np.ndarray, x: np.ndarray) -> tuple[float, float]:
+        """(median, variance-consistent) forecast of a log-HAR fitted on the training rows."""
+        beta = _fit_log_har(X_train, y_train)
+        median = _predict_log_har(beta, x)
+        return median, median * float(np.sqrt(_smearing(X_train, y_train, beta)))
+
     for end in range(MIN_TRAIN + offset, len(X), STEP):
         train_end = end - (H - 1)               # PURGE: drop rows whose target overlaps the test point
         xt = X[end]
-        beta = _fit_log_har(X[:train_end], y[:train_end])
-        pred = _predict_log_har(beta, xt)
-        pred_mean = pred * float(np.sqrt(_smearing(X[:train_end], y[:train_end], beta)))
+        pred, pred_mean = fit(X[:train_end], y[:train_end], xt)
         if has_ovx:
-            beta_har = _fit_log_har(X[:train_end, :3], y[:train_end])
-            pred_har = _predict_log_har(beta_har, xt[:3])
+            pred_har, pred_har_mean = fit(X[:train_end, :3], y[:train_end], xt[:3])
             # Implied vol alone: the options market's own forecast, the benchmark HAR-IV must beat.
-            beta_ovx = _fit_log_har(X[:train_end, 3:4], y[:train_end])
-            pred_ovx = _predict_log_har(beta_ovx, xt[3:4])
-            pred_ovx_mean = pred_ovx * float(np.sqrt(_smearing(X[:train_end, 3:4], y[:train_end], beta_ovx)))
+            pred_ovx, pred_ovx_mean = fit(X[:train_end, 3:4], y[:train_end], xt[3:4])
         else:
-            pred_har = pred
+            pred_har, pred_har_mean = pred, pred_mean
             pred_ovx = pred_ovx_mean = float("nan")
         if X_lev is not None:
-            pred_lev = _predict_log_har(_fit_log_har(X_lev[:train_end], y[:train_end]), X_lev[end])
+            pred_lev, pred_lev_mean = fit(X_lev[:train_end], y[:train_end], X_lev[end])
         else:
-            pred_lev = pred
+            pred_lev, pred_lev_mean = pred, pred_mean
         recs.append({
             "date": tdate[end],
             "actual": float(y[end]),
             "pred": float(pred),
             "pred_mean": float(pred_mean),
             "pred_har": float(pred_har),
+            "pred_har_mean": float(pred_har_mean),
             "pred_lev": float(pred_lev),
+            "pred_lev_mean": float(pred_lev_mean),
             "pred_ovx": float(pred_ovx),
             "pred_ovx_mean": float(pred_ovx_mean),
             "current": float(xt[0]),            # persistence baseline: next vol = current 5d RV
@@ -512,6 +534,53 @@ def _sharpe_difference(a: np.ndarray, b: np.ndarray, periods_per_year: float, re
             "ci95": [round(float(np.quantile(draws, 0.025)), 2), round(float(np.quantile(draws, 0.975)), 2)]}
 
 
+def _zero_premium_null(implied: np.ndarray, realized: np.ndarray, reps: int = VRP_NULL_REPS) -> dict:
+    """The vol-point comparison as it would look with NO variance risk premium, and a test of the
+    observed share of periods with implied above realized vol against it.
+
+    OVX is a variance-swap-style rate, so a zero premium means IV^2 = E[RV^2] in every period. A
+    20-session realized vol is a noisy, right-skewed estimate and RV is concave in RV^2, so even then
+    IV exceeds RV in more than half the periods and E[IV - RV] > 0 (Jensen's inequality). The null
+    keeps the observed shape of the per-period ratio RV^2 / IV^2 and rescales it to mean 1: the share
+    of rescaled ratios below 1 is the share of periods with IV > RV expected with no premium, and
+    IV * (1 - sqrt(rescaled ratio)) is the vol-point gap expected with no premium. Period-to-period
+    variation in the premium also widens the observed ratios, which raises the null share, so the
+    test errs on the conservative side.
+
+    The test is a stationary block bootstrap that imposes the null: it resamples the rescaled ratios
+    and in every draw computes the share below 1 minus the share below the draw's own mean (the null
+    share re-estimated, as it is on the data), so the uncertainty in the rescaling is included.
+    One-sided p = (1 + #{draw >= observed}) / (1 + reps).
+    """
+    from arch.bootstrap import StationaryBootstrap
+
+    ratio = (np.asarray(realized, float) / np.asarray(implied, float)) ** 2
+
+    def excess_periods(x: np.ndarray) -> int:
+        """Periods with IV > RV beyond those expected with no premium (x rescaled to its own mean)."""
+        return int(np.sum(x < 1.0)) - int(np.sum(x < np.mean(x)))
+
+    scale = float(np.mean(ratio))
+    null_ratio = ratio / scale
+    observed = excess_periods(ratio)
+    block = max(2, int(round(ratio.size ** (1 / 3))))
+    boot = StationaryBootstrap(block, null_ratio, seed=NOISE_FLOOR_SEED)
+    draws = np.array([excess_periods(x) for (x,), _ in boot.bootstrap(reps)])
+    p = (1.0 + float(np.sum(draws >= observed))) / (1.0 + reps)
+    return {
+        "share_positive_pct": _pct(np.mean(null_ratio < 1.0)),
+        "mean_premium_vol_pts": round(float(np.mean(implied * (1.0 - np.sqrt(null_ratio)))) * 100.0, 1),
+        "mean_ratio_realized_to_implied_variance": round(scale, 4),
+        "excess_share_pct": _pct(observed / ratio.size),
+        "p_value_one_sided": round(p, 4),
+        "bootstrap": {"reps": int(reps), "mean_block_periods": block, "seed": NOISE_FLOOR_SEED},
+        "method": ("zero premium: the per-period ratios RV^2 / IV^2 rescaled to mean 1 (their observed shape kept); "
+                   "share_positive_pct and mean_premium_vol_pts are the share of periods with IV > RV and the mean "
+                   "IV - RV expected with no premium. Test of the observed share against it: stationary block "
+                   "bootstrap of the rescaled ratios, re-estimating the null share in every draw; one-sided."),
+    }
+
+
 def _economic_tests(d: pd.DataFrame, r: np.ndarray, dates: pd.DatetimeIndex,
                     curve: pd.DataFrame | None = None) -> dict:
     """Out-of-sample economic value: a vol-targeting overlay and the variance risk premium.
@@ -525,12 +594,16 @@ def _economic_tests(d: pd.DataFrame, r: np.ndarray, dates: pd.DatetimeIndex,
     try:
         spliced = np.asarray(r, dtype=float)
         r, rebuilt, last = same_contract_returns(spliced, dates, curve)
-    except Exception:  # noqa: BLE001 - no roll-free returns, no P&L figures (never biased ones)
+    except Exception as exc:  # noqa: BLE001 - no roll-free returns, no P&L figures (never biased ones)
+        out["unavailable_reason"] = f"no same-contract returns ({_failure(exc)})"
+        logger.warning("economic tests skipped: %s", out["unavailable_reason"])
         return out
     pos = dates.get_indexer(pd.DatetimeIndex(d["date"]))
     ok = (pos >= 0) & (pos + H <= last)
     dd, pos = d.loc[ok].reset_index(drop=True), pos[ok]
     if len(dd) < 20:
+        out["unavailable_reason"] = f"{len(dd)} out-of-sample weeks end inside EIA's curve; 20 are needed"
+        logger.warning("economic tests skipped: %s", out["unavailable_reason"])
         return out
     # The gaps this window's rebuilt roll days removed (log points; mostly contango, so positive).
     gaps = (spliced - r)[pos[0]:last + 1]
@@ -606,6 +679,16 @@ def _economic_tests(d: pd.DataFrame, r: np.ndarray, dates: pd.DatetimeIndex,
                 "n_periods": int(len(idx)),
                 "mean_premium_vol_pts": round(float(np.mean(premium_pts)), 1),
                 "share_positive_pct": _pct(np.mean(premium_pts > 0)),
+                # What the two vol-point figures above would be with no premium at all, and the test of
+                # the observed share against that share (not against 50%).
+                "zero_premium_null": _zero_premium_null(implied, realized),
+                "vol_points_caveat": ("With zero variance premium (IV^2 = E[RV^2]) a 20-session realized vol still "
+                                      "falls below implied vol in most periods and E[IV - RV] > 0 (Jensen's "
+                                      "inequality), so comparing the share of positive periods with 50%, or the mean "
+                                      "premium in vol points with 0, overstates the evidence for a premium; "
+                                      "zero_premium_null gives both as expected with no premium. The short vol-swap "
+                                      "proxy's mean has the same bias, so its Sharpe test against 0 overstates the "
+                                      "evidence too."),
                 # Linear (vol-swap) vs convex (variance-swap) short-vol proxies: the gap between the
                 # two Sharpe ratios is the convexity cost, (IV - RV)^2 / (2 IV) per period, paid every
                 # period and largest in the left tail. The worst periods and both Sharpes without the
@@ -676,8 +759,9 @@ def _summarize(d: pd.DataFrame, has_ovx: bool, has_leverage: bool = False) -> di
         "mean_reversion_dir_acc_pct": _pct(d["hit_mr"].mean()),
         "har_vs_mean_reversion_z_hac": round(float(z_vs_mr), 2),
         "har_vs_mean_reversion_p_value": float(norm.sf(z_vs_mr)),
-        # Level metrics use the variance-consistent forecast (median * sqrt(smearing)); the median forecast's
-        # QLIKE is kept alongside so the effect of the correction is visible.
+        # Level metrics of every model use its variance-consistent forecast (median * sqrt(smearing));
+        # har_qlike_median_forecast, the model of record's median forecast scored the same way, is the one
+        # labelled extra, kept so the effect of the correction is visible.
         "har_level_r2": round(_r2(d["actual"].to_numpy(), d["pred_mean"].to_numpy()), 3),
         "persistence_level_r2": round(_r2(d["actual"].to_numpy(), d["current"].to_numpy()), 3),
         "har_level_mae": round(float(np.mean(np.abs(d["actual"] - d["pred_mean"]))), 4),
@@ -693,8 +777,8 @@ def _summarize(d: pd.DataFrame, has_ovx: bool, has_leverage: bool = False) -> di
         z_ovx, _ = _hac_z(hits - d["hit_har"].to_numpy(dtype=float))
         overall.update({
             "har_no_ovx_dir_acc_pct": _pct(d["hit_har"].mean()),
-            "har_no_ovx_level_r2": round(_r2(d["actual"].to_numpy(), d["pred_har"].to_numpy()), 3),
-            "har_no_ovx_qlike": round(_qlike(d["actual"], d["pred_har"]), 3),
+            "har_no_ovx_level_r2": round(_r2(d["actual"].to_numpy(), d["pred_har_mean"].to_numpy()), 3),
+            "har_no_ovx_qlike": round(_qlike(d["actual"], d["pred_har_mean"]), 3),
             "ovx_gain_dir_z_hac": round(float(z_ovx), 2),
         })
         # Does HAR-IV beat implied vol ALONE? Direction (paired HAC z) and QLIKE (Diebold-Mariano).
@@ -713,8 +797,8 @@ def _summarize(d: pd.DataFrame, has_ovx: bool, has_leverage: bool = False) -> di
         z_lev, _ = _hac_z(d["hit_lev"].to_numpy(dtype=float) - hits)
         overall.update({
             "leverage_variant_dir_acc_pct": _pct(d["hit_lev"].mean()),
-            "leverage_variant_level_r2": round(_r2(d["actual"].to_numpy(), d["pred_lev"].to_numpy()), 3),
-            "leverage_variant_qlike": round(_qlike(d["actual"], d["pred_lev"]), 3),
+            "leverage_variant_level_r2": round(_r2(d["actual"].to_numpy(), d["pred_lev_mean"].to_numpy()), 3),
+            "leverage_variant_qlike": round(_qlike(d["actual"], d["pred_lev_mean"]), 3),
             "leverage_gain_dir_z_hac": round(float(z_lev), 2),
         })
 
@@ -726,7 +810,7 @@ def _summarize(d: pd.DataFrame, has_ovx: bool, has_leverage: bool = False) -> di
             "har_dir_acc_pct": _pct(g["hit"].mean()),
             "majority_class_pct": _pct(max(g_up, 1.0 - g_up)),
             "mean_reversion_dir_acc_pct": _pct(g["hit_mr"].mean()),
-            "level_r2": round(_r2(g["actual"].to_numpy(), g["pred"].to_numpy()), 3),
+            "level_r2": round(_r2(g["actual"].to_numpy(), g["pred_mean"].to_numpy()), 3),
         }
     ex20 = d[d["year"] != 2020]
     overall["ex_2020_har_dir_acc_pct"] = _pct(ex20["hit"].mean()) if len(ex20) else None
@@ -750,7 +834,8 @@ def _summarize(d: pd.DataFrame, has_ovx: bool, has_leverage: bool = False) -> di
 def noise_floor(r: np.ndarray, dates: pd.DatetimeIndex, sims: int = NOISE_FLOOR_SIMS) -> dict:
     """Direction accuracy when nothing is forecastable: i.i.d. Student-t(5) returns with the sample's
     volatility through the identical feature builder and walk-forward (pure HAR, no OVX). The
-    mean-reversion rule is scored on the same rows: HAR beats it here too, with nothing to forecast."""
+    mean-reversion rule is scored on the same rows: HAR beats it here too, with nothing to forecast.
+    The one implementation of the floor: the research lab reports it too (vol_lab.noise_floor)."""
     sd = float(np.std(r))
     accs, accs_mr = [], []
     for seed in range(sims):
@@ -880,6 +965,8 @@ def live_forecast(period: str = HISTORY_PERIOD, data: tuple | None = None, meta:
                    "ovx_session": str(dates[-1 - OVX_LAG_SESSIONS].date()) if use_ovx else None,
                    "ovx_last_print": (meta or {}).get("ovx_as_of"),
                    "ovx_source": (meta or {}).get("ovx_source")},
+        # Null, or why an OVX source failed (Yahoo, then FRED): with both down the model is pure HAR.
+        "ovx_error": (meta or {}).get("ovx_error"),
         "coefficients": [round(float(b), 6) for b in beta],
         "smearing_factor": round(smear, 4),
         "residual_sd": round(sd, 4),
@@ -912,13 +999,35 @@ def _recent_series(frame: pd.DataFrame, weeks: int = RECENT_OOS_WEEKS) -> dict:
     }
 
 
-def _lab_challenger() -> str | None:
-    """The challenger chosen by the research lab (data/vol_lab.json), if the artifact is present."""
+def _lab_challenger() -> tuple[str | None, str | None]:
+    """(the challenger chosen by the research lab in data/vol_lab.json, None) or (None, why not)."""
     try:
         lab = json.loads(data_json_path("vol_lab.json").read_text(encoding="utf-8"))
-        return lab["config"]["challenger"]
-    except (OSError, KeyError, TypeError, ValueError):
-        return None
+        return str(lab["config"]["challenger"]), None
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        return None, f"no challenger in data/vol_lab.json ({_failure(exc)})"
+
+
+def _challenger_forecast(r: np.ndarray, dates: pd.DatetimeIndex, ovx: np.ndarray | None,
+                         meta: dict) -> tuple[dict | None, str | None]:
+    """(the live challenger forecast, None) or (None, why there is none). A failure is logged and
+    never touches the model of record, which does not depend on the challenger."""
+    challenger, reason = _lab_challenger()
+    if challenger is not None and _pick_ovx(ovx) is None:
+        reason = "too little OVX history for the challenger, which uses implied vol"
+    elif challenger is not None and meta.get("ohlc") is None:
+        reason = f"no usable OHLC bars for the challenger's range features ({meta.get('ohlc_error')})"
+    elif challenger is not None:
+        try:
+            try:
+                from . import vol_lab
+            except ImportError:  # pragma: no cover - direct invocation
+                import vol_lab
+            return vol_lab.live_model_forecast(challenger, r, dates, ovx, meta["ohlc"]), None
+        except Exception as exc:  # noqa: BLE001 - the challenger is optional; the model of record never depends on it
+            reason = f"{challenger} forecast failed ({_failure(exc)})"
+    logger.warning("no live challenger forecast: %s", reason)
+    return None, reason
 
 
 def forecast_bundle(period: str = HISTORY_PERIOD) -> dict:
@@ -933,16 +1042,8 @@ def forecast_bundle(period: str = HISTORY_PERIOD) -> dict:
         validation["interval_80_coverage_pct"] = interval["coverage_pct"]
         validation["interval_80_n"] = interval["n"]
     live = live_forecast(period, data=data, meta=meta, frame=frame)
-    challenger = _lab_challenger()
-    if challenger and use_ovx and meta.get("ohlc") is not None:
-        try:
-            try:
-                from . import vol_lab
-            except ImportError:  # pragma: no cover - direct invocation
-                import vol_lab
-            live["challenger"] = vol_lab.live_model_forecast(challenger, r, dates, ovx, meta["ohlc"])
-        except Exception:  # noqa: BLE001 - the challenger is optional; the model of record never depends on it
-            live["challenger"] = None
+    # challenger_error is null when the challenger is published, else the reason it is missing.
+    live["challenger"], live["challenger_error"] = _challenger_forecast(r, dates, ovx, meta)
     return {
         "schema_version": 2,
         "live": live,

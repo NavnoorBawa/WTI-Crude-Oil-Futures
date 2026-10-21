@@ -39,7 +39,10 @@ LIVE_RECORD_COUNTS = ("n_recorded", "n_resolved", "n_pending", "n_skipped_roll",
                       "n_independent")
 LIVE_RECORD_STATUSES = ("pending", "resolved", "skipped_roll", "expired", "late_commit")
 PROMOTION_STATUSES = ("accruing", "promote", "keep")
-PROMOTION_KEYS = ("status", "n_independent_paired", "required", "dm_stat", "p_value", "mean_qlike_difference")
+# Resolved entries left out of the pinned pair's comparison, by reason (vol_record.promotion_exclusions).
+PROMOTION_EXCLUSIONS = ("n_excluded_other_version", "n_excluded_other_challenger", "n_excluded_no_challenger")
+PROMOTION_KEYS = ("status", "n_independent_paired", "required", "dm_stat", "p_value", "mean_qlike_difference",
+                  "model_version", "challenger_key", *PROMOTION_EXCLUSIONS)
 ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 # Outputs of the retracted 1-week direction model (schema_version 2 and earlier). It is not run in
 # production, so any of them in a snapshot means a stale renderer and must never be published.
@@ -60,6 +63,10 @@ def _percentage(value: Any) -> bool:
 
 def _count(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _text(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
 
 
 def _parse_timestamp(value: Any) -> datetime | None:
@@ -174,7 +181,7 @@ def validate_payload(
                                                      kinds=actual.get("kinds")))
 
     session = _quote_session(market_time, frozen_at, notes)
-    errors.extend(_validate_vol_forecast(payload.get("vol_forecast"), session))
+    errors.extend(_validate_vol_forecast(payload.get("vol_forecast"), session, notes))
 
     retracted = _dict(payload.get("retracted_direction_model"))
     if retracted.get("status") != "RETRACTED":
@@ -223,8 +230,15 @@ def _quote_session(market_time: datetime | None, frozen_at: datetime | None, not
     return None
 
 
-def _validate_vol_forecast(vol: Any, session: date | None) -> list[str]:
-    """The validated volatility forecast is the product: required, and every number it renders sane."""
+def _validate_vol_forecast(vol: Any, session: date | None, notes: list[str]) -> list[str]:
+    """The validated volatility forecast is the product: required, and every number it renders sane.
+
+    A missing challenger forecast, or an economic block marked unavailable, is not an error (the
+    dashboard renders without them), but it is noted: a session without a challenger cannot enter
+    the promotion test. The optional reasons (live.challenger_error, economic.unavailable_reason)
+    must be non-empty strings or null. They are not echoed into the notes, which CI prints as
+    workflow commands.
+    """
     if not isinstance(vol, dict):
         return ["vol_forecast is required"]
     errors: list[str] = []
@@ -247,9 +261,21 @@ def _validate_vol_forecast(vol: Any, session: date | None) -> list[str]:
         elif _finite_number(median) and not low <= median <= high:
             errors.append("vol_forecast.live.interval_80 must contain the median forecast")
 
-    model_version = live.get("model_version")
-    if not isinstance(model_version, str) or not model_version.strip():
+    if not _text(live.get("model_version")):
         errors.append("vol_forecast.live.model_version must be a non-empty string")
+
+    challenger_error = live.get("challenger_error")
+    if challenger_error is not None and not _text(challenger_error):
+        errors.append("vol_forecast.live.challenger_error must be a non-empty string or null")
+    if live.get("challenger") is None:
+        notes.append("vol_forecast.live has no challenger forecast, so this session cannot enter the promotion test; "
+                     + ("vol_forecast.live.challenger_error gives the reason" if _text(challenger_error)
+                        else "the payload gives no reason"))
+    unavailable = _dict(vol.get("economic")).get("unavailable_reason")
+    if unavailable is not None and not _text(unavailable):
+        errors.append("vol_forecast.economic.unavailable_reason must be a non-empty string or null")
+    elif unavailable is not None:
+        notes.append("vol_forecast.economic is unavailable; vol_forecast.economic.unavailable_reason gives the reason")
 
     as_of = _parse_date(live.get("as_of"))
     if as_of is None:
@@ -285,15 +311,51 @@ def _validate_live_record(record: Any) -> list[str]:
     recent = record.get("recent")
     if not isinstance(recent, list) or not all(isinstance(row, dict) for row in recent):
         errors.append("vol_forecast.live_record.recent must be a list of objects")
-    elif any(row.get("status") not in LIVE_RECORD_STATUSES for row in recent):
-        errors.append(f"vol_forecast.live_record.recent statuses must be one of {', '.join(LIVE_RECORD_STATUSES)}")
+    else:
+        if any(row.get("status") not in LIVE_RECORD_STATUSES for row in recent):
+            errors.append(f"vol_forecast.live_record.recent statuses must be one of {', '.join(LIVE_RECORD_STATUSES)}")
+        if not all(_text(row.get("model_version")) for row in recent):
+            errors.append("vol_forecast.live_record.recent model_version must be a non-empty string")
     if "next_result_due" not in record:
         errors.append("vol_forecast.live_record.next_result_due is required (an ISO date or null)")
     elif record["next_result_due"] is not None and not _strict_iso_date(record["next_result_due"]):
         errors.append("vol_forecast.live_record.next_result_due must be an ISO date (YYYY-MM-DD) or null")
     elif record["next_result_due"] is not None and record.get("n_pending") == 0:
         errors.append("vol_forecast.live_record.next_result_due must be null with no pending entry")
-    errors.extend(_validate_promotion(record.get("promotion")))
+    promotion_errors = _validate_promotion(record.get("promotion"))
+    errors.extend(promotion_errors)
+    errors.extend(_validate_comparison(record, check_promotion=not promotion_errors))
+    return errors
+
+
+def _validate_comparison(record: dict, *, check_promotion: bool) -> list[str]:
+    """champion and challenger name the promotion test's pinned pair, and the resolved entries add up.
+
+    champion.n counts the resolved entries of the pinned model version and challenger.n those of the
+    pinned pair; the promotion block counts the rest by reason. With a malformed promotion block
+    (reported by _validate_promotion) only the two blocks' own shape is checked.
+    """
+    where = "vol_forecast.live_record"
+    champion, challenger = record.get("champion"), record.get("challenger")
+    errors = []
+    if not isinstance(champion, dict) or not _text(champion.get("model_version")) or not _count(champion.get("n")):
+        errors.append(f"{where}.champion must be an object with a non-empty model_version and a non-negative "
+                      "integer n")
+    if not isinstance(challenger, dict) or not _text(challenger.get("key")) or not _count(challenger.get("n")):
+        errors.append(f"{where}.challenger must be an object with a non-empty key and a non-negative integer n")
+    if errors or not check_promotion:
+        return errors
+    promotion = record["promotion"]
+    if (champion["model_version"], challenger["key"]) != (promotion["model_version"], promotion["challenger_key"]):
+        errors.append(f"{where}: champion.model_version and challenger.key must be the promotion test's model_version "
+                      "and challenger_key")
+    n_resolved = record.get("n_resolved")
+    if _count(n_resolved) and n_resolved != champion["n"] + promotion["n_excluded_other_version"]:
+        errors.append(f"{where}: n_resolved must equal champion.n plus promotion.n_excluded_other_version")
+    if champion["n"] != (challenger["n"] + promotion["n_excluded_other_challenger"]
+                         + promotion["n_excluded_no_challenger"]):
+        errors.append(f"{where}: champion.n must equal challenger.n plus promotion.n_excluded_other_challenger and "
+                      "promotion.n_excluded_no_challenger")
     return errors
 
 
@@ -323,6 +385,12 @@ def _validate_promotion(block: Any) -> list[str]:
             errors.append(f"{where}.{key} must be a finite number or null")
     if block["p_value"] is not None and not (_finite_number(block["p_value"]) and 0.0 <= block["p_value"] <= 1.0):
         errors.append(f"{where}.p_value must be a probability or null")
+    for key in ("model_version", "challenger_key"):
+        if not _text(block[key]):
+            errors.append(f"{where}.{key} must be a non-empty string")
+    for key in PROMOTION_EXCLUSIONS:
+        if not _count(block[key]):
+            errors.append(f"{where}.{key} must be a non-negative integer")
     if errors:
         return errors
     stats = [block[key] for key in ("dm_stat", "p_value", "mean_qlike_difference")]

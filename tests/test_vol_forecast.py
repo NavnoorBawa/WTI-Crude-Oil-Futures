@@ -117,7 +117,7 @@ class ValidateOfflineTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.data = _synthetic_market()
-        cls.report = vf.validate(data=cls.data)
+        cls.report, cls.frame = vf.validate(data=cls.data, return_frame=True)
 
     def test_reports_nested_baseline_and_robust_statistics(self):
         o = self.report["overall"]
@@ -144,6 +144,71 @@ class ValidateOfflineTest(unittest.TestCase):
         # The synthetic OVX is set ~10% above true vol, so the premium must come out positive.
         self.assertGreater(econ["variance_risk_premium"]["mean_premium_vol_pts"], 0)
 
+    def test_every_level_metric_scores_the_variance_consistent_forecast(self):
+        o, d = self.report["overall"], self.frame
+        actual = d["actual"].to_numpy()
+        for median, mean in (("pred", "pred_mean"), ("pred_har", "pred_har_mean"), ("pred_lev", "pred_lev_mean"),
+                             ("pred_ovx", "pred_ovx_mean")):
+            self.assertTrue((d[mean] > d[median]).all(), mean)          # Duan smearing factor > 1
+        for key, column in (("har", "pred_mean"), ("har_no_ovx", "pred_har_mean"),
+                            ("leverage_variant", "pred_lev_mean")):
+            self.assertEqual(o[f"{key}_qlike"], round(vf._qlike(actual, d[column]), 3), key)
+            self.assertEqual(o[f"{key}_level_r2"], round(vf._r2(actual, d[column].to_numpy()), 3), key)
+        self.assertEqual(o["ovx_only_qlike"], round(vf._qlike(actual, d["pred_ovx_mean"]), 3))
+        for year, g in d.groupby("year"):
+            self.assertEqual(self.report["yearly"][str(year)]["level_r2"],
+                             round(vf._r2(g["actual"].to_numpy(), g["pred_mean"].to_numpy()), 3), year)
+
+    def test_vrp_share_is_reported_against_the_zero_premium_share(self):
+        vrp = self.report["economic"]["variance_risk_premium"]
+        null = vrp["zero_premium_null"]
+        # Even with no premium, a noisy realized vol falls below implied vol in most periods (Jensen).
+        self.assertGreater(null["share_positive_pct"], 50.0)
+        self.assertGreater(null["mean_premium_vol_pts"], 0.0)
+        self.assertTrue(0.0 < null["p_value_one_sided"] <= 1.0)
+        self.assertIn("vol_points_caveat", vrp)
+
+    def test_a_failed_economic_test_is_logged_and_recorded(self):
+        r, dates, _ = self.data
+        with mock.patch.object(vf, "same_contract_returns", side_effect=RuntimeError("no curve")), \
+                self.assertLogs("backend.vol_forecast", level="WARNING") as logs:
+            out = vf._economic_tests(self.frame, r, dates)
+        self.assertEqual(out, {"unavailable_reason": "no same-contract returns (RuntimeError: no curve)"})
+        self.assertIn("RuntimeError: no curve", logs.output[0])
+
+    def _bundle(self, meta=None, challenger=("har_iv_range", None), lab_forecast=None):
+        """forecast_bundle on the synthetic market, with the lab's live forecast replaced."""
+        r, dates, ovx = self.data
+        meta = {"ovx_source": "test", "ovx_as_of": None, "ovx_error": None, "ohlc": pd.DataFrame(index=dates),
+                "ohlc_error": None, "recent_closes": None, **(meta or {})}
+        with mock.patch.object(vf, "_load_data_full", return_value=(r, dates, ovx, meta)), \
+                mock.patch.object(vf, "validate", return_value=(self.report, self.frame)), \
+                mock.patch.object(vf, "_lab_challenger", return_value=challenger), \
+                mock.patch("backend.vol_lab.live_model_forecast", **(lab_forecast or {})):
+            return vf.forecast_bundle()["live"]
+
+    def test_the_challenger_is_published_with_no_error(self):
+        live = self._bundle(lab_forecast={"return_value": {"key": "har_iv_range"}})
+        self.assertEqual(live["challenger"], {"key": "har_iv_range"})
+        self.assertIsNone(live["challenger_error"])
+
+    def test_a_missing_challenger_is_logged_with_its_reason(self):
+        for kwargs, reason in (
+            ({"lab_forecast": {"side_effect": ValueError("bad bar")}},
+             "har_iv_range forecast failed (ValueError: bad bar)"),
+            ({"meta": {"ohlc": None, "ohlc_error": "KeyError: 'Open'"}},
+             "no usable OHLC bars for the challenger's range features (KeyError: 'Open')"),
+            ({"challenger": (None, "no challenger in data/vol_lab.json (OSError: gone)")},
+             "no challenger in data/vol_lab.json (OSError: gone)"),
+        ):
+            with self.subTest(reason=reason), self.assertLogs("backend.vol_forecast", level="WARNING") as logs:
+                live = self._bundle(**kwargs)
+                self.assertIsNone(live["challenger"])
+                self.assertEqual(live["challenger_error"], reason)
+                self.assertIn(reason, logs.output[-1])
+            # The model of record does not depend on the challenger.
+            self.assertEqual(live["model_version"], vf.MODEL_VERSION)
+
     def test_live_forecast_uses_ovx_when_current(self):
         live = vf.live_forecast(data=self.data)
         self.assertEqual(live["model"], "HAR-IV (RV5,RV22,RV66,OVX)")
@@ -167,6 +232,69 @@ class ValidateOfflineTest(unittest.TestCase):
             report = vf.validate(data=(r, dates, bad))
             self.assertEqual(report["overall"]["model"], "HAR (RV5,RV22,RV66)")
             self.assertNotIn("har_no_ovx_dir_acc_pct", report["overall"])
+
+
+class ZeroPremiumNullTest(unittest.TestCase):
+    """The vol-point VRP test must not find a premium where implied variance equals expected realized
+    variance, and must find a clear one."""
+
+    def _periods(self, premium, n=300, seed=14):
+        rng = np.random.default_rng(seed)
+        implied = rng.uniform(0.25, 0.6, n)
+        # RV^2 / IV^2 right-skewed with mean 1 (a chi-square shape): zero variance premium.
+        ratio = rng.chisquare(4, n) / 4.0
+        return implied * premium, implied * np.sqrt(ratio)
+
+    def test_no_premium_is_not_significant_although_iv_beats_rv_in_most_periods(self):
+        implied, realized = self._periods(premium=1.0)
+        k, n = int(np.sum(implied > realized)), implied.size
+        self.assertLess(binom.sf(k - 1, n, 0.5), 1e-3)                      # a 50% null calls it a premium
+        null = vf._zero_premium_null(implied, realized, reps=2000)
+        self.assertGreater(null["share_positive_pct"], 55.0)
+        self.assertGreater(null["mean_premium_vol_pts"], 0.0)
+        self.assertGreater(null["p_value_one_sided"], 0.2)
+
+    def test_a_real_premium_is_significant(self):
+        implied, realized = self._periods(premium=1.2)
+        self.assertLess(vf._zero_premium_null(implied, realized, reps=2000)["p_value_one_sided"], 0.01)
+
+
+class OvxSourceFailureTest(unittest.TestCase):
+    def _cl(self):
+        idx = pd.bdate_range("2024-01-02", periods=120)
+        close = pd.Series(np.linspace(70.0, 80.0, len(idx)), index=idx)
+        return pd.DataFrame({"Open": close, "High": close * 1.01, "Low": close * 0.99, "Close": close,
+                             "Volume": 1000.0})
+
+    def _load(self, fred):
+        cl = self._cl()
+
+        def history(symbol, period):
+            if symbol == "^OVX":
+                raise RuntimeError("^OVX history unavailable")
+            return cl
+
+        with mock.patch.object(vf, "_yf_history", side_effect=history), \
+                mock.patch("backend.market_data._fetch_fred_ovx", **fred), \
+                self.assertLogs("backend.vol_forecast", level="WARNING") as logs:
+            _, _, ovx, meta = vf._load_data_full(now=datetime(2024, 9, 2, tzinfo=timezone.utc))
+        return ovx, meta, logs.output
+
+    def test_fred_stands_in_for_yahoo_and_the_reason_is_recorded(self):
+        fred = pd.Series(30.0, index=self._cl().index)
+        ovx, meta, logs = self._load({"return_value": fred})
+        self.assertEqual(meta["ovx_source"], "FRED OVXCLS")
+        self.assertEqual(meta["ovx_error"], "Yahoo ^OVX: RuntimeError: ^OVX history unavailable")
+        self.assertIsNotNone(ovx)
+        self.assertIn("^OVX history unavailable", logs[0])
+
+    def test_with_no_ovx_source_both_failures_are_recorded(self):
+        ovx, meta, logs = self._load({"side_effect": OSError("FRED down")})
+        self.assertIsNone(ovx)
+        self.assertIsNone(meta["ovx_source"])
+        self.assertEqual(meta["ovx_error"],
+                         "Yahoo ^OVX: RuntimeError: ^OVX history unavailable; FRED OVXCLS: OSError: FRED down")
+        self.assertIn("FRED down", logs[-1])
 
 
 class WalkForwardPurgeTest(unittest.TestCase):

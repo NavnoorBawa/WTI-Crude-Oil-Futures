@@ -454,15 +454,31 @@ def resolved_entry(as_of, base, realized, forecast=40.0, lo=25.0, hi=55.0, direc
     }
 
 
+# The pair the promotion test is pinned to, as summarize() publishes it, and a record with nothing
+# left out of that pair's comparison.
+PINNED = {"model_version": "har-iv/2", "challenger_key": "har_iv_range"}
+NO_EXCLUSIONS = {"n_excluded_other_version": 0, "n_excluded_other_challenger": 0, "n_excluded_no_challenger": 0}
+ACCRUING_EMPTY = {"status": "accruing", "n_independent_paired": 0, "required": 52, "dm_stat": None, "p_value": None,
+                  "mean_qlike_difference": None, **PINNED, **NO_EXCLUSIONS}
+
+
+def fallback(entry):
+    """`entry` as the forecaster publishes it without a lagged OVX print: plain HAR ("har/2"), with no
+    challenger and no interval."""
+    return dict(entry, model_version="har/2", challenger=None, lo80_pct=None, hi80_pct=None)
+
+
 class SummaryTest(unittest.TestCase):
     SHAPE = {"started", "n_recorded", "n_resolved", "n_pending", "n_skipped_roll", "n_expired", "n_late_commit",
              "n_independent", "next_result_due", "champion", "challenger", "promotion", "recent", "promotion_rule",
              "note", "direction_note"}
-    PROMOTION = {"status", "n_independent_paired", "required", "dm_stat", "p_value", "mean_qlike_difference"}
-    CHAMPION = {"model_version", "qlike", "interval_80_coverage_pct", "direction_hit_pct",
+    PROMOTION = {"status", "n_independent_paired", "required", "dm_stat", "p_value", "mean_qlike_difference",
+                 "model_version", "challenger_key", "n_excluded_other_version", "n_excluded_other_challenger",
+                 "n_excluded_no_challenger"}
+    CHAMPION = {"model_version", "n", "qlike", "interval_80_coverage_pct", "direction_hit_pct",
                 "mean_forecast_pct", "mean_realized_pct"}
-    RECENT = {"as_of", "issued_at", "target_start", "target_end", "forecast_pct", "median_pct", "lo80_pct",
-              "hi80_pct", "challenger_pct", "realized_pct", "status"}
+    RECENT = {"as_of", "issued_at", "model_version", "target_start", "target_end", "forecast_pct", "median_pct",
+              "lo80_pct", "hi80_pct", "challenger_pct", "realized_pct", "status"}
 
     def test_empty_record_has_the_contract_shape_with_null_statistics(self):
         summary = vr.summarize(empty_record())
@@ -471,18 +487,23 @@ class SummaryTest(unittest.TestCase):
         self.assertEqual(set(summary["challenger"]), {"key", "qlike", "n", "champion_qlike"})
         self.assertEqual(summary["started"], "2026-11-03")
         self.assertEqual([summary[k] for k in ("n_recorded", "n_resolved", "n_pending", "n_independent")], [0] * 4)
-        self.assertTrue(all(v is None for v in summary["champion"].values()))
-        self.assertIsNone(summary["challenger"]["qlike"])
+        # The pinned pair is named before any entry exists; every statistic is null.
+        self.assertEqual((summary["champion"]["model_version"], summary["champion"]["n"]), ("har-iv/2", 0))
+        self.assertTrue(all(v is None for k, v in summary["champion"].items() if k not in ("model_version", "n")))
+        self.assertEqual(summary["challenger"], {"key": "har_iv_range", "qlike": None, "n": 0, "champion_qlike": None})
         self.assertEqual(summary["recent"], [])
         self.assertEqual(summary["n_late_commit"], 0)
         self.assertIsNone(summary["next_result_due"])
-        self.assertEqual(summary["promotion"], {"status": "accruing", "n_independent_paired": 0, "required": 52,
-                                                "dm_stat": None, "p_value": None, "mean_qlike_difference": None})
+        self.assertEqual(summary["promotion"], ACCRUING_EMPTY)
         self.assertEqual(summary["promotion_rule"],
-                         "The challenger replaces the model of record if, on the first 52 independent resolved "
-                         "weeks where both were forecast, its mean QLIKE is lower with a one-sided Diebold-Mariano "
-                         "p below 0.10 (Harvey-Leybourne-Newbold, Student t with 51 degrees of freedom). The test is "
-                         "run once, on that fixed sample; a maintainer applies the verdict.")
+                         "The promotion test is pinned to one pair: HAR-IV v2 (model version har-iv/2), the model "
+                         "of record, against the HAR-IV-range challenger (key har_iv_range). The challenger replaces "
+                         "the model of record if, on the first 52 independent resolved weeks where both were "
+                         "forecast, its mean QLIKE is lower with a one-sided Diebold-Mariano p below 0.10 "
+                         "(Harvey-Leybourne-Newbold, Student t with 51 degrees of freedom). The test is run once, on "
+                         "that fixed sample. Forecasts from another model version or challenger are recorded but "
+                         "never enter it; a different challenger would start a new, separately declared test. A "
+                         "maintainer applies the verdict.")
         self.assertIn("settlement", summary["note"])
         self.assertIn("late_commit", summary["note"])
         json.dumps(summary, allow_nan=False)
@@ -491,13 +512,15 @@ class SummaryTest(unittest.TestCase):
         summary = vr.summarize(recorded())
         self.assertEqual((summary["n_recorded"], summary["n_pending"], summary["n_resolved"]), (1, 1, 0))
         self.assertEqual(summary["next_result_due"], "2026-11-10")      # the pending window's last session
-        self.assertEqual(summary["champion"]["model_version"], "har-iv/2")
-        self.assertTrue(all(v is None for k, v in summary["champion"].items() if k != "model_version"))
+        self.assertEqual((summary["champion"]["model_version"], summary["champion"]["n"]), ("har-iv/2", 0))
+        self.assertTrue(all(v is None for k, v in summary["champion"].items() if k not in ("model_version", "n")))
         self.assertEqual(summary["challenger"]["key"], "har_iv_range")
         self.assertIsNone(summary["challenger"]["qlike"])
+        self.assertEqual(summary["promotion"], ACCRUING_EMPTY)          # a pending entry is not excluded, just pending
         (row,) = summary["recent"]
         self.assertEqual(set(row), self.RECENT)
-        self.assertEqual((row["status"], row["realized_pct"], row["challenger_pct"]), ("pending", None, 38.0))
+        self.assertEqual((row["status"], row["realized_pct"], row["challenger_pct"], row["model_version"]),
+                         ("pending", None, 38.0, "har-iv/2"))
 
     def test_scores(self):
         a = resolved_entry("2026-11-02", "2026-11-03", realized=40.0, rv5=30.0)            # in, rose, hit
@@ -511,7 +534,7 @@ class SummaryTest(unittest.TestCase):
         q = [vr.qlike(40.0, 40.0), vr.qlike(20.0, 40.0), vr.qlike(60.0, 40.0)]
         self.assertEqual(q[0], 0.0)
         self.assertAlmostEqual(q[1], 0.25 - math.log(0.25) - 1)
-        self.assertEqual(s["champion"]["qlike"], round(sum(q) / 3, 4))
+        self.assertEqual((s["champion"]["n"], s["champion"]["qlike"]), (3, round(sum(q) / 3, 4)))
         self.assertEqual(s["champion"]["interval_80_coverage_pct"], 33.3)
         self.assertEqual(s["champion"]["direction_hit_pct"], 66.7)
         self.assertEqual(s["champion"]["mean_forecast_pct"], 40.0)
@@ -520,6 +543,8 @@ class SummaryTest(unittest.TestCase):
         self.assertEqual(s["challenger"]["n"], 2)
         self.assertEqual(s["challenger"]["qlike"], round((vr.qlike(40.0, 38.0) + vr.qlike(60.0, 50.0)) / 2, 4))
         self.assertEqual(s["challenger"]["champion_qlike"], round((q[0] + q[2]) / 2, 4))
+        self.assertEqual({k: s["promotion"][k] for k in NO_EXCLUSIONS},
+                         dict(NO_EXCLUSIONS, n_excluded_no_challenger=1))            # b has no challenger
         self.assertEqual((s["n_resolved"], s["n_independent"]), (3, 2))   # a and b overlap by one session
         self.assertEqual([r["as_of"] for r in s["recent"]], ["2026-11-16", "2026-11-06", "2026-11-02"])
         self.assertEqual(s["recent"][0]["realized_pct"], 60.0)
@@ -546,21 +571,44 @@ class SummaryTest(unittest.TestCase):
         self.assertEqual([r["status"] for r in s["recent"]],
                          ["late_commit", "pending", "expired", "skipped_roll", "resolved", "resolved"])
 
-    def test_challenger_key_change_starts_its_own_comparison(self):
-        old = resolved_entry("2026-11-02", "2026-11-03", realized=40.0, challenger=30.0, challenger_key="garch")
-        new = resolved_entry("2026-11-09", "2026-11-10", realized=40.0, challenger=44.0)
-        s = vr.summarize({"schema_version": 1, "started": "2026-11-03", "entries": [old, new]})
-        self.assertEqual((s["challenger"]["key"], s["challenger"]["n"]), ("har_iv_range", 1))
-        self.assertEqual(s["challenger"]["qlike"], round(vr.qlike(40.0, 44.0), 4))
+    def test_another_challenger_is_recorded_but_never_compared(self):
+        # The comparison is pinned to har_iv_range, whichever challenger the newest entry carries.
+        for newest_key in ("har_iv_range", "combo"):
+            with self.subTest(newest=newest_key):
+                older_key = "combo" if newest_key == "har_iv_range" else "har_iv_range"
+                older = resolved_entry("2026-11-02", "2026-11-03", realized=40.0, challenger=44.0,
+                                       challenger_key=older_key)
+                newer = resolved_entry("2026-11-09", "2026-11-10", realized=40.0, challenger=44.0,
+                                       challenger_key=newest_key)
+                s = vr.summarize({"schema_version": 1, "started": "2026-11-03", "entries": [older, newer]})
+                self.assertEqual((s["challenger"]["key"], s["challenger"]["n"]), ("har_iv_range", 1))
+                self.assertEqual(s["challenger"]["qlike"], round(vr.qlike(40.0, 44.0), 4))
+                self.assertEqual((s["champion"]["n"], s["n_resolved"]), (2, 2))    # both are the model of record's
+                self.assertEqual({k: s["promotion"][k] for k in NO_EXCLUSIONS},
+                                 dict(NO_EXCLUSIONS, n_excluded_other_challenger=1))
+                self.assertEqual((s["promotion"]["challenger_key"], s["promotion"]["n_independent_paired"]),
+                                 ("har_iv_range", 1))
 
-    def test_model_of_record_change_starts_its_own_comparison(self):
-        old = resolved_entry("2026-11-02", "2026-11-03", realized=40.0, challenger=30.0)
-        new = dict(resolved_entry("2026-11-09", "2026-11-10", realized=40.0, challenger=44.0),
-                   model_version="har-iv/3")
-        s = vr.summarize({"schema_version": 1, "started": "2026-11-03", "entries": [old, new]})
-        self.assertEqual((s["champion"]["model_version"], s["challenger"]["n"]), ("har-iv/3", 1))
-        self.assertEqual(s["challenger"]["champion_qlike"], round(vr.qlike(40.0, 40.0), 4))
+    def test_champion_statistics_cover_the_pinned_version_only(self):
+        # A fallback forecast (plain HAR) and a later model version are recorded and counted, but
+        # their losses, coverage and means are not pooled with the model of record's.
+        pinned = resolved_entry("2026-11-02", "2026-11-03", realized=40.0, challenger=44.0)
+        plain = fallback(resolved_entry("2026-11-06", "2026-11-09", realized=20.0, direction="FALLING"))
+        newer = dict(resolved_entry("2026-11-16", "2026-11-17", realized=60.0, lo=50.0, hi=70.0, challenger=30.0),
+                     model_version="har-iv/3")
+        record = {"schema_version": 1, "started": "2026-11-03", "entries": [pinned, plain, newer]}
+        vr.validate_record(record)
+        s = vr.summarize(record)
+        self.assertEqual(s["n_resolved"], 3)
+        self.assertEqual(s["champion"], {"model_version": "har-iv/2", "n": 1, "qlike": 0.0,
+                                         "interval_80_coverage_pct": 100.0, "direction_hit_pct": 100.0,
+                                         "mean_forecast_pct": 40.0, "mean_realized_pct": 40.0})
+        self.assertEqual(s["challenger"], {"key": "har_iv_range", "qlike": round(vr.qlike(40.0, 44.0), 4), "n": 1,
+                                           "champion_qlike": 0.0})
+        self.assertEqual({k: s["promotion"][k] for k in NO_EXCLUSIONS},
+                         dict(NO_EXCLUSIONS, n_excluded_other_version=2))
         self.assertEqual(s["promotion"]["n_independent_paired"], 1)
+        self.assertEqual([r["model_version"] for r in s["recent"]], ["har-iv/3", "har/2", "har-iv/2"])
 
     def test_independent_windows(self):
         # Daily forecasts: ten consecutive k0 sessions; five-session windows overlap.
@@ -644,8 +692,7 @@ class PromotionTest(unittest.TestCase):
 
     def test_accruing_until_52_independent_paired_weeks(self):
         result = self.promotion(weekly_entries(51))
-        self.assertEqual(result, {"status": "accruing", "n_independent_paired": 51, "required": 52,
-                                  "dm_stat": None, "p_value": None, "mean_qlike_difference": None})
+        self.assertEqual(result, dict(ACCRUING_EMPTY, n_independent_paired=51))
 
     def test_a_clear_edge_on_52_weeks_promotes(self):
         entries = weekly_entries(52)
@@ -675,7 +722,7 @@ class PromotionTest(unittest.TestCase):
                 for i, entry in enumerate(entries):
                     entry["challenger"]["forecast_pct"] = 40.0 - (target / math.sqrt(51) + (-1) ** i)
                 with mock.patch.object(vr, "qlike", lambda realized, forecast: forecast):
-                    result = vr.promotion_test(entries, "har-iv/2", "har_iv_range")
+                    result = vr.promotion_test(entries)
                 self.assertEqual(result["status"], verdict)
                 self.assertAlmostEqual(result["dm_stat"], target, places=4)
                 self.assertAlmostEqual(result["p_value"], float(stats.t.sf(target, df=51)), places=6)
@@ -744,17 +791,97 @@ class PromotionTest(unittest.TestCase):
         entries[3] = dict(as_pending(entries[3]), challenger=None)
         self.assertEqual(self.promotion(entries)["n_independent_paired"], 9)
 
-    def test_only_the_current_pair_counts(self):
-        entries = weekly_entries(60)
+    def test_only_the_pinned_pair_counts(self):
+        # The newest entry does not choose the pair: another version or challenger is passed over and
+        # counted, and the sample keeps the pinned pair's weeks.
+        def exclusions(result):
+            return {k: result[k] for k in NO_EXCLUSIONS}
+
+        entries = weekly_entries(10)
         entries[-1]["model_version"] = "har-iv/3"
-        self.assertEqual(self.promotion(entries)["n_independent_paired"], 1)
-        entries = weekly_entries(60)
+        result = self.promotion(entries)
+        self.assertEqual((result["n_independent_paired"], exclusions(result)),
+                         (9, dict(NO_EXCLUSIONS, n_excluded_other_version=1)))
+        entries = weekly_entries(10)
         entries[-1]["challenger"]["key"] = "garch"
-        self.assertEqual(self.promotion(entries)["n_independent_paired"], 1)
+        result = self.promotion(entries)
+        self.assertEqual((result["n_independent_paired"], exclusions(result)),
+                         (9, dict(NO_EXCLUSIONS, n_excluded_other_challenger=1)))
         entries = weekly_entries(60)
         for entry in entries[:20]:
             entry["challenger"] = None
-        self.assertEqual(self.promotion(entries)["n_independent_paired"], 40)
+        result = self.promotion(entries)
+        self.assertEqual((result["n_independent_paired"], exclusions(result)),
+                         (40, dict(NO_EXCLUSIONS, n_excluded_no_challenger=20)))
+        self.assertEqual({result["model_version"], result["challenger_key"]}, {"har-iv/2", "har_iv_range"})
+        # After a verdict, a newest entry of another version or challenger leaves it as it was.
+        decided = self.promotion(weekly_entries(60))
+        for change in ({"model_version": "har-iv/3"}, {"challenger": {"key": "combo", "forecast_pct": 50.0,
+                                                                       "median_pct": None}}):
+            with self.subTest(newest=change):
+                entries = weekly_entries(61)
+                entries[-1].update(change)
+                result = self.promotion(entries)
+                self.assertEqual({k: v for k, v in result.items() if k not in NO_EXCLUSIONS},
+                                 {k: v for k, v in decided.items() if k not in NO_EXCLUSIONS})
+                self.assertEqual(sum(exclusions(result).values()), 1)
+
+    def test_fallback_forecasts_never_enter_or_reset_the_test(self):
+        # Without a lagged OVX print the forecaster publishes plain HAR ("har/2") with no challenger and
+        # no interval. Recorded by the real recorder after a decided test, it is the newest entry, and
+        # the verdict, the comparison and the model of record's statistics stay as they were.
+        record = {"schema_version": 1, "started": "2026-10-20", "entries": weekly_entries(60)}
+        before = vr.summarize(record)
+        self.assertEqual((before["promotion"]["status"], before["promotion"]["n_independent_paired"]), ("promote", 52))
+        as_of = contract_calendar.shift_business_days(D(record["entries"][-1]["target_end"]), 1)
+        issued = datetime.combine(contract_calendar.shift_business_days(as_of, 1), datetime.min.time(), UTC) \
+            + timedelta(hours=13)
+        plain = live(as_of=as_of.isoformat(), issued_at=issued.isoformat(), model_version="har/2",
+                     model="HAR (RV5,RV22,RV66)", challenger=None, interval_80=None)
+        message = vr.record_forecast(record, payload(plain, frozen_at=(issued + timedelta(minutes=2)).isoformat()),
+                                     issued + timedelta(minutes=5))
+        self.assertTrue(message.startswith("recorded"), message)
+        self.assertEqual(record["entries"][-1]["model_version"], "har/2")
+        vr.validate_record(record)
+        after = vr.summarize(record)
+        for block in ("promotion", "champion", "challenger"):
+            with self.subTest(block=block):
+                self.assertEqual(after[block], before[block])
+        self.assertEqual((after["recent"][0]["model_version"], after["recent"][0]["status"]), ("har/2", "pending"))
+        # Fallback entries inside the sample, pending or resolved, neither hold it back nor enter it.
+        for status in ("pending", "resolved"):
+            with self.subTest(status=status):
+                entries = weekly_entries(10)
+                entries[3] = fallback(entries[3] if status == "resolved" else as_pending(entries[3]))
+                result = self.promotion(entries)
+                self.assertEqual((result["status"], result["n_independent_paired"]), ("accruing", 9))
+                self.assertEqual(result["n_excluded_other_version"], 1 if status == "resolved" else 0)
+
+
+class PinnedPairTest(unittest.TestCase):
+    """The promotion test's pair is declared in vol_record, and it is the pair the live forecast publishes."""
+
+    def test_the_pinned_pair_is_the_live_model_and_challenger(self):
+        # A new model version or a re-chosen challenger fails here until it is declared as a new test.
+        from backend import vol_forecast
+
+        self.assertEqual(vr.PROMOTION_MODEL_VERSION, vol_forecast.MODEL_VERSION)
+        lab = json.loads((ROOT / "data" / "vol_lab.json").read_text(encoding="utf-8"))
+        self.assertEqual(vr.PROMOTION_CHALLENGER, lab["config"]["challenger"])
+        entry = recorded()["entries"][0]                   # this file's payload carries the same pair
+        self.assertEqual(vr._pair(entry), (vr.PROMOTION_MODEL_VERSION, vr.PROMOTION_CHALLENGER))
+
+    def test_the_rule_and_the_summary_name_the_pair(self):
+        for text in ("HAR-IV v2", "har-iv/2", "HAR-IV-range", "har_iv_range", "52", "0.10", "separately declared"):
+            with self.subTest(text=text):
+                self.assertIn(text, vr.PROMOTION_RULE)
+        newest_fallback = weekly_entries(3)
+        newest_fallback[-1] = fallback(as_pending(newest_fallback[-1]))
+        for name, entries in {"seeded": [], "newest is a fallback": newest_fallback}.items():
+            with self.subTest(name):
+                s = vr.summarize({"schema_version": 1, "started": "2026-10-20", "entries": entries})
+                self.assertEqual({k: s["promotion"][k] for k in PINNED}, PINNED)
+                self.assertEqual((s["champion"]["model_version"], s["challenger"]["key"]), ("har-iv/2", "har_iv_range"))
 
 
 class StudentTTest(unittest.TestCase):
@@ -929,8 +1056,14 @@ class CommandLineTest(unittest.TestCase):
         self.assertEqual(self.run_main("--init"), 0)
         record = vr.load_record(self.record_path)
         self.assertEqual(record, {"schema_version": 1, "started": "2026-11-03", "entries": []})
-        self.assertEqual(self.record_path.read_text(encoding="utf-8"),
-                         '{\n  "schema_version": 1,\n  "started": "2026-11-03",\n  "entries": []\n}\n')
+        seeded = '{\n  "schema_version": 1,\n  "started": "2026-11-03",\n  "entries": []\n}\n'
+        self.assertEqual(self.record_path.read_text(encoding="utf-8"), seeded)
+        # The seeded record seals to itself and summarizes to an accruing test of the pinned pair.
+        self.assertEqual(self.run_main("--seal", now="2026-11-03T13:20:00Z"), 0)
+        self.assertEqual(self.record_path.read_text(encoding="utf-8"), seeded)
+        summary = vr.summarize(vr.load_record(self.record_path))
+        self.assertEqual(summary["promotion"], ACCRUING_EMPTY)
+        self.assertEqual((summary["n_recorded"], summary["champion"]["n"], summary["challenger"]["n"]), (0, 0, 0))
         self.record_path.write_text(json.dumps(recorded()), encoding="utf-8")
         self.assertEqual(self.run_main("--init"), 1)
         self.assertEqual(len(vr.load_record(self.record_path)["entries"]), 1)
@@ -1070,11 +1203,11 @@ class StandardLibraryOnlyTest(unittest.TestCase):
             sys.path.insert(0, sys.argv[1])
             from datetime import datetime, timezone
             from backend import vol_record
-            record = json.loads(sys.argv[2])
-            vol_record.validate_record(record)
-            vol_record.seal_entries(record, datetime(2026, 11, 3, 13, 20, tzinfo=timezone.utc))
-            vol_record.validate_record(record)
-            vol_record.summarize(record)
+            for record in json.loads(sys.argv[2]):
+                vol_record.validate_record(record)
+                vol_record.seal_entries(record, datetime(2026, 11, 3, 13, 20, tzinfo=timezone.utc))
+                vol_record.validate_record(record)
+                assert vol_record.summarize(record)["promotion"]["challenger_key"] == "har_iv_range"
             vol_record.student_t_sf(1.3, 51)
             roots = tuple(os.path.realpath(p) + os.sep for p in (sysconfig.get_paths()['stdlib'],
                           sysconfig.get_paths()['platstdlib'], os.path.join(sys.argv[1], 'backend')))
@@ -1082,7 +1215,8 @@ class StandardLibraryOnlyTest(unittest.TestCase):
             print(sorted(f for f in files if f and not os.path.realpath(f).startswith(roots)))
             """)
         result = subprocess.run(  # nosec B603 - fixed argv: this interpreter and inline code
-            [sys.executable, "-I", "-S", "-B", "-c", code, str(ROOT), json.dumps(recorded(seal_after=None))],
+            [sys.executable, "-I", "-S", "-B", "-c", code, str(ROOT),
+             json.dumps([empty_record(), recorded(seal_after=None)])],
             capture_output=True, text=True, timeout=60, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "[]")

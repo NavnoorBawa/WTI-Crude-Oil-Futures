@@ -12,17 +12,25 @@ checked against its artifact.
 Status, from the test as the project ran it (one- or two-sided as recorded in `sided`):
   supported      p < 0.05 and the estimate points the way the hypothesis says
   inconclusive   0.05 <= p < 0.10, or no p-value but the estimate points the right way
-  rejected       p >= 0.10, or the estimate points the wrong way
+  not_supported  p >= 0.10, or the estimate points the wrong way. This is a failure to reject the
+                 null, not evidence against the hypothesis: a test with little power fails to reject
+                 a real effect too. Where the artifact holds the test's power, the row records it in
+                 its context and `underpowered` is true when it is below the artifact's target power
+                 (null where no power figure exists).
   retracted      the evidence was invalid when produced: it came from the leaked walk-forward,
                  from roll-contaminated returns, or from a test whose null was wrong. The p-value is
                  kept as a record, and the row stays in the multiplicity count (it was tested).
 
-Multiplicity. Across all rows with a p-value: Benjamini-Hochberg (1995) q-values and Holm (1979)
+Multiplicity. Across the rows with a p-value: Benjamini-Hochberg (1995) q-values and Holm (1979)
 adjusted p-values, both computed on `p_two_sided`: the directional one-sided p doubled (capped at
 1), so one- and two-sided tests are treated alike and a result in the wrong direction never counts
 as a discovery. `t_equivalent` is the normal quantile of that two-sided p, and `clears_hlz_t3` flags
 the Harvey-Liu-Zhu (2016) hurdle t > 3 for a new factor claim. `pre_specified` is true only where the
 code documents the test as fixed before the data were seen; most of this project was exploratory.
+A row marked `selected_after_search` tests a model picked as the best of a field on the same sample:
+its pairwise p-value ignores that search, so the row is left out of the multiplicity family and its
+q-value, Holm p-value and survival flags are null; the search-adjusted test of the same question is
+a separate row, named in its note.
 
 Usage: python -m backend.research_ledger   (rewrites data/research_ledger.json from the artifacts)
 """
@@ -32,7 +40,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
 import numpy as np
@@ -47,7 +55,7 @@ ARTIFACT = "research_ledger.json"
 ALPHA = 0.05
 INCONCLUSIVE_BELOW = 0.10
 HLZ_T = 3.0
-STATUSES = ("supported", "rejected", "retracted", "inconclusive")
+STATUSES = ("supported", "not_supported", "retracted", "inconclusive")
 
 
 # ── Reading artifacts by field path ──────────────────────────────────────────
@@ -139,17 +147,6 @@ class NormalZ:
 
 
 @dataclass(frozen=True)
-class DieboldMariano:
-    """Two-sided p-value of a stored Harvey-Leybourne-Newbold DM statistic against t(n - 1)."""
-    path: str
-    n: str
-
-    def __call__(self, doc):
-        stat, n = float(resolve(doc, self.path)), int(resolve(doc, self.n))
-        return float(2 * stats.t.sf(abs(stat), df=n - 1)), {self.path: stat, self.n: n}
-
-
-@dataclass(frozen=True)
 class LargestOf:
     """The largest of several stored p-values, for a claim that needs every one of its tests to
     reject (e.g. an event group against both the unmatched and the year-matched placebo)."""
@@ -208,6 +205,10 @@ class Row:
                                         # "{label}" inserts that context value
     note: str = ""
     context: dict = field(default_factory=dict)     # label -> field path, shown beside the statistic
+    names: dict = field(default_factory=dict)       # label -> field path of a display name; "{label}"
+                                                    # in the hypothesis inserts it
+    underpowered_if: tuple[str, str] | None = None  # (power, target power) context labels
+    selected_after_search: bool = False             # the tested model was chosen as the best of a field
 
 
 VOL = "vol_forecast_validation.json"
@@ -318,11 +319,22 @@ def _leak_rows() -> list[Row]:
     return rows
 
 
+def _power(tag: str, test: str) -> dict:
+    """For the post-2007 sample: the power of its `test` against the pre-2007 effect size, with the
+    target power, as context, and the row marked underpowered when it falls short."""
+    if tag != "post2007":
+        return {}
+    label = f"power_vs_pre_2007_{test}"
+    return {"context": {label: f"power_post_2007.{label}", "target_power": "power_post_2007.target_power"},
+            "underpowered_if": (label, "target_power")}
+
+
 def _carry_rows() -> list[Row]:
     samples = (("full", "full_sample", "1990-2024"), ("pre2007", "pre_2007", "1990-2006"),
                ("post2007", "post_2007", "2007-2024"))
     rows = []
     for tag, block, span in samples:
+        spread_power, rank_power = _power(tag, "spread"), _power(tag, "rank_corr")
         rows += [
             Row(id=f"carry_spread_{tag}", family="carry",
                 hypothesis=f"Months with carry above its prior-months median earn more than the rest ({span}).",
@@ -332,12 +344,15 @@ def _carry_rows() -> list[Row]:
                 pre_specified=(tag == "full"),
                 note=("Rule fixed a priori (carry_signal_test.py docstring); the 2007 split was chosen later."
                       if tag == "full" else ""),
-                context={"below_median_pct": f"{block}.mean_ret_below_median_carry_pct", "n_months": f"{block}.n_months"}),
+                context={"below_median_pct": f"{block}.mean_ret_below_median_carry_pct", "n_months": f"{block}.n_months",
+                         **spread_power.get("context", {})},
+                underpowered_if=spread_power.get("underpowered_if")),
             Row(id=f"carry_rank_{tag}", family="carry",
                 hypothesis=f"Carry rank-correlates positively with the next cycle's return ({span}).",
                 test="Spearman rank correlation, two-sided", source=CARRY,
                 statistic=("rank correlation", f"{block}.carry_rank_corr"),
-                p=Field(f"{block}.carry_rank_corr_p_value"), sided="two", expects=POSITIVE),
+                p=Field(f"{block}.carry_rank_corr_p_value"), sided="two", expects=POSITIVE,
+                context=rank_power.get("context", {}), underpowered_if=rank_power.get("underpowered_if")),
             Row(id=f"carry_sign_predictor_{tag}", family="carry",
                 hypothesis=f"The carry rule calls the sign of the next cycle's return better than always-long ({span}).",
                 test="one-sided exact binomial test vs the majority-class base rate", source=CARRY,
@@ -384,16 +399,17 @@ def _carry_rows() -> list[Row]:
 
 def _vrp_rows() -> list[Row]:
     vrp = "economic.variance_risk_premium"
+    null = f"{vrp}.zero_premium_null"
 
-    def sharpe_row(name, hypothesis):
+    def sharpe_row(name, hypothesis, note="", extra=None):
         test = f"{vrp}.sharpe_positive_test.{name}"
         return Row(id=f"vrp_{name}_sharpe", family="variance risk premium", hypothesis=hypothesis,
                    test=("one-sided test of Sharpe > 0 with the Mertens (2002) / Opdyke (2007) standard error, "
                          "which allows for the P&L's skewness and kurtosis (p stored in the artifact)"),
                    source=VOL, statistic=("Sharpe (annualized)", f"{vrp}.{name}_sharpe"),
-                   p=Field(f"{test}.p_value_one_sided"), sided="one", expects=POSITIVE,
+                   p=Field(f"{test}.p_value_one_sided"), sided="one", expects=POSITIVE, note=note,
                    context={"skewness": f"{test}.skewness", "excess_kurtosis": f"{test}.excess_kurtosis",
-                            "n_periods": f"{vrp}.n_periods"})
+                            "n_periods": f"{vrp}.n_periods", **(extra or {})})
 
     return [
         Row(id="vrp_exists", family="variance risk premium",
@@ -401,8 +417,30 @@ def _vrp_rows() -> list[Row]:
             test="one-sided exact sign test over non-overlapping ~20-session periods", source=VOL,
             statistic=("share of periods with a positive premium %", f"{vrp}.share_positive_pct"),
             p=SignTest(f"{vrp}.share_positive_pct", f"{vrp}.n_periods"), sided="one", expects=ABOVE_50,
-            context={"mean_premium_vol_pts": f"{vrp}.mean_premium_vol_pts"}),
-        sharpe_row("short_vol_swap", "A linear short-vol (vol-swap) proxy earns a positive Sharpe ratio."),
+            retracted=("invalid null: read as evidence of a variance risk premium, but with zero premium a "
+                       "20-session realized vol, noisy and right-skewed, still falls below implied vol in about "
+                       "{zero_premium_share_pct}% of periods (economic.variance_risk_premium.zero_premium_null), "
+                       "not 50%; vrp_exists_vs_zero_premium tests the share against that null"),
+            context={"mean_premium_vol_pts": f"{vrp}.mean_premium_vol_pts",
+                     "zero_premium_share_pct": f"{null}.share_positive_pct"}),
+        Row(id="vrp_exists_vs_zero_premium", family="variance risk premium",
+            hypothesis=("OVX exceeds the realized vol of the following month in more periods than it would with "
+                        "no variance risk premium."),
+            test=("one-sided stationary block bootstrap of the share of periods with OVX above realized vol against "
+                  "the share expected with zero premium (the per-period ratios RV^2 / IV^2 rescaled to mean 1, the "
+                  "null share re-estimated in every draw; p stored in the artifact)"), source=VOL,
+            statistic=("share of periods with a positive premium %", f"{vrp}.share_positive_pct"),
+            p=Field(f"{null}.p_value_one_sided"), sided="one", beats=f"{null}.share_positive_pct",
+            context={"zero_premium_share_pct": f"{null}.share_positive_pct", "n_periods": f"{vrp}.n_periods",
+                     "mean_premium_vol_pts": f"{vrp}.mean_premium_vol_pts",
+                     "zero_premium_mean_premium_vol_pts": f"{null}.mean_premium_vol_pts"}),
+        sharpe_row("short_vol_swap", "A linear short-vol (vol-swap) proxy earns a positive Sharpe ratio.",
+                   note=("OVX is a variance-swap-style rate: with zero variance premium E[IV - RV] > 0 (Jensen's "
+                         "inequality), so this proxy's mean is positive even with no premium "
+                         "(zero_premium_mean_premium_vol_pts) and a Sharpe test against 0 overstates the evidence "
+                         "for a premium."),
+                   extra={"mean_premium_vol_pts": f"{vrp}.mean_premium_vol_pts",
+                          "zero_premium_mean_premium_vol_pts": f"{null}.mean_premium_vol_pts"}),
         sharpe_row("short_variance",
                    "A short variance-swap proxy (what an options seller holds) earns a positive Sharpe ratio."),
         Row(id="vrp_timing", family="variance risk premium",
@@ -468,16 +506,20 @@ def _vol_rows() -> list[Row]:
             sided="one", expects=POSITIVE, context={"leverage_qlike": f"{ov}.leverage_variant_qlike",
                                                     "har_iv_qlike": f"{ov}.har_qlike"}),
         lab_dm("vol_vs_implied_regression", "ovx_only", "qlike",
-               "HAR-IV beats a regression on implied vol (OVX) alone on QLIKE.", NEGATIVE),
+               "HAR-IV beats the OVX-only regression on QLIKE.", NEGATIVE),
         lab_dm("vol_vs_raw_ovx", "raw_ovx", "qlike",
                "HAR-IV beats raw OVX used directly as the forecast on QLIKE.", NEGATIVE),
         lab_dm("vol_same_day_ovx", "har_iv_sameday", "qlike",
                "Same-day OVX (the v1 timing, which settles after CL and overlaps the target) lowers QLIKE vs "
                "OVX lagged one session.", POSITIVE,
                note="An information advantage the deployed model cannot use: the reason v2 lags OVX."),
-        lab_dm("vol_challenger_qlike", "har_iv_range", "qlike",
-               "The challenger HAR-IV-range beats the model of record on QLIKE.", POSITIVE,
-               note="One pairwise test chosen after seeing the leaderboard; the SPA row controls for the search."),
+        replace(lab_dm("vol_challenger_qlike", "har_iv_range", "qlike",
+                       "The challenger HAR-IV-range beats the model of record on QLIKE.", POSITIVE,
+                       note=("Selected after a search: the challenger is the lowest-QLIKE model of the field on this "
+                             "same sample (vol_lab.choose_challenger), so this pairwise p-value ignores the search. "
+                             "The row is left out of the multiplicity family (no q-value, Holm p-value or t > 3 "
+                             "flag); the search-adjusted test of the same question is vol_spa_beats_record.")),
+                selected_after_search=True),
         lab_dm("vol_challenger_mse", "har_iv_range", "mse",
                "The challenger HAR-IV-range beats the model of record on MSE of variance.", POSITIVE),
         Row(id="vol_spa_beats_record", family="volatility forecast",
@@ -551,6 +593,8 @@ def _var_rows() -> list[Row]:
 
 
 def _shock_rows() -> list[Row]:
+    """Groups are named in the hypotheses by the study's own display names (groups[].name); the row
+    ids keep the study's group keys."""
     rows = []
     for key in ("supply_lost", "threat_only", "opec_cut", "weather", "conflict", "sanctions", "iran_driven",
                 "strait_risk"):
@@ -558,7 +602,8 @@ def _shock_rows() -> list[Row]:
         for metric, word in (("peak", "peak"), ("settle", "settled move")):
             rows.append(Row(
                 id=f"shock_{key}_{metric}", family="supply shock",
-                hypothesis=f"Events in group '{key}' move WTI differently from a random non-event date ({word}).",
+                hypothesis="Events in group '{group}' move WTI differently from a random non-event date (" + word + ").",
+                names={"group": f"{g}.name"},
                 test=(f"two-sided resampling tests of the group's median {metric} vs n random placebo dates and vs "
                       "placebo dates from each event's own year (supply_shock_study.json method); p is the larger "
                       "of the two, as the study's verdict needs both below 5% (year matching controls for the "
@@ -566,17 +611,19 @@ def _shock_rows() -> list[Row]:
                 source=SHOCK, statistic=(f"median {metric} %", f"{g}.median_{metric}_pct"),
                 p=LargestOf((f"{g}.p_value_vs_placebo.{metric}", f"{g}.p_value_vs_year_matched_placebo.{metric}")),
                 sided="two", context={"n": f"{g}.n", "placebo_median_pct": f"placebo.median_{metric}_pct"}))
+    # between_groups compares these two groups (between_groups.groups), first minus second.
+    pair = {"removal": "groups[key=supply_lost].name", "threat": "groups[key=threat_only].name"}
     rows += [
         Row(id="shock_removal_vs_threat_peak", family="supply shock",
-            hypothesis="Supply-removal events peak higher than threat-only events.",
+            hypothesis="Events in group '{removal}' peak higher than events in group '{threat}'.",
             test="two-sided permutation test of the difference in medians", source=SHOCK,
             statistic=("median peak difference %", "between_groups.median_peak_difference_pct"),
-            p=Field("between_groups.p_value.peak"), sided="two", expects=POSITIVE),
+            p=Field("between_groups.p_value.peak"), sided="two", expects=POSITIVE, names=pair),
         Row(id="shock_removal_vs_threat_settle", family="supply shock",
-            hypothesis="Supply-removal events keep more of their move than threat-only events (settle).",
+            hypothesis="Events in group '{removal}' keep more of their move than events in group '{threat}' (settle).",
             test="two-sided permutation test of the difference in medians", source=SHOCK,
             statistic=("median settle difference %", "between_groups.median_settle_difference_pct"),
-            p=Field("between_groups.p_value.settle"), sided="two", expects=POSITIVE),
+            p=Field("between_groups.p_value.settle"), sided="two", expects=POSITIVE, names=pair),
         Row(id="shock_priced_in", family="supply shock",
             hypothesis="A strong first-day move (>= 3%) changes the further rise that follows.",
             test="two-sided Mann-Whitney test, strong vs weak day-0 events", source=SHOCK,
@@ -644,14 +691,14 @@ def _status(row: Row, p: float | None, direction_ok: bool | None) -> str:
     if row.retracted:
         return "retracted"
     if direction_ok is False:
-        return "rejected"
+        return "not_supported"
     if p is None:
         return "inconclusive"
     if p < ALPHA:
         return "supported"
     if p < INCONCLUSIVE_BELOW:
         return "inconclusive"
-    return "rejected"
+    return "not_supported"
 
 
 def _artifact_date(doc: dict) -> str | None:
@@ -705,11 +752,16 @@ def build(load=None) -> dict:
             direction_ok = bool(row.expects(float(stat)))
         p_one = None if p is None else _directional_one_sided(p, row.sided, direction_ok)
         context = {k: _num(resolve(doc, v)) for k, v in row.context.items()}
+        names = {k: str(resolve(doc, v)) for k, v in row.names.items()}
+        underpowered = None
+        if row.underpowered_if is not None:
+            power, target = row.underpowered_if
+            underpowered = bool(context[power] < context[target])
         rows.append({
             "id": row.id,
             "date": _artifact_date(doc),
             "family": row.family,
-            "hypothesis": row.hypothesis,
+            "hypothesis": row.hypothesis.format(**names) if names else row.hypothesis,
             "test": row.test,
             "statistic": {"name": stat_label, "value": _num(stat)},
             "context": context,
@@ -717,49 +769,63 @@ def build(load=None) -> dict:
             "sided": row.sided,
             "p_two_sided": None if p_one is None else float(min(1.0, 2.0 * p_one)),
             "pre_specified": row.pre_specified,
+            "selected_after_search": row.selected_after_search,
             "status": _status(row, p, direction_ok),
+            "underpowered": underpowered,
             "retraction_reason": row.retracted.format(**context) if row.retracted else None,
             "note": row.note,
             "artifact": {"path": f"data/{row.source}", "statistic_field": stat_path,
                          "p_value_fields": {k: _num(v) for k, v in p_inputs.items()},
-                         "context_fields": dict(row.context)},
+                         "context_fields": dict(row.context), "name_fields": dict(row.names)},
         })
 
-    tested = [r for r in rows if r["p_two_sided"] is not None]
-    p2 = np.array([r["p_two_sided"] for r in tested])
+    for r in rows:
+        p2 = r["p_two_sided"]
+        r.update({"q_value_bh": None, "p_holm": None,
+                  "t_equivalent": None if p2 is None else round(float(stats.norm.isf(max(p2, 1e-300) / 2.0)), 2),
+                  "survives_bh_5pct": None, "survives_holm_5pct": None, "clears_hlz_t3": None})
+    # The multiplicity family: every row with a p-value except those selected after a search, whose
+    # pairwise p-value ignores the search (their adjusted fields stay null).
+    family = [r for r in rows if r["p_two_sided"] is not None and not r["selected_after_search"]]
+    p2 = np.array([r["p_two_sided"] for r in family])
     q, h = benjamini_hochberg(p2), holm(p2)
-    for r, qv, hv in zip(tested, q, h):
+    for r, qv, hv in zip(family, q, h):
         r["q_value_bh"] = float(qv)
         r["p_holm"] = float(hv)
-        r["t_equivalent"] = round(float(stats.norm.isf(max(r["p_two_sided"], 1e-300) / 2.0)), 2)
         r["survives_bh_5pct"] = bool(qv < ALPHA)
         r["survives_holm_5pct"] = bool(hv < ALPHA)
         r["clears_hlz_t3"] = bool(r["t_equivalent"] > HLZ_T)
-    for r in rows:
-        if r["p_two_sided"] is None:
-            r.update({"q_value_bh": None, "p_holm": None, "t_equivalent": None, "survives_bh_5pct": None,
-                      "survives_holm_5pct": None, "clears_hlz_t3": None})
 
     supported = [r for r in rows if r["status"] == "supported"]
+    in_family = [r for r in supported if not r["selected_after_search"]]
     summary = {
         "rows": len(rows),
-        "rows_with_p_value": len(tested),
+        "rows_with_p_value": sum(r["p_two_sided"] is not None for r in rows),
+        "rows_in_multiplicity_family": len(family),
         "by_status": {s: sum(r["status"] == s for r in rows) for s in STATUSES},
         "pre_specified_rows": sum(r["pre_specified"] for r in rows),
+        "selected_after_search": [r["id"] for r in rows if r["selected_after_search"]],
+        "underpowered": [r["id"] for r in rows if r["underpowered"]],
         "supported": [r["id"] for r in supported],
-        "supported_surviving_bh_5pct": [r["id"] for r in supported if r["survives_bh_5pct"]],
-        "supported_surviving_holm_5pct": [r["id"] for r in supported if r["survives_holm_5pct"]],
-        "supported_clearing_hlz_t3": [r["id"] for r in supported if r["clears_hlz_t3"]],
-        "supported_failing_bh_5pct": [r["id"] for r in supported if not r["survives_bh_5pct"]],
+        "supported_surviving_bh_5pct": [r["id"] for r in in_family if r["survives_bh_5pct"]],
+        "supported_surviving_holm_5pct": [r["id"] for r in in_family if r["survives_holm_5pct"]],
+        "supported_clearing_hlz_t3": [r["id"] for r in in_family if r["clears_hlz_t3"]],
+        "supported_failing_bh_5pct": [r["id"] for r in in_family if not r["survives_bh_5pct"]],
+        "supported_selected_after_search": [r["id"] for r in supported if r["selected_after_search"]],
         "by_family": _by_family(rows),
     }
     return {
         "method": ("One row per tested hypothesis; statistics and p-values read from the named artifact "
                    "fields (or computed from them by the formula in `test`). Status uses the p-value as the "
-                   "test was run (alpha 0.05; 0.05-0.10 inconclusive). Benjamini-Hochberg q-values and Holm "
-                   "adjusted p-values are computed across every row with a p-value, on p_two_sided (the "
-                   "directional one-sided p doubled, capped at 1). t_equivalent = normal quantile of "
-                   "p_two_sided; clears_hlz_t3 applies the Harvey-Liu-Zhu (2016) t > 3 hurdle."),
+                   "test was run: supported below alpha 0.05, inconclusive from 0.05 to 0.10, not_supported "
+                   "at 0.10 or above or when the estimate points the wrong way (a failure to reject, not "
+                   "evidence against the hypothesis; underpowered marks a test whose recorded power is below "
+                   "its target). Benjamini-Hochberg q-values and Holm adjusted p-values are computed across "
+                   "the rows with a p-value, on p_two_sided (the directional one-sided p doubled, capped at "
+                   "1), leaving out rows selected_after_search (a model picked as the best of a field on the "
+                   "same sample; their adjusted fields are null and their note names the search-adjusted "
+                   "test). t_equivalent = normal quantile of p_two_sided; clears_hlz_t3 applies the "
+                   "Harvey-Liu-Zhu (2016) t > 3 hurdle."),
         "alpha": ALPHA,
         "hlz_t": HLZ_T,
         "summary": summary,
@@ -778,7 +844,7 @@ def main() -> None:
         q = "   n/a  " if r["q_value_bh"] is None else f"{r['q_value_bh']:.2e}"
         flags = "".join(flag for flag, on in (("B", r["survives_bh_5pct"]), ("H", r["survives_holm_5pct"]),
                                               ("T", r["clears_hlz_t3"])) if on)
-        print(f"{r['id']:34s} {r['status']:12s} p={p} q={q} {flags:3s} {'pre' if r['pre_specified'] else ''}")
+        print(f"{r['id']:34s} {r['status']:13s} p={p} q={q} {flags:3s} {'pre' if r['pre_specified'] else ''}")
     s = ledger["summary"]
     print(f"\n{s['rows']} rows ({s['by_status']}); supported surviving BH: {len(s['supported_surviving_bh_5pct'])}"
           f"/{len(s['supported'])}; clearing t > 3: {len(s['supported_clearing_hlz_t3'])}")

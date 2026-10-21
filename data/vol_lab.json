@@ -106,7 +106,7 @@
   },
   {
    "key": "raw_ovx",
-   "label": "Implied vol (raw OVX)",
+   "label": "Raw OVX",
    "family": "implied",
    "description": "OVX itself (previous session's close) as the forecast: no fitting."
   },
@@ -148,7 +148,7 @@
   },
   {
    "key": "ovx_only",
-   "label": "Implied-vol regression",
+   "label": "OVX-only regression",
    "family": "implied",
    "description": "Log-regression of next-week realized vol on OVX alone."
   },
@@ -180,7 +180,7 @@
    "key": "combo",
    "label": "Combination",
    "family": "combination",
-   "description": "Equal-weight pool of the variances of HAR-IV, GJR-GARCH-t and the implied-vol regression."
+   "description": "Equal-weight pool of the variances of HAR-IV, GJR-GARCH-t and the OVX-only regression."
   }
  ],
  "leaderboard": {
@@ -370,7 +370,7 @@
    },
    {
     "key": "ovx_only",
-    "label": "Implied-vol regression",
+    "label": "OVX-only regression",
     "family": "implied",
     "description": "Log-regression of next-week realized vol on OVX alone.",
     "timing_control": false,
@@ -433,7 +433,7 @@
     "key": "combo",
     "label": "Combination",
     "family": "combination",
-    "description": "Equal-weight pool of the variances of HAR-IV, GJR-GARCH-t and the implied-vol regression.",
+    "description": "Equal-weight pool of the variances of HAR-IV, GJR-GARCH-t and the OVX-only regression.",
     "timing_control": false,
     "qlike": 0.3682,
     "qlike_median_forecast": 0.3967,
@@ -532,7 +532,7 @@
    },
    {
     "key": "raw_ovx",
-    "label": "Implied vol (raw OVX)",
+    "label": "Raw OVX",
     "family": "implied",
     "description": "OVX itself (previous session's close) as the forecast: no fitting.",
     "timing_control": false,
