@@ -1,13 +1,14 @@
 name: Tests
 
-# Fast, deterministic checks for every pull request and branch change. The
-# scheduled data/state bot uses [skip ci], so its evidence-only commits do not
-# consume runners.
+# Fast, deterministic checks for every pull request and every change to main. A
+# feature branch is checked by its pull request, so pushes to it do not run the
+# workflow a second time. The scheduled data/state bot uses [skip ci], so its
+# evidence-only commits do not consume runners.
 
 on:
   push:
     branches:
-      - '**'
+      - main
   pull_request:
   workflow_dispatch: {}
   schedule:
@@ -25,7 +26,7 @@ jobs:
   python:
     name: Python
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,27 +38,72 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
       - name: Install dependencies
+        # requirements-dev.txt pins the tools (mypy and stubs, hypothesis, coverage, ruff, bandit,
+        # pip-audit), so CI and a local `pip install -r requirements-dev.txt` run the same versions.
         run: |
           python -m pip install --disable-pip-version-check --retries 5 --timeout 60 -r requirements.txt
-          python -m pip install --disable-pip-version-check ruff==0.15.18 pip-audit==2.10.1 bandit==1.9.4
+          python -m pip install --disable-pip-version-check --retries 5 --timeout 60 -r requirements-dev.txt
           python -m pip check
 
       - name: Audit Python dependencies
-        run: python -m pip_audit -r requirements.txt
+        run: python -m pip_audit -r requirements.txt -r requirements-dev.txt
 
       - name: Lint Python
         run: ruff check backend/ scripts/ tests/ freeze.py ./*.py --select F,E9
 
+      - name: Type-check (mypy strict; scope in pyproject.toml)
+        run: python -m mypy
+
       - name: Scan Python for insecure constructs
         run: python -m bandit -q -r backend scripts freeze.py
 
-      - name: Run unit tests
+      - name: Run unit tests with branch coverage
         env:
           PYTHONDONTWRITEBYTECODE: '1'
           PYTHONPATH: .
-        run: python -B -m unittest discover -s tests -v
+        run: python -B -m coverage run --branch -m unittest discover -s tests -v
+
+      - name: Report coverage
+        # The table goes to the run's summary page and the XML/HTML reports to an artifact; the last
+        # command is the gate (fail_under in pyproject.toml).
+        run: |
+          set -euo pipefail
+          python -m coverage xml -o coverage.xml --fail-under=0
+          python -m coverage html -d htmlcov --fail-under=0
+          {
+            echo "### Python coverage (statements and branches)"
+            echo
+            python -m coverage report --format=markdown --fail-under=0
+          } >> "$GITHUB_STEP_SUMMARY"
+          python -m coverage report
+
+      - name: Upload coverage report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-report
+          path: |
+            coverage.xml
+            htmlcov/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Generated docs match the committed artifacts
+        # Every number in the README, the model card and the datasheet is generated from data/*.json
+        # by scripts/readme_blocks.py, and every figure by scripts/make_figures.py; neither may drift.
+        env:
+          PYTHONPATH: .
+        run: |
+          set -euo pipefail
+          python -m cogapp --check --diff --check-fail-msg='run: PYTHONPATH=. cog -r README.md docs/MODEL_CARD.md docs/DATASHEET.md' \
+            README.md docs/MODEL_CARD.md docs/DATASHEET.md
+          python -B scripts/make_figures.py
+          git diff --exit-code --stat -- docs/figures
 
       - name: Validate checked-in dashboard fixture
         run: python scripts/validate_frozen_payload.py tests/fixtures/valid_frozen_payload.json
@@ -107,28 +153,62 @@ jobs:
         run: npm test
 
       - name: Audit JS dependencies
-        # A real advisory still fails this step. A registry/network error (the 2026-09-03 deploy
-        # died on an npm advisory-endpoint timeout) is retried, then only warned: an unreachable
-        # audit endpoint is not a vulnerability. Keeps a registry blip from turning CI red without a real finding.
+        # Production dependencies (what ships in the static site): a real advisory fails this step
+        # on every event. The full tree (dev tooling included: eslint, vite) is strict on pull
+        # requests, pushes and manual runs; on the weekly schedule a dev-only advisory is a warning
+        # annotation instead, so an upstream advisory in build tooling, with no fix to take yet,
+        # does not turn main's badge red between pull requests. A registry or network error from
+        # the advisory endpoint is retried, then only warned: an unreachable audit endpoint is not
+        # a vulnerability.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -uo pipefail
-          for attempt in 1 2 3; do
-            if output="$(npm audit --audit-level=low 2>&1)"; then
+          # Prints the audit; returns 0 when clean or unreachable after retries, 1 on an advisory.
+          audit() {
+            local scope="$1"
+            shift
+            local attempt output
+            for attempt in 1 2 3; do
+              if output="$(npm audit --audit-level=low "$@" 2>&1)"; then
+                printf '%s\n' "$output"
+                return 0
+              fi
+              if printf '%s' "$output" | grep -qiE 'audit endpoint returned an error|network timeout|ENOTFOUND|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ECONNREFUSED|socket hang up|fetch failed'; then
+                echo "npm audit (${scope}) registry/network error on attempt ${attempt}" >&2
+                if [ "$attempt" -eq 3 ]; then
+                  echo "::warning title=npm audit unreachable::The npm advisory endpoint was unreachable after 3 attempts, so the ${scope} audit was skipped for this run. It is re-run on every pull request and on the weekly Tests schedule."
+                  return 0
+                fi
+                sleep $((attempt * 20))
+                continue
+              fi
               printf '%s\n' "$output"
+              return 1
+            done
+          }
+
+          echo "::group::npm audit --omit=dev (production dependencies)"
+          audit production --omit=dev
+          production=$?
+          echo "::endgroup::"
+          if [ "$production" -ne 0 ]; then
+            echo "::error title=npm audit (production)::A production dependency has a known advisory."
+            exit 1
+          fi
+
+          echo "::group::npm audit (all dependencies, dev tooling included)"
+          audit all
+          all=$?
+          echo "::endgroup::"
+          if [ "$all" -ne 0 ]; then
+            if [ "$EVENT_NAME" = "schedule" ]; then
+              echo "::warning title=npm audit (dev tooling)::A development-only dependency has a known advisory (production dependencies are clean). Scheduled runs report it as a warning; pull requests and pushes still fail on it."
               exit 0
             fi
-            if printf '%s' "$output" | grep -qiE 'audit endpoint returned an error|network timeout|ENOTFOUND|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ECONNREFUSED|socket hang up|fetch failed'; then
-              echo "npm audit registry/network error on attempt ${attempt}" >&2
-              if [ "$attempt" -eq 3 ]; then
-                echo "::warning title=npm audit unreachable::The npm advisory endpoint was unreachable after 3 attempts, so this audit was skipped for this run. It is re-run on every pull request and on the weekly Tests schedule."
-                exit 0
-              fi
-              sleep $((attempt * 20))
-              continue
-            fi
-            printf '%s\n' "$output"
+            echo "::error title=npm audit (dev tooling)::A development dependency has a known advisory."
             exit 1
-          done
+          fi
 
       - name: Build static site
         env:

@@ -1,6 +1,7 @@
 {
+  "status": "retracted: measured on the leaked (unpurged) direction model's trades (see data/leak_anatomy.json)",
   "timestamp": "2026-06-11T15:27:18.778439+00:00",
-  "source": "data/walk_forward_backtest_latest.json (1w trades, n=199)",
+  "source": "data/walk_forward_backtest_latest.json as it stood when this ran: the original unpurged 1w run (n=199 trades). That file now holds the purged run.",
   "method": "Lag-1..10 autocorrelation of the OOS direction-hit series (gross-correct = pnl > -cost), Bartlett-kernel Newey-West ESS at L=5, z-test for accuracy > 50% at that ESS.",
   "hit_rate_pct": 65.83,
   "autocorr_hits_lag1_10": [

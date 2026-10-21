@@ -1,18 +1,26 @@
 #!/usr/bin/env python3
 """
-WTI Oil Prediction Server - REAL DATA ONLY
-===========================================
-Pure oil.py foundation - NO FALLBACKS, NO PLACEHOLDERS
-Serves only real ML predictions and stored data
+WTI crude volatility dashboard API: the local development server, and the renderer freeze.py uses
+================================================================================================
+/data serves the dashboard payload, docs/DATA_CONTRACT.md data.json schema_version 3:
+
+  contract + price fields   backend/oil.py get_current_wti_contract (Yahoo CL=F)
+  unified_data.actual       backend/oil.py get_historical_data (CL=F daily and hourly bars, then the quote)
+  vol_forecast              backend/vol_forecast.py forecast_bundle (the validated HAR-IV forecaster)
+  supply_shock_playbook     backend/supply_shock_playbook.py (EIA spot history; cached, key optional)
+  retracted_direction_model a fixed statement, not a model output
+
+freeze.py renders it once per refresh into the static site's data.json and adds frozen_at.
+
+The 1-week price-direction ensemble (oil.py PremiumWTIPredictor) is RETRACTED: purged of its
+look-ahead leak it is a coin flip out of sample. Nothing here trains or runs it, and no news or other
+optional keyed provider is called; backend/backtest_walk_forward.py keeps the post-mortem reproducible.
 """
 
 import time
 import threading
 import os
-import json
-import math
 from datetime import datetime, timezone
-from pathlib import Path
 import logging
 from flask import Flask, jsonify, make_response, request
 from flask_cors import CORS
@@ -37,44 +45,33 @@ CORS(
     allow_headers=["Accept", "Content-Type"],
 )
 
-# FIX #6: Global startup synchronization event
+SERVICE_NAME = 'WTI Crude Volatility Dashboard API'
+SCHEMA_VERSION = 3
+RETRACTED_DIRECTION_MODEL = {
+    'status': 'RETRACTED',
+    'reason': 'look-ahead leak; purged, the signal is a coin flip',
+    'evidence': 'research.json postmortem',
+}
+
+# Startup synchronization: /data is served only once the contract quote has been fetched.
 _startup_ready = threading.Event()
-_startup_complete_time = None
 _startup_lock = threading.Lock()
 _startup_thread = None
 _startup_started = False
-_startup_error = None
 _startup_attempts = 0
 _startup_next_retry_at = 0.0
-_prediction_refresh_lock = threading.Lock()
 _rate_limit_lock = threading.Lock()
 _data_request_times = {}
 
 # Import oil.py functions - CRITICAL DEPENDENCY
 try:
-    from .oil import (
-        get_current_wti_contract,
-        get_multi_horizon_wti_predictions, 
-        get_prediction_accuracy_metrics,
-        store_actual_price_update,
-        get_historical_data
-    )
-    logger.info("✅ Successfully imported oil.py functions")
+    from .oil import get_current_wti_contract, get_historical_data
     OIL_IMPORTS_AVAILABLE = True
 except Exception as e:
-    logger.critical(f"❌ CRITICAL: Cannot import oil.py functions: {e}")
+    logger.critical("CRITICAL: Cannot import oil.py functions (%s)", type(e).__name__)
     OIL_IMPORTS_AVAILABLE = False
 
-# Global system state - REAL DATA ONLY
-system_state = {
-    'initialized': False,
-    'ml_ready': False,
-    'last_prediction_time': 0,
-    'last_price_update_time': 0,
-    'error_count': 0,
-    'cached_predictions': None,
-    'cached_accuracy': None
-}
+system_state = {'initialized': False}
 
 
 def _utc_now_iso():
@@ -92,14 +89,10 @@ def _bounded_env_int(name, default, minimum, maximum):
     return max(minimum, min(maximum, value))
 
 
-EAGER_ML_WARMUP = os.getenv('EAGER_ML_WARMUP', 'false').lower() == 'true'
-_PLAYBOOK_CACHE: dict = {}   # drivers tuple -> {"data": playbook | None, "built_at": epoch}
-_playbook_lock = threading.Lock()
 API_STARTUP_RETRY_SECONDS = _bounded_env_int('API_STARTUP_RETRY_SECONDS', 5, 2, 60)
 STARTUP_RETRY_COOLDOWN_SECONDS = _bounded_env_int(
     'STARTUP_RETRY_COOLDOWN_SECONDS', 20, 5, 600
 )
-PRIMARY_DISPLAY_HORIZON = os.getenv('PRIMARY_DISPLAY_HORIZON', '1w').lower()
 DATA_RATE_LIMIT_PER_MINUTE = _bounded_env_int('DATA_RATE_LIMIT_PER_MINUTE', 30, 5, 600)
 
 
@@ -130,11 +123,10 @@ def _set_security_headers(response):
 def startup_payload(message, retry_after_seconds=None):
     retry_seconds = int(retry_after_seconds or API_STARTUP_RETRY_SECONDS)
     payload = {
-        'service': 'WTI Oil Price Prediction API',
+        'service': SERVICE_NAME,
         'status': 'INITIALIZING',
         'ready': False,
         'startup_ready': False,
-        'ml_ready': False,
         'error': 'SYSTEM_INITIALIZING',
         'message': message,
         'retry_after_seconds': retry_seconds,
@@ -153,478 +145,148 @@ def startup_retry_seconds():
     return API_STARTUP_RETRY_SECONDS
 
 
-# The 1H horizon is still computed (it shares the pipeline) but was removed from display: it never
-# reached a testable sample and is indistinguishable from noise, so it may never be the headline.
-HEADLINE_HORIZONS = ('1w', '1d')
-
-
-def _interval_in_cents(interval, published_forecast):
-    """The interval on the cent grid its forecast is published on, always containing that
-    published (rounded) forecast.
-
-    Unrounded bounds next to a rounded forecast broke the payload's own invariant: a fallback
-    interval spans [min(forecast, quote), max(forecast, quote)], so the forecast IS a bound, and
-    rounding it moved it just outside about half the time, which failed the deploy's validation.
-    """
-    if not isinstance(interval, dict):
-        return interval
-    published = dict(interval)
-    for key, widen in (('lower', min), ('upper', max)):
-        bound = interval.get(key)
-        if isinstance(bound, bool) or not isinstance(bound, (int, float)) or not math.isfinite(bound):
-            continue                                # left as is: the validator rejects it
-        rounded = round(float(bound), 2)
-        published[key] = widen(rounded, published_forecast) if published_forecast is not None else rounded
-    return published
-
-
-def _ordered_display_horizons(preferred_horizon):
-    ordered = []
-    for horizon in [preferred_horizon, *HEADLINE_HORIZONS]:
-        if horizon in HEADLINE_HORIZONS and horizon not in ordered:
-            ordered.append(horizon)
-    return ordered
-
-
-WALK_FORWARD_STATS_PATH = Path(__file__).resolve().parent.parent / 'data' / 'walk_forward_backtest_latest.json'
-# Every backtest run writes that file by default, so a comparison run (README: --features all or
-# price_only, no --lag-context) must never stand in for the live model's evidence or flip
-# wf_is_significant. Accepted: the configuration the live 1D/1W models reproduce (oil.py) — no
-# FRED/EIA macro, cross-asset context lagged one trading day, the production 378-row rolling window
-# — on a pinned --start/--end window (period None). Reports from before --train-window existed (the
-# leaked, unpurged run) carry no train_window and are rejected too. backtest_walk_forward's
-# is_validated_configuration applies the same rule when it writes the file.
-VALIDATED_WALK_FORWARD_CONFIG = {
-    'feature_mode': ('no_macro',),
-    'context_lag_days': (1,),
-    'train_window': (378,),
-}
-
-
-# Training rows dropped before each prediction, horizon_steps - 1 (backtest_walk_forward.purge_count):
-# a report run with --no-purge reproduces the retracted leak and must never count as evidence.
-VALIDATED_PURGE_ROWS = {'1d': 0, '1w': 4}
-
-
-def _walk_forward_config_mismatch(config) -> str | None:
-    """Why a backtest report is not evidence for the live model, or None when it is."""
-    if not isinstance(config, dict):
-        return 'report has no config'
-    for key, accepted in VALIDATED_WALK_FORWARD_CONFIG.items():
-        if config.get(key) not in accepted:
-            return f'config.{key}={config.get(key)!r} (validated: {", ".join(map(repr, accepted))})'
-    if 'period' not in config or config['period'] is not None:
-        return f"config.period={config.get('period')!r} (validated: a pinned --start/--end window)"
-    purge = config.get('purge_rows_by_horizon')
-    if not isinstance(purge, dict) or not purge or any(
-        VALIDATED_PURGE_ROWS.get(horizon) != rows for horizon, rows in purge.items()
-    ):
-        return f'config.purge_rows_by_horizon={purge!r} (validated: {VALIDATED_PURGE_ROWS!r})'
-    return None
-
-
-def _load_walk_forward_stats() -> dict:
-    """Load the walk-forward backtest JSON and return per-horizon ensemble metrics.
-    Returns {} if the file is missing, malformed, or from a configuration other than the live
-    model's — callers treat missing stats as unavailable, so the 1W stance stays retracted.
-    """
-    try:
-        path = WALK_FORWARD_STATS_PATH
-        if not path.exists():
-            return {}
-        data = json.loads(path.read_text(encoding='utf-8'))
-        mismatch = _walk_forward_config_mismatch(data.get('config'))
-        if mismatch:
-            logger.warning('Ignoring %s: not the validated configuration (%s)', path.name, mismatch)
-            return {}
-        results = data.get('results', {})
-        out = {}
-        for horizon, hr in results.items():
-            ens = hr.get('metrics', {}).get('ensemble', {})
-            if not ens or not ens.get('samples'):
-                continue
-            pnl = hr.get('pnl_metrics', {})
-            out[horizon] = {
-                'direction_accuracy':  float(ens.get('direction_accuracy', 0)),
-                'samples':             int(ens.get('samples', 0)),
-                'direction_p_value':   float(ens.get('direction_p_value', 1.0)),
-                'direction_ci_95':     ens.get('direction_ci_95', [0.0, 100.0]),
-                'is_significant_5pct': bool(ens.get('is_significant_5pct', False)),
-                'mae':                 float(ens.get('mae', 0)),
-                'mae_improvement_pct': float(hr.get('mae_improvement_vs_best_baseline_pct', 0)),
-                'pnl_sharpe':          float(pnl['sharpe_ratio_annualized']) if pnl.get('sharpe_ratio_annualized') is not None else None,
-                'pnl_mean_per_trade':  float(pnl['mean_pnl_per_trade_usd']) if pnl.get('mean_pnl_per_trade_usd') is not None else None,
-                'pnl_win_rate':        float(pnl['win_rate_pct']) if pnl.get('win_rate_pct') is not None else None,
-                'pnl_max_drawdown':    float(pnl['max_drawdown_usd']) if pnl.get('max_drawdown_usd') is not None else None,
-                'pnl_total':           float(pnl['total_pnl_usd']) if pnl.get('total_pnl_usd') is not None else None,
-                'pnl_profit_factor':   float(pnl['profit_factor']) if pnl.get('profit_factor') is not None else None,
-                'pnl_n_trades':        int(pnl['n_trades']) if pnl.get('n_trades') else 0,
-                # Per-trade series for the OOS equity curve (present in artifacts
-                # generated after the trades field was added to the backtest).
-                'pnl_trades':          hr.get('trades', []),
-                # Per-calendar-year Sharpe/P&L/win-rate (artifacts from Jun 2026 on).
-                'yearly_breakdown':    hr.get('yearly_breakdown', {}),
-            }
-        return out
-    except Exception as e:
-        logger.warning(f'Could not load walk-forward backtest stats: {e}')
-        return {}
-
-
-PLAYBOOK_TTL_SECONDS = 21600
-PLAYBOOK_FAILURE_BACKOFF_SECONDS = 600
-
-
-def _load_supply_shock_playbook(current_drivers=None):
-    """Load the EIA-sourced supply-shock playbook (cache-first, 6h TTL).
-
-    The analogue ranking depends on the active news drivers, so the cache is keyed on them: a
-    single slot served a hurricane ranking to an Iran-conflict request for up to six hours. A
-    failed build is cached briefly too, so an EIA outage is not retried on every request.
-    """
-    key = tuple(sorted({str(d).lower() for d in (current_drivers or [])}))
-    now = time.time()
-    with _playbook_lock:
-        entry = _PLAYBOOK_CACHE.get(key)
-        if entry and now - entry["built_at"] < (
-            PLAYBOOK_TTL_SECONDS if entry["data"] is not None else PLAYBOOK_FAILURE_BACKOFF_SECONDS
-        ):
-            return entry["data"]
-    result = None
-    try:
-        from .supply_shock_playbook import get_playbook_for_api
-        result = get_playbook_for_api(current_drivers=list(key))
-    except Exception as exc:
-        logger.debug("Supply-shock playbook unavailable (%s)", type(exc).__name__)
-    with _playbook_lock:
-        if len(_PLAYBOOK_CACHE) > 64:
-            _PLAYBOOK_CACHE.clear()
-        if result is None and entry and entry["data"] is not None:
-            return entry["data"]            # keep serving the last good build during an outage
-        _PLAYBOOK_CACHE[key] = {"data": result, "built_at": now}
-    return result
-
-
+# Both cached blocks are rebuilt at most every 6 hours, one build at a time. A failed build is retried
+# only after FAILURE_BACKOFF_SECONDS (no retry storm on Yahoo or EIA), and the last good build is
+# served meanwhile.
 VOL_FORECAST_TTL_SECONDS = 21600
+PLAYBOOK_TTL_SECONDS = 21600
+FAILURE_BACKOFF_SECONDS = 600
 _VOL_CACHE: dict = {"data": None, "built_at": 0.0, "failed_at": 0.0}
+_PLAYBOOK_CACHE: dict = {"data": None, "built_at": 0.0, "failed_at": 0.0}
 _vol_lock = threading.Lock()
+_playbook_lock = threading.Lock()
+
+
+def _cached_build(cache, lock, ttl, build, label):
+    now = time.time()
+    with lock:
+        if cache["data"] is not None and now - cache["built_at"] < ttl:
+            return cache["data"]
+        if now - cache["failed_at"] < FAILURE_BACKOFF_SECONDS:
+            return cache["data"]
+        try:
+            result = build()
+        except Exception as exc:
+            logger.warning("%s unavailable (%s)", label, type(exc).__name__)
+            result = None
+        if result is None:
+            cache["failed_at"] = now
+        else:
+            cache.update(data=result, built_at=now)
+        return cache["data"]
+
+
+def _build_vol_forecast():
+    from .vol_forecast import forecast_bundle
+    return forecast_bundle()
+
+
+def _build_supply_shock_playbook():
+    # Cache-first on the committed EIA series (data/eia_wti_spot_daily.json); EIA_API_KEY, when set,
+    # only extends it. Analogues are ranked by recency: no news feed is read to rank them by driver.
+    from .supply_shock_playbook import get_playbook_for_api
+    return get_playbook_for_api()
 
 
 def _load_vol_forecast():
-    """The validated HAR-IV card (backend/vol_forecast.py), so the local server shows what the
-    static site shows. Rebuilt at most every 6 hours, one build at a time; a failure backs off
-    for 10 minutes and the dashboard simply omits the card meanwhile."""
-    now = time.time()
-    with _vol_lock:
-        if _VOL_CACHE["data"] is not None and now - _VOL_CACHE["built_at"] < VOL_FORECAST_TTL_SECONDS:
-            return _VOL_CACHE["data"]
-        if now - _VOL_CACHE["failed_at"] < PLAYBOOK_FAILURE_BACKOFF_SECONDS:
-            return _VOL_CACHE["data"]
-        try:
-            from .vol_forecast import forecast_bundle
-            _VOL_CACHE.update(data=forecast_bundle(), built_at=now)
-        except Exception as exc:
-            logger.warning("Volatility forecast unavailable (%s)", type(exc).__name__)
-            _VOL_CACHE["failed_at"] = now
-        return _VOL_CACHE["data"]
+    """The validated HAR-IV block (backend/vol_forecast.py forecast_bundle), or None while unavailable."""
+    return _cached_build(_VOL_CACHE, _vol_lock, VOL_FORECAST_TTL_SECONDS, _build_vol_forecast,
+                         "Volatility forecast")
 
 
-def _load_live_record_summary():
-    """Summary of the git-committed live 1W track record (see backend/live_record.py)."""
-    try:
-        path = Path(__file__).parent.parent / 'data' / 'live_track_record.json'
-        if not path.exists():
-            return None
-        summary = json.loads(path.read_text(encoding='utf-8')).get('summary')
-        return summary if isinstance(summary, dict) else None
-    except Exception as e:
-        logger.debug(f'Live track record unavailable: {e}')
-        return None
+def _load_supply_shock_playbook():
+    """The EIA supply-shock event study, or None while unavailable."""
+    return _cached_build(_PLAYBOOK_CACHE, _playbook_lock, PLAYBOOK_TTL_SECONDS, _build_supply_shock_playbook,
+                         "Supply-shock playbook")
 
 
-def _build_horizon_metrics(accuracy_metrics, horizon_backtests, horizon_confidence, horizon_quality, min_live_accuracy_samples):
-    # Merge in the purged walk-forward backtest stats (data/walk_forward_backtest_latest.json) so the
-    # frontend can show real p-values and confidence intervals, not just in-training diagnostics.
-    wf_stats = _load_walk_forward_stats()
+def _vol_forecast_ready():
+    return _VOL_CACHE["data"] is not None
 
-    by_horizon = {}
-    for horizon in ['1h', '1d', '1w']:
-        live_metrics = accuracy_metrics.get(horizon, {}) if isinstance(accuracy_metrics, dict) else {}
-        backtest_metrics = horizon_backtests.get(horizon, {}) if isinstance(horizon_backtests, dict) else {}
-        quality_metrics = horizon_quality.get(horizon, {}) if isinstance(horizon_quality, dict) else {}
-        wf = wf_stats.get(horizon, {})
 
-        live_total = int(live_metrics.get('total_predictions', 0) or 0)
-        live_direction_accuracy = float(live_metrics.get('direction_accuracy', 0.0) or 0.0)
+def _vol_retry_seconds():
+    """When the volatility forecast is next attempted (it is rebuilt on a /data request)."""
+    remaining = _VOL_CACHE["failed_at"] + FAILURE_BACKOFF_SECONDS - time.time()
+    return max(API_STARTUP_RETRY_SECONDS, int(round(remaining)))
 
-        # Prefer walk-forward stats (out-of-sample) over in-training diagnostics
-        wf_direction_accuracy = wf.get('direction_accuracy')
-        wf_samples = int(wf.get('samples', 0) or 0)
-        backtest_direction_accuracy = wf_direction_accuracy if wf_direction_accuracy is not None \
-            else backtest_metrics.get('direction_accuracy')
-        backtest_samples = wf_samples if wf_samples > 0 \
-            else (int(backtest_metrics.get('samples', 0) or 0) if isinstance(backtest_metrics, dict) else 0)
 
-        confidence_value = float(horizon_confidence.get(horizon, 0.0) or 0.0) if isinstance(horizon_confidence, dict) else 0.0
+def _volume_display(volume):
+    if volume >= 1000000:
+        return f"{volume / 1000000:.1f}M"
+    if volume >= 1000:
+        return f"{volume / 1000:.1f}K"
+    return f"{volume:.0f}" if volume > 0 else "N/A"
 
-        display_accuracy = None
-        display_accuracy_source = 'unavailable'
-        if live_total >= min_live_accuracy_samples:
-            display_accuracy = live_direction_accuracy
-            display_accuracy_source = 'live'
-        elif live_total > 0:
-            use_sparse_live = isinstance(quality_metrics, dict) and bool(quality_metrics.get('qualified'))
-            if use_sparse_live:
-                display_accuracy = live_direction_accuracy
-                display_accuracy_source = 'live_sparse'
-            elif backtest_direction_accuracy is not None:
-                display_accuracy = float(backtest_direction_accuracy)
-                display_accuracy_source = 'backtest'
-            else:
-                display_accuracy = live_direction_accuracy
-                display_accuracy_source = 'live_sparse'
-        elif backtest_direction_accuracy is not None:
-            display_accuracy = float(backtest_direction_accuracy)
-            display_accuracy_source = 'backtest'
 
-        by_horizon[horizon] = {
-            'live_direction_accuracy': live_direction_accuracy,
-            'live_total_predictions': live_total,
-            'backtest_direction_accuracy': float(backtest_direction_accuracy) if backtest_direction_accuracy is not None else None,
-            'backtest_samples': backtest_samples,
-            'display_accuracy': float(display_accuracy) if display_accuracy is not None else None,
-            'display_accuracy_source': display_accuracy_source,
-            'confidence': confidence_value,
-            'quality': quality_metrics if isinstance(quality_metrics, dict) else {},
-            # Walk-forward significance stats — only present for horizons with a completed backtest
-            'wf_p_value':           float(wf['direction_p_value']) if wf.get('direction_p_value') is not None else None,
-            'wf_ci_95':             wf.get('direction_ci_95'),
-            'wf_is_significant':    bool(wf['is_significant_5pct']) if 'is_significant_5pct' in wf else None,
-            'wf_samples':           wf_samples if wf_samples > 0 else None,
-            'wf_mae_improvement_pct': float(wf['mae_improvement_pct']) if wf.get('mae_improvement_pct') is not None else None,
-            # Dollar P&L stats (1 contract, $100 round-trip cost)
-            'wf_pnl_sharpe':        wf.get('pnl_sharpe'),
-            'wf_pnl_mean_per_trade': wf.get('pnl_mean_per_trade'),
-            'wf_pnl_win_rate':      wf.get('pnl_win_rate'),
-            'wf_pnl_max_drawdown':  wf.get('pnl_max_drawdown'),
-            'wf_pnl_total':         wf.get('pnl_total'),
-            'wf_pnl_profit_factor': wf.get('pnl_profit_factor'),
-            'wf_pnl_n_trades':      wf.get('pnl_n_trades', 0),
-            'wf_pnl_trades':        wf.get('pnl_trades', []),
-            'wf_yearly_breakdown':  wf.get('yearly_breakdown', {}),
-        }
+def dashboard_payload(contract_info):
+    """The data.json schema_version 3 payload for a contract quote (docs/DATA_CONTRACT.md)."""
+    current_price = float(contract_info['current_price'])
+    volume = contract_info.get('volume') or 0
+    # oil.py publishes an unknown daily change as null, never as a fabricated 0.00%: withheld on
+    # purpose around a roll or before the previous settlement is out (weekday evenings).
+    price_change = contract_info.get('price_change')
+    price_change_percent = contract_info.get('price_change_percent')
+    price_change_quality = contract_info.get('price_change_quality') or 'unavailable'
+    if price_change is None and not price_change_quality.startswith('unavailable'):
+        price_change_quality = 'unavailable'
+    return {
+        'schema_version': SCHEMA_VERSION,
+        'last_update': _utc_now_iso(),
+        # Yahoo's NYMEX quotes are exchange-delayed (~10 min), so the best state is LIVE, never
+        # "REAL-TIME"; freeze.py overrides this to SNAPSHOT for the static site.
+        'feed_status': 'LIVE',
+        'contract': {
+            'symbol': contract_info['symbol'],
+            'description': contract_info['description'],
+            'expiry_date': contract_info.get('expiry_date'),
+            'last_trade_date': contract_info.get('contract_last_trade_date') or contract_info.get('expiry_date'),
+            'days_to_expiry': contract_info.get('days_to_expiry'),
+            'market_time': contract_info.get('market_time'),
+            # How the label was established ('calendar', 'quote_match' near a roll, or
+            # 'contract_symbol' when quoted from the contract itself).
+            'contract_basis': contract_info.get('contract_basis'),
+            'quote_symbol': contract_info.get('yfinance_symbol'),
+            'history_symbol': contract_info.get('history_symbol'),
+            'market_session_date': contract_info.get('market_session_date'),
+            'quote_session_date': contract_info.get('quote_session_date'),
+        },
+        'current_price': round(current_price, 2),
+        'price_change': round(price_change, 3) if price_change is not None else None,
+        'price_change_percent': round(price_change_percent, 2) if price_change_percent is not None else None,
+        'price_change_quality': price_change_quality,
+        'volume': volume,
+        'volume_display': _volume_display(volume),
+        # The chart ends at the quote itself (kind 'live'), stamped with its exchange time.
+        'unified_data': get_historical_data(
+            live_quote=(contract_info.get('market_time'), current_price, volume)
+        ),
+        'vol_forecast': _load_vol_forecast(),
+        'supply_shock_playbook': _load_supply_shock_playbook(),
+        'retracted_direction_model': dict(RETRACTED_DIRECTION_MODEL),
+    }
 
-    preferred_order = _ordered_display_horizons(PRIMARY_DISPLAY_HORIZON)
-    def headline_rank(horizon):
-        metrics = by_horizon.get(horizon, {})
-        quality = metrics.get('quality', {}) if isinstance(metrics.get('quality', {}), dict) else {}
-        status = str(quality.get('status', 'unknown')).lower()
-        display_accuracy = metrics.get('display_accuracy')
-        confidence = float(metrics.get('confidence', 0.0) or 0.0)
-        live_samples = int(metrics.get('live_total_predictions', 0) or 0)
-        backtest_samples = int(metrics.get('backtest_samples', 0) or 0)
-        evidence_count = max(live_samples, backtest_samples)
-        accuracy_source = str(metrics.get('display_accuracy_source', 'unavailable'))
-
-        return (
-            1 if bool(quality.get('qualified')) else 0,
-            1 if status == 'watch' else 0,
-            1 if display_accuracy is not None else 0,
-            float(display_accuracy) if display_accuracy is not None else float('-inf'),
-            confidence,
-            1 if accuracy_source in {'live', 'live_sparse'} else 0,
-            evidence_count,
-            -preferred_order.index(horizon),
-        )
-
-    headline_horizon = max(preferred_order, key=headline_rank)
-
-    return by_horizon, headline_horizon
-
-def test_ml_system_readiness():
-    """Test if ML system is ready by calling oil.py functions"""
-    try:
-        # Test contract detection first
-        contract_info = get_current_wti_contract()
-        if not contract_info or not contract_info.get('current_price'):
-            return False
-
-        predictions, _ = get_cached_ml_data()
-        if not predictions or not predictions.get('is_real_prediction'):
-            return False
-            
-        # Cache the predictions for serving
-        system_state['cached_predictions'] = predictions
-        system_state['ml_ready'] = True
-        return True
-        
-    except Exception as e:
-        logger.debug(f"ML system not ready: {e}")
-        return False
-
-def get_cached_ml_data(force_refresh=False, refresh_if_stale=True):
-    """Get ML data, optionally forcing generation outside request handlers."""
-    try:
-        current_time = time.time()
-        cached_predictions = system_state.get('cached_predictions')
-        cache_age = current_time - system_state.get('last_prediction_time', 0)
-        cache_is_fresh = bool(cached_predictions) and cache_age < 300
-
-        if cache_is_fresh and not force_refresh:
-            predictions = cached_predictions
-        elif not refresh_if_stale and not force_refresh:
-            # Requests may serve the last successful prediction while the background
-            # worker refreshes it, but must never start an expensive model build.
-            predictions = cached_predictions
-        else:
-            with _prediction_refresh_lock:
-                cached_predictions = system_state.get('cached_predictions')
-                cache_age = current_time - system_state.get('last_prediction_time', 0)
-                if cached_predictions and cache_age < 300 and not force_refresh:
-                    predictions = cached_predictions
-                else:
-                    predictions = get_multi_horizon_wti_predictions()
-                    if predictions and predictions.get('is_real_prediction'):
-                        system_state['cached_predictions'] = predictions
-                        # Timestamp the completed generation, not when it started.
-                        system_state['last_prediction_time'] = time.time()
-                        system_state['ml_ready'] = True
-                    else:
-                        predictions = None
-        
-        # Get accuracy metrics
-        accuracy_metrics = None
-        try:
-            accuracy_metrics = get_prediction_accuracy_metrics()
-            system_state['cached_accuracy'] = accuracy_metrics
-        except Exception as acc_error:
-            logger.debug(f"Accuracy metrics not available: {acc_error}")
-            accuracy_metrics = system_state.get('cached_accuracy')
-        
-        return predictions, accuracy_metrics
-        
-    except Exception as e:
-        logger.warning(f"Failed to get ML data: {e}")
-        return None, None
 
 def initialize_oil_system():
-    """Initialize the oil prediction system - REAL DATA ONLY"""
+    """Fetch the contract quote and warm the volatility forecast. Trains and runs no model.
+
+    Raises when there is no quote, so a one-shot freeze fails visibly and the previous good snapshot
+    stays live. A volatility-forecast failure is only logged here: /data retries it after the backoff,
+    and freeze.py refuses to publish without it.
+    """
     if not OIL_IMPORTS_AVAILABLE:
-        raise Exception("CRITICAL: oil.py imports not available - cannot start server")
-    
+        raise RuntimeError("CRITICAL: oil.py imports not available - cannot start server")
     try:
-        logger.info("🔧 Initializing oil prediction system...")
-        
-        # Test contract detection
         contract_info = get_current_wti_contract()
-        logger.info(f"✅ Active contract: {contract_info['symbol']} @ ${contract_info['current_price']:.2f}")
-        
-        # Update lightweight startup state first so service is available quickly.
-        system_state['initialized'] = True
-        system_state['ml_ready'] = False
-        system_state['cached_predictions'] = None
-        system_state['cached_accuracy'] = None
-        system_state['last_prediction_time'] = 0
-
-        if EAGER_ML_WARMUP:
-            logger.info("🔄 EAGER_ML_WARMUP enabled - generating initial predictions...")
-            predictions = get_multi_horizon_wti_predictions()
-            if not predictions.get('is_real_prediction'):
-                raise Exception("CRITICAL: System not generating real predictions")
-            logger.info("✅ Initial predictions generated:")
-            logger.info(f"   1H: ${predictions['prediction_1h']:.2f}")
-            logger.info(f"   1D: ${predictions['prediction_1d']:.2f}")
-            logger.info(f"   1W: ${predictions['prediction_1w']:.2f}")
-            system_state['ml_ready'] = True
-            system_state['cached_predictions'] = predictions
-            system_state['last_prediction_time'] = time.time()
-        else:
-            logger.info("⏳ Deferred ML warmup - service online, models load on first cycle/request")
-        
-        logger.info("🚀 Oil prediction system ready - REAL DATA ONLY")
-        return True
-        
-    except Exception as e:
-        logger.error(f"❌ Oil system initialization failed: {e}")
+    except Exception as exc:
         system_state['initialized'] = False
-        system_state['ml_ready'] = False
-        raise Exception(f"Cannot initialize oil system: {e}")
+        logger.error("Initialization failed: no contract quote (%s)", type(exc).__name__)
+        raise RuntimeError(f"Cannot initialize: no contract quote ({type(exc).__name__})") from exc
+    logger.info("Active contract: %s @ $%.2f", contract_info['symbol'], contract_info['current_price'])
+    system_state['initialized'] = True
+    if _load_vol_forecast() is None:
+        logger.warning("Volatility forecast unavailable at startup; retried on /data after the backoff")
+    return True
 
-def update_predictions():
-    """Update predictions every 3 minutes - FIX #7: Corrected timing logic"""
-    initialization_wait = EAGER_ML_WARMUP
-    
-    while True:
-        try:
-            time.sleep(30)  # Check every 30 seconds
-            
-            current_time = time.time()
-            last_prediction_time = system_state.get('last_prediction_time', 0)
-            
-            # FIX #7: Force the first loop to refresh, regardless of startup timestamps.
-            if initialization_wait:
-                logger.info("🔄 First prediction update (initialization)")
-                initialization_wait = False
-                time_since_last = 180  # Force update
-            else:
-                time_since_last = current_time - last_prediction_time if last_prediction_time > 0 else 180
-            
-            if time_since_last >= 180:  # 3 minutes
-                
-                if not system_state['ml_ready']:
-                    # Test if ML system became ready
-                    if test_ml_system_readiness():
-                        logger.info("✅ ML system is now ready")
-                        system_state['error_count'] = 0
-                        continue
-                    else:
-                        logger.debug("⚠️ ML system still not ready")
-                        continue
-                
-                logger.info(f"🔄 Updating predictions ({time_since_last:.0f}s since last)...")
-                
-                # Get fresh predictions
-                predictions, accuracy = get_cached_ml_data(force_refresh=True)
-                
-                if predictions and predictions.get('is_real_prediction'):
-                    system_state['error_count'] = 0
-                    logger.info(f"✅ Predictions updated - 1H: ${predictions['prediction_1h']:.2f}")
-                else:
-                    raise Exception("Failed to get real predictions")
-                
-        except Exception as e:
-            system_state['error_count'] = system_state.get('error_count', 0) + 1
-            logger.error(f"❌ Prediction update failed (error #{system_state['error_count']}): {e}")
-            
-            if system_state['error_count'] >= 5:
-                logger.critical("🚨 Too many prediction errors - ML system may be failing")
-                system_state['ml_ready'] = False
-            
-            time.sleep(60)  # Wait longer on error
-
-def update_price_data():
-    """Update current price data every 30 seconds"""
-    while True:
-        try:
-            time.sleep(30)
-            
-            if not system_state['initialized']:
-                continue
-            
-            # Get current contract and price
-            contract_info = get_current_wti_contract()
-            current_price = contract_info['current_price']
-            
-            # Store the price update with volume snapshot for real chart volume series.
-            store_actual_price_update(current_price, contract_info.get('volume'))
-            
-            system_state['last_price_update_time'] = time.time()
-            
-            logger.debug(f"📊 Price updated: ${current_price:.2f}")
-            
-        except Exception as e:
-            logger.error(f"❌ Price update failed: {e}")
-            time.sleep(60)
 
 @app.route('/')
 def root():
@@ -633,7 +295,7 @@ def root():
 
     if not OIL_IMPORTS_AVAILABLE:
         return json_response({
-            'service': 'WTI Oil Price Prediction API',
+            'service': SERVICE_NAME,
             'status': 'CRITICAL_ERROR',
             'error': 'oil.py imports not available',
             'message': 'Server cannot function without oil.py',
@@ -650,355 +312,56 @@ def root():
             503,
             retry_after=startup_retry_seconds(),
         )
-    
-    ready = bool(system_state['ml_ready'] and system_state.get('cached_predictions'))
+
+    ready = _vol_forecast_ready()
     return json_response({
-        'service': 'WTI Oil Price Prediction API',
-        'status': 'ACTIVE' if ready else 'INITIALIZING',
-        'version': '4.0.0-real-data-only',
-        'ml_ready': system_state['ml_ready'],
+        'service': SERVICE_NAME,
+        'status': 'ACTIVE' if ready else 'DEGRADED',
+        'version': '5.0.0',
+        'schema_version': SCHEMA_VERSION,
         'startup_ready': True,
+        'vol_forecast_ready': ready,
         'ready': ready,
-        'data_source': 'oil.py REAL DATA ONLY',
-        'last_prediction_time': system_state['last_prediction_time'],
-        'error_count': system_state['error_count'],
         'endpoints': {
             '/': 'Server status',
-            '/data': 'Real WTI data and ML predictions',
-            '/health': 'Readiness check',
+            '/data': 'Dashboard payload (docs/DATA_CONTRACT.md data.json, schema_version 3)',
+            '/health': 'Readiness check (the volatility forecast is available)',
             '/live': 'Process liveness check',
         },
         'server_time': _utc_now_iso()
-    }, 200 if ready else 503, retry_after=None if ready else startup_retry_seconds())
+    }, 200 if ready else 503, retry_after=None if ready else _vol_retry_seconds())
+
 
 @app.route('/data')
 def get_data():
-    """Main data endpoint - REAL DATA ONLY from oil.py"""
+    """The dashboard payload (docs/DATA_CONTRACT.md data.json, schema_version 3)."""
     ensure_startup_started()
-    
-    # FIX #6: Check if startup is complete before serving (prevents race condition)
+
+    # Served only after startup: the first request must not race the initial quote fetch.
     if not _startup_ready.is_set():
         return json_response(
             startup_payload('Server starting up. Please wait a few seconds...', startup_retry_seconds()),
             503,
             retry_after=startup_retry_seconds()
         )
-    
+
     if not OIL_IMPORTS_AVAILABLE:
         return json_response({
             'error': 'CRITICAL_ERROR',
             'message': 'oil.py imports not available - cannot serve data',
             'server_time': _utc_now_iso()
         }, 503)
-    
+
     try:
-        # Test contract detection
         contract_info = get_current_wti_contract()
         if not contract_info or not contract_info.get('current_price'):
             return json_response(
-                startup_payload('System still initializing - waiting for contract data to become available.', startup_retry_seconds()),
+                startup_payload('Waiting for contract data to become available.', startup_retry_seconds()),
                 503,
                 retry_after=startup_retry_seconds()
             )
-        
-        # Model generation belongs to the background worker. Requests receive a
-        # bounded 503 while the first real prediction warms up.
-        if not system_state['ml_ready']:
-            return json_response(
-                startup_payload('ML predictions are warming up in the background.', startup_retry_seconds()),
-                503,
-                retry_after=startup_retry_seconds(),
-            )
+        return json_response(dashboard_payload(contract_info))
 
-        predictions, accuracy_metrics = get_cached_ml_data(refresh_if_stale=False)
-        
-        # Calculate all values from REAL data
-        current_price = contract_info['current_price']
-        
-        historical_data = get_historical_data(limit=3200)
-        actual_history = historical_data.get('actual', {}) if historical_data else {}
-        actual_values = actual_history.get('values', []) if isinstance(actual_history, dict) else []
-        actual_timestamps = actual_history.get('timestamps', []) if isinstance(actual_history, dict) else []
-
-        # Prefer the real day-over-day change from the daily close series (set by
-        # get_current_wti_contract). It is correct in the one-shot freeze/CI deploy, where the
-        # in-memory actual-price store below has no history and used to report a fake 0.00%.
-        price_change = contract_info.get('price_change')
-        price_change_percent = contract_info.get('price_change_percent')
-        price_change_quality = contract_info.get('price_change_quality') or (
-            'daily_close' if price_change is not None else 'unavailable'
-        )
-        # oil.py reports a change as unavailable on purpose when it would splice two contracts (around
-        # a roll) or when the previous settlement is not out yet (weekday evenings); the in-memory
-        # quote history below would reintroduce exactly that wrong comparison.
-        withheld = price_change_quality.startswith('unavailable_')
-
-        try:
-            if price_change is None and not withheld and len(actual_values) >= 2 and len(actual_timestamps) >= 2:
-                # Find a price point from roughly 24 hours ago (86400 seconds)
-                current_timestamp = datetime.now().timestamp()
-                target_timestamp = current_timestamp - 86400  # 24 hours ago
-                
-                # Find the closest historical point to 24 hours ago
-                closest_price = None
-                min_time_diff = float('inf')
-                
-                for i, timestamp_str in enumerate(actual_timestamps):
-                    try:
-                        point_timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00')).timestamp()
-                    except (AttributeError, TypeError, ValueError) as exc:
-                        logger.debug("Ignoring malformed history timestamp %r: %s", timestamp_str, exc)
-                    else:
-                        time_diff = abs(point_timestamp - target_timestamp)
-                        if time_diff < min_time_diff and i < len(actual_values):
-                            min_time_diff = time_diff
-                            closest_price = actual_values[i]
-                
-                # FIX #5: Calculate change with quality indicator
-                if closest_price is not None and closest_price > 0:
-                    if min_time_diff <= 3600:  # Within 1 hour
-                        price_change_quality = 'precise'
-                    elif min_time_diff <= 3600 * 6:  # Within 6 hours
-                        price_change_quality = 'good'
-                    elif min_time_diff <= 86400 * 2:  # Within 48 hours
-                        price_change_quality = 'approximate'
-                    else:
-                        price_change_quality = 'stale'
-                    
-                    price_change = current_price - closest_price
-                    price_change_percent = (price_change / closest_price * 100)
-                    logger.debug(f"📊 Daily change calculated: {price_change:.3f} ({price_change_percent:.2f}%)")
-                elif len(actual_values) > 0:
-                    # Fallback: use oldest available price if 24h data not available
-                    oldest_price = actual_values[0]
-                    price_change = current_price - oldest_price
-                    price_change_percent = (price_change / oldest_price * 100) if oldest_price > 0 else 0.0
-                    price_change_quality = 'oldest_available'
-                    logger.debug(f"📊 Change vs oldest data: {price_change:.3f} ({price_change_percent:.2f}%)")
-        except Exception as e:
-            logger.warning(f"Could not calculate daily price change: {e}")
-            price_change_quality = 'error'
-        
-        # An unknown change is published as null (the UI shows "--"), never as a fabricated 0.00%:
-        # a flat-looking day and a missing reference are different facts.
-        
-        if not predictions or not bool(predictions.get('is_real_prediction', False)):
-            return json_response(
-                startup_payload('ML predictions are still warming up. Real forecast payload not ready yet.', startup_retry_seconds()),
-                503,
-                retry_after=startup_retry_seconds()
-            )
-
-        geo_raw = predictions.get('geopolitical_risk', {}) if predictions else {}
-
-        # Infer active drivers from geo breakdown + dominant driver for playbook analogue ranking.
-        _geo_breakdown = geo_raw.get('risk_breakdown', {})
-        _active_drivers = [k.lower() for k, v in _geo_breakdown.items() if v and int(v) > 0]
-        _dominant = str(geo_raw.get('dominant_driver', '')).lower()
-        if _dominant and _dominant not in _active_drivers:
-            _active_drivers.insert(0, _dominant)
-        supply_shock_playbook = _load_supply_shock_playbook(current_drivers=_active_drivers)
-
-        geopolitical_risk = {
-            'score': float(geo_raw.get('geo_risk_score', 0) or 0),
-            'regime': str(geo_raw.get('regime', 'UNKNOWN')),
-            'dominant_driver': str(geo_raw.get('dominant_driver', 'unknown')),
-            'risk_breakdown': geo_raw.get('risk_breakdown', {}),
-            'top_headlines': geo_raw.get('top_headlines', []),
-            'total_articles_scanned': int(geo_raw.get('total_articles_scanned', 0) or 0),
-            'recent_24h_articles': int(geo_raw.get('recent_24h_articles', 0) or 0),
-            'novelty_spike': bool(geo_raw.get('novelty_spike', False)),
-        }
-        ml_caveat = predictions.get('ml_caveat') if predictions else None
-
-        prediction_is_real = bool(predictions.get('is_real_prediction', False)) if predictions else False
-        prediction_is_full_real = bool(predictions.get('is_full_real_prediction', prediction_is_real)) if predictions else False
-        prediction_fallbacks = predictions.get('fallbacks', {}) if predictions else {}
-        prediction_data_quality = int(round(float(predictions.get('data_quality_score', 0) or 0))) if predictions else 0
-
-        pred_1h = predictions['prediction_1h']
-        pred_1d = predictions['prediction_1d'] 
-        pred_1w = predictions['prediction_1w']
-        horizon_confidence = predictions.get('horizon_confidence', {})
-        horizon_drift_scores = predictions.get('horizon_drift_scores', {})
-        # Forecasts are published in cents, and each interval on the same grid, around its forecast.
-        published_forecasts = {'1h': round(pred_1h, 2), '1d': round(pred_1d, 2), '1w': round(pred_1w, 2)}
-        prediction_intervals = {
-            horizon: _interval_in_cents(interval, published_forecasts.get(horizon))
-            for horizon, interval in (predictions.get('prediction_intervals') or {}).items()
-        }
-        horizon_backtests = predictions.get('horizon_backtests', {})
-        horizon_quality = predictions.get('horizon_quality', {})
-        qualified_horizons = predictions.get('quality_qualified_horizons', [])
-
-        overall_metrics = accuracy_metrics.get('overall', {}) if accuracy_metrics else {}
-        live_total_predictions = int(overall_metrics.get('total_predictions', 0) or 0)
-        live_direction_accuracy = float(overall_metrics.get('direction_accuracy', 0.0) or 0.0)
-
-        min_live_accuracy_samples = max(6, int(os.getenv('MIN_LIVE_ACCURACY_SAMPLES', '18')))
-        metrics_by_horizon, headline_horizon = _build_horizon_metrics(
-            accuracy_metrics or {},
-            horizon_backtests or {},
-            horizon_confidence or {},
-            horizon_quality or {},
-            min_live_accuracy_samples,
-        )
-        headline_metrics = metrics_by_horizon.get(headline_horizon, {})
-        headline_accuracy = headline_metrics.get('display_accuracy')
-        headline_accuracy_source = headline_metrics.get('display_accuracy_source', 'unavailable')
-        headline_confidence = float(headline_metrics.get('confidence', 0.0) or 0.0)
-        headline_quality = headline_metrics.get('quality', {}) if isinstance(headline_metrics.get('quality', {}), dict) else {}
-        headline_prediction = {
-            '1h': pred_1h,
-            '1d': pred_1d,
-            '1w': pred_1w,
-        }.get(headline_horizon, pred_1d)
-        headline_quality_status = str(headline_quality.get('status', 'unknown')).upper()
-        qualified_horizon_count = len([h for h in qualified_horizons if h in {'1h', '1d', '1w'}])
-        
-        # Format volume for display
-        volume = contract_info.get('volume', 0)
-        if volume >= 1000000:
-            volume_display = f"{volume/1000000:.1f}M"
-        elif volume >= 1000:
-            volume_display = f"{volume/1000:.1f}K"
-        else:
-            volume_display = f"{volume:.0f}" if volume > 0 else "N/A"
-        
-        # Calculate next ML prediction time
-        time_since_last = int(time.time() - system_state.get('last_prediction_time', 0))
-        next_prediction_in = max(0, 180 - time_since_last) if system_state['ml_ready'] else 0
-        
-        # Calculate total data points for enterprise metrics
-        total_data_points = 0
-        if actual_values:
-            total_data_points = len(actual_values)
-        
-        # Add prediction count if available
-        prediction_count = live_total_predictions
-        
-        return json_response({
-            # Core price data - REAL ONLY
-            'current_price': round(current_price, 2),
-            'price_change': round(price_change, 3) if price_change is not None else None,
-            'price_change_percent': round(price_change_percent, 2) if price_change_percent is not None else None,
-            'price_change_quality': price_change_quality,  # FIX #5: NEW - client knows data quality
-            'volume': volume,
-            'volume_display': volume_display,
-            
-            # Chart data - Get real historical data from stored prices
-            'unified_data': historical_data,  # Deeper history for charting
-            'actual': [],  # Legacy field - data now in unified_data
-            'predicted': [],  # Legacy field - data now in unified_data  
-            'timestamps': [],  # Legacy field - data now in unified_data
-            
-            # Multi-horizon predictions - REAL ML ONLY
-            'multi_horizon_predictions': {
-                'predictions': {
-                    **published_forecasts,
-                    '7d': published_forecasts['1w'],
-                },
-                'percentage_changes': {
-                    '1h': round((pred_1h - current_price) / current_price * 100, 1),
-                    '1d': round((pred_1d - current_price) / current_price * 100, 1),
-                    '1w': round((pred_1w - current_price) / current_price * 100, 1),
-                    '7d': round((pred_1w - current_price) / current_price * 100, 1)
-                },
-                'prediction_intervals': prediction_intervals,
-                'horizon_confidence': horizon_confidence,
-                'horizon_drift_scores': horizon_drift_scores,
-                'horizon_backtests': horizon_backtests,
-                'horizon_quality': horizon_quality,
-                'quality_qualified_horizons': qualified_horizons,
-                'is_real_prediction': prediction_is_real,
-                'is_full_real_prediction': prediction_is_full_real,
-                'fallbacks': prediction_fallbacks,
-                'processing_time': predictions.get('processing_time', 0) if predictions else 0,
-                'feature_count': predictions.get('feature_count', 0) if predictions else 0,
-                'last_update': predictions.get('timestamp', _utc_now_iso()) if predictions else _utc_now_iso(),
-                'market_data_sources': predictions.get('market_data_sources', {}),
-                'contract_metadata': predictions.get('contract_metadata', {}),
-            },
-            
-            # ML system status
-            'ml_prediction_timer': {
-                'next_prediction_in': next_prediction_in,
-                'minutes_remaining': next_prediction_in // 60,
-                'seconds_remaining': next_prediction_in % 60,
-                'currently_processing': False
-            },
-            
-            # Performance metrics - REAL ONLY
-            'performance_metrics': {
-                'direction_accuracy': round(live_direction_accuracy, 1),
-                'display_direction_accuracy': round(headline_accuracy, 1) if headline_accuracy is not None else None,
-                'display_accuracy_source': headline_accuracy_source,
-                'min_live_accuracy_samples': min_live_accuracy_samples,
-                'confidence': round(headline_confidence, 1),
-                'total_predictions': live_total_predictions,
-                'headline': {
-                    'horizon': headline_horizon,
-                    'prediction': round(headline_prediction, 2),
-                    'display_direction_accuracy': round(headline_accuracy, 1) if headline_accuracy is not None else None,
-                    'display_accuracy_source': headline_accuracy_source,
-                    'confidence': round(headline_confidence, 1),
-                    'quality_status': headline_quality_status,
-                    'quality_reasons': headline_quality.get('reasons', []),
-                },
-                'by_horizon': metrics_by_horizon,
-            },
-            
-            # Contract information - REAL ONLY
-            'contract': {
-                'symbol': contract_info['symbol'],
-                'description': contract_info['description'],
-                'expiry_date': contract_info.get('expiry_date'),
-                'days_to_expiry': contract_info.get('days_to_expiry'),
-                'security_name': f"{contract_info['symbol']} WTI CRUDE",
-                'quote_symbol': predictions.get('contract_metadata', {}).get('quote_symbol') if predictions else contract_info.get('yfinance_symbol'),
-                'history_symbol': predictions.get('contract_metadata', {}).get('history_symbol') if predictions else contract_info.get('history_symbol'),
-                'market_time': contract_info.get('market_time'),
-                'last_trade_date': contract_info.get('contract_last_trade_date') or contract_info.get('expiry_date'),
-                # How the label was established ('calendar', or matched to the contracts' own quotes
-                # near a roll); live_record roll-checks a quote-matched label by the label alone.
-                'contract_basis': contract_info.get('contract_basis'),
-                'market_session_date': contract_info.get('market_session_date'),
-                'quote_session_date': contract_info.get('quote_session_date'),
-            },
-            
-            # System status
-            'enterprise_metrics': {
-                'data_quality': prediction_data_quality,
-                'complex_ml_enabled': True,
-                'real_data_only': True,
-                'ml_ready': prediction_is_real,
-                'error_count': system_state['error_count'],
-                'data_points': total_data_points + prediction_count,  # Historical + prediction count
-                'quality_status': headline_quality_status,
-                'qualified_horizon_count': qualified_horizon_count,
-            },
-            
-            'geopolitical_risk': geopolitical_risk,
-            'ml_caveat': ml_caveat,
-            'supply_shock_playbook': supply_shock_playbook,
-            'live_record': _load_live_record_summary(),
-            'vol_forecast': _load_vol_forecast(),
-
-            # Yahoo's NYMEX quotes are exchange-delayed (~10 min), so the best state is LIVE, never
-            # "REAL-TIME"; freeze.py overrides this to SNAPSHOT for the static site.
-            'feed_status': 'LIVE' if prediction_is_full_real else ('DEGRADED' if prediction_is_real else 'INITIALIZING'),
-            'status': 'ACTIVE' if prediction_is_full_real else ('DEGRADED' if prediction_is_real else 'INITIALIZING'),
-            'data_source': 'oil.py ML ENGINE',
-            'last_update': _utc_now_iso(),
-            
-            # Legacy compatibility fields
-            'last_price': round(current_price, 2),
-            'ml_prediction': round(headline_prediction, 2),
-            'accuracy': f"{round(headline_accuracy)}%" if headline_accuracy is not None else '--',
-            'confidence': f"{round(headline_confidence)}%" if headline_confidence > 0 else '--',
-            'timestamp': _utc_now_iso()
-        })
-        
     except Exception as exc:
         logger.error("Data endpoint failed (%s)", type(exc).__name__)
         return json_response({
@@ -1016,9 +379,10 @@ def live():
         'timestamp': _utc_now_iso(),
     })
 
+
 @app.route('/health')
 def health():
-    """Health check endpoint"""
+    """Readiness: startup done and the volatility forecast available. Reads cached state only."""
     ensure_startup_started()
     try:
         if not OIL_IMPORTS_AVAILABLE:
@@ -1034,25 +398,24 @@ def health():
                 'status': 'INITIALIZING',
                 'ready': False,
                 'startup_ready': False,
-                'ml_ready': False,
+                'vol_forecast_ready': False,
                 'message': 'Background startup in progress',
                 'retry_after_seconds': startup_retry_seconds(),
                 'startup_attempts': _startup_attempts,
                 'timestamp': _utc_now_iso()
             }, 503, retry_after=startup_retry_seconds())
 
-        ready = bool(system_state['ml_ready'] and system_state.get('cached_predictions'))
+        ready = _vol_forecast_ready()
+        built_at = _VOL_CACHE["built_at"]
         return json_response({
-            'status': 'HEALTHY' if ready else 'INITIALIZING',
+            'status': 'HEALTHY' if ready else 'DEGRADED',
             'ready': ready,
             'startup_ready': True,
-            'ml_ready': system_state['ml_ready'],
-            'last_prediction_time': system_state['last_prediction_time'],
-            'last_price_update_time': system_state['last_price_update_time'],
-            'error_count': system_state['error_count'],
-            'data_source': 'oil.py REAL DATA',
+            'vol_forecast_ready': ready,
+            'vol_forecast_built_at': (datetime.fromtimestamp(built_at, timezone.utc).isoformat()
+                                      if ready and built_at else None),
             'timestamp': _utc_now_iso()
-        }, 200 if ready else 503, retry_after=None if ready else startup_retry_seconds())
+        }, 200 if ready else 503, retry_after=None if ready else _vol_retry_seconds())
 
     except Exception as exc:
         logger.error("Health endpoint failed (%s)", type(exc).__name__)
@@ -1063,45 +426,25 @@ def health():
             'timestamp': _utc_now_iso()
         }, 503)
 
-# Initialize system on startup
+
 def startup_initialization():
-    """Initialize system in background - FIX #6: Add threading event"""
-    global _startup_complete_time, _startup_error, _startup_started, _startup_thread, _startup_next_retry_at
+    """Initialize in the background, then signal readiness; a failure is retried after a cooldown."""
+    global _startup_started, _startup_thread, _startup_next_retry_at
     try:
-        logger.info("🚀 Starting oil.py system initialization...")
-        time.sleep(2)  # Let server start
-        
+        logger.info("Starting initialization...")
         initialize_oil_system()
-        
-        # Start background workers
-        prediction_thread = threading.Thread(target=update_predictions, daemon=True)
-        price_thread = threading.Thread(target=update_price_data, daemon=True)
-        
-        prediction_thread.start()
-        price_thread.start()
-        
-        time.sleep(1)  # Give threads time to start
-        
-        # FIX #6: Signal that startup is complete (solves race condition)
-        _startup_error = None
         _startup_next_retry_at = 0.0
-        _startup_complete_time = time.time()
         _startup_ready.set()
-        logger.info("✅ Startup sequence complete - system ready to serve requests")
-        
+        logger.info("Startup complete - ready to serve requests")
+
     except Exception as e:
-        logger.critical(f"❌ System initialization FAILED: {e}")
+        logger.critical("Initialization FAILED (%s)", type(e).__name__)
         system_state['initialized'] = False
-        system_state['ml_ready'] = False
-        system_state['cached_predictions'] = None
-        system_state['cached_accuracy'] = None
-        system_state['last_prediction_time'] = 0
-        _startup_error = str(e)
-        _startup_complete_time = None
         _startup_next_retry_at = time.time() + STARTUP_RETRY_COOLDOWN_SECONDS
         with _startup_lock:
             _startup_started = False
             _startup_thread = None
+
 
 def ensure_startup_started():
     """Start background initialization only once and avoid side effects on import."""
@@ -1121,6 +464,7 @@ def ensure_startup_started():
         _startup_thread = threading.Thread(target=startup_initialization, daemon=True)
         _startup_thread.start()
         _startup_started = True
+
 
 @app.before_request
 def _ensure_startup_for_requests():
@@ -1153,13 +497,12 @@ def _ensure_startup_for_requests():
         _data_request_times[client] = recent
     return None
 
+
 def run_server(host='127.0.0.1', port=9000, debug=False):
     """Run the Flask development server (python -m backend.server)."""
     ensure_startup_started()
     app.run(host=host, port=port, debug=debug)
 
-logger.info("🚀 WTI Server starting - REAL DATA ONLY MODE")
-logger.info("📊 Foundation: oil.py ML engine")
 
 if __name__ == '__main__':
     run_server()

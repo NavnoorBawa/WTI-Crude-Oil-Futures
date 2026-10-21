@@ -1,21 +1,45 @@
 {
   "method": "Second-nearby NYMEX WTI holding return over each contract cycle (roll-free), carry = (C1 - C2) / C2 on the first day after expiry, long when carry exceeds the median of all prior months, else flat. Non-overlapping monthly windows.",
   "data": "EIA RCLC1/RCLC2 daily settlements (series discontinued after 2024-04-05)",
+  "field_notes": {
+    "mean_ret_backwardated_pct": "legacy alias of mean_ret_above_median_carry_pct: the rule's split on the median of prior months' carry, NOT the sign of carry (see sign_split)",
+    "mean_ret_contango_pct": "legacy alias of mean_ret_below_median_carry_pct: the rule's split on the median of prior months' carry, NOT the sign of carry (see sign_split)",
+    "n_backwardated": "legacy alias of n_above_median_carry: the rule's split on the median of prior months' carry, NOT the sign of carry (see sign_split)",
+    "sharpe_difference": "carry-timed minus buy-and-hold Sharpe, annualized; Ledoit-Wolf (2008) HAC delta method and a stationary block bootstrap, two-sided"
+  },
   "full_sample": {
     "n_months": 409,
     "span": "1990-02-21..2024-02-21",
     "direction_accuracy_pct": 53.3,
     "base_rate_pct": 54.8,
     "direction_p_value": 0.7411,
-    "mean_ret_backwardated_pct": 1.98,
-    "mean_ret_contango_pct": 0.04,
-    "n_backwardated": 151,
+    "split": "carry above vs at-or-below the median carry of all prior months (the rule's long/flat split)",
+    "mean_ret_above_median_carry_pct": 1.98,
+    "mean_ret_below_median_carry_pct": 0.04,
+    "n_above_median_carry": 151,
+    "n_below_median_carry": 258,
     "spread_p_value_one_sided": 0.0176,
     "carry_slope_t_hc3": -0.61,
     "carry_rank_corr": 0.103,
     "carry_rank_corr_p_value": 0.0378,
     "carry_timed_sharpe": 0.5,
-    "buy_hold_sharpe": 0.28
+    "buy_hold_sharpe": 0.28,
+    "mean_ret_backwardated_pct": 1.98,
+    "mean_ret_contango_pct": 0.04,
+    "n_backwardated": 151,
+    "sharpe_difference": {
+      "difference_annualized": 0.222,
+      "ledoit_wolf_se_annualized": 0.14,
+      "ledoit_wolf_z": 1.589,
+      "ledoit_wolf_p_value": 0.1121,
+      "hac_lags": 5,
+      "bootstrap_p_value": 0.1206,
+      "bootstrap_ci_95_annualized": [
+        -0.057,
+        0.499
+      ],
+      "bootstrap": "stationary (Politis-Romano), mean block 6 months, 10000 resamples, seed 20261020"
+    }
   },
   "pre_2007": {
     "n_months": 203,
@@ -23,15 +47,33 @@
     "direction_accuracy_pct": 60.1,
     "base_rate_pct": 54.7,
     "direction_p_value": 0.0689,
-    "mean_ret_backwardated_pct": 2.92,
-    "mean_ret_contango_pct": 0.0,
-    "n_backwardated": 80,
+    "split": "carry above vs at-or-below the median carry of all prior months (the rule's long/flat split)",
+    "mean_ret_above_median_carry_pct": 2.92,
+    "mean_ret_below_median_carry_pct": 0.0,
+    "n_above_median_carry": 80,
+    "n_below_median_carry": 123,
     "spread_p_value_one_sided": 0.0071,
     "carry_slope_t_hc3": 1.72,
     "carry_rank_corr": 0.204,
     "carry_rank_corr_p_value": 0.0036,
     "carry_timed_sharpe": 0.76,
-    "buy_hold_sharpe": 0.48
+    "buy_hold_sharpe": 0.48,
+    "mean_ret_backwardated_pct": 2.92,
+    "mean_ret_contango_pct": 0.0,
+    "n_backwardated": 80,
+    "sharpe_difference": {
+      "difference_annualized": 0.282,
+      "ledoit_wolf_se_annualized": 0.223,
+      "ledoit_wolf_z": 1.264,
+      "ledoit_wolf_p_value": 0.2061,
+      "hac_lags": 4,
+      "bootstrap_p_value": 0.2383,
+      "bootstrap_ci_95_annualized": [
+        -0.172,
+        0.783
+      ],
+      "bootstrap": "stationary (Politis-Romano), mean block 6 months, 10000 resamples, seed 20261020"
+    }
   },
   "post_2007": {
     "n_months": 206,
@@ -39,15 +81,33 @@
     "direction_accuracy_pct": 46.6,
     "base_rate_pct": 54.9,
     "direction_p_value": 0.9927,
-    "mean_ret_backwardated_pct": 0.91,
-    "mean_ret_contango_pct": 0.07,
-    "n_backwardated": 71,
+    "split": "carry above vs at-or-below the median carry of all prior months (the rule's long/flat split)",
+    "mean_ret_above_median_carry_pct": 0.91,
+    "mean_ret_below_median_carry_pct": 0.07,
+    "n_above_median_carry": 71,
+    "n_below_median_carry": 135,
     "spread_p_value_one_sided": 0.2726,
     "carry_slope_t_hc3": -1.36,
     "carry_rank_corr": -0.03,
     "carry_rank_corr_p_value": 0.665,
     "carry_timed_sharpe": 0.22,
-    "buy_hold_sharpe": 0.12
+    "buy_hold_sharpe": 0.12,
+    "mean_ret_backwardated_pct": 0.91,
+    "mean_ret_contango_pct": 0.07,
+    "n_backwardated": 71,
+    "sharpe_difference": {
+      "difference_annualized": 0.104,
+      "ledoit_wolf_se_annualized": 0.185,
+      "ledoit_wolf_z": 0.565,
+      "ledoit_wolf_p_value": 0.5718,
+      "hac_lags": 4,
+      "bootstrap_p_value": 0.5335,
+      "bootstrap_ci_95_annualized": [
+        -0.25,
+        0.416
+      ],
+      "bootstrap": "stationary (Politis-Romano), mean block 6 months, 10000 resamples, seed 20261020"
+    }
   },
   "original_span_2004_2024": {
     "n_months": 237,
@@ -55,15 +115,92 @@
     "direction_accuracy_pct": 48.9,
     "base_rate_pct": 53.2,
     "direction_p_value": 0.914,
-    "mean_ret_backwardated_pct": 1.26,
-    "mean_ret_contango_pct": -0.09,
-    "n_backwardated": 73,
+    "split": "carry above vs at-or-below the median carry of all prior months (the rule's long/flat split)",
+    "mean_ret_above_median_carry_pct": 1.26,
+    "mean_ret_below_median_carry_pct": -0.09,
+    "n_above_median_carry": 73,
+    "n_below_median_carry": 164,
     "spread_p_value_one_sided": 0.1535,
     "carry_slope_t_hc3": -1.16,
     "carry_rank_corr": 0.0,
     "carry_rank_corr_p_value": 0.9998,
     "carry_timed_sharpe": 0.28,
-    "buy_hold_sharpe": 0.11
+    "buy_hold_sharpe": 0.11,
+    "mean_ret_backwardated_pct": 1.26,
+    "mean_ret_contango_pct": -0.09,
+    "n_backwardated": 73,
+    "sharpe_difference": {
+      "difference_annualized": 0.175,
+      "ledoit_wolf_se_annualized": 0.172,
+      "ledoit_wolf_z": 1.017,
+      "ledoit_wolf_p_value": 0.3089,
+      "hac_lags": 4,
+      "bootstrap_p_value": 0.2797,
+      "bootstrap_ci_95_annualized": [
+        -0.154,
+        0.477
+      ],
+      "bootstrap": "stationary (Politis-Romano), mean block 6 months, 10000 resamples, seed 20261020"
+    }
+  },
+  "sign_split": {
+    "definition": "carry > 0 (backwardation) vs carry <= 0 (contango); long when carry > 0",
+    "full_sample": {
+      "n_months": 409,
+      "n_carry_positive": 176,
+      "n_carry_nonpositive": 233,
+      "mean_ret_carry_positive_pct": 1.89,
+      "mean_ret_carry_nonpositive_pct": -0.11,
+      "spread_p_value_one_sided": 0.0145,
+      "sign_timed_sharpe": 0.52,
+      "buy_hold_sharpe": 0.28,
+      "share_agreeing_with_median_rule_pct": 91.9
+    },
+    "pre_2007": {
+      "n_months": 203,
+      "n_carry_positive": 104,
+      "n_carry_nonpositive": 99,
+      "mean_ret_carry_positive_pct": 2.33,
+      "mean_ret_carry_nonpositive_pct": -0.09,
+      "spread_p_value_one_sided": 0.0196,
+      "sign_timed_sharpe": 0.72,
+      "buy_hold_sharpe": 0.48,
+      "share_agreeing_with_median_rule_pct": 88.2
+    },
+    "post_2007": {
+      "n_months": 206,
+      "n_carry_positive": 72,
+      "n_carry_nonpositive": 134,
+      "mean_ret_carry_positive_pct": 1.25,
+      "mean_ret_carry_nonpositive_pct": -0.12,
+      "spread_p_value_one_sided": 0.1658,
+      "sign_timed_sharpe": 0.3,
+      "buy_hold_sharpe": 0.12,
+      "share_agreeing_with_median_rule_pct": 95.6
+    }
+  },
+  "power_post_2007": {
+    "alpha_one_sided": 0.05,
+    "alpha_two_sided_rank_corr": 0.05,
+    "target_power": 0.8,
+    "n_months": 206,
+    "spread_se_pct": 1.394,
+    "observed_spread_pct": 0.84,
+    "mde_spread_pct_per_month": 3.47,
+    "pre_2007_spread_pct": 2.92,
+    "power_vs_pre_2007_spread": 0.673,
+    "mde_rank_corr": 0.2,
+    "pre_2007_rank_corr": 0.204,
+    "power_vs_pre_2007_rank_corr": 0.815,
+    "statement": "After 2007 (206 months) the spread test could only detect a spread of 3.47%/month or more (one-sided 5%, 80% power); it had 67% power against the pre-2007 spread of 2.92%/month, so a null spread there is weak evidence of decay. The rank test (two-sided 5%) could detect a correlation of 0.200 and had 82% power against the pre-2007 rank correlation of 0.204."
+  },
+  "regime_change_test": {
+    "spread_difference_pct": 2.07,
+    "spread_difference_z": 1.135,
+    "spread_difference_p_value": 0.2564,
+    "rank_corr_difference": 0.234,
+    "rank_corr_difference_z": 2.309,
+    "rank_corr_difference_p_value": 0.021
   },
   "roll_bias_of_original_method": {
     "note": "Original design: unadjusted contract-1 (== CL=F) 21-day forward returns. On the same dates the roll gap subtracts roughly the carry itself.",
@@ -73,12 +210,13 @@
       "mean_ret_backwardated_pct": 0.54,
       "mean_ret_contango_pct": 1.22,
       "carry_timed_sharpe": 0.12,
-      "buy_hold_sharpe": 0.29
+      "buy_hold_sharpe": 0.29,
+      "below_median_beats_above_p_value_one_sided": 0.2667
     },
     "mean_contamination_backwardation_pct": -1.44,
     "mean_contamination_contango_pct": 1.46,
     "corr_contamination_carry": -0.55
   },
-  "verdict": "Carry sorts returns the textbook way (backwardated months beat contango months) significantly over the full sample, yet the effect is not distinguishable from zero after 2007; over the full sample, as a sign predictor it does not beat always-long. No reliable modern-era edge.",
-  "generated_at": "2026-10-12T09:28:53.457768+00:00"
+  "verdict": "Months with carry above its prior-months median beat the rest significantly over the full sample (one-sided p = 0.018); the true sign split (backwardation vs contango) agrees (p = 0.015). After 2007 the spread is not distinguishable from zero (p = 0.27), but that test had only 67% power against the pre-2007 spread and the pre/post spread difference is not significant (p = 0.26); the rank correlation, with 82% power, fell from 0.20 to -0.03 (difference p = 0.0210). The Sharpe gain of timing over buy-and-hold is not significant (Ledoit-Wolf p = 0.11 full sample, 0.57 after 2007), and as a sign predictor it does not beat always-long over the full sample. No reliable modern-era edge is demonstrated; how much of the pre-2007 effect survives is not resolved by this sample.",
+  "generated_at": "2026-10-20T13:29:07.147844+00:00"
 }

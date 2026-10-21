@@ -99,6 +99,129 @@ class ClassificationTest(unittest.TestCase):
         self.assertTrue(all(e["day0_pct"] >= 3.0 for e in strong))
 
 
+def _business_dates(n, start="2001-01-01"):
+    import datetime as dt
+    d, out = dt.date.fromisoformat(start), []
+    while len(out) < n:
+        if d.weekday() < 5:
+            out.append(d.isoformat())
+        d += dt.timedelta(days=1)
+    return out
+
+
+def _random_walk_series(n=3000, seed=7, daily_vol=0.02):
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    prices = 60.0 * np.exp(np.cumsum(rng.normal(0.0, daily_vol, n)))
+    return list(zip(_business_dates(n), map(float, prices)))
+
+
+def _fake_events(series_list, positions):
+    dates = [d for d, _ in series_list]
+    return [{"id": f"ev{k}", "date": dates[i], "event": "synthetic", "type": "supply_cut", "drivers": ["opec"],
+             "supply_mbpd": 1.0, "strait_risk": False, "source": "test"} for k, i in enumerate(positions)]
+
+
+class PlaceboTest(unittest.TestCase):
+    def test_placebo_excludes_every_session_whose_path_touches_an_event(self):
+        dates = _business_dates(300)
+        kept = sp.placebo_positions(dates, [50, 200], radius=20)
+        self.assertEqual(min(kept), 70)                 # first placebo date: 20 sessions after an event
+        self.assertEqual(max(kept), 180)                # last: 20 sessions before the final event
+        self.assertTrue(all(abs(j - e) >= 20 for j in kept for e in (50, 200)))
+        self.assertIn(70, kept)
+        self.assertNotIn(69, kept)                      # its base window would hold the event's path
+
+    def test_two_sided_p_counts_ties_against_the_hypothesis(self):
+        import numpy as np
+        null = np.arange(100.0)
+        self.assertAlmostEqual(sp._two_sided_p(null, 99.0), 2 * 2 / 101)
+        self.assertAlmostEqual(sp._two_sided_p(null, 1000.0), 2 * 1 / 101)
+        self.assertEqual(sp._two_sided_p(null, 50.0), 1.0)
+
+    def test_peak_is_positive_by_construction_and_the_placebo_catches_it(self):
+        # On a pure random walk nothing happens on the "event" dates, yet their median 20-session peak
+        # is well above zero. Without the placebo that looked like a market reaction; with it, the group
+        # is indistinguishable from ordinary dates.
+        series = _random_walk_series()
+        events = _fake_events(series, range(300, 2800, 200))
+        with mock.patch.object(sp, "SHOCK_EVENTS", events):
+            study = sp.run_study(series)
+        group = next(g for g in study["groups"] if g["key"] == "supply_lost")
+        self.assertGreater(study["placebo"]["median_peak_pct"], 2.0)
+        self.assertGreater(group["median_peak_pct"], 2.0)
+        self.assertGreater(group["p_value_vs_placebo"]["peak"], 0.05)
+        self.assertGreater(group["p_value_vs_year_matched_placebo"]["peak"], 0.05)
+
+    def test_a_real_reaction_is_detected(self):
+        series = _random_walk_series()
+        positions = list(range(300, 2800, 200))
+        prices = [p for _, p in series]
+        for i in positions:                             # a +12% spike on each event's day 1 only
+            prices[i + 1] *= 1.12
+        bumped = list(zip([d for d, _ in series], prices))
+        with mock.patch.object(sp, "SHOCK_EVENTS", _fake_events(bumped, positions)):
+            study = sp.run_study(bumped)
+        group = next(g for g in study["groups"] if g["key"] == "supply_lost")
+        self.assertLess(group["p_value_vs_placebo"]["peak"], 0.01)
+        self.assertGreater(group["p_value_vs_placebo"]["settle"], 0.01)   # the spike does not persist
+
+    def test_year_matched_pools_use_the_event_year_and_widen_when_thin(self):
+        placebo = [{"date": f"{y}-06-01", "peak_pct": float(y)} for y in (2000,) * 30 + (2001,) * 5 + (2002,) * 30]
+        pools = sp._year_pools(placebo, "peak_pct", [2000, 2001], min_size=20)
+        self.assertEqual(set(pools[0]), {2000.0})
+        self.assertEqual(set(pools[1]), {2000.0, 2001.0, 2002.0})     # 2001 alone has 5 dates
+
+    def test_group_keys_are_stable_and_labels_precise(self):
+        # The dashboard keys its table on these names (src/App.jsx SUPPLY_LABELS); they must not change.
+        self.assertEqual([k for k, *_ in sp.GROUPS], ["supply_lost", "threat_only", "strait_risk", "iran_driven",
+                                                       "opec_cut", "weather", "conflict", "sanctions"])
+        removal = [e for e in sp.SHOCK_EVENTS if sp._is_supply_removal(e)]
+        self.assertTrue(any("opec" in e["drivers"] for e in removal))   # announced cuts are in the group ...
+        self.assertTrue(sp.GROUP_LABELS["supply_lost"].startswith("Announced or physical"))   # ... so it says so
+        self.assertIn("no supply removed", sp.GROUP_LABELS["threat_only"])
+
+
+class StudyArtifactTest(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(sp, "fetch_wti_daily", side_effect=_committed_rows)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.study = sp.run_study()
+
+    def test_committed_study_reproduces_from_the_committed_series(self):
+        from backend.safe_paths import data_json_path
+        artifact = json.loads(data_json_path(sp.STUDY_ARTIFACT).read_text(encoding="utf-8"))
+        self.assertEqual({k: v for k, v in self.study.items() if k != "generated_at"},
+                         {k: v for k, v in artifact.items() if k != "generated_at"})
+
+    def test_api_payload_keeps_every_field_and_carries_the_placebo(self):
+        payload = sp.get_playbook_for_api(current_drivers=["iran"])
+        for key in ("event_count", "defined_event_count", "first_event_year", "last_event_year",
+                    "distributions", "analogues", "priced_in_stats"):
+            self.assertIn(key, payload)
+        for key, dist in payload["distributions"].items():
+            self.assertTrue({"n", "peak", "settle"} <= set(dist), key)
+            self.assertTrue({"n", "median", "min", "max"} <= set(dist["peak"]), key)
+        for key in ("strong_day0_n", "strong_day0_median_further_rise_pct", "weak_day0_n",
+                    "weak_day0_median_further_rise_pct", "threshold_pct", "definition"):
+            self.assertIn(key, payload["priced_in_stats"])
+        self.assertEqual(payload["placebo"], self.study["placebo"])
+        groups = {g["key"]: g for g in self.study["groups"]}
+        lost = payload["distributions"]["supply_lost"]
+        self.assertEqual(lost["label"], groups["supply_lost"]["name"])
+        self.assertEqual(lost["vs_placebo"]["p_value_vs_placebo"], groups["supply_lost"]["p_value_vs_placebo"])
+        self.assertEqual(lost["peak"]["median"], groups["supply_lost"]["median_peak_pct"])
+        self.assertEqual(payload["conclusion"], self.study["conclusion"])
+
+    def test_threat_only_moves_no_more_than_an_ordinary_date(self):
+        # The published "threats peak +4.0%" is below the placebo's median peak: the study must say so.
+        threat = next(g for g in self.study["groups"] if g["key"] == "threat_only")
+        self.assertLess(threat["median_peak_pct"], self.study["placebo"]["median_peak_pct"])
+        self.assertGreater(threat["p_value_vs_placebo"]["peak"], 0.05)
+        self.assertIn("indistinguishable from an ordinary date", self.study["conclusion"])
+
+
 class CacheSafetyTest(unittest.TestCase):
     def test_empty_eia_response_never_replaces_a_good_cache(self):
         with tempfile.TemporaryDirectory() as tmp:

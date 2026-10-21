@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """
-Timing leakage test: same-day vs one-day-lagged cross-asset context features.
+Timing leakage test of the RETRACTED direction model: same-day vs one-day-lagged context features.
 
-The walk-forward backtest enters trades at the WTI settlement (~14:30 ET), but the
-cross-asset context features (VIX, XLE, XOP, SPY, TNX) close at 16:00 ET — so the
-same-day feature set contains ~90 minutes of post-entry information.
+Record only. This compared two feature timings of the original 1W direction model, whose
+walk-forward trained on labels that matured after the decision (a look-ahead leak; see
+data/leak_anatomy.json). Both configurations carried that leak, so the committed
+data/timing_leakage_test.json says nothing about a real signal. The engine now purges by default
+(backtest_walk_forward.evaluate_horizon), so a rerun measures the purged model and overwrites
+that record.
 
-Hypothesis: if the 1W signal depends on that post-entry window, lagging ALL context
-features by one full trading day (strictly conservative — entry-time clean) should
-materially degrade direction accuracy and Sharpe.
-
-If the lagged config holds, the signal is robust to entry timing and the headline
-config should switch to the lagged (bulletproof) feature set.
+What it tested: the walk-forward enters trades at the WTI settlement (~14:30 ET), but the
+cross-asset context features (VIX, XLE, XOP, SPY, TNX) close at 16:00 ET, so the same-day
+feature set contains ~90 minutes of post-entry information. If the result depended on that
+window, lagging all context features by one trading day (entry-time clean) would lower
+direction accuracy and Sharpe.
 """
 
 import argparse
@@ -35,8 +37,8 @@ PERIOD = "5y"
 MIN_TRAIN = 200
 STEP = 10        # default: quick screen, ~100 OOS samples per config
 ESTIMATORS = 20  # default: fewer trees — enough to detect signal direction
-HORIZON = "1w"   # the only live signal
-# Full headline-config confirmation (matches walk_forward_backtest_latest.json):
+HORIZON = "1w"   # the retracted model's 1W target
+# The configuration of the committed record (the retracted 5-year run's stride and tree count):
 #   python run_timing_leakage_test.py --step 5 --estimators 40
 
 
@@ -65,8 +67,8 @@ def run_config(predictor, wti_data, lag_days: int, min_train: int, step: int) ->
 
 def main():
     parser = argparse.ArgumentParser(description="Timing-leakage test: same-day vs lagged context.")
-    parser.add_argument("--step", type=int, default=STEP, help="walk-forward stride (5 = headline config)")
-    parser.add_argument("--estimators", type=int, default=ESTIMATORS, help="trees per model (40 = headline config)")
+    parser.add_argument("--step", type=int, default=STEP, help="walk-forward stride (5 = the committed record)")
+    parser.add_argument("--estimators", type=int, default=ESTIMATORS, help="trees per model (40 = the committed record)")
     parser.add_argument("--min-train", type=int, default=MIN_TRAIN)
     parser.add_argument("--output", default="data/timing_leakage_test.json")
     args = parser.parse_args()
@@ -99,11 +101,9 @@ def main():
     print(f"same_day:  acc={a0}%  sharpe={s0:.3f}")
     print(f"lagged_1d: acc={a1}%  sharpe={s1:.3f}  (delta sharpe {s1 - s0:+.3f})")
     if s1 >= s0 - 0.5 and a1 >= 50:
-        print("CLEAN: signal survives strictly entry-time-clean features — "
-              "headline config should adopt the lagged feature set")
+        print("Lagged context holds up: the result does not depend on the post-entry window")
     else:
-        print("TIMING LEAKAGE: same-day context closes materially inflate the result — "
-              "headline numbers must be revised to the lagged config")
+        print("Same-day context closes inflate the result: the post-entry window matters")
 
     out_path = data_json_path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)

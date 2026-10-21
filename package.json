@@ -1,7 +1,7 @@
 {
-  "name": "wti-oil-prediction-frontend",
+  "name": "wti-volatility-research",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -15,6 +15,10 @@
     "node": ">=22.13.0"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "5.2.8",
+    "@fontsource-variable/jetbrains-mono": "5.2.8",
+    "d3-scale": "4.0.2",
+    "d3-shape": "3.2.0",
     "lightweight-charts": "^5.2.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"

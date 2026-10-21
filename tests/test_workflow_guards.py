@@ -1,11 +1,19 @@
+import fnmatch
 import re
 import unittest
 from pathlib import Path
+
+from backend.vol_record import SEAL_MARGIN
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_DIRECTORY = REPOSITORY_ROOT / ".github" / "workflows"
 FULL_COMMIT_SHA = re.compile(r"[0-9a-fA-F]{40}")
+# The structural check of the restored live vol track record (backend/vol_record.py is standard
+# library only, so it runs before anything is installed and in the publish job, which installs nothing).
+VOL_RECORD_CHECK = "'from backend.vol_record import load_record; load_record()'"
+# Stamps sealed_at on the record's new entries immediately before the publish job commits it.
+VOL_RECORD_SEAL = "PYTHONDONTWRITEBYTECODE=1 python backend/vol_record.py --seal"
 
 # The only actions a job holding a write token may use: GitHub's own, and only those such a job
 # needs. Their SHA pins are enforced by test_every_remote_action_is_pinned_to_a_full_commit_sha.
@@ -174,7 +182,8 @@ class WorkflowGuardTest(unittest.TestCase):
         self.assertIn('if [ "$state_mode" != "100644" ]', source)
         self.assertIn('cp "$restore_path" "data/.${state_file}.tmp"', source)
         self.assertIn('mv "data/.${state_file}.tmp" "data/${state_file}"', source)
-        self.assertIn("load_record(); load_state()", source)
+        # The restored record is validated by its writer's own loader, in build and again in publish.
+        self.assertEqual(source.count(VOL_RECORD_CHECK), 2)
         self.assertIn('if [ -L "$state_directory_path" ]', source)
         self.assertIn("cp --remove-destination --", source)
         self.assertIn("http.followRedirects=false", source)
@@ -197,9 +206,67 @@ class WorkflowGuardTest(unittest.TestCase):
         ]
         self.assertEqual(len(persistence_blocks), 1)
         persistence = persistence_blocks[0]
-        self.assertIn("$STATE_DIRECTORY/signal_state.json", persistence)
-        self.assertIn("$STATE_DIRECTORY/live_track_record.json", persistence)
+        self.assertIn('git -C "$state_worktree" add "$STATE_DIRECTORY/vol_track_record.json"', persistence)
+        self.assertEqual(set(re.findall(r"\b\w+\.json\b", persistence)), {"vol_track_record.json"})
         self.assertNotIn("price.json", persistence)
+
+    def test_refresh_restores_and_stages_only_the_vol_track_record(self):
+        # The retracted direction model's live record and e-mail alert state are retired: nothing in
+        # the workflow restores, runs, stages or persists them any more.
+        source = (WORKFLOW_DIRECTORY / "refresh.yml").read_text(encoding="utf-8")
+        for retired in ("signal_state", "live_track_record", "signal_alert", "backend/live_record.py",
+                        "backend.live_record", "GMAIL", "ALERT_EMAIL", "@gmail.com"):
+            with self.subTest(retired=retired):
+                self.assertNotIn(retired, source)
+        jobs = _jobs(source)
+        restore = next(b for b in _shell_run_blocks(jobs["build"]) if "$STATE_RESTORE_DIR" in b)
+        self.assertIn("state_file=vol_track_record.json", restore)
+        self.assertEqual(re.findall(r'git show "([^"]+)"', restore), ["origin/${STATE_BRANCH}:${branch_path}"])
+        self.assertLess(restore.index("python -m json.tool"), restore.index(VOL_RECORD_CHECK))
+        self.assertLess(restore.index(VOL_RECORD_CHECK), restore.index('echo "tree='))
+        for name in ("Stage runtime state for the publish job", "Place build outputs"):
+            step = source[source.index(f"- name: {name}"):]
+            step = step[:step.index("\n      - name:")]
+            with self.subTest(step=name):
+                site_files = {"data.json", "research.json"}          # deployed payloads, not state
+                self.assertEqual(set(re.findall(r"\b\w+\.json\b", step)) - site_files, {"vol_track_record.json"})
+
+    def test_both_jobs_validate_the_research_bundle(self):
+        source = (WORKFLOW_DIRECTORY / "refresh.yml").read_text(encoding="utf-8")
+        jobs = _jobs(source)
+        self.assertIn("--research public/research.json", jobs["build"])
+        self.assertIn("cp dist/research.json public/research.json", jobs["publish"])
+        self.assertIn("--research public/research.json", jobs["publish"])
+
+    def test_record_step_runs_after_validation_and_before_the_site_build(self):
+        source = (WORKFLOW_DIRECTORY / "refresh.yml").read_text(encoding="utf-8")
+        build = _jobs(source)["build"]
+        record = build.index("- name: Record + resolve live vol track record")
+        self.assertIn("run: python backend/vol_record.py --data public/data.json", build)
+        self.assertLess(build.index("- name: Freeze data snapshot"), record)
+        self.assertLess(build.index("- name: Validate frozen payload invariants"), record)
+        self.assertLess(record, build.index("- name: Build static site"))
+        self.assertLess(record, build.index("- name: Stage runtime state for the publish job"))
+
+    def test_push_trigger_covers_the_published_research_artifacts(self):
+        source = (WORKFLOW_DIRECTORY / "refresh.yml").read_text(encoding="utf-8")
+        trigger = source[source.index("\n  push:\n"):source.index("\npermissions:")]
+        paths = re.findall(r"^\s+- '([^']+)'", trigger, re.M)
+        for path in ("src/**", "backend/**", "freeze.py", "data/vol_lab.json", "data/vol_forecast_validation.json",
+                     "data/wf_*.json", "data/carry_signal_test.json", "data/supply_shock_study.json",
+                     "data/leak_anatomy.json", "data/research_ledger.json", "data/eia_wti_spot_daily.json",
+                     "data/market/**", "scripts/build_research_bundle.py", "scripts/validate_frozen_payload.py",
+                     ".github/workflows/refresh.yml"):
+            with self.subTest(path=path):
+                self.assertIn(path, paths)
+        # Every committed artifact research.json is built from, and the supply-shock playbook's spot
+        # history in data.json, redeploys the site when it changes.
+        builder = (REPOSITORY_ROOT / "scripts" / "build_research_bundle.py").read_text(encoding="utf-8")
+        inputs = set(re.findall(r'"(\w+\.json)"', builder)) - {"research.json"}
+        self.assertGreaterEqual(len(inputs), 9)
+        for name in sorted(inputs | {"eia_wti_spot_daily.json"}):
+            with self.subTest(artifact=name):
+                self.assertTrue(any(fnmatch.fnmatchcase(f"data/{name}", pattern) for pattern in paths))
 
 
     def test_privileged_refresh_job_is_split_from_the_build(self):
@@ -209,7 +276,62 @@ class WorkflowGuardTest(unittest.TestCase):
         self.assertRegex(top_level, r"permissions:\s*\n\s*contents: read")
         self.assertTrue(_holds_write_token(jobs["publish"], top_level))
         self.assertFalse(_holds_write_token(jobs["build"], top_level))
-        self.assertNotIn("GMAIL_APP_PASSWORD", jobs["build"])
+        self.assertNotIn("secrets.", jobs["publish"])
+
+    def test_only_the_eia_key_and_the_job_token_reach_the_workflows(self):
+        # Production reads one credential, the supply-shock study's EIA key, in the read-only build
+        # job's freeze step. Pushes use the job's own GITHUB_TOKEN. Nothing else is handed over.
+        for workflow in _workflow_files():
+            source = workflow.read_text(encoding="utf-8")
+            expressions = re.findall(r"\$\{\{(.*?)\}\}", source, re.S)
+            secrets = []
+            for expression in expressions:
+                # Every use of the secrets context must name one secret: no secrets[...], toJSON(secrets).
+                for use in re.finditer(r"\bsecrets\b(\.[A-Za-z0-9_]+)?", expression):
+                    with self.subTest(workflow=workflow.name, expression=expression.strip()):
+                        self.assertIsNotNone(use.group(1), "a secret must be referenced by name")
+                    if use.group(1):
+                        secrets.append(use.group(1)[1:])
+            with self.subTest(workflow=workflow.name):
+                self.assertNotRegex(source, r"secrets:\s*inherit")
+                if workflow.name == "refresh.yml":
+                    self.assertEqual(secrets, ["EIA_API_KEY"])
+                else:
+                    self.assertEqual(secrets, [])
+                for token in re.findall(r"^\s*(\w+):\s*\$\{\{\s*github\.token\s*\}\}", source, re.M):
+                    self.assertEqual(token, "GH_TOKEN")
+        source = (WORKFLOW_DIRECTORY / "refresh.yml").read_text(encoding="utf-8")
+        jobs = _jobs(source)
+        freeze = jobs["build"][jobs["build"].index("- name: Freeze data snapshot"):]
+        freeze = freeze[:freeze.index("\n      - name:")]
+        self.assertIn("EIA_API_KEY: ${{ secrets.EIA_API_KEY }}", freeze)
+        self.assertNotIn("github.token", jobs["build"])
+        for retired in ("NEWSAPI_KEY", "FINNHUB_KEY", "ALPHA_VANTAGE_KEY", "USDA_NASS_KEY", "NOAA_CDO_KEY",
+                        "MIN_REQUIRED_EXTERNAL_SOURCES", "EAGER_ML_WARMUP", "GMAIL_APP_PASSWORD"):
+            with self.subTest(retired=retired):
+                self.assertNotIn(retired, source)
+
+    def test_publish_job_imports_only_the_vol_record_from_backend(self):
+        # Next to the write token, the only repository Python that runs is the standard-library
+        # record validator and seal and the payload validator; the retired alert script is gone.
+        source = (WORKFLOW_DIRECTORY / "refresh.yml").read_text(encoding="utf-8")
+        publish = _jobs(source)["publish"]
+        self.assertEqual(set(re.findall(r"\bbackend[./](\w+)", publish)), {"vol_record"})
+        self.assertEqual(re.findall(r"\bfrom backend\.\w+ import [\w, ]+|\bimport backend\b[\w.]*", publish),
+                         ["from backend.vol_record import load_record"])
+        commands = [re.sub(r"\\\s*\n\s*", " ", b) for b in _shell_run_blocks(publish)]
+        scripts = set()
+        for command in commands:
+            scripts.update(re.findall(r"\bpython3?\s+(?:-[A-Za-z]\s+)*([\w./-]+\.py)\b", command))
+        self.assertEqual(scripts, {"scripts/validate_frozen_payload.py", "backend/vol_record.py"})
+        record_calls = [line.strip() for command in commands for line in command.splitlines()
+                        if "backend/vol_record.py" in line]
+        self.assertEqual(record_calls, [VOL_RECORD_SEAL])
+        inline = [code for command in commands for code in re.findall(r"\bpython3?\s+-c\s+'([^']*)'", command)]
+        self.assertEqual(sorted(inline), sorted([
+            "from backend.vol_record import load_record; load_record()",
+            'import json, sys; print(json.load(sys.stdin).get("frozen_at") or "")',
+        ]))
 
     def test_jobs_holding_a_write_token_run_no_third_party_code(self):
         # Any job that can push (refresh's publish, price) runs only GitHub's own actions it needs,
@@ -254,9 +376,9 @@ class WorkflowGuardTest(unittest.TestCase):
             with self.subTest(added=added.strip()):
                 self.assertTrue(_holds_write_token(job, "permissions:\n  contents: read\n"))
                 self.assertTrue(violations)
-        for allowed in ("python backend/signal_alert.py --data public/data.json",
+        for allowed in ("python -c 'from backend.vol_record import load_record; load_record()'",
                         "python scripts/validate_frozen_payload.py public/data.json",
-                        'git -C "$state_worktree" add "$STATE_DIRECTORY/signal_state.json"',
+                        'git -C "$state_worktree" add "$STATE_DIRECTORY/vol_track_record.json"',
                         'cp -RL dist/. "$site_worktree/"'):
             with self.subTest(allowed=allowed):
                 self.assertIsNone(PACKAGE_TOOLING.search(allowed))
@@ -268,17 +390,21 @@ class WorkflowGuardTest(unittest.TestCase):
         jobs = _jobs(source)
         tree = 'git rev-parse "origin/${STATE_BRANCH}:${STATE_DIRECTORY}"'
 
-        restore = next(b for b in _shell_run_blocks(jobs["build"]) if "load_record(); load_state()" in b)
+        restore = next(b for b in _shell_run_blocks(jobs["build"]) if VOL_RECORD_CHECK in b)
         self.assertIn(f'echo "tree=$({tree})"', restore)
         self.assertIn("STATE_BASE_FILE: ${{ runner.temp }}/runtime-state/restored-from", jobs["build"])
 
         publish = jobs["publish"]
         check_at = publish.index("- name: Refuse a stale or superseded build")
         deploy_at = publish.index("- name: Deploy to GitHub Pages")
-        alert_at = publish.index("- name: Check 1W signal and send alert")
+        persist_at = publish.index("- name: Persist live vol track record to live-data branch")
         self.assertLess(publish.index("- name: Place build outputs"), check_at)
         self.assertLess(check_at, deploy_at)
-        self.assertLess(deploy_at, alert_at)
+        self.assertLess(deploy_at, persist_at)
+        # The record is persisted only once the site showing its summary is published.
+        self.assertIn("if: ${{ !cancelled() && steps.pages_deploy.outcome == 'success' }}",
+                      publish[persist_at:].splitlines()[1])
+        self.assertIn("id: pages_deploy", publish[deploy_at:persist_at])
         check = next(b for b in _shell_run_blocks(publish) if "validate_frozen_payload.py" in b)
         self.assertIn("cmp dist/data.json public/data.json", check)
         self.assertIn(f'if [ "$({tree})" != "$base_tree" ]; then', check)
@@ -291,6 +417,31 @@ class WorkflowGuardTest(unittest.TestCase):
         guard = persist.index(f'if [ "$({tree})" != "$base_tree" ]; then')
         self.assertLess(persist.index("diff --staged --quiet"), guard)
         self.assertLess(guard, persist.index("commit -m"))
+
+    def test_the_record_is_sealed_right_before_it_is_committed(self):
+        # The seal is what lets the record claim each scored forecast was committed before its
+        # window opened: it runs only in the publish job, in the step that commits and pushes, after
+        # the origin and restored-tree checks and before the bytes it persists are snapshotted; and
+        # that step's time limit keeps the push inside vol_record.SEAL_MARGIN of the stamp.
+        source = (WORKFLOW_DIRECTORY / "refresh.yml").read_text(encoding="utf-8")
+        jobs = _jobs(source)
+        self.assertNotIn("--seal", "\n".join(_shell_run_blocks(jobs["build"])))
+        sealing = [b for b in _shell_run_blocks(source) if "--seal" in b]
+        self.assertEqual(len(sealing), 1)
+        persist = sealing[0]
+        self.assertIn('push origin "HEAD:${STATE_BRANCH}"', persist)
+        self.assertEqual(persist.count(VOL_RECORD_SEAL), 1)
+        seal = persist.index(VOL_RECORD_SEAL)
+        self.assertLess(persist.index('if [ "${origin_url%.git}" != "$expected_origin" ]'), seal)
+        self.assertLess(persist.index('if ! [[ "$base_tree" =~'), seal)
+        self.assertLess(seal, persist.index('cp data/vol_track_record.json "$STATE_SNAPSHOT_DIR/'))
+        self.assertLess(seal, persist.index("commit -m"))
+
+        publish = jobs["publish"]
+        step = publish[publish.index("- name: Persist live vol track record to live-data branch"):]
+        limit = re.search(r"^        timeout-minutes:\s*(\d+)\s*$", step.split("\n      - name:")[0], re.M)
+        self.assertIsNotNone(limit, "the persist step needs its own time limit")
+        self.assertLess(int(limit.group(1)) * 60, SEAL_MARGIN.total_seconds())
 
     def test_site_deploy_mirrors_the_replaced_action(self):
         # What peaceiris/actions-gh-pages did with this workflow's inputs: replace the branch's files

@@ -13,3 +13,6 @@ pytz==2026.3.post1
 python-dotenv==1.2.3
 xgboost==3.4.1
 lightgbm==4.7.0
+# Volatility research: GARCH benchmarks, Model Confidence Set and SPA (backend/vol_lab.py)
+arch==8.0.0
+statsmodels==0.15.0

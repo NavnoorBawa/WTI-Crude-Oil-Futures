@@ -1,11 +1,8 @@
-// Network-free tests of the dashboard's logic: quote selection around contract rolls, chart
-// aggregation, number formatting, sizing, and the wording rules. Run: npm test
+// Network-free tests of the dashboard's data logic: quote selection around contract rolls, price
+// chart aggregation and number formatting. Run: npm test
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { loadDashboard } from "./load.mjs";
+import { loadDashboard, readFixture } from "./load.mjs";
 
 const FIXED_NOW = Date.parse("2026-10-21T12:00:00Z");
 Date.now = () => FIXED_NOW;
@@ -14,22 +11,14 @@ let dashboard;
 before(async () => { dashboard = await loadDashboard(); });
 after(() => dashboard.close());
 
-// The visible text of server-rendered markup: every character outside a tag, whitespace collapsed.
-const text = (html) => {
-  let visible = "";
-  let inTag = false;
-  for (const character of html) {
-    if (character === "<") inTag = true;
-    else if (character === ">") inTag = false;
-    else if (!inTag) visible += character;
-  }
-  return visible.replace(/\s+/g, " ");
-};
-const fixture = JSON.parse(readFileSync(new URL("../fixtures/chart_actual_2026-09-24.json", import.meta.url), "utf8"));
+const fixture = readFixture("chart_actual_2026-09-24.json");
 
 // ------------------------------------------------------------------------------------ formatting
+// fmtP joins "p", the relation and the value with no-break spaces; the tests read them as spaces.
+const spaced = (text) => (typeof text === "string" ? text.replace(/\u00a0/g, " ") : text);
+
 test("fmtP never prints a p-value as a threshold it is below", () => {
-  const { fmtP } = dashboard.format;
+  const fmtP = (value) => spaced(dashboard.format.fmtP(value));
   assert.equal(fmtP(0.0496), "p = 0.0496");
   assert.equal(fmtP(0.04999), "p < 0.05");
   assert.equal(fmtP(0.9996), "p = 0.9996");
@@ -40,11 +29,60 @@ test("fmtP never prints a p-value as a threshold it is below", () => {
   for (let i = 1000; i < 1_000_000; i += 7) {
     const p = i / 1_000_000;
     const out = fmtP(p);
-    const shown = Number(out.replace(/^p [=<] /, ""));
+    const shown = Number(out.replace(/^p [=<>] /, ""));
     for (const threshold of [0.01, 0.05, 0.1, 1]) {
       assert.ok(!(p < threshold && out.startsWith("p =") && shown >= threshold), `fmtP(${p}) = ${out}`);
     }
   }
+});
+
+test("fmtP never rounds a p-value down onto a threshold it is above", () => {
+  const fmtP = (value) => spaced(dashboard.format.fmtP(value));
+  const fmtPValue = (value) => spaced(dashboard.format.fmtPValue(value));
+  assert.equal(fmtP(0.0548), "p = 0.055");      // the SPA lower bound that printed as "0.05"
+  assert.equal(fmtP(0.1048), "p = 0.105");
+  assert.equal(fmtP(0.0104), "p = 0.0104");
+  assert.equal(fmtP(0.05004), "p > 0.05");       // still on the threshold at four digits
+  assert.equal(fmtP(0.1), "p = 0.10");           // exactly at a threshold is printed as such
+  assert.equal(fmtP(0.0368), "p = 0.04");
+  assert.equal(fmtPValue(0.05004), "> 0.05");
+  for (let i = 1000; i < 1_000_000; i += 7) {
+    const p = i / 1_000_000;
+    const out = fmtP(p);
+    if (!out.startsWith("p =")) continue;
+    const shown = Number(out.slice(4));
+    for (const threshold of [0.01, 0.05, 0.1]) {
+      assert.ok(!(p > threshold && shown === threshold), `fmtP(${p}) = ${out}`);
+    }
+  }
+});
+
+test("a p-value never breaks across lines: fmtP and fmtPValue use no-break spaces", () => {
+  const { fmtP, fmtPValue, NBSP } = dashboard.format;
+  assert.equal(NBSP, "\u00a0");
+  assert.equal(fmtP(0.63), "p\u00a0=\u00a00.63");
+  assert.equal(fmtP(0.0004), "p\u00a0<\u00a00.001");
+  assert.equal(fmtP(0.05004), "p\u00a0>\u00a00.05");
+  assert.equal(fmtPValue(0.0004), "<\u00a00.001");
+  assert.equal(fmtPValue(0.63), "0.63");
+  for (const p of [0.0004, 0.0368, 0.05004, 0.63]) assert.doesNotMatch(fmtP(p), / /, `fmtP(${p}) has no breaking space`);
+});
+
+test("tidyProse prints payload p-values, minus signs and names in the page's style", () => {
+  const { tidyProse } = dashboard.format;
+  assert.equal(spaced(tidyProse("fell from 0.20 to -0.03 (difference p = 0.0210)")), "fell from 0.20 to −0.03 (difference p = 0.02)");
+  assert.equal(tidyProse("adaptive conformal (Gibbs-Candes 2021)"), "adaptive conformal (Gibbs-Candès 2021)");
+  assert.equal(tidyProse("OVX (the CBOE Crude Oil ETF Volatility Index)"), "OVX (the Cboe Crude Oil ETF Volatility Index)");
+  assert.equal(tidyProse("5-session t-1 2007-2024"), "5-session t-1 2007-2024", "hyphens between words and numbers stay");
+  assert.equal(tidyProse(null), null);
+});
+
+test("withCentralTime gives every ET clock time its CT twin", () => {
+  const { withCentralTime } = dashboard.format;
+  assert.equal(withCentralTime("the first CL settlement (14:30 ET) after"), "the first CL settlement (14:30 ET / 13:30 CT) after");
+  assert.equal(withCentralTime("00:15 ET and 16:15 ET"), "00:15 ET / 23:15 CT and 16:15 ET / 15:15 CT");
+  assert.equal(withCentralTime("no times here"), "no times here");
+  assert.equal(withCentralTime(null), null);
 });
 
 test("fmtNum renders a zero Sharpe as 0.00, never -0.00", () => {
@@ -107,7 +145,7 @@ test("a daily bar overlapping the hourly window is not drawn at 11 PM the night 
     const labels = intraday.map((p) => dashboard.chart.formatWallTime(p.time, "intraday"));
     assert.ok(!labels.includes("Sep 13, 2026, 11:00 PM CT"), `tagged=${tagged}: ${labels.slice(0, 4)}`);
     assert.ok(!intraday.some((p) => p.value === 63.4), `tagged=${tagged}`);
-    const monday = daily.find((p) => dashboard.chart.formatWallTime(p.time, "daily") === "Mon, Sep 14, 2026");
+    const monday = daily.find((p) => dashboard.chart.formatWallTime(p.time, "daily") === "Sep 14, 2026");
     assert.equal(monday.volume, 300000, `tagged=${tagged}`);
   }
 });
@@ -121,7 +159,7 @@ test("with kinds, an hourly window opening at exactly 00:00 ET keeps its first h
   for (let h = 4; h <= 8; h += 1) push(`2026-09-14T${String(h).padStart(2, "0")}:00:00Z`, 63 + h / 100, 20000, "1h");
   const { intraday, daily } = views(actual);
   assert.ok(intraday.some((p) => p.value === 63.04), "the 00:00 ET hourly bar is plotted");
-  const monday = daily.find((p) => dashboard.chart.formatWallTime(p.time, "daily") === "Mon, Sep 14, 2026");
+  const monday = daily.find((p) => dashboard.chart.formatWallTime(p.time, "daily") === "Sep 14, 2026");
   assert.equal(monday.volume, 5 * 20000);
 });
 
@@ -134,7 +172,7 @@ const snapshotOn = (contract, extra = {}) => ({
 });
 
 test("a quote for the next contract never takes the snapshot contract's label", () => {
-  const { normalizeQuote, resolveQuote } = dashboard.app;
+  const { normalizeQuote, resolveQuote } = dashboard.quote;
   const data = snapshotOn("CLX26");
   const next = normalizeQuote({ price: 89.35, prev_close: 88.4, market_time: "2026-10-20T23:30:00Z", contract: "CLZ26" });
   assert.equal(resolveQuote(next, data).kind, "snapshot");
@@ -146,8 +184,17 @@ test("a quote for the next contract never takes the snapshot contract's label", 
   assert.equal(resolveQuote(same, data).kind, "quote");
 });
 
+test("a stale, implausible or future-stamped quote never replaces the snapshot", () => {
+  const { normalizeQuote, isQuoteUsable } = dashboard.quote;
+  const data = snapshotOn("CLX26");
+  assert.equal(isQuoteUsable(normalizeQuote({ price: 88.6, market_time: "2026-10-20T17:00:00Z", contract: "CLX26" }), data), false);
+  assert.equal(isQuoteUsable(normalizeQuote({ price: 120.0, market_time: "2026-10-20T19:00:00Z", contract: "CLX26" }), data), false);
+  assert.equal(normalizeQuote({ price: 88.6, market_time: "2026-10-22T19:00:00Z" }), null);
+  assert.equal(normalizeQuote({ price: -1, market_time: "2026-10-20T19:00:00Z" }), null);
+});
+
 test("a quote's change is withheld for roll reasons only", () => {
-  const { normalizeQuote, resolveQuote } = dashboard.app;
+  const { normalizeQuote, resolveQuote } = dashboard.quote;
   const rollDay = snapshotOn("CLX26", {
     current_price: 91.9, price_change: null, price_change_percent: null,
     price_change_quality: "unavailable_contract_roll", frozen_at: "2026-09-23T15:05:00+00:00",
@@ -168,68 +215,4 @@ test("a quote's change is withheld for roll reasons only", () => {
   });
   const morning = normalizeQuote({ price: 88.9, prev_close: 88.4, change_pct: 0.57, market_time: "2026-10-14T14:00:00Z", contract: "CLX26" });
   assert.equal(resolveQuote(morning, evening).changePct, 0.57);
-});
-
-// --------------------------------------------------------------------------------- sizing/record
-test("a break-even profit factor is no Kelly edge", () => {
-  const { computeSizing } = dashboard.app;
-  for (const winRate of [48, 51, 55, 60]) {
-    assert.equal(computeSizing(winRate, 1.0, 10).noEdge, true, `win rate ${winRate}`);
-    assert.equal(computeSizing(winRate, 1.001, 10).noEdge, false, `win rate ${winRate}`);
-  }
-});
-
-test("the live-record verdict pairs the independent count with the independent hit rate", () => {
-  const { describeLiveRecord } = dashboard.app;
-  const base = { n_calls: 120, n_resolved_directional: 90, n_independent_directional: 18, hit_rate_pct: 80.0 };
-  assert.equal(describeLiveRecord({ ...base, hit_rate_independent_pct: 0.0 }).verdict, "0.0% hit rate on 18 independent calls");
-  assert.equal(describeLiveRecord(base).verdict, "80.0% hit rate over 90 overlapping calls (18 independent)");
-  assert.equal(describeLiveRecord({ ...base, n_independent_directional: 5 }).verdict, "too few to validate (need ≥18 independent)");
-});
-
-// ------------------------------------------------------------------------------------- wording
-const playbook = (lost, threat) => ({
-  event_count: 31, first_event_year: 1990, last_event_year: 2024,
-  distributions: {
-    supply_lost: { n: 21, peak: { median: lost[0] }, settle: { median: lost[1] } },
-    threat_only: { n: 10, peak: { median: threat[0] }, settle: { median: threat[1] } },
-  },
-});
-const supplyText = (pb) => text(renderToStaticMarkup(createElement(dashboard.app.SupplySection,
-  { playbook: pb, noveltySpike: false, open: true, onToggle: () => {} })));
-
-test("the supply-shock takeaway applies one retention test to both groups", () => {
-  const live = supplyText(playbook([12.1, 4.3], [4.0, 0.5]));
-  assert.ok(!/held their gains/.test(live), live);
-  assert.match(live, /kept more of their move: \+4\.3% median settle of a \+12\.1% median peak \(n = 21\), vs \+0\.5% of \+4\.0% for threats/);
-  assert.ok(!/kept more/.test(supplyText(playbook([12.1, 2.0], [4.0, 1.5]))));   // physical kept a smaller share
-  assert.ok(!/kept more/.test(supplyText(playbook([12.1, -1.0], [4.0, -2.0]))));  // nothing was kept
-});
-
-const volText = (economic) => text(renderToStaticMarkup(createElement(dashboard.app.VolatilityCard, { vol: {
-  live: { direction: "RISING", as_of: "2026-10-12", model: "HAR-IV" },
-  validation: { har_dir_acc_pct: 72.7, majority_class_pct: 52.1, har_dir_p_value_vs_base_rate: 0.047, har_dir_z_score: 1.7, n: 926 },
-  economic,
-} })));
-
-test("the vol card states the roll-free window and compares the two VRP proxies like for like", () => {
-  const economic = {
-    returns: { sample_start: "2008-05-07", sample_end: "2024-04-05" },
-    vol_target_overlay: { sharpe_buy_hold: 0.0, sharpe_trailing_vol_target: -0.11, sharpe_forecast_vol_target: -0.07 },
-    variance_risk_premium: {
-      mean_premium_vol_pts: 2.5, share_positive_pct: 72.5, worst_period_vol_pts: -157.9, short_vol_swap_sharpe: 0.52,
-      short_variance_sharpe: 0.01, worst_year: 2020, short_vol_swap_sharpe_ex_worst_year: 1.3,
-      short_variance_sharpe_ex_worst_year: 0.8, timing_p_value: 0.327,
-    },
-  };
-  const out = volText(economic);
-  assert.ok(out.includes("A vol-targeting overlay on roll-free returns (2008–2024) did NOT beat buy-and-hold (Sharpe −0.07 vs 0.00; trailing-vol sizing −0.11)"), out);
-  assert.ok(out.includes("short vol-swap Sharpe 0.52, short variance 0.01 (1.30 and 0.80 excluding 2020)"), out);
-  assert.ok(out.includes("p = 0.047"), out);
-  // Only one proxy's ex-worst-year figure: neither is shown (a convex ex-crash vs a linear full sample).
-  const half = { ...economic.variance_risk_premium };
-  delete half.short_vol_swap_sharpe_ex_worst_year;
-  assert.ok(!/excluding/.test(volText({ ...economic, variance_risk_premium: half })));
-  const legacy = volText({ vol_target_overlay: economic.vol_target_overlay, variance_risk_premium: { mean_premium_vol_pts: 2.4, short_variance_sharpe: 0.0 } });
-  assert.ok(!/roll-free|excluding/.test(legacy) && legacy.includes("A vol-targeting overlay did NOT beat"), legacy);
 });

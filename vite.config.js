@@ -89,11 +89,15 @@ export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_')
   const isDevelopment = command === 'serve'
   const staticDataMode = resolveStaticDataMode(command === 'build', env)
+  // The footer names the commit the bundle was built from: VITE_GIT_SHA when set, else the commit
+  // GitHub Actions is building (GITHUB_SHA, a public value). Anything that is not a hex SHA is dropped.
+  const gitSha = [env.VITE_GIT_SHA, process.env.GITHUB_SHA].find((value) => /^[0-9a-f]{7,40}$/i.test(value ?? '')) ?? ''
 
   return {
     base: env.VITE_BASE_PATH || '/',
     define: {
       'import.meta.env.VITE_STATIC_DATA': JSON.stringify(staticDataMode),
+      'import.meta.env.VITE_GIT_SHA': JSON.stringify(gitSha),
     },
     plugins: [react(), contentSecurityPolicyPlugin(isDevelopment, env)],
     server: {
@@ -104,7 +108,10 @@ export default defineConfig(({ command, mode }) => {
       host: '127.0.0.1'
     },
     build: {
-      outDir: 'dist'
+      outDir: 'dist',
+      // Fonts must be served as files: the CSP allows font-src 'self', not data: URIs. Other small
+      // assets keep Vite's default inlining.
+      assetsInlineLimit: (filePath) => (/\.(woff2?|ttf|otf)$/i.test(filePath) ? false : undefined),
     }
   }
 })

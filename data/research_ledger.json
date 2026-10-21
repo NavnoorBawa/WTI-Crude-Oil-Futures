@@ -1,0 +1,3413 @@
+{
+  "method": "One row per tested hypothesis; statistics and p-values read from the named artifact fields (or computed from them by the formula in `test`). Status uses the p-value as the test was run: supported below alpha 0.05, inconclusive from 0.05 to 0.10, not_supported at 0.10 or above or when the estimate points the wrong way (a failure to reject, not evidence against the hypothesis; underpowered marks a test whose recorded power is below its target). Benjamini-Hochberg q-values and Holm adjusted p-values are computed across the rows with a p-value, on p_two_sided (the directional one-sided p doubled, capped at 1), leaving out rows selected_after_search (a model picked as the best of a field on the same sample; their adjusted fields are null and their note names the search-adjusted test). t_equivalent = normal quantile of p_two_sided; clears_hlz_t3 applies the Harvey-Liu-Zhu (2016) t > 3 hurdle.",
+  "alpha": 0.05,
+  "hlz_t": 3.0,
+  "summary": {
+    "rows": 76,
+    "rows_with_p_value": 76,
+    "rows_in_multiplicity_family": 75,
+    "by_status": {
+      "supported": 18,
+      "not_supported": 44,
+      "retracted": 9,
+      "inconclusive": 5
+    },
+    "pre_specified_rows": 3,
+    "selected_after_search": [
+      "vol_challenger_qlike"
+    ],
+    "underpowered": [
+      "carry_spread_post2007"
+    ],
+    "supported": [
+      "leak_forest_noise_unpurged",
+      "leak_nn_shuffled_cl_unpurged",
+      "carry_spread_full",
+      "carry_rank_full",
+      "carry_spread_pre2007",
+      "carry_rank_pre2007",
+      "carry_sign_split_full",
+      "carry_rank_changed_after_2007",
+      "vol_qlike_vs_persistence",
+      "vol_ovx_gain_qlike",
+      "vol_same_day_ovx",
+      "vol_challenger_qlike",
+      "vol_mcs_excludes_record",
+      "vol_ovx_coefficient",
+      "var_normal_99_coverage",
+      "var_hs_95_clustering",
+      "shock_supply_lost_peak",
+      "shock_removal_vs_threat_peak"
+    ],
+    "supported_surviving_bh_5pct": [
+      "leak_forest_noise_unpurged",
+      "leak_nn_shuffled_cl_unpurged",
+      "carry_rank_pre2007",
+      "vol_qlike_vs_persistence",
+      "vol_ovx_gain_qlike",
+      "vol_same_day_ovx",
+      "vol_ovx_coefficient",
+      "shock_supply_lost_peak"
+    ],
+    "supported_surviving_holm_5pct": [
+      "leak_forest_noise_unpurged",
+      "leak_nn_shuffled_cl_unpurged",
+      "vol_qlike_vs_persistence",
+      "vol_ovx_gain_qlike",
+      "vol_same_day_ovx",
+      "vol_ovx_coefficient"
+    ],
+    "supported_clearing_hlz_t3": [
+      "leak_forest_noise_unpurged",
+      "leak_nn_shuffled_cl_unpurged",
+      "vol_qlike_vs_persistence",
+      "vol_ovx_gain_qlike",
+      "vol_same_day_ovx",
+      "vol_ovx_coefficient",
+      "shock_supply_lost_peak"
+    ],
+    "supported_failing_bh_5pct": [
+      "carry_spread_full",
+      "carry_rank_full",
+      "carry_spread_pre2007",
+      "carry_sign_split_full",
+      "carry_rank_changed_after_2007",
+      "vol_mcs_excludes_record",
+      "var_normal_99_coverage",
+      "var_hs_95_clustering",
+      "shock_removal_vs_threat_peak"
+    ],
+    "supported_selected_after_search": [
+      "vol_challenger_qlike"
+    ],
+    "by_family": {
+      "direction model": {
+        "rows": 9,
+        "by_status": {
+          "supported": 0,
+          "not_supported": 4,
+          "retracted": 5,
+          "inconclusive": 0
+        },
+        "supported_surviving_bh_5pct": 0,
+        "supported_clearing_hlz_t3": 0
+      },
+      "leak anatomy": {
+        "rows": 4,
+        "by_status": {
+          "supported": 2,
+          "not_supported": 2,
+          "retracted": 0,
+          "inconclusive": 0
+        },
+        "supported_surviving_bh_5pct": 2,
+        "supported_clearing_hlz_t3": 2
+      },
+      "carry": {
+        "rows": 17,
+        "by_status": {
+          "supported": 6,
+          "not_supported": 9,
+          "retracted": 1,
+          "inconclusive": 1
+        },
+        "supported_surviving_bh_5pct": 1,
+        "supported_clearing_hlz_t3": 0
+      },
+      "variance risk premium": {
+        "rows": 5,
+        "by_status": {
+          "supported": 0,
+          "not_supported": 3,
+          "retracted": 1,
+          "inconclusive": 1
+        },
+        "supported_surviving_bh_5pct": 0,
+        "supported_clearing_hlz_t3": 0
+      },
+      "volatility forecast": {
+        "rows": 18,
+        "by_status": {
+          "supported": 6,
+          "not_supported": 8,
+          "retracted": 2,
+          "inconclusive": 2
+        },
+        "supported_surviving_bh_5pct": 4,
+        "supported_clearing_hlz_t3": 4
+      },
+      "value at risk": {
+        "rows": 4,
+        "by_status": {
+          "supported": 2,
+          "not_supported": 2,
+          "retracted": 0,
+          "inconclusive": 0
+        },
+        "supported_surviving_bh_5pct": 0,
+        "supported_clearing_hlz_t3": 0
+      },
+      "supply shock": {
+        "rows": 19,
+        "by_status": {
+          "supported": 2,
+          "not_supported": 16,
+          "retracted": 0,
+          "inconclusive": 1
+        },
+        "supported_surviving_bh_5pct": 1,
+        "supported_clearing_hlz_t3": 1
+      }
+    }
+  },
+  "rows": [
+    {
+      "id": "dir_1w_5y_leaked",
+      "date": "2026-10-12",
+      "family": "direction model",
+      "hypothesis": "The 1W direction model beats a coin flip (5-year, unpurged as originally run).",
+      "test": "one-sided exact binomial test of direction accuracy vs 50%",
+      "statistic": {
+        "name": "direction accuracy %",
+        "value": 67.17171717171718
+      },
+      "context": {
+        "n": 198,
+        "sharpe_after_costs": 2.466
+      },
+      "p_value": 7.6674252044848e-07,
+      "sided": "one",
+      "p_two_sided": 1.53348504089696e-06,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "retracted",
+      "underpowered": null,
+      "retraction_reason": "look-ahead leak: the walk-forward trained on rows whose 5-session labels matured after the decision (see data/leak_anatomy.json)",
+      "note": "",
+      "artifact": {
+        "path": "data/wf_5y_unpurged_LEAKED.json",
+        "statistic_field": "results.1w.metrics.ensemble.direction_accuracy",
+        "p_value_fields": {
+          "results.1w.samples": 198,
+          "results.1w.metrics.ensemble.direction_accuracy": 67.17171717171718
+        },
+        "context_fields": {
+          "n": "results.1w.samples",
+          "sharpe_after_costs": "results.1w.pnl_metrics.sharpe_ratio_annualized"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 1.6430196866753145e-05,
+      "p_holm": 0.00010581046782189024,
+      "t_equivalent": 4.81,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "dir_1w_10y_leaked",
+      "date": "2026-10-13",
+      "family": "direction model",
+      "hypothesis": "The 1W direction model beats a coin flip (10-year rolling, unpurged).",
+      "test": "one-sided exact binomial test of direction accuracy vs 50%",
+      "statistic": {
+        "name": "direction accuracy %",
+        "value": 64.88888888888889
+      },
+      "context": {
+        "n": 450,
+        "sharpe_after_costs": 2.093
+      },
+      "p_value": 1.3453463535612642e-10,
+      "sided": "one",
+      "p_two_sided": 2.6906927071225285e-10,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "retracted",
+      "underpowered": null,
+      "retraction_reason": "look-ahead leak: the walk-forward trained on rows whose 5-session labels matured after the decision (see data/leak_anatomy.json)",
+      "note": "",
+      "artifact": {
+        "path": "data/wf_10y_rolling_unpurged_LEAKED.json",
+        "statistic_field": "results.1w.metrics.ensemble.direction_accuracy",
+        "p_value_fields": {
+          "results.1w.samples": 450,
+          "results.1w.metrics.ensemble.direction_accuracy": 64.88888888888889
+        },
+        "context_fields": {
+          "n": "results.1w.samples",
+          "sharpe_after_costs": "results.1w.pnl_metrics.sharpe_ratio_annualized"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 3.3633658839031605e-09,
+      "p_holm": 1.88348489498577e-08,
+      "t_equivalent": 6.32,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "dir_1w_5y_purged",
+      "date": "2026-10-12",
+      "family": "direction model",
+      "hypothesis": "The 1W direction model beats a coin flip (5-year, purged).",
+      "test": "one-sided exact binomial test of direction accuracy vs 50%",
+      "statistic": {
+        "name": "direction accuracy %",
+        "value": 48.484848484848484
+      },
+      "context": {
+        "n": 198,
+        "sharpe_after_costs": -0.982
+      },
+      "p_value": 0.6905145005833511,
+      "sided": "one",
+      "p_two_sided": 1.0,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/wf_5y_purged.json",
+        "statistic_field": "results.1w.metrics.ensemble.direction_accuracy",
+        "p_value_fields": {
+          "results.1w.samples": 198,
+          "results.1w.metrics.ensemble.direction_accuracy": 48.484848484848484
+        },
+        "context_fields": {
+          "n": "results.1w.samples",
+          "sharpe_after_costs": "results.1w.pnl_metrics.sharpe_ratio_annualized"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.0,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "dir_1w_10y_purged",
+      "date": "2026-10-12",
+      "family": "direction model",
+      "hypothesis": "The 1W direction model beats a coin flip (10-year rolling, purged).",
+      "test": "one-sided exact binomial test of direction accuracy vs 50%",
+      "statistic": {
+        "name": "direction accuracy %",
+        "value": 50.888888888888886
+      },
+      "context": {
+        "n": 450,
+        "sharpe_after_costs": -0.045
+      },
+      "p_value": 0.3707269887175779,
+      "sided": "one",
+      "p_two_sided": 0.7414539774351558,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/wf_10y_rolling_purged.json",
+        "statistic_field": "results.1w.metrics.ensemble.direction_accuracy",
+        "p_value_fields": {
+          "results.1w.samples": 450,
+          "results.1w.metrics.ensemble.direction_accuracy": 50.888888888888886
+        },
+        "context_fields": {
+          "n": "results.1w.samples",
+          "sharpe_after_costs": "results.1w.pnl_metrics.sharpe_ratio_annualized"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.9527312982523835,
+      "p_holm": 1.0,
+      "t_equivalent": 0.33,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "dir_1d_5y_every_fifth_day",
+      "date": "2026-10-12",
+      "family": "direction model",
+      "hypothesis": "The 1D direction model beats a coin flip (5-year, scored every fifth day).",
+      "test": "one-sided exact binomial test of direction accuracy vs 50%",
+      "statistic": {
+        "name": "direction accuracy %",
+        "value": 37.185929648241206
+      },
+      "context": {
+        "n": 199,
+        "sharpe_after_costs": -1.417
+      },
+      "p_value": 0.9998947657223497,
+      "sided": "one",
+      "p_two_sided": 1.0,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/wf_5y_purged.json",
+        "statistic_field": "results.1d.metrics.ensemble.direction_accuracy",
+        "p_value_fields": {
+          "results.1d.samples": 199,
+          "results.1d.metrics.ensemble.direction_accuracy": 37.185929648241206
+        },
+        "context_fields": {
+          "n": "results.1d.samples",
+          "sharpe_after_costs": "results.1d.pnl_metrics.sharpe_ratio_annualized"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.0,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "dir_1d_5y_every_day",
+      "date": "2026-10-13",
+      "family": "direction model",
+      "hypothesis": "The 1D direction model beats a coin flip (5-year, scored every day).",
+      "test": "one-sided exact binomial test of direction accuracy vs 50%",
+      "statistic": {
+        "name": "direction accuracy %",
+        "value": 50.804828973843065
+      },
+      "context": {
+        "n": 994,
+        "sharpe_after_costs": -0.585
+      },
+      "p_value": 0.3171297412807973,
+      "sided": "one",
+      "p_two_sided": 0.6342594825615946,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/wf_5y_purged_1d_every_day.json",
+        "statistic_field": "results.1d.metrics.ensemble.direction_accuracy",
+        "p_value_fields": {
+          "results.1d.samples": 994,
+          "results.1d.metrics.ensemble.direction_accuracy": 50.804828973843065
+        },
+        "context_fields": {
+          "n": "results.1d.samples",
+          "sharpe_after_costs": "results.1d.pnl_metrics.sharpe_ratio_annualized"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.9258173076923077,
+      "p_holm": 1.0,
+      "t_equivalent": 0.48,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "dir_macro_uplift",
+      "date": "2026-06-10",
+      "family": "direction model",
+      "hypothesis": "Adding FRED/EIA macro features raises direction accuracy (step-20 A/B).",
+      "test": "one-sided pooled two-proportion z-test, with_macro vs no_macro",
+      "statistic": {
+        "name": "with_macro accuracy %",
+        "value": 76.0
+      },
+      "context": {
+        "no_macro_accuracy_pct": 62.0
+      },
+      "p_value": 0.06507182951288386,
+      "sided": "one",
+      "p_two_sided": 0.13014365902576772,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "retracted",
+      "underpowered": null,
+      "retraction_reason": "look-ahead leak: the walk-forward trained on rows whose 5-session labels matured after the decision (see data/leak_anatomy.json)",
+      "note": "",
+      "artifact": {
+        "path": "data/macro_leakage_test.json",
+        "statistic_field": "results.with_macro_1w.direction_accuracy",
+        "p_value_fields": {
+          "results.with_macro_1w.direction_accuracy": 76.0,
+          "results.with_macro_1w.samples": 50,
+          "results.no_macro_1w.direction_accuracy": 62.0,
+          "results.no_macro_1w.samples": 50
+        },
+        "context_fields": {
+          "no_macro_accuracy_pct": "results.no_macro_1w.direction_accuracy"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.32867647058823524,
+      "p_holm": 1.0,
+      "t_equivalent": 1.51,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "dir_same_day_context",
+      "date": "2026-06-10",
+      "family": "direction model",
+      "hypothesis": "Same-day (16:00 ET) context closes inflate the edge vs context lagged one day.",
+      "test": "one-sided pooled two-proportion z-test, same_day vs lagged_1d",
+      "statistic": {
+        "name": "same-day accuracy %",
+        "value": 67.34
+      },
+      "context": {
+        "lagged_accuracy_pct": 65.83
+      },
+      "p_value": 0.37474097731260414,
+      "sided": "one",
+      "p_two_sided": 0.7494819546252083,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "retracted",
+      "underpowered": null,
+      "retraction_reason": "look-ahead leak: the walk-forward trained on rows whose 5-session labels matured after the decision (see data/leak_anatomy.json)",
+      "note": "",
+      "artifact": {
+        "path": "data/timing_leakage_test.json",
+        "statistic_field": "results.same_day.direction_accuracy",
+        "p_value_fields": {
+          "results.same_day.direction_accuracy": 67.34,
+          "results.same_day.samples": 199,
+          "results.lagged_1d.direction_accuracy": 65.83,
+          "results.lagged_1d.samples": 199
+        },
+        "context_fields": {
+          "lagged_accuracy_pct": "results.lagged_1d.direction_accuracy"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.9527312982523835,
+      "p_holm": 1.0,
+      "t_equivalent": 0.32,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "dir_hit_rate_at_ess",
+      "date": "2026-06-11",
+      "family": "direction model",
+      "hypothesis": "The 1W hit rate stays significant at its serial-correlation effective sample size.",
+      "test": "one-sided z at the Bartlett effective sample size",
+      "statistic": {
+        "name": "z at ESS",
+        "value": 4.197
+      },
+      "context": {
+        "hit_rate_pct": 65.83,
+        "ess": 175.8
+      },
+      "p_value": 1.4e-05,
+      "sided": "one",
+      "p_two_sided": 2.8e-05,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "retracted",
+      "underpowered": null,
+      "retraction_reason": "look-ahead leak: the walk-forward trained on rows whose 5-session labels matured after the decision (see data/leak_anatomy.json)",
+      "note": "",
+      "artifact": {
+        "path": "data/serial_correlation_check.json",
+        "statistic_field": "z_at_ess",
+        "p_value_fields": {
+          "p_one_sided_at_ess": 1.4e-05
+        },
+        "context_fields": {
+          "hit_rate_pct": "hit_rate_pct",
+          "ess": "ess_bartlett_L5"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.00023333333333333333,
+      "p_holm": 0.001876,
+      "t_equivalent": 4.19,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "leak_forest_noise_unpurged",
+      "date": "2026-10-20",
+      "family": "leak anatomy",
+      "hypothesis": "Walk-forward without the purge, a 20-tree random forest on i.i.d. random walks (no signal exists by construction) scores above 50% direction accuracy.",
+      "test": "one-sided exact binomial test on all decisions pooled over seeds (independent runs; labels never overlap within a run)",
+      "statistic": {
+        "name": "mean accuracy %",
+        "value": 66.67
+      },
+      "context": {
+        "gross_sharpe_mean": 2.847,
+        "runs": 3,
+        "base_rate_pct_mean": 52.78,
+        "runs_beating_base_rate": 3
+      },
+      "p_value": 7.600805293903258e-18,
+      "sided": "one",
+      "p_two_sided": 1.5201610587806517e-17,
+      "pre_specified": true,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Predicted analytically before the simulation: 1/2 + arcsin(0.8)/pi = 79.5% for the newest leaked label.",
+      "artifact": {
+        "path": "data/leak_anatomy.json",
+        "statistic_field": "synthetic_random_walk.random_forest.unpurged_leaked.accuracy_pct_mean",
+        "p_value_fields": {
+          "synthetic_random_walk.random_forest.unpurged_leaked.pooled_binomial_p_value_vs_50": 7.600805293903258e-18
+        },
+        "context_fields": {
+          "gross_sharpe_mean": "synthetic_random_walk.random_forest.unpurged_leaked.sharpe_mean",
+          "runs": "synthetic_random_walk.random_forest.unpurged_leaked.n_runs",
+          "base_rate_pct_mean": "synthetic_random_walk.random_forest.unpurged_leaked.base_rate_pct_mean",
+          "runs_beating_base_rate": "synthetic_random_walk.random_forest.unpurged_leaked.runs_beating_base_rate_5pct"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 3.800402646951629e-16,
+      "p_holm": 1.1097175729098758e-15,
+      "t_equivalent": 8.53,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "leak_forest_noise_purged",
+      "date": "2026-10-20",
+      "family": "leak anatomy",
+      "hypothesis": "Walk-forward with the purge, a 20-tree random forest on i.i.d. random walks (no signal exists by construction) scores above 50% direction accuracy.",
+      "test": "one-sided exact binomial test on all decisions pooled over seeds (independent runs; labels never overlap within a run)",
+      "statistic": {
+        "name": "mean accuracy %",
+        "value": 50.77
+      },
+      "context": {
+        "gross_sharpe_mean": -0.085,
+        "runs": 3,
+        "base_rate_pct_mean": 52.78,
+        "runs_beating_base_rate": 0
+      },
+      "p_value": 0.36185175294962146,
+      "sided": "one",
+      "p_two_sided": 0.7237035058992429,
+      "pre_specified": true,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Predicted analytically before the simulation: 1/2 + arcsin(0.8)/pi = 79.5% for the newest leaked label.",
+      "artifact": {
+        "path": "data/leak_anatomy.json",
+        "statistic_field": "synthetic_random_walk.random_forest.purged.accuracy_pct_mean",
+        "p_value_fields": {
+          "synthetic_random_walk.random_forest.purged.pooled_binomial_p_value_vs_50": 0.36185175294962146
+        },
+        "context_fields": {
+          "gross_sharpe_mean": "synthetic_random_walk.random_forest.purged.sharpe_mean",
+          "runs": "synthetic_random_walk.random_forest.purged.n_runs",
+          "base_rate_pct_mean": "synthetic_random_walk.random_forest.purged.base_rate_pct_mean",
+          "runs_beating_base_rate": "synthetic_random_walk.random_forest.purged.runs_beating_base_rate_5pct"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.9527312982523835,
+      "p_holm": 1.0,
+      "t_equivalent": 0.35,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "leak_nn_shuffled_cl_unpurged",
+      "date": "2026-10-20",
+      "family": "leak anatomy",
+      "hypothesis": "Walk-forward without the purge, a 1-nearest-neighbour model on block-shuffled CL=F returns (20-session blocks permuted, so structure longer than a block is destroyed and little or no signal is expected) beats its base rate, the accuracy of always calling the more frequent direction, in every run.",
+      "test": "one-sided exact binomial test of each run's accuracy against that run's base rate; p is the largest of the per-run p-values (intersection-union test, valid however the runs depend on one another)",
+      "statistic": {
+        "name": "mean accuracy %",
+        "value": 72.87
+      },
+      "context": {
+        "gross_sharpe_mean": 3.213,
+        "runs": 10,
+        "base_rate_pct_mean": 52.82,
+        "runs_beating_base_rate": 10
+      },
+      "p_value": 1.9453422977149598e-05,
+      "sided": "one",
+      "p_two_sided": 3.8906845954299195e-05,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Predicted analytically before the simulation: 1/2 + arcsin(0.8)/pi = 79.5% for the newest leaked label. The shuffled runs permute the same CL=F returns, so they are not independent samples and a test pooled over them (pooled_binomial_p_value_vs_50) would overstate the evidence; real 5-session returns rise more often than they fall, so each run's no-skill accuracy is its base rate, not 50%. The p-value is therefore the largest of the runs' own binomial p-values against their base rates. This test replaced the pooled one after the runs were seen, so the row is not marked pre-specified.",
+      "artifact": {
+        "path": "data/leak_anatomy.json",
+        "statistic_field": "block_shuffled_cl.nearest_neighbour.unpurged_leaked.accuracy_pct_mean",
+        "p_value_fields": {
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[0].binomial_p_value_vs_base_rate": 8.101339118711735e-09,
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[1].binomial_p_value_vs_base_rate": 1.9453422977149598e-05,
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[2].binomial_p_value_vs_base_rate": 8.625849526662148e-12,
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[3].binomial_p_value_vs_base_rate": 7.993938860157898e-12,
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[4].binomial_p_value_vs_base_rate": 5.987399810725669e-11,
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[5].binomial_p_value_vs_base_rate": 3.186854835525418e-07,
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[6].binomial_p_value_vs_base_rate": 6.828449129341197e-14,
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[7].binomial_p_value_vs_base_rate": 5.605605036206197e-12,
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[8].binomial_p_value_vs_base_rate": 1.709995629436001e-06,
+          "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs[9].binomial_p_value_vs_base_rate": 3.584047189227809e-10
+        },
+        "context_fields": {
+          "gross_sharpe_mean": "block_shuffled_cl.nearest_neighbour.unpurged_leaked.sharpe_mean",
+          "runs": "block_shuffled_cl.nearest_neighbour.unpurged_leaked.n_runs",
+          "base_rate_pct_mean": "block_shuffled_cl.nearest_neighbour.unpurged_leaked.base_rate_pct_mean",
+          "runs_beating_base_rate": "block_shuffled_cl.nearest_neighbour.unpurged_leaked.runs_beating_base_rate_5pct"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.0002652739496884036,
+      "p_holm": 0.0025302457384919577,
+      "t_equivalent": 4.11,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "leak_nn_shuffled_cl_purged",
+      "date": "2026-10-20",
+      "family": "leak anatomy",
+      "hypothesis": "Walk-forward with the purge, a 1-nearest-neighbour model on block-shuffled CL=F returns (20-session blocks permuted, so structure longer than a block is destroyed and little or no signal is expected) beats its base rate, the accuracy of always calling the more frequent direction, in every run.",
+      "test": "one-sided exact binomial test of each run's accuracy against that run's base rate; p is the largest of the per-run p-values (intersection-union test, valid however the runs depend on one another)",
+      "statistic": {
+        "name": "mean accuracy %",
+        "value": 49.68
+      },
+      "context": {
+        "gross_sharpe_mean": 0.037,
+        "runs": 10,
+        "base_rate_pct_mean": 52.82,
+        "runs_beating_base_rate": 0
+      },
+      "p_value": 0.9998505874443484,
+      "sided": "one",
+      "p_two_sided": 1.0,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Predicted analytically before the simulation: 1/2 + arcsin(0.8)/pi = 79.5% for the newest leaked label. The shuffled runs permute the same CL=F returns, so they are not independent samples and a test pooled over them (pooled_binomial_p_value_vs_50) would overstate the evidence; real 5-session returns rise more often than they fall, so each run's no-skill accuracy is its base rate, not 50%. The p-value is therefore the largest of the runs' own binomial p-values against their base rates. This test replaced the pooled one after the runs were seen, so the row is not marked pre-specified.",
+      "artifact": {
+        "path": "data/leak_anatomy.json",
+        "statistic_field": "block_shuffled_cl.nearest_neighbour.purged.accuracy_pct_mean",
+        "p_value_fields": {
+          "block_shuffled_cl.nearest_neighbour.purged.runs[0].binomial_p_value_vs_base_rate": 0.5816933722516302,
+          "block_shuffled_cl.nearest_neighbour.purged.runs[1].binomial_p_value_vs_base_rate": 0.9998505874443484,
+          "block_shuffled_cl.nearest_neighbour.purged.runs[2].binomial_p_value_vs_base_rate": 0.9020002329352897,
+          "block_shuffled_cl.nearest_neighbour.purged.runs[3].binomial_p_value_vs_base_rate": 0.876345177227228,
+          "block_shuffled_cl.nearest_neighbour.purged.runs[4].binomial_p_value_vs_base_rate": 0.811799095688608,
+          "block_shuffled_cl.nearest_neighbour.purged.runs[5].binomial_p_value_vs_base_rate": 0.6349574734625216,
+          "block_shuffled_cl.nearest_neighbour.purged.runs[6].binomial_p_value_vs_base_rate": 0.4195428640304018,
+          "block_shuffled_cl.nearest_neighbour.purged.runs[7].binomial_p_value_vs_base_rate": 0.4195082849860192,
+          "block_shuffled_cl.nearest_neighbour.purged.runs[8].binomial_p_value_vs_base_rate": 0.8768671145598074,
+          "block_shuffled_cl.nearest_neighbour.purged.runs[9].binomial_p_value_vs_base_rate": 0.9556009890290038
+        },
+        "context_fields": {
+          "gross_sharpe_mean": "block_shuffled_cl.nearest_neighbour.purged.sharpe_mean",
+          "runs": "block_shuffled_cl.nearest_neighbour.purged.n_runs",
+          "base_rate_pct_mean": "block_shuffled_cl.nearest_neighbour.purged.base_rate_pct_mean",
+          "runs_beating_base_rate": "block_shuffled_cl.nearest_neighbour.purged.runs_beating_base_rate_5pct"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.0,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "carry_spread_full",
+      "date": "2026-10-20",
+      "family": "carry",
+      "hypothesis": "Months with carry above its prior-months median earn more than the rest (1990-2024).",
+      "test": "one-sided Welch t-test of the monthly return spread",
+      "statistic": {
+        "name": "above-median-carry return %/month",
+        "value": 1.98
+      },
+      "context": {
+        "below_median_pct": 0.04,
+        "n_months": 409
+      },
+      "p_value": 0.0176,
+      "sided": "one",
+      "p_two_sided": 0.0352,
+      "pre_specified": true,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Rule fixed a priori (carry_signal_test.py docstring); the 2007 split was chosen later.",
+      "artifact": {
+        "path": "data/carry_signal_test.json",
+        "statistic_field": "full_sample.mean_ret_above_median_carry_pct",
+        "p_value_fields": {
+          "full_sample.spread_p_value_one_sided": 0.0176
+        },
+        "context_fields": {
+          "below_median_pct": "full_sample.mean_ret_below_median_carry_pct",
+          "n_months": "full_sample.n_months"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.12571428571428572,
+      "p_holm": 1.0,
+      "t_equivalent": 2.11,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "carry_rank_full",
+      "date": "2026-10-20",
+      "family": "carry",
+      "hypothesis": "Carry rank-correlates positively with the next cycle's return (1990-2024).",
+      "test": "Spearman rank correlation, two-sided",
+      "statistic": {
+        "name": "rank correlation",
+        "value": 0.103
+      },
+      "context": {},
+      "p_value": 0.0378,
+      "sided": "two",
+      "p_two_sided": 0.0378,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/carry_signal_test.json",
+        "statistic_field": "full_sample.carry_rank_corr",
+        "p_value_fields": {
+          "full_sample.carry_rank_corr_p_value": 0.0378
+        },
+        "context_fields": {},
+        "name_fields": {}
+      },
+      "q_value_bh": 0.12886363636363637,
+      "p_holm": 1.0,
+      "t_equivalent": 2.08,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "carry_sign_predictor_full",
+      "date": "2026-10-20",
+      "family": "carry",
+      "hypothesis": "The carry rule calls the sign of the next cycle's return better than always-long (1990-2024).",
+      "test": "one-sided exact binomial test vs the majority-class base rate",
+      "statistic": {
+        "name": "direction accuracy %",
+        "value": 53.3
+      },
+      "context": {
+        "base_rate_pct": 54.8
+      },
+      "p_value": 0.7411,
+      "sided": "one",
+      "p_two_sided": 1.0,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/carry_signal_test.json",
+        "statistic_field": "full_sample.direction_accuracy_pct",
+        "p_value_fields": {
+          "full_sample.direction_p_value": 0.7411
+        },
+        "context_fields": {
+          "base_rate_pct": "full_sample.base_rate_pct"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.0,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "carry_sharpe_vs_buy_hold_full",
+      "date": "2026-10-20",
+      "family": "carry",
+      "hypothesis": "Carry timing has a higher Sharpe ratio than buy-and-hold (1990-2024).",
+      "test": "Ledoit-Wolf (2008) HAC test of equal Sharpe ratios, two-sided",
+      "statistic": {
+        "name": "Sharpe difference (annualized)",
+        "value": 0.222
+      },
+      "context": {
+        "bootstrap_p_value": 0.1206
+      },
+      "p_value": 0.1121,
+      "sided": "two",
+      "p_two_sided": 0.1121,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/carry_signal_test.json",
+        "statistic_field": "full_sample.sharpe_difference.difference_annualized",
+        "p_value_fields": {
+          "full_sample.sharpe_difference.ledoit_wolf_p_value": 0.1121
+        },
+        "context_fields": {
+          "bootstrap_p_value": "full_sample.sharpe_difference.bootstrap_p_value"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.31138888888888894,
+      "p_holm": 1.0,
+      "t_equivalent": 1.59,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "carry_spread_pre2007",
+      "date": "2026-10-20",
+      "family": "carry",
+      "hypothesis": "Months with carry above its prior-months median earn more than the rest (1990-2006).",
+      "test": "one-sided Welch t-test of the monthly return spread",
+      "statistic": {
+        "name": "above-median-carry return %/month",
+        "value": 2.92
+      },
+      "context": {
+        "below_median_pct": 0.0,
+        "n_months": 203
+      },
+      "p_value": 0.0071,
+      "sided": "one",
+      "p_two_sided": 0.0142,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/carry_signal_test.json",
+        "statistic_field": "pre_2007.mean_ret_above_median_carry_pct",
+        "p_value_fields": {
+          "pre_2007.spread_p_value_one_sided": 0.0071
+        },
+        "context_fields": {
+          "below_median_pct": "pre_2007.mean_ret_below_median_carry_pct",
+          "n_months": "pre_2007.n_months"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.06656250000000001,
+      "p_holm": 0.8520000000000001,
+      "t_equivalent": 2.45,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "carry_rank_pre2007",
+      "date": "2026-10-20",
+      "family": "carry",
+      "hypothesis": "Carry rank-correlates positively with the next cycle's return (1990-2006).",
+      "test": "Spearman rank correlation, two-sided",
+      "statistic": {
+        "name": "rank correlation",
+        "value": 0.204
+      },
+      "context": {},
+      "p_value": 0.0036,
+      "sided": "two",
+      "p_two_sided": 0.0036,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/carry_signal_test.json",
+        "statistic_field": "pre_2007.carry_rank_corr",
+        "p_value_fields": {
+          "pre_2007.carry_rank_corr_p_value": 0.0036
+        },
+        "context_fields": {},
+        "name_fields": {}
+      },
+      "q_value_bh": 0.019285714285714288,
+      "p_holm": 0.22319999999999998,
+      "t_equivalent": 2.91,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "carry_sign_predictor_pre2007",
+      "date": "2026-10-20",
+      "family": "carry",
+      "hypothesis": "The carry rule calls the sign of the next cycle's return better than always-long (1990-2006).",
+      "test": "one-sided exact binomial test vs the majority-class base rate",
+      "statistic": {
+        "name": "direction accuracy %",
+        "value": 60.1
+      },
+      "context": {
+        "base_rate_pct": 54.7
+      },
+      "p_value": 0.0689,
+      "sided": "one",
+      "p_two_sided": 0.1378,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "inconclusive",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/carry_signal_test.json",
+        "statistic_field": "pre_2007.direction_accuracy_pct",
+        "p_value_fields": {
+          "pre_2007.direction_p_value": 0.0689
+        },
+        "context_fields": {
+          "base_rate_pct": "pre_2007.base_rate_pct"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.32867647058823524,
+      "p_holm": 1.0,
+      "t_equivalent": 1.48,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "carry_sharpe_vs_buy_hold_pre2007",
+      "date": "2026-10-20",
+      "family": "carry",
+      "hypothesis": "Carry timing has a higher Sharpe ratio than buy-and-hold (1990-2006).",
+      "test": "Ledoit-Wolf (2008) HAC test of equal Sharpe ratios, two-sided",
+      "statistic": {
+        "name": "Sharpe difference (annualized)",
+        "value": 0.282
+      },
+      "context": {
+        "bootstrap_p_value": 0.2383
+      },
+      "p_value": 0.2061,
+      "sided": "two",
+      "p_two_sided": 0.2061,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/carry_signal_test.json",
+        "statistic_field": "pre_2007.sharpe_difference.difference_annualized",
+        "p_value_fields": {
+          "pre_2007.sharpe_difference.ledoit_wolf_p_value": 0.2061
+        },
+        "context_fields": {
+          "bootstrap_p_value": "pre_2007.sharpe_difference.bootstrap_p_value"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.41777027027027025,
+      "p_holm": 1.0,
+      "t_equivalent": 1.26,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "carry_spread_post2007",
+      "date": "2026-10-20",
+      "family": "carry",
+      "hypothesis": "Months with carry above its prior-months median earn more than the rest (2007-2024).",
+      "test": "one-sided Welch t-test of the monthly return spread",
+      "statistic": {
+        "name": "above-median-carry return %/month",
+        "value": 0.91
+      },
+      "context": {
+        "below_median_pct": 0.07,
+        "n_months": 206,
+        "power_vs_pre_2007_spread": 0.673,
+        "target_power": 0.8
+      },
+      "p_value": 0.2726,
+      "sided": "one",
+      "p_two_sided": 0.5452,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": true,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/carry_signal_test.json",
+        "statistic_field": "post_2007.mean_ret_above_median_carry_pct",
+        "p_value_fields": {
+          "post_2007.spread_p_value_one_sided": 0.2726
+        },
+        "context_fields": {
+          "below_median_pct": "post_2007.mean_ret_below_median_carry_pct",
+          "n_months": "post_2007.n_months",
+          "power_vs_pre_2007_spread": "power_post_2007.power_vs_pre_2007_spread",
+          "target_power": "power_post_2007.target_power"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.8889130434782608,
+      "p_holm": 1.0,
+      "t_equivalent": 0.6,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "carry_rank_post2007",
+      "date": "2026-10-20",
+      "family": "carry",
+      "hypothesis": "Carry rank-correlates positively with the next cycle's return (2007-2024).",
+      "test": "Spearman rank correlation, two-sided",
+      "statistic": {
+        "name": "rank correlation",
+        "value": -0.03
+      },
+      "context": {
+        "power_vs_pre_2007_rank_corr": 0.815,
+        "target_power": 0.8
+      },
+      "p_value": 0.665,
+      "sided": "two",
+      "p_two_sided": 1.0,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": false,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/carry_signal_test.json",
+        "statistic_field": "post_2007.carry_rank_corr",
+        "p_value_fields": {
+          "post_2007.carry_rank_corr_p_value": 0.665
+        },
+        "context_fields": {
+          "power_vs_pre_2007_rank_corr": "power_post_2007.power_vs_pre_2007_rank_corr",
+          "target_power": "power_post_2007.target_power"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.0,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "carry_sign_predictor_post2007",
+      "date": "2026-10-20",
+      "family": "carry",
+      "hypothesis": "The carry rule calls the sign of the next cycle's return better than always-long (2007-2024).",
+      "test": "one-sided exact binomial test vs the majority-class base rate",
+      "statistic": {
+        "name": "direction accuracy %",
+        "value": 46.6
+      },
+      "context": {
+        "base_rate_pct": 54.9
+      },
+      "p_value": 0.9927,
+      "sided": "one",
+      "p_two_sided": 1.0,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/carry_signal_test.json",
+        "statistic_field": "post_2007.direction_accuracy_pct",
+        "p_value_fields": {
+          "post_2007.direction_p_value": 0.9927
+        },
+        "context_fields": {
+          "base_rate_pct": "post_2007.base_rate_pct"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.0,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "carry_sharpe_vs_buy_hold_post2007",
+      "date": "2026-10-20",
+      "family": "carry",
+      "hypothesis": "Carry timing has a higher Sharpe ratio than buy-and-hold (2007-2024).",
+      "test": "Ledoit-Wolf (2008) HAC test of equal Sharpe ratios, two-sided",
+      "statistic": {
+        "name": "Sharpe difference (annualized)",
+        "value": 0.104
+      },
+      "context": {
+        "bootstrap_p_value": 0.5335
+      },
+      "p_value": 0.5718,
+      "sided": "two",
+      "p_two_sided": 0.5718,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/carry_signal_test.json",
+        "statistic_field": "post_2007.sharpe_difference.difference_annualized",
+        "p_value_fields": {
+          "post_2007.sharpe_difference.ledoit_wolf_p_value": 0.5718
+        },
+        "context_fields": {
+          "bootstrap_p_value": "post_2007.sharpe_difference.bootstrap_p_value"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.9124468085106383,
+      "p_holm": 1.0,
+      "t_equivalent": 0.57,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "carry_sign_split_full",
+      "date": "2026-10-20",
+      "family": "carry",
+      "hypothesis": "Backwardated months (carry > 0) earn more than contango months (1990-2024).",
+      "test": "one-sided Welch t-test, true sign split (robustness)",
+      "statistic": {
+        "name": "carry > 0 return %/month",
+        "value": 1.89
+      },
+      "context": {
+        "carry_nonpositive_pct": -0.11
+      },
+      "p_value": 0.0145,
+      "sided": "one",
+      "p_two_sided": 0.029,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/carry_signal_test.json",
+        "statistic_field": "sign_split.full_sample.mean_ret_carry_positive_pct",
+        "p_value_fields": {
+          "sign_split.full_sample.spread_p_value_one_sided": 0.0145
+        },
+        "context_fields": {
+          "carry_nonpositive_pct": "sign_split.full_sample.mean_ret_carry_nonpositive_pct"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.11447368421052632,
+      "p_holm": 1.0,
+      "t_equivalent": 2.18,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "carry_sign_split_post2007",
+      "date": "2026-10-20",
+      "family": "carry",
+      "hypothesis": "Backwardated months (carry > 0) earn more than contango months (2007-2024).",
+      "test": "one-sided Welch t-test, true sign split (robustness)",
+      "statistic": {
+        "name": "carry > 0 return %/month",
+        "value": 1.25
+      },
+      "context": {
+        "carry_nonpositive_pct": -0.12
+      },
+      "p_value": 0.1658,
+      "sided": "one",
+      "p_two_sided": 0.3316,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/carry_signal_test.json",
+        "statistic_field": "sign_split.post_2007.mean_ret_carry_positive_pct",
+        "p_value_fields": {
+          "sign_split.post_2007.spread_p_value_one_sided": 0.1658
+        },
+        "context_fields": {
+          "carry_nonpositive_pct": "sign_split.post_2007.mean_ret_carry_nonpositive_pct"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.6376923076923077,
+      "p_holm": 1.0,
+      "t_equivalent": 0.97,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "carry_spread_changed_after_2007",
+      "date": "2026-10-20",
+      "family": "carry",
+      "hypothesis": "The carry return spread differs before and after 2007.",
+      "test": "two-sided Welch z-test of equal spreads",
+      "statistic": {
+        "name": "pre minus post spread %/month",
+        "value": 2.07
+      },
+      "context": {
+        "post_2007_power_vs_pre_spread": 0.673
+      },
+      "p_value": 0.2564,
+      "sided": "two",
+      "p_two_sided": 0.2564,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/carry_signal_test.json",
+        "statistic_field": "regime_change_test.spread_difference_pct",
+        "p_value_fields": {
+          "regime_change_test.spread_difference_p_value": 0.2564
+        },
+        "context_fields": {
+          "post_2007_power_vs_pre_spread": "power_post_2007.power_vs_pre_2007_spread"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.5060526315789474,
+      "p_holm": 1.0,
+      "t_equivalent": 1.13,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "carry_rank_changed_after_2007",
+      "date": "2026-10-20",
+      "family": "carry",
+      "hypothesis": "The carry rank correlation differs before and after 2007.",
+      "test": "two-sided Fisher z-test of equal Spearman correlations",
+      "statistic": {
+        "name": "pre minus post rank correlation",
+        "value": 0.234
+      },
+      "context": {},
+      "p_value": 0.021,
+      "sided": "two",
+      "p_two_sided": 0.021,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/carry_signal_test.json",
+        "statistic_field": "regime_change_test.rank_corr_difference",
+        "p_value_fields": {
+          "regime_change_test.rank_corr_difference_p_value": 0.021
+        },
+        "context_fields": {},
+        "name_fields": {}
+      },
+      "q_value_bh": 0.08750000000000001,
+      "p_holm": 1.0,
+      "t_equivalent": 2.31,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "carry_original_contango_beats",
+      "date": "2026-10-20",
+      "family": "carry",
+      "hypothesis": "Below-median-carry months beat above-median months (original test on CL=F).",
+      "test": "one-sided Welch t-test on unadjusted front-month 21-day returns",
+      "statistic": {
+        "name": "below-median return %/month",
+        "value": 1.22
+      },
+      "context": {
+        "corr_contamination_carry": -0.55
+      },
+      "p_value": 0.2667,
+      "sided": "one",
+      "p_two_sided": 0.5334,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "retracted",
+      "underpowered": null,
+      "retraction_reason": "roll-gap contamination: the unadjusted front-month return subtracts the carry itself",
+      "note": "",
+      "artifact": {
+        "path": "data/carry_signal_test.json",
+        "statistic_field": "roll_bias_of_original_method.unadjusted_result.mean_ret_contango_pct",
+        "p_value_fields": {
+          "roll_bias_of_original_method.unadjusted_result.below_median_beats_above_p_value_one_sided": 0.2667
+        },
+        "context_fields": {
+          "corr_contamination_carry": "roll_bias_of_original_method.corr_contamination_carry"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.8889130434782608,
+      "p_holm": 1.0,
+      "t_equivalent": 0.62,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vrp_exists",
+      "date": "2026-10-20",
+      "family": "variance risk premium",
+      "hypothesis": "OVX exceeds the realized vol of the following month more often than not.",
+      "test": "one-sided exact sign test over non-overlapping ~20-session periods",
+      "statistic": {
+        "name": "share of periods with a positive premium %",
+        "value": 73.5
+      },
+      "context": {
+        "mean_premium_vol_pts": 2.5,
+        "zero_premium_share_pct": 69.5
+      },
+      "p_value": 1.0277388494221291e-11,
+      "sided": "one",
+      "p_two_sided": 2.0554776988442582e-11,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "retracted",
+      "underpowered": null,
+      "retraction_reason": "invalid null: read as evidence of a variance risk premium, but with zero premium a 20-session realized vol, noisy and right-skewed, still falls below implied vol in about 69.5% of periods (economic.variance_risk_premium.zero_premium_null), not 50%; vrp_exists_vs_zero_premium tests the share against that null",
+      "note": "",
+      "artifact": {
+        "path": "data/vol_forecast_validation.json",
+        "statistic_field": "economic.variance_risk_premium.share_positive_pct",
+        "p_value_fields": {
+          "economic.variance_risk_premium.share_positive_pct": 73.5,
+          "economic.variance_risk_premium.n_periods": 200
+        },
+        "context_fields": {
+          "mean_premium_vol_pts": "economic.variance_risk_premium.mean_premium_vol_pts",
+          "zero_premium_share_pct": "economic.variance_risk_premium.zero_premium_null.share_positive_pct"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 3.083216548266387e-10,
+      "p_holm": 1.4593891661794232e-09,
+      "t_equivalent": 6.7,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "vrp_exists_vs_zero_premium",
+      "date": "2026-10-20",
+      "family": "variance risk premium",
+      "hypothesis": "OVX exceeds the realized vol of the following month in more periods than it would with no variance risk premium.",
+      "test": "one-sided stationary block bootstrap of the share of periods with OVX above realized vol against the share expected with zero premium (the per-period ratios RV^2 / IV^2 rescaled to mean 1, the null share re-estimated in every draw; p stored in the artifact)",
+      "statistic": {
+        "name": "share of periods with a positive premium %",
+        "value": 73.5
+      },
+      "context": {
+        "zero_premium_share_pct": 69.5,
+        "n_periods": 200,
+        "mean_premium_vol_pts": 2.5,
+        "zero_premium_mean_premium_vol_pts": 1.5
+      },
+      "p_value": 0.3176,
+      "sided": "one",
+      "p_two_sided": 0.6352,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_forecast_validation.json",
+        "statistic_field": "economic.variance_risk_premium.share_positive_pct",
+        "p_value_fields": {
+          "economic.variance_risk_premium.zero_premium_null.p_value_one_sided": 0.3176
+        },
+        "context_fields": {
+          "zero_premium_share_pct": "economic.variance_risk_premium.zero_premium_null.share_positive_pct",
+          "n_periods": "economic.variance_risk_premium.n_periods",
+          "mean_premium_vol_pts": "economic.variance_risk_premium.mean_premium_vol_pts",
+          "zero_premium_mean_premium_vol_pts": "economic.variance_risk_premium.zero_premium_null.mean_premium_vol_pts"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.9258173076923077,
+      "p_holm": 1.0,
+      "t_equivalent": 0.47,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vrp_short_vol_swap_sharpe",
+      "date": "2026-10-20",
+      "family": "variance risk premium",
+      "hypothesis": "A linear short-vol (vol-swap) proxy earns a positive Sharpe ratio.",
+      "test": "one-sided test of Sharpe > 0 with the Mertens (2002) / Opdyke (2007) standard error, which allows for the P&L's skewness and kurtosis (p stored in the artifact)",
+      "statistic": {
+        "name": "Sharpe (annualized)",
+        "value": 0.52
+      },
+      "context": {
+        "skewness": -4.95,
+        "excess_kurtosis": 39.7,
+        "n_periods": 200,
+        "mean_premium_vol_pts": 2.5,
+        "zero_premium_mean_premium_vol_pts": 1.5
+      },
+      "p_value": 0.0695,
+      "sided": "one",
+      "p_two_sided": 0.139,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "inconclusive",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "OVX is a variance-swap-style rate: with zero variance premium E[IV - RV] > 0 (Jensen's inequality), so this proxy's mean is positive even with no premium (zero_premium_mean_premium_vol_pts) and a Sharpe test against 0 overstates the evidence for a premium.",
+      "artifact": {
+        "path": "data/vol_forecast_validation.json",
+        "statistic_field": "economic.variance_risk_premium.short_vol_swap_sharpe",
+        "p_value_fields": {
+          "economic.variance_risk_premium.sharpe_positive_test.short_vol_swap.p_value_one_sided": 0.0695
+        },
+        "context_fields": {
+          "skewness": "economic.variance_risk_premium.sharpe_positive_test.short_vol_swap.skewness",
+          "excess_kurtosis": "economic.variance_risk_premium.sharpe_positive_test.short_vol_swap.excess_kurtosis",
+          "n_periods": "economic.variance_risk_premium.n_periods",
+          "mean_premium_vol_pts": "economic.variance_risk_premium.mean_premium_vol_pts",
+          "zero_premium_mean_premium_vol_pts": "economic.variance_risk_premium.zero_premium_null.mean_premium_vol_pts"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.32867647058823524,
+      "p_holm": 1.0,
+      "t_equivalent": 1.48,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vrp_short_variance_sharpe",
+      "date": "2026-10-20",
+      "family": "variance risk premium",
+      "hypothesis": "A short variance-swap proxy (what an options seller holds) earns a positive Sharpe ratio.",
+      "test": "one-sided test of Sharpe > 0 with the Mertens (2002) / Opdyke (2007) standard error, which allows for the P&L's skewness and kurtosis (p stored in the artifact)",
+      "statistic": {
+        "name": "Sharpe (annualized)",
+        "value": 0.0
+      },
+      "context": {
+        "skewness": -7.22,
+        "excess_kurtosis": 63.19,
+        "n_periods": 200
+      },
+      "p_value": 0.5028,
+      "sided": "one",
+      "p_two_sided": 1.0,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_forecast_validation.json",
+        "statistic_field": "economic.variance_risk_premium.short_variance_sharpe",
+        "p_value_fields": {
+          "economic.variance_risk_premium.sharpe_positive_test.short_variance.p_value_one_sided": 0.5028
+        },
+        "context_fields": {
+          "skewness": "economic.variance_risk_premium.sharpe_positive_test.short_variance.skewness",
+          "excess_kurtosis": "economic.variance_risk_premium.sharpe_positive_test.short_variance.excess_kurtosis",
+          "n_periods": "economic.variance_risk_premium.n_periods"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.0,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vrp_timing",
+      "date": "2026-10-20",
+      "family": "variance risk premium",
+      "hypothesis": "Selling variance only when OVX is rich vs the model's forecast earns more.",
+      "test": "one-sided Welch t-test, rich vs cheap periods",
+      "statistic": {
+        "name": "rich-period mean P&L",
+        "value": 0.0175
+      },
+      "context": {
+        "cheap_mean_pnl": -0.0104
+      },
+      "p_value": 0.235,
+      "sided": "one",
+      "p_two_sided": 0.47,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_forecast_validation.json",
+        "statistic_field": "economic.variance_risk_premium.timed_rich_mean_pnl",
+        "p_value_fields": {
+          "economic.variance_risk_premium.timing_p_value": 0.235
+        },
+        "context_fields": {
+          "cheap_mean_pnl": "economic.variance_risk_premium.timed_cheap_mean_pnl"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.8197674418604651,
+      "p_holm": 1.0,
+      "t_equivalent": 0.72,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_dir_vs_base_rate",
+      "date": "2026-10-20",
+      "family": "volatility forecast",
+      "hypothesis": "HAR-IV calls the direction of next week's realized vol better than the majority class.",
+      "test": "one-sided exact binomial test vs the base rate (weekly grid)",
+      "statistic": {
+        "name": "direction accuracy %",
+        "value": 74.4
+      },
+      "context": {
+        "base_rate_pct": 51.2,
+        "z_hac": 17.31
+      },
+      "p_value": 1.7218595126581175e-47,
+      "sided": "one",
+      "p_two_sided": 3.443719025316235e-47,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "retracted",
+      "underpowered": null,
+      "retraction_reason": "invalid null: with constant volatility the same pipeline scores about 75% (overall.direction_noise_floor; vol_lab.json noise_floor)",
+      "note": "",
+      "artifact": {
+        "path": "data/vol_forecast_validation.json",
+        "statistic_field": "overall.har_dir_acc_pct",
+        "p_value_fields": {
+          "overall.har_dir_p_value_vs_base_rate": 1.7218595126581175e-47
+        },
+        "context_fields": {
+          "base_rate_pct": "overall.majority_class_pct",
+          "z_hac": "overall.har_dir_z_score_hac"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 2.582789268987176e-45,
+      "p_holm": 2.582789268987176e-45,
+      "t_equivalent": 14.43,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "vol_dir_vs_noise_floor",
+      "date": "2026-10-20",
+      "family": "volatility forecast",
+      "hypothesis": "HAR-IV's vol-direction accuracy exceeds the constant-volatility noise floor.",
+      "test": "one-sided binomial vs the simulated noise-floor mean (approximate: consecutive weekly labels share a week, so the true p is larger)",
+      "statistic": {
+        "name": "direction accuracy %",
+        "value": 74.4
+      },
+      "context": {
+        "noise_floor_pct": 75.2
+      },
+      "p_value": 0.7198973688640692,
+      "sided": "one",
+      "p_two_sided": 1.0,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_forecast_validation.json",
+        "statistic_field": "overall.har_dir_acc_pct",
+        "p_value_fields": {
+          "overall.n": 927,
+          "overall.har_dir_acc_pct": 74.4,
+          "overall.direction_noise_floor.dir_acc_pct_mean": 75.2
+        },
+        "context_fields": {
+          "noise_floor_pct": "overall.direction_noise_floor.dir_acc_pct_mean"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.0,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_dir_vs_mean_reversion",
+      "date": "2026-10-20",
+      "family": "volatility forecast",
+      "hypothesis": "HAR-IV calls vol direction better than a 'reverts to its 66-day mean' rule.",
+      "test": "one-sided paired HAC z-test on weekly hits",
+      "statistic": {
+        "name": "paired HAC z",
+        "value": 4.23
+      },
+      "context": {
+        "har_pct": 74.4,
+        "mean_reversion_pct": 68.5,
+        "noise_floor_har_pct": 75.2,
+        "noise_floor_mean_reversion_pct": 71.8
+      },
+      "p_value": 1.1879979978384312e-05,
+      "sided": "one",
+      "p_two_sided": 2.3759959956768624e-05,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "retracted",
+      "underpowered": null,
+      "retraction_reason": "invalid null: with nothing to forecast (i.i.d. returns, constant volatility) the same pipeline's HAR already beats this rule, 75.2% vs 71.8% (overall.direction_noise_floor; vol_lab.json noise_floor shows the same gap), so a positive z is expected without any forecasting skill",
+      "note": "",
+      "artifact": {
+        "path": "data/vol_forecast_validation.json",
+        "statistic_field": "overall.har_vs_mean_reversion_z_hac",
+        "p_value_fields": {
+          "overall.har_vs_mean_reversion_p_value": 1.1879979978384312e-05
+        },
+        "context_fields": {
+          "har_pct": "overall.har_dir_acc_pct",
+          "mean_reversion_pct": "overall.mean_reversion_dir_acc_pct",
+          "noise_floor_har_pct": "overall.direction_noise_floor.dir_acc_pct_mean",
+          "noise_floor_mean_reversion_pct": "overall.direction_noise_floor.mean_reversion_dir_acc_pct_mean"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.00022274962459470585,
+      "p_holm": 0.0016156772770602665,
+      "t_equivalent": 4.23,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "vol_qlike_vs_persistence",
+      "date": "2026-10-20",
+      "family": "volatility forecast",
+      "hypothesis": "HAR-IV beats persistence (last week's realized vol) on QLIKE.",
+      "test": "Diebold-Mariano on daily QLIKE losses (Newey-West, HLN), two-sided; a positive statistic means the named model beats HAR-IV",
+      "statistic": {
+        "name": "DM statistic",
+        "value": -7.07
+      },
+      "context": {
+        "qlike_model": 0.9516,
+        "qlike_har_iv": 0.3698
+      },
+      "p_value": 1.7835188421373328e-12,
+      "sided": "two",
+      "p_two_sided": 1.7835188421373328e-12,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=persistence].dm_qlike_vs_har_iv.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=persistence].dm_qlike_vs_har_iv.p_value": 1.7835188421373328e-12
+        },
+        "context_fields": {
+          "qlike_model": "leaderboard.models[key=persistence].qlike",
+          "qlike_har_iv": "leaderboard.models[key=har_iv].qlike"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 3.344097829007499e-11,
+      "p_holm": 1.2841335663388797e-10,
+      "t_equivalent": 7.05,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "vol_ovx_gain_qlike",
+      "date": "2026-10-20",
+      "family": "volatility forecast",
+      "hypothesis": "Adding OVX to HAR-RV lowers QLIKE: HAR-IV (the model of record) beats HAR-RV.",
+      "test": "Diebold-Mariano on daily QLIKE losses (Newey-West, HLN), two-sided; a positive statistic means the named model beats HAR-IV",
+      "statistic": {
+        "name": "DM statistic",
+        "value": -4.121
+      },
+      "context": {
+        "qlike_model": 0.431,
+        "qlike_har_iv": 0.3698
+      },
+      "p_value": 3.833705664381754e-05,
+      "sided": "two",
+      "p_two_sided": 3.833705664381754e-05,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=har_rv].dm_qlike_vs_har_iv.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=har_rv].dm_qlike_vs_har_iv.p_value": 3.833705664381754e-05
+        },
+        "context_fields": {
+          "qlike_model": "leaderboard.models[key=har_rv].qlike",
+          "qlike_har_iv": "leaderboard.models[key=har_iv].qlike"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.0002652739496884036,
+      "p_holm": 0.0025302457384919577,
+      "t_equivalent": 4.12,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "vol_ovx_gain_direction",
+      "date": "2026-10-20",
+      "family": "volatility forecast",
+      "hypothesis": "Adding OVX raises vol-direction accuracy (HAR-IV vs HAR without OVX).",
+      "test": "one-sided paired HAC z-test on weekly hits",
+      "statistic": {
+        "name": "paired HAC z",
+        "value": 1.54
+      },
+      "context": {
+        "har_iv_pct": 74.4,
+        "har_no_ovx_pct": 72.7
+      },
+      "p_value": 0.061780176711811886,
+      "sided": "one",
+      "p_two_sided": 0.12356035342362377,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "inconclusive",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_forecast_validation.json",
+        "statistic_field": "overall.ovx_gain_dir_z_hac",
+        "p_value_fields": {
+          "overall.ovx_gain_dir_z_hac": 1.54
+        },
+        "context_fields": {
+          "har_iv_pct": "overall.har_dir_acc_pct",
+          "har_no_ovx_pct": "overall.har_no_ovx_dir_acc_pct"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.32867647058823524,
+      "p_holm": 1.0,
+      "t_equivalent": 1.54,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_leverage_term",
+      "date": "2026-10-20",
+      "family": "volatility forecast",
+      "hypothesis": "Adding the leverage (downside semivolatility) term raises vol-direction accuracy.",
+      "test": "one-sided paired HAC z-test on weekly hits",
+      "statistic": {
+        "name": "paired HAC z",
+        "value": -0.82
+      },
+      "context": {
+        "leverage_qlike": 0.375,
+        "har_iv_qlike": 0.376
+      },
+      "p_value": 0.7938919464141869,
+      "sided": "one",
+      "p_two_sided": 1.0,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_forecast_validation.json",
+        "statistic_field": "overall.leverage_gain_dir_z_hac",
+        "p_value_fields": {
+          "overall.leverage_gain_dir_z_hac": -0.82
+        },
+        "context_fields": {
+          "leverage_qlike": "overall.leverage_variant_qlike",
+          "har_iv_qlike": "overall.har_qlike"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.0,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_vs_implied_regression",
+      "date": "2026-10-20",
+      "family": "volatility forecast",
+      "hypothesis": "HAR-IV beats the OVX-only regression on QLIKE.",
+      "test": "Diebold-Mariano on daily QLIKE losses (Newey-West, HLN), two-sided; a positive statistic means the named model beats HAR-IV",
+      "statistic": {
+        "name": "DM statistic",
+        "value": 0.466
+      },
+      "context": {
+        "qlike_model": 0.368,
+        "qlike_har_iv": 0.3698
+      },
+      "p_value": 0.6412362939345346,
+      "sided": "two",
+      "p_two_sided": 1.0,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=ovx_only].dm_qlike_vs_har_iv.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=ovx_only].dm_qlike_vs_har_iv.p_value": 0.6412362939345346
+        },
+        "context_fields": {
+          "qlike_model": "leaderboard.models[key=ovx_only].qlike",
+          "qlike_har_iv": "leaderboard.models[key=har_iv].qlike"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.0,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_vs_raw_ovx",
+      "date": "2026-10-20",
+      "family": "volatility forecast",
+      "hypothesis": "HAR-IV beats raw OVX used directly as the forecast on QLIKE.",
+      "test": "Diebold-Mariano on daily QLIKE losses (Newey-West, HLN), two-sided; a positive statistic means the named model beats HAR-IV",
+      "statistic": {
+        "name": "DM statistic",
+        "value": -0.497
+      },
+      "context": {
+        "qlike_model": 0.3745,
+        "qlike_har_iv": 0.3698
+      },
+      "p_value": 0.6195055986055698,
+      "sided": "two",
+      "p_two_sided": 0.6195055986055698,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=raw_ovx].dm_qlike_vs_har_iv.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=raw_ovx].dm_qlike_vs_har_iv.p_value": 0.6195055986055698
+        },
+        "context_fields": {
+          "qlike_model": "leaderboard.models[key=raw_ovx].qlike",
+          "qlike_har_iv": "leaderboard.models[key=har_iv].qlike"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.9258173076923077,
+      "p_holm": 1.0,
+      "t_equivalent": 0.5,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_same_day_ovx",
+      "date": "2026-10-20",
+      "family": "volatility forecast",
+      "hypothesis": "Same-day OVX (the v1 timing, which settles after CL and overlaps the target) lowers QLIKE vs OVX lagged one session.",
+      "test": "Diebold-Mariano on daily QLIKE losses (Newey-West, HLN), two-sided; a positive statistic means the named model beats HAR-IV",
+      "statistic": {
+        "name": "DM statistic",
+        "value": 3.992
+      },
+      "context": {
+        "qlike_model": 0.3583,
+        "qlike_har_iv": 0.3698
+      },
+      "p_value": 6.646258039278556e-05,
+      "sided": "two",
+      "p_two_sided": 6.646258039278556e-05,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "An information advantage the deployed model cannot use: the reason v2 lags OVX.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=har_iv_sameday].dm_qlike_vs_har_iv.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=har_iv_sameday].dm_qlike_vs_har_iv.p_value": 6.646258039278556e-05
+        },
+        "context_fields": {
+          "qlike_model": "leaderboard.models[key=har_iv_sameday].qlike",
+          "qlike_har_iv": "leaderboard.models[key=har_iv].qlike"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.0004153911274549097,
+      "p_holm": 0.004253605145138276,
+      "t_equivalent": 3.99,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "vol_challenger_qlike",
+      "date": "2026-10-20",
+      "family": "volatility forecast",
+      "hypothesis": "The challenger HAR-IV-range beats the model of record on QLIKE.",
+      "test": "Diebold-Mariano on daily QLIKE losses (Newey-West, HLN), two-sided; a positive statistic means the named model beats HAR-IV",
+      "statistic": {
+        "name": "DM statistic",
+        "value": 3.101
+      },
+      "context": {
+        "qlike_model": 0.353,
+        "qlike_har_iv": 0.3698
+      },
+      "p_value": 0.0019392254394052656,
+      "sided": "two",
+      "p_two_sided": 0.0019392254394052656,
+      "pre_specified": false,
+      "selected_after_search": true,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Selected after a search: the challenger is the lowest-QLIKE model of the field on this same sample (vol_lab.choose_challenger), so this pairwise p-value ignores the search. The row is left out of the multiplicity family (no q-value, Holm p-value or t > 3 flag); the search-adjusted test of the same question is vol_spa_beats_record.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=har_iv_range].dm_qlike_vs_har_iv.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=har_iv_range].dm_qlike_vs_har_iv.p_value": 0.0019392254394052656
+        },
+        "context_fields": {
+          "qlike_model": "leaderboard.models[key=har_iv_range].qlike",
+          "qlike_har_iv": "leaderboard.models[key=har_iv].qlike"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": null,
+      "p_holm": null,
+      "t_equivalent": 3.1,
+      "survives_bh_5pct": null,
+      "survives_holm_5pct": null,
+      "clears_hlz_t3": null
+    },
+    {
+      "id": "vol_challenger_mse",
+      "date": "2026-10-20",
+      "family": "volatility forecast",
+      "hypothesis": "The challenger HAR-IV-range beats the model of record on MSE of variance.",
+      "test": "Diebold-Mariano on daily MSE losses (Newey-West, HLN), two-sided; a positive statistic means the named model beats HAR-IV",
+      "statistic": {
+        "name": "DM statistic",
+        "value": 0.382
+      },
+      "context": {
+        "qlike_model": 0.353,
+        "qlike_har_iv": 0.3698
+      },
+      "p_value": 0.7021907871764801,
+      "sided": "two",
+      "p_two_sided": 0.7021907871764801,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=har_iv_range].dm_mse_vs_har_iv.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=har_iv_range].dm_mse_vs_har_iv.p_value": 0.7021907871764801
+        },
+        "context_fields": {
+          "qlike_model": "leaderboard.models[key=har_iv_range].qlike",
+          "qlike_har_iv": "leaderboard.models[key=har_iv].qlike"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.9527312982523835,
+      "p_holm": 1.0,
+      "t_equivalent": 0.38,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_spa_beats_record",
+      "date": "2026-10-20",
+      "family": "volatility forecast",
+      "hypothesis": "Some benchmark model beats the model of record on QLIKE (Hansen SPA, data-snooping robust).",
+      "test": "Hansen (2005) SPA, consistent p-value, stationary bootstrap",
+      "statistic": {
+        "name": "SPA consistent p-value",
+        "value": 0.072
+      },
+      "context": {
+        "p_lower": 0.045
+      },
+      "p_value": 0.072,
+      "sided": "one",
+      "p_two_sided": 0.144,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "inconclusive",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.spa_qlike_vs_har_iv.p_consistent",
+        "p_value_fields": {
+          "leaderboard.spa_qlike_vs_har_iv.p_consistent": 0.072
+        },
+        "context_fields": {
+          "p_lower": "leaderboard.spa_qlike_vs_har_iv.p_lower"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.32867647058823524,
+      "p_holm": 1.0,
+      "t_equivalent": 1.46,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_mcs_excludes_record",
+      "date": "2026-10-20",
+      "family": "volatility forecast",
+      "hypothesis": "The model of record is significantly worse than the best model on QLIKE (excluded from the Model Confidence Set).",
+      "test": "Hansen-Lunde-Nason MCS p-value of HAR-IV (range statistic), judged at the ledger's 5% level; the lab's own set (mcs_members) is the 1 - mcs_size confidence set",
+      "statistic": {
+        "name": "MCS p-value of HAR-IV",
+        "value": 0.0368
+      },
+      "context": {
+        "mcs_members": [
+          "har_iv_range",
+          "combo",
+          "ovx_only",
+          "raw_ovx"
+        ],
+        "mcs_size": 0.1
+      },
+      "p_value": 0.0368,
+      "sided": "one",
+      "p_two_sided": 0.0736,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=har_iv].mcs_qlike_p",
+        "p_value_fields": {
+          "leaderboard.models[key=har_iv].mcs_qlike_p": 0.0368
+        },
+        "context_fields": {
+          "mcs_members": "leaderboard.mcs_qlike_included",
+          "mcs_size": "config.mcs.size"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.24,
+      "p_holm": 1.0,
+      "t_equivalent": 1.79,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_oos_model_selection",
+      "date": "2026-10-20",
+      "family": "volatility forecast",
+      "hypothesis": "Choosing each week's model by its trailing loss beats the model of record on QLIKE.",
+      "test": "Diebold-Mariano on daily QLIKE, two-sided",
+      "statistic": {
+        "name": "DM statistic",
+        "value": 0.878
+      },
+      "context": {},
+      "p_value": 0.3802070844249102,
+      "sided": "two",
+      "p_two_sided": 0.3802070844249102,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "oos_selection.dm_vs_har_iv.stat",
+        "p_value_fields": {
+          "oos_selection.dm_vs_har_iv.p_value": 0.3802070844249102
+        },
+        "context_fields": {},
+        "name_fields": {}
+      },
+      "q_value_bh": 0.7086585365853659,
+      "p_holm": 1.0,
+      "t_equivalent": 0.88,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_record_biased",
+      "date": "2026-10-20",
+      "family": "volatility forecast",
+      "hypothesis": "HAR-IV's variance forecast is biased (its Mincer-Zarnowitz intercept differs from 0 or its slope from 1).",
+      "test": "HAC Wald test of the Mincer-Zarnowitz regression",
+      "statistic": {
+        "name": "MZ slope",
+        "value": 0.8619
+      },
+      "context": {
+        "intercept": 0.0379
+      },
+      "p_value": 0.1609,
+      "sided": "two",
+      "p_two_sided": 0.1609,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=har_iv].mincer_zarnowitz.slope",
+        "p_value_fields": {
+          "leaderboard.models[key=har_iv].mincer_zarnowitz.p_unbiased": 0.1609
+        },
+        "context_fields": {
+          "intercept": "leaderboard.models[key=har_iv].mincer_zarnowitz.intercept"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.34478571428571425,
+      "p_holm": 1.0,
+      "t_equivalent": 1.4,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_ovx_coefficient",
+      "date": "2026-10-20",
+      "family": "volatility forecast",
+      "hypothesis": "OVX carries information about next-week realized vol beyond the HAR terms (in-sample).",
+      "test": "HAC t-statistic of the log-OVX coefficient, full sample, two-sided",
+      "statistic": {
+        "name": "t (HAC)",
+        "value": 13.16
+      },
+      "context": {},
+      "p_value": 1.4908587064550795e-39,
+      "sided": "two",
+      "p_two_sided": 1.4908587064550795e-39,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "In-sample; the out-of-sample version is vol_ovx_gain_qlike.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "har_iv_coefficients.terms[term=log OVX].t_hac",
+        "p_value_fields": {
+          "har_iv_coefficients.terms[term=log OVX].t_hac": 13.16
+        },
+        "context_fields": {},
+        "name_fields": {}
+      },
+      "q_value_bh": 5.590720149206548e-38,
+      "p_holm": 1.103235442776759e-37,
+      "t_equivalent": 13.16,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "vol_target_overlay",
+      "date": "2026-10-20",
+      "family": "volatility forecast",
+      "hypothesis": "Sizing a long WTI position by the forecast (vol targeting) beats buy-and-hold on Sharpe.",
+      "test": "stationary block bootstrap test of equal Sharpe ratios, forecast vol target minus buy-and-hold (weekly, after costs), two-sided",
+      "statistic": {
+        "name": "Sharpe difference (annualized)",
+        "value": -0.12
+      },
+      "context": {
+        "forecast_vol_target_sharpe": -0.07,
+        "buy_hold_sharpe": 0.04,
+        "trailing_vol_target_sharpe": -0.09,
+        "difference_ci95": [
+          -0.39,
+          0.19
+        ]
+      },
+      "p_value": 0.408,
+      "sided": "two",
+      "p_two_sided": 1.0,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Vol targeting is a risk control: its effect on realized vol, kurtosis and drawdown is in economic.vol_target_overlay.risk.",
+      "artifact": {
+        "path": "data/vol_forecast_validation.json",
+        "statistic_field": "economic.vol_target_overlay.sharpe_difference_tests.forecast_minus_buy_hold.difference",
+        "p_value_fields": {
+          "economic.vol_target_overlay.sharpe_difference_tests.forecast_minus_buy_hold.p_value": 0.408
+        },
+        "context_fields": {
+          "forecast_vol_target_sharpe": "economic.vol_target_overlay.sharpe_forecast_vol_target",
+          "buy_hold_sharpe": "economic.vol_target_overlay.sharpe_buy_hold",
+          "trailing_vol_target_sharpe": "economic.vol_target_overlay.sharpe_trailing_vol_target",
+          "difference_ci95": "economic.vol_target_overlay.sharpe_difference_tests.forecast_minus_buy_hold.ci95"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.0,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "var_normal_99_coverage",
+      "date": "2026-10-20",
+      "family": "value at risk",
+      "hypothesis": "Normal-quantile HAR-IV 99% VaR has the wrong exceedance rate (production grid).",
+      "test": "Kupiec (1995) unconditional coverage LR",
+      "statistic": {
+        "name": "exceedances",
+        "value": 17
+      },
+      "context": {
+        "expected": 8.8
+      },
+      "p_value": 0.01306527454382452,
+      "sided": "two",
+      "p_two_sided": 0.01306527454382452,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "var_backtest.grids.0.methods[key=har_iv:normal,level=0.01].kupiec.exceedances",
+        "p_value_fields": {
+          "var_backtest.grids.0.methods[key=har_iv:normal,level=0.01].kupiec.p_value": 0.01306527454382452
+        },
+        "context_fields": {
+          "expected": "var_backtest.grids.0.methods[key=har_iv:normal,level=0.01].kupiec.expected"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.0653263727191226,
+      "p_holm": 0.7969817471732957,
+      "t_equivalent": 2.48,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "var_fhs_99_coverage",
+      "date": "2026-10-20",
+      "family": "value at risk",
+      "hypothesis": "Filtered-historical-simulation HAR-IV 99% VaR has the wrong exceedance rate (production grid).",
+      "test": "Kupiec (1995) unconditional coverage LR",
+      "statistic": {
+        "name": "exceedances",
+        "value": 14
+      },
+      "context": {
+        "expected": 8.8
+      },
+      "p_value": 0.10085414906918035,
+      "sided": "two",
+      "p_two_sided": 0.10085414906918035,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "var_backtest.grids.0.methods[key=har_iv:fhs,level=0.01].kupiec.exceedances",
+        "p_value_fields": {
+          "var_backtest.grids.0.methods[key=har_iv:fhs,level=0.01].kupiec.p_value": 0.10085414906918035
+        },
+        "context_fields": {
+          "expected": "var_backtest.grids.0.methods[key=har_iv:fhs,level=0.01].kupiec.expected"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.29625,
+      "p_holm": 1.0,
+      "t_equivalent": 1.64,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "var_fhs_95_dq",
+      "date": "2026-10-20",
+      "family": "value at risk",
+      "hypothesis": "FHS HAR-IV 95% VaR exceedances are predictable (Engle-Manganelli DQ, production grid).",
+      "test": "Engle-Manganelli (2004) dynamic quantile test",
+      "statistic": {
+        "name": "exceedances",
+        "value": 46
+      },
+      "context": {
+        "expected": 43.8
+      },
+      "p_value": 0.40610670821132033,
+      "sided": "two",
+      "p_two_sided": 0.40610670821132033,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "var_backtest.grids.0.methods[key=har_iv:fhs,level=0.05].kupiec.exceedances",
+        "p_value_fields": {
+          "var_backtest.grids.0.methods[key=har_iv:fhs,level=0.05].dq.p_value": 0.40610670821132033
+        },
+        "context_fields": {
+          "expected": "var_backtest.grids.0.methods[key=har_iv:fhs,level=0.05].kupiec.expected"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.7251905503773577,
+      "p_holm": 1.0,
+      "t_equivalent": 0.83,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "var_hs_95_clustering",
+      "date": "2026-10-20",
+      "family": "value at risk",
+      "hypothesis": "Unconditional historical-simulation 95% VaR exceedances cluster (production grid).",
+      "test": "Christoffersen (1998) independence LR",
+      "statistic": {
+        "name": "exceedances",
+        "value": 49
+      },
+      "context": {
+        "expected": 43.8
+      },
+      "p_value": 0.01991211288552337,
+      "sided": "two",
+      "p_two_sided": 0.01991211288552337,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "var_backtest.grids.0.methods[key=historical_simulation,level=0.05].kupiec.exceedances",
+        "p_value_fields": {
+          "var_backtest.grids.0.methods[key=historical_simulation,level=0.05].christoffersen.p_independence": 0.01991211288552337
+        },
+        "context_fields": {
+          "expected": "var_backtest.grids.0.methods[key=historical_simulation,level=0.05].kupiec.expected"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.08750000000000001,
+      "p_holm": 1.0,
+      "t_equivalent": 2.33,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "shock_supply_lost_peak",
+      "date": "2026-10-20",
+      "family": "supply shock",
+      "hypothesis": "Events in group 'Announced or physical supply removal >0.5 mbpd' move WTI differently from a random non-event date (peak).",
+      "test": "two-sided resampling tests of the group's median peak vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
+      "statistic": {
+        "name": "median peak %",
+        "value": 12.1
+      },
+      "context": {
+        "n": 21,
+        "placebo_median_pct": 5.4
+      },
+      "p_value": 0.0015,
+      "sided": "two",
+      "p_two_sided": 0.0015,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/supply_shock_study.json",
+        "statistic_field": "groups[key=supply_lost].median_peak_pct",
+        "p_value_fields": {
+          "groups[key=supply_lost].p_value_vs_placebo.peak": 0.0005,
+          "groups[key=supply_lost].p_value_vs_year_matched_placebo.peak": 0.0015
+        },
+        "context_fields": {
+          "n": "groups[key=supply_lost].n",
+          "placebo_median_pct": "placebo.median_peak_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=supply_lost].name"
+        }
+      },
+      "q_value_bh": 0.008653846153846154,
+      "p_holm": 0.0945,
+      "t_equivalent": 3.17,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "shock_supply_lost_settle",
+      "date": "2026-10-20",
+      "family": "supply shock",
+      "hypothesis": "Events in group 'Announced or physical supply removal >0.5 mbpd' move WTI differently from a random non-event date (settled move).",
+      "test": "two-sided resampling tests of the group's median settle vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
+      "statistic": {
+        "name": "median settle %",
+        "value": 4.3
+      },
+      "context": {
+        "n": 21,
+        "placebo_median_pct": 0.7
+      },
+      "p_value": 0.1027,
+      "sided": "two",
+      "p_two_sided": 0.1027,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/supply_shock_study.json",
+        "statistic_field": "groups[key=supply_lost].median_settle_pct",
+        "p_value_fields": {
+          "groups[key=supply_lost].p_value_vs_placebo.settle": 0.0445,
+          "groups[key=supply_lost].p_value_vs_year_matched_placebo.settle": 0.1027
+        },
+        "context_fields": {
+          "n": "groups[key=supply_lost].n",
+          "placebo_median_pct": "placebo.median_settle_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=supply_lost].name"
+        }
+      },
+      "q_value_bh": 0.29625,
+      "p_holm": 1.0,
+      "t_equivalent": 1.63,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "shock_threat_only_peak",
+      "date": "2026-10-20",
+      "family": "supply shock",
+      "hypothesis": "Events in group 'Geopolitical threat, no supply removed' move WTI differently from a random non-event date (peak).",
+      "test": "two-sided resampling tests of the group's median peak vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
+      "statistic": {
+        "name": "median peak %",
+        "value": 4.0
+      },
+      "context": {
+        "n": 10,
+        "placebo_median_pct": 5.4
+      },
+      "p_value": 0.6419,
+      "sided": "two",
+      "p_two_sided": 0.6419,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/supply_shock_study.json",
+        "statistic_field": "groups[key=threat_only].median_peak_pct",
+        "p_value_fields": {
+          "groups[key=threat_only].p_value_vs_placebo.peak": 0.4897,
+          "groups[key=threat_only].p_value_vs_year_matched_placebo.peak": 0.6419
+        },
+        "context_fields": {
+          "n": "groups[key=threat_only].n",
+          "placebo_median_pct": "placebo.median_peak_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=threat_only].name"
+        }
+      },
+      "q_value_bh": 0.9258173076923077,
+      "p_holm": 1.0,
+      "t_equivalent": 0.47,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "shock_threat_only_settle",
+      "date": "2026-10-20",
+      "family": "supply shock",
+      "hypothesis": "Events in group 'Geopolitical threat, no supply removed' move WTI differently from a random non-event date (settled move).",
+      "test": "two-sided resampling tests of the group's median settle vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
+      "statistic": {
+        "name": "median settle %",
+        "value": 0.5
+      },
+      "context": {
+        "n": 10,
+        "placebo_median_pct": 0.7
+      },
+      "p_value": 0.9564,
+      "sided": "two",
+      "p_two_sided": 0.9564,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/supply_shock_study.json",
+        "statistic_field": "groups[key=threat_only].median_settle_pct",
+        "p_value_fields": {
+          "groups[key=threat_only].p_value_vs_placebo.settle": 0.9443,
+          "groups[key=threat_only].p_value_vs_year_matched_placebo.settle": 0.9564
+        },
+        "context_fields": {
+          "n": "groups[key=threat_only].n",
+          "placebo_median_pct": "placebo.median_settle_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=threat_only].name"
+        }
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.05,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "shock_opec_cut_peak",
+      "date": "2026-10-20",
+      "family": "supply shock",
+      "hypothesis": "Events in group 'Announced OPEC(+) production cut' move WTI differently from a random non-event date (peak).",
+      "test": "two-sided resampling tests of the group's median peak vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
+      "statistic": {
+        "name": "median peak %",
+        "value": 12.8
+      },
+      "context": {
+        "n": 7,
+        "placebo_median_pct": 5.4
+      },
+      "p_value": 0.0898,
+      "sided": "two",
+      "p_two_sided": 0.0898,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "inconclusive",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/supply_shock_study.json",
+        "statistic_field": "groups[key=opec_cut].median_peak_pct",
+        "p_value_fields": {
+          "groups[key=opec_cut].p_value_vs_placebo.peak": 0.0264,
+          "groups[key=opec_cut].p_value_vs_year_matched_placebo.peak": 0.0898
+        },
+        "context_fields": {
+          "n": "groups[key=opec_cut].n",
+          "placebo_median_pct": "placebo.median_peak_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=opec_cut].name"
+        }
+      },
+      "q_value_bh": 0.280625,
+      "p_holm": 1.0,
+      "t_equivalent": 1.7,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "shock_opec_cut_settle",
+      "date": "2026-10-20",
+      "family": "supply shock",
+      "hypothesis": "Events in group 'Announced OPEC(+) production cut' move WTI differently from a random non-event date (settled move).",
+      "test": "two-sided resampling tests of the group's median settle vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
+      "statistic": {
+        "name": "median settle %",
+        "value": 6.1
+      },
+      "context": {
+        "n": 7,
+        "placebo_median_pct": 0.7
+      },
+      "p_value": 0.149,
+      "sided": "two",
+      "p_two_sided": 0.149,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/supply_shock_study.json",
+        "statistic_field": "groups[key=opec_cut].median_settle_pct",
+        "p_value_fields": {
+          "groups[key=opec_cut].p_value_vs_placebo.settle": 0.0763,
+          "groups[key=opec_cut].p_value_vs_year_matched_placebo.settle": 0.149
+        },
+        "context_fields": {
+          "n": "groups[key=opec_cut].n",
+          "placebo_median_pct": "placebo.median_settle_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=opec_cut].name"
+        }
+      },
+      "q_value_bh": 0.32867647058823524,
+      "p_holm": 1.0,
+      "t_equivalent": 1.44,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "shock_weather_peak",
+      "date": "2026-10-20",
+      "family": "supply shock",
+      "hypothesis": "Events in group 'Hurricane / weather shut-in' move WTI differently from a random non-event date (peak).",
+      "test": "two-sided resampling tests of the group's median peak vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
+      "statistic": {
+        "name": "median peak %",
+        "value": 5.7
+      },
+      "context": {
+        "n": 5,
+        "placebo_median_pct": 5.4
+      },
+      "p_value": 0.939,
+      "sided": "two",
+      "p_two_sided": 0.939,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/supply_shock_study.json",
+        "statistic_field": "groups[key=weather].median_peak_pct",
+        "p_value_fields": {
+          "groups[key=weather].p_value_vs_placebo.peak": 0.939,
+          "groups[key=weather].p_value_vs_year_matched_placebo.peak": 0.6116
+        },
+        "context_fields": {
+          "n": "groups[key=weather].n",
+          "placebo_median_pct": "placebo.median_peak_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=weather].name"
+        }
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.08,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "shock_weather_settle",
+      "date": "2026-10-20",
+      "family": "supply shock",
+      "hypothesis": "Events in group 'Hurricane / weather shut-in' move WTI differently from a random non-event date (settled move).",
+      "test": "two-sided resampling tests of the group's median settle vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
+      "statistic": {
+        "name": "median settle %",
+        "value": -4.8
+      },
+      "context": {
+        "n": 5,
+        "placebo_median_pct": 0.7
+      },
+      "p_value": 0.1464,
+      "sided": "two",
+      "p_two_sided": 0.1464,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/supply_shock_study.json",
+        "statistic_field": "groups[key=weather].median_settle_pct",
+        "p_value_fields": {
+          "groups[key=weather].p_value_vs_placebo.settle": 0.1464,
+          "groups[key=weather].p_value_vs_year_matched_placebo.settle": 0.0916
+        },
+        "context_fields": {
+          "n": "groups[key=weather].n",
+          "placebo_median_pct": "placebo.median_settle_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=weather].name"
+        }
+      },
+      "q_value_bh": 0.32867647058823524,
+      "p_holm": 1.0,
+      "t_equivalent": 1.45,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "shock_conflict_peak",
+      "date": "2026-10-20",
+      "family": "supply shock",
+      "hypothesis": "Events in group 'Armed conflict' move WTI differently from a random non-event date (peak).",
+      "test": "two-sided resampling tests of the group's median peak vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
+      "statistic": {
+        "name": "median peak %",
+        "value": 8.2
+      },
+      "context": {
+        "n": 15,
+        "placebo_median_pct": 5.4
+      },
+      "p_value": 0.2016,
+      "sided": "two",
+      "p_two_sided": 0.2016,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/supply_shock_study.json",
+        "statistic_field": "groups[key=conflict].median_peak_pct",
+        "p_value_fields": {
+          "groups[key=conflict].p_value_vs_placebo.peak": 0.2016,
+          "groups[key=conflict].p_value_vs_year_matched_placebo.peak": 0.0428
+        },
+        "context_fields": {
+          "n": "groups[key=conflict].n",
+          "placebo_median_pct": "placebo.median_peak_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=conflict].name"
+        }
+      },
+      "q_value_bh": 0.41777027027027025,
+      "p_holm": 1.0,
+      "t_equivalent": 1.28,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "shock_conflict_settle",
+      "date": "2026-10-20",
+      "family": "supply shock",
+      "hypothesis": "Events in group 'Armed conflict' move WTI differently from a random non-event date (settled move).",
+      "test": "two-sided resampling tests of the group's median settle vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
+      "statistic": {
+        "name": "median settle %",
+        "value": 2.2
+      },
+      "context": {
+        "n": 15,
+        "placebo_median_pct": 0.7
+      },
+      "p_value": 0.4961,
+      "sided": "two",
+      "p_two_sided": 0.4961,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/supply_shock_study.json",
+        "statistic_field": "groups[key=conflict].median_settle_pct",
+        "p_value_fields": {
+          "groups[key=conflict].p_value_vs_placebo.settle": 0.4961,
+          "groups[key=conflict].p_value_vs_year_matched_placebo.settle": 0.4767
+        },
+        "context_fields": {
+          "n": "groups[key=conflict].n",
+          "placebo_median_pct": "placebo.median_settle_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=conflict].name"
+        }
+      },
+      "q_value_bh": 0.845625,
+      "p_holm": 1.0,
+      "t_equivalent": 0.68,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "shock_sanctions_peak",
+      "date": "2026-10-20",
+      "family": "supply shock",
+      "hypothesis": "Events in group 'Sanctions' move WTI differently from a random non-event date (peak).",
+      "test": "two-sided resampling tests of the group's median peak vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
+      "statistic": {
+        "name": "median peak %",
+        "value": 6.6
+      },
+      "context": {
+        "n": 6,
+        "placebo_median_pct": 5.4
+      },
+      "p_value": 0.7186,
+      "sided": "two",
+      "p_two_sided": 0.7186,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/supply_shock_study.json",
+        "statistic_field": "groups[key=sanctions].median_peak_pct",
+        "p_value_fields": {
+          "groups[key=sanctions].p_value_vs_placebo.peak": 0.7186,
+          "groups[key=sanctions].p_value_vs_year_matched_placebo.peak": 0.2796
+        },
+        "context_fields": {
+          "n": "groups[key=sanctions].n",
+          "placebo_median_pct": "placebo.median_peak_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=sanctions].name"
+        }
+      },
+      "q_value_bh": 0.9527312982523835,
+      "p_holm": 1.0,
+      "t_equivalent": 0.36,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "shock_sanctions_settle",
+      "date": "2026-10-20",
+      "family": "supply shock",
+      "hypothesis": "Events in group 'Sanctions' move WTI differently from a random non-event date (settled move).",
+      "test": "two-sided resampling tests of the group's median settle vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
+      "statistic": {
+        "name": "median settle %",
+        "value": 2.2
+      },
+      "context": {
+        "n": 6,
+        "placebo_median_pct": 0.7
+      },
+      "p_value": 0.6243,
+      "sided": "two",
+      "p_two_sided": 0.6243,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/supply_shock_study.json",
+        "statistic_field": "groups[key=sanctions].median_settle_pct",
+        "p_value_fields": {
+          "groups[key=sanctions].p_value_vs_placebo.settle": 0.6243,
+          "groups[key=sanctions].p_value_vs_year_matched_placebo.settle": 0.5258
+        },
+        "context_fields": {
+          "n": "groups[key=sanctions].n",
+          "placebo_median_pct": "placebo.median_settle_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=sanctions].name"
+        }
+      },
+      "q_value_bh": 0.9258173076923077,
+      "p_holm": 1.0,
+      "t_equivalent": 0.49,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "shock_iran_driven_peak",
+      "date": "2026-10-20",
+      "family": "supply shock",
+      "hypothesis": "Events in group 'Iran-driven' move WTI differently from a random non-event date (peak).",
+      "test": "two-sided resampling tests of the group's median peak vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
+      "statistic": {
+        "name": "median peak %",
+        "value": 6.4
+      },
+      "context": {
+        "n": 12,
+        "placebo_median_pct": 5.4
+      },
+      "p_value": 0.6876,
+      "sided": "two",
+      "p_two_sided": 0.6876,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/supply_shock_study.json",
+        "statistic_field": "groups[key=iran_driven].median_peak_pct",
+        "p_value_fields": {
+          "groups[key=iran_driven].p_value_vs_placebo.peak": 0.6876,
+          "groups[key=iran_driven].p_value_vs_year_matched_placebo.peak": 0.4692
+        },
+        "context_fields": {
+          "n": "groups[key=iran_driven].n",
+          "placebo_median_pct": "placebo.median_peak_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=iran_driven].name"
+        }
+      },
+      "q_value_bh": 0.9527312982523835,
+      "p_holm": 1.0,
+      "t_equivalent": 0.4,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "shock_iran_driven_settle",
+      "date": "2026-10-20",
+      "family": "supply shock",
+      "hypothesis": "Events in group 'Iran-driven' move WTI differently from a random non-event date (settled move).",
+      "test": "two-sided resampling tests of the group's median settle vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
+      "statistic": {
+        "name": "median settle %",
+        "value": 0.6
+      },
+      "context": {
+        "n": 12,
+        "placebo_median_pct": 0.7
+      },
+      "p_value": 0.9688,
+      "sided": "two",
+      "p_two_sided": 0.9688,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/supply_shock_study.json",
+        "statistic_field": "groups[key=iran_driven].median_settle_pct",
+        "p_value_fields": {
+          "groups[key=iran_driven].p_value_vs_placebo.settle": 0.9688,
+          "groups[key=iran_driven].p_value_vs_year_matched_placebo.settle": 0.7676
+        },
+        "context_fields": {
+          "n": "groups[key=iran_driven].n",
+          "placebo_median_pct": "placebo.median_settle_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=iran_driven].name"
+        }
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.04,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "shock_strait_risk_peak",
+      "date": "2026-10-20",
+      "family": "supply shock",
+      "hypothesis": "Events in group 'Hormuz / transit-strait risk' move WTI differently from a random non-event date (peak).",
+      "test": "two-sided resampling tests of the group's median peak vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
+      "statistic": {
+        "name": "median peak %",
+        "value": 6.0
+      },
+      "context": {
+        "n": 8,
+        "placebo_median_pct": 5.4
+      },
+      "p_value": 0.8501,
+      "sided": "two",
+      "p_two_sided": 0.8501,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/supply_shock_study.json",
+        "statistic_field": "groups[key=strait_risk].median_peak_pct",
+        "p_value_fields": {
+          "groups[key=strait_risk].p_value_vs_placebo.peak": 0.8501,
+          "groups[key=strait_risk].p_value_vs_year_matched_placebo.peak": 0.7229
+        },
+        "context_fields": {
+          "n": "groups[key=strait_risk].n",
+          "placebo_median_pct": "placebo.median_peak_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=strait_risk].name"
+        }
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.19,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "shock_strait_risk_settle",
+      "date": "2026-10-20",
+      "family": "supply shock",
+      "hypothesis": "Events in group 'Hormuz / transit-strait risk' move WTI differently from a random non-event date (settled move).",
+      "test": "two-sided resampling tests of the group's median settle vs n random placebo dates and vs placebo dates from each event's own year (supply_shock_study.json method); p is the larger of the two, as the study's verdict needs both below 5% (year matching controls for the volatility regime, which inflates a 20-session maximum)",
+      "statistic": {
+        "name": "median settle %",
+        "value": 0.0
+      },
+      "context": {
+        "n": 8,
+        "placebo_median_pct": 0.7
+      },
+      "p_value": 0.7877,
+      "sided": "two",
+      "p_two_sided": 0.7877,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/supply_shock_study.json",
+        "statistic_field": "groups[key=strait_risk].median_settle_pct",
+        "p_value_fields": {
+          "groups[key=strait_risk].p_value_vs_placebo.settle": 0.7877,
+          "groups[key=strait_risk].p_value_vs_year_matched_placebo.settle": 0.5314
+        },
+        "context_fields": {
+          "n": "groups[key=strait_risk].n",
+          "placebo_median_pct": "placebo.median_settle_pct"
+        },
+        "name_fields": {
+          "group": "groups[key=strait_risk].name"
+        }
+      },
+      "q_value_bh": 0.9846249999999999,
+      "p_holm": 1.0,
+      "t_equivalent": 0.27,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "shock_removal_vs_threat_peak",
+      "date": "2026-10-20",
+      "family": "supply shock",
+      "hypothesis": "Events in group 'Announced or physical supply removal >0.5 mbpd' peak higher than events in group 'Geopolitical threat, no supply removed'.",
+      "test": "two-sided permutation test of the difference in medians",
+      "statistic": {
+        "name": "median peak difference %",
+        "value": 8.1
+      },
+      "context": {},
+      "p_value": 0.0309,
+      "sided": "two",
+      "p_two_sided": 0.0309,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/supply_shock_study.json",
+        "statistic_field": "between_groups.median_peak_difference_pct",
+        "p_value_fields": {
+          "between_groups.p_value.peak": 0.0309
+        },
+        "context_fields": {},
+        "name_fields": {
+          "removal": "groups[key=supply_lost].name",
+          "threat": "groups[key=threat_only].name"
+        }
+      },
+      "q_value_bh": 0.11587499999999999,
+      "p_holm": 1.0,
+      "t_equivalent": 2.16,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "shock_removal_vs_threat_settle",
+      "date": "2026-10-20",
+      "family": "supply shock",
+      "hypothesis": "Events in group 'Announced or physical supply removal >0.5 mbpd' keep more of their move than events in group 'Geopolitical threat, no supply removed' (settle).",
+      "test": "two-sided permutation test of the difference in medians",
+      "statistic": {
+        "name": "median settle difference %",
+        "value": 3.8
+      },
+      "context": {},
+      "p_value": 0.3874,
+      "sided": "two",
+      "p_two_sided": 0.3874,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/supply_shock_study.json",
+        "statistic_field": "between_groups.median_settle_difference_pct",
+        "p_value_fields": {
+          "between_groups.p_value.settle": 0.3874
+        },
+        "context_fields": {},
+        "name_fields": {
+          "removal": "groups[key=supply_lost].name",
+          "threat": "groups[key=threat_only].name"
+        }
+      },
+      "q_value_bh": 0.7086585365853659,
+      "p_holm": 1.0,
+      "t_equivalent": 0.86,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "shock_priced_in",
+      "date": "2026-10-20",
+      "family": "supply shock",
+      "hypothesis": "A strong first-day move (>= 3%) changes the further rise that follows.",
+      "test": "two-sided Mann-Whitney test, strong vs weak day-0 events",
+      "statistic": {
+        "name": "strong day-0 median further rise %",
+        "value": 6.7
+      },
+      "context": {
+        "weak_day0_median_further_rise_pct": 9.0,
+        "strong_day0_n": 6,
+        "weak_day0_n": 29
+      },
+      "p_value": 0.7427,
+      "sided": "two",
+      "p_two_sided": 0.7427,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "",
+      "artifact": {
+        "path": "data/supply_shock_study.json",
+        "statistic_field": "priced_in.strong_day0_median_further_rise_pct",
+        "p_value_fields": {
+          "priced_in.strong_vs_weak_mann_whitney_p": 0.7427
+        },
+        "context_fields": {
+          "weak_day0_median_further_rise_pct": "priced_in.weak_day0_median_further_rise_pct",
+          "strong_day0_n": "priced_in.strong_day0_n",
+          "weak_day0_n": "priced_in.weak_day0_n"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.9527312982523835,
+      "p_holm": 1.0,
+      "t_equivalent": 0.33,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    }
+  ],
+  "generated_by": "python -m backend.research_ledger"
+}

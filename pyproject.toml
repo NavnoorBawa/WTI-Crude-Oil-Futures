@@ -1,0 +1,91 @@
+# Project metadata and tool configuration. This is an application repository, not an installable
+# package (there is no [build-system]): runtime dependencies are pinned in requirements.txt and the
+# development tools in requirements-dev.txt.
+
+[project]
+name = "wti-crude-oil-futures"
+version = "2.0.0"
+description = "WTI crude oil volatility research: HAR-IV forecaster of record, benchmark field, Model Confidence Set, VaR backtests and conformal intervals on a pinned, reproducible data snapshot."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+authors = [{ name = "Navnoor Bawa" }]
+keywords = ["volatility", "forecasting", "WTI", "crude oil", "HAR", "GARCH", "model confidence set"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+
+[project.urls]
+Repository = "https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures"
+
+# ------------------------------------------------------------------------------------------------
+# Ruff. CI gates on `ruff check backend/ scripts/ tests/ freeze.py ./*.py --select F,E9`, which
+# overrides `select` below. Running `ruff check` with no --select applies the broader set, every
+# family of which the codebase already passes as is (opt-in, not a CI gate; nothing reformatted).
+# ------------------------------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E9",   # syntax and IO errors
+    "F",    # pyflakes
+    "A",    # builtin shadowing
+    "FLY",  # static join -> f-string
+    "ICN",  # conventional import aliases (np, pd)
+    "LOG",  # logging misuse
+    "NPY",  # deprecated NumPy APIs and legacy np.random
+    "PGH",  # blanket type: ignore / noqa
+    "PIE",  # unnecessary pass, duplicate class fields, ...
+    "RSE",  # raise with unnecessary parentheses
+    "T10",  # leftover debugger calls
+    "TID",  # banned / relative-import hygiene
+    "YTT",  # sys.version misuse
+]
+
+# ------------------------------------------------------------------------------------------------
+# mypy: strict on the evaluation statistics, the data snapshot, the contract calendar, the
+# research lab, the model of record, the live track record and the research ledger. Other modules
+# are followed for their types but not reported on.
+# ------------------------------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = [
+    "backend/forecast_eval.py",
+    "backend/market_data.py",
+    "backend/contract_calendar.py",
+    "backend/vol_lab.py",
+    "backend/vol_forecast.py",
+    "backend/vol_record.py",
+    "backend/research_ledger.py",
+]
+follow_imports = "silent"
+warn_unreachable = true
+pretty = true
+
+[[tool.mypy.overrides]]
+# Third-party libraries that ship no type information (arch and lightgbm do; numpy, pandas and
+# scipy are typed by numpy itself, pandas-stubs and scipy-stubs).
+module = ["statsmodels", "statsmodels.*", "yfinance", "yfinance.*"]
+ignore_missing_imports = true
+
+# ------------------------------------------------------------------------------------------------
+# Coverage (tests use unittest): `coverage run -m unittest discover -s tests`.
+# ------------------------------------------------------------------------------------------------
+[tool.coverage.run]
+branch = true
+source = ["backend", "scripts", "freeze"]
+
+[tool.coverage.report]
+# 65.0% with the slow artifact rebuild skipped (RUN_SLOW unset, as in CI) when the gate was set.
+fail_under = 60
+precision = 1
+exclude_also = [
+    "if __name__ == .__main__.:",
+    "raise SystemExit\\(main\\(\\)\\)",
+]

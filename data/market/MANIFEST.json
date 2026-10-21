@@ -1,0 +1,36 @@
+{
+  "retrieved_at": "2026-10-20T11:01:46.215851Z",
+  "sessions_through": "2026-10-19",
+  "files": {
+    "cl_daily": {
+      "file": "cl_f_daily.csv",
+      "sha256": "2e0c57f697484b466eac5945c755a76cf26aeb3a1cdf2af96622f7ab3da7949b",
+      "rows": 6564,
+      "first": "2000-08-23",
+      "last": "2026-10-19",
+      "source": "Yahoo Finance CL=F daily OHLC (yfinance), finished NYMEX sessions only"
+    },
+    "ovx_yahoo": {
+      "file": "ovx_yahoo_daily.csv",
+      "sha256": "b641a9753df21f2159af8d395ea599b47b5994d835884a6ec2384d0e5fa7c02f",
+      "rows": 4892,
+      "first": "2007-05-10",
+      "last": "2026-10-19",
+      "source": "Yahoo Finance ^OVX daily close (yfinance), finished sessions only"
+    },
+    "ovx_fred": {
+      "file": "ovxcls_fred.csv",
+      "sha256": "2117700ea77ca6b19a343d2cdec1ed1b0d8e9bd794e51843119ea5061b491b89",
+      "rows": 4893,
+      "first": "2007-05-10",
+      "last": "2026-10-16",
+      "source": "FRED OVXCLS (https://fred.stlouisfed.org/series/OVXCLS), keyless fredgraph CSV"
+    }
+  },
+  "cl_data_quality": {
+    "sessions": 6564,
+    "range_blanked_nonpositive_bars": 1,
+    "repaired_high_below_open_or_close": 3,
+    "repaired_low_above_open_or_close": 4
+  }
+}

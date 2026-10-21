@@ -38,18 +38,19 @@ def _trusted_file(root: Path, filename: str) -> Path:
 
 def data_json_path(value: str | os.PathLike[str]) -> Path:
     normalized = _normalized_argument(value)
+    # Secondary-research artifacts: the supply-shock placebo study, the leak anatomy and the
+    # research ledger (each written by its own backend module).
+    for study_artifact in ("supply_shock_study.json", "leak_anatomy.json", "research_ledger.json"):
+        if normalized in {study_artifact, f"data/{study_artifact}", f"./data/{study_artifact}"}:
+            return _trusted_file(DATA_ROOT, study_artifact)
+    # The live vol track record (backend/vol_record.py): runtime state restored from and persisted
+    # to the live-data branch by refresh.yml, never committed to main.
     if normalized in {
-        "signal_state.json",
-        "data/signal_state.json",
-        "./data/signal_state.json",
+        "vol_track_record.json",
+        "data/vol_track_record.json",
+        "./data/vol_track_record.json",
     }:
-        return _trusted_file(DATA_ROOT, "signal_state.json")
-    if normalized in {
-        "live_track_record.json",
-        "data/live_track_record.json",
-        "./data/live_track_record.json",
-    }:
-        return _trusted_file(DATA_ROOT, "live_track_record.json")
+        return _trusted_file(DATA_ROOT, "vol_track_record.json")
     if normalized in {
         "walk_forward_backtest_latest.json",
         "data/walk_forward_backtest_latest.json",
@@ -113,6 +114,12 @@ def data_json_path(value: str | os.PathLike[str]) -> Path:
     }:
         return _trusted_file(DATA_ROOT, "serial_correlation_check.json")
     if normalized in {
+        "vol_lab.json",
+        "data/vol_lab.json",
+        "./data/vol_lab.json",
+    }:
+        return _trusted_file(DATA_ROOT, "vol_lab.json")
+    if normalized in {
         "vol_forecast_validation.json",
         "data/vol_forecast_validation.json",
         "./data/vol_forecast_validation.json",
@@ -126,6 +133,16 @@ def public_json_path(value: str | os.PathLike[str]) -> Path:
     if normalized in {"data.json", "public/data.json", "./public/data.json"}:
         return _trusted_file(PUBLIC_ROOT, "data.json")
     raise ValueError("public path must be public/data.json")
+
+
+def research_payload_path(value: str | os.PathLike[str]) -> Path:
+    """public/research.json, or the tracked research fixture; any other path is refused."""
+    normalized = _normalized_argument(value)
+    if normalized in {"research.json", "public/research.json", "./public/research.json"}:
+        return _trusted_file(PUBLIC_ROOT, "research.json")
+    if normalized in {"tests/fixtures/research.json", "./tests/fixtures/research.json"}:
+        return _trusted_file(FIXTURE_ROOT, "research.json")
+    raise ValueError("research path must be public/research.json or the tracked test fixture")
 
 
 def fixture_json_path(value: str | os.PathLike[str]) -> Path:

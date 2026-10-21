@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """
-Walk-forward backtest for WTI forecasts with baseline comparison.
+Walk-forward backtest for the retracted WTI direction model, with baseline comparison.
 
-This script evaluates the existing daily (1d, 1w) model pipeline using an
-expanding-window walk-forward procedure and compares against simple baselines.
+This script evaluates the direction model's daily (1d, 1w) pipeline with a purged walk-forward: by
+default a rolling 378-bar training window (the direction model's production window, about 18
+months; --train-window 0 gives an expanding window), a decision every --step rows, and the last
+horizon - 1 training rows purged at every step so that no training label matures after its decision
+(--no-purge reproduces the look-ahead leak, and its --output file name must then contain LEAKED).
+Results are compared against simple baselines. It downloads its data from Yahoo Finance (and
+FRED/EIA with --features all), so the committed data/wf_*.json files are records of runs, not
+reproducible bit for bit.
 """
 
 import argparse
@@ -321,9 +327,11 @@ def purge_count(horizon: str) -> int:
     return horizon_steps_for(horizon) - 1
 
 
-# The report the dashboard serves (backend/server.py loads it only for the configuration below).
+# The engine's default report: the purged, pinned configuration of the retracted direction model. The
+# dashboard's post-mortem is built from the wf_* reports (scripts/build_research_bundle.py), but the
+# default name still takes only this configuration, so a leaked or unpinned run cannot land under it.
 DASHBOARD_ARTIFACT = "walk_forward_backtest_latest.json"
-# The live 1D/1W models train on the latest 378 daily bars (~18 months; oil.py daily_training_rows).
+# The retracted direction model trained on the latest 378 daily bars (~18 months; oil.py daily_training_rows).
 PRODUCTION_TRAIN_WINDOW = 378
 
 
@@ -331,7 +339,7 @@ def is_validated_configuration(config: dict) -> bool:
     """True for the configuration production runs and the purged backtest validated: no FRED/EIA
     macro, context lagged one trading day, the production 378-bar rolling window, the purge applied
     on every horizon, and a pinned --start/--end window (period None), so the report can be re-run
-    exactly. Mirrors backend/server.py's check on DASHBOARD_ARTIFACT."""
+    exactly."""
     purge_rows = config.get("purge_rows_by_horizon") or {}
     return (
         config.get("feature_mode") == "no_macro"
@@ -554,8 +562,8 @@ def main():
                         help="skip the purge to reproduce the retracted look-ahead leak (before/after "
                              "comparison only; the --output file name must contain 'LEAKED')")
     parser.add_argument("--output", default=f"data/{DASHBOARD_ARTIFACT}",
-                        help="allowlisted data/ file to write the JSON report to (default: the dashboard's "
-                             "artifact, which takes only the validated configuration)")
+                        help="allowlisted data/ file to write the JSON report to (default: the engine's "
+                             "report, which takes only the validated configuration)")
     args = parser.parse_args()
 
     horizons = [h.strip() for h in args.horizons.split(",") if h.strip()]
@@ -574,7 +582,7 @@ def main():
         output_path = data_json_path(args.output)
     except ValueError as exc:
         parser.error(f"--output {args.output}: {exc}")
-    # A leaked report must never land in an artifact the dashboard or README reads as the result,
+    # A leaked report must never land in an artifact read as the corrected result,
     # and comparison runs (--features all/price_only, --lag-context 0, ...) need their own file.
     if args.no_purge and "LEAKED" not in output_path.name:
         parser.error("--no-purge reproduces the look-ahead leak; its --output file name must contain 'LEAKED'")

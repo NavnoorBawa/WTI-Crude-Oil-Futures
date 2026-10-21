@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use this research or software, please cite it as below."
+type: software
+title: "WTI Crude Oil Volatility Research: a look-ahead-leak post-mortem and a benchmarked, reproducible next-week volatility forecaster"
+authors:
+  - family-names: Bawa
+    given-names: Navnoor
+version: 2.0.0
+date-released: "2026-10-20"
+license: MIT
+repository-code: "https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures"
+url: "https://navnoorbawa.github.io/WTI-Crude-Oil-Futures/"
+abstract: >-
+  Out-of-sample evaluation of next-week realized-volatility forecasts for front-month NYMEX WTI
+  crude oil on free data: fourteen models (GARCH family, HAR family, implied volatility, gradient
+  boosting, an equal-weight combination) compared with QLIKE, the Model Confidence Set and Hansen's
+  SPA test; weekly Value-at-Risk backtests; adaptive conformal intervals; a live forward record that scores
+  only forecasts sealed in git before their scoring window opens; and the post-mortem of a retracted
+  price-direction model whose backtest was a look-ahead leak. The benchmark evaluation is rebuilt in
+  CI from a hash-pinned data snapshot, and the carry and supply-shock studies from committed EIA
+  files; the production validation and the post-mortem backtests are committed records of runs on
+  downloaded data and are not regenerated in CI.
+keywords:
+  - realized volatility
+  - HAR model
+  - implied volatility
+  - model confidence set
+  - value at risk
+  - conformal prediction
+  - look-ahead bias
+  - crude oil
