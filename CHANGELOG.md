@@ -8,9 +8,10 @@ backs the new one.
 
 ### Fixed
 
-- The three canvas charts format their axis labels in en-US, like the rest of the page. They used
-  the visitor's `navigator.language`, which threw on a POSIX locale tag (`en-US@posix`) and left
-  the chart blank.
+- The forecast and VaR charts format their time-axis labels in en-US, like the rest of the page.
+  They used the visitor's `navigator.language`, which threw on a POSIX locale tag (`en-US@posix`)
+  and left both charts blank. The price chart, which formats its own labels, carries the same
+  locale.
 
 ## 2.0.0 — 2026-10-20
 
