@@ -58,7 +58,7 @@ export default function VarChart({ rows, range = "ALL" }) {
         height: host.clientHeight || 300,
         rightPriceScale: { borderColor: SURFACE.rule, scaleMargins: { top: 0.06, bottom: 0.1 } },
         timeScale: { borderColor: SURFACE.rule, fixLeftEdge: true, minBarSpacing: 0.2 },
-        localization: { priceFormatter: (price) => `${Number(price).toFixed(0)}%` },
+        localization: { ...baseChartOptions().localization, priceFormatter: (price) => `${Number(price).toFixed(0)}%` },
       });
       const quiet = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false };
       const bars = chart.addSeries(HistogramSeries, { ...quiet, base: 0 });

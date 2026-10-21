@@ -49,3 +49,22 @@ test("no logo is drawn inside the charts, and the footer carries the library's n
   assert.match(footer, /TradingView Lightweight Charts™, Copyright © \d{4} TradingView,\s+Inc\./);
   assert.match(footer, /href="https:\/\/www\.tradingview\.com\/"/);
 });
+
+test("every chart formats with the page's en-US locale, not the visitor's navigator.language", () => {
+  // Without a locale lightweight-charts calls toLocaleString(navigator.language), which throws on
+  // headless or POSIX tags such as "en-US@posix".
+  const { locale } = theme.baseChartOptions().localization;
+  assert.equal(locale, "en-US");
+  assert.doesNotThrow(() => new Date(0).toLocaleString(locale));
+  for (const name of ["ForecastChart", "PriceChart", "VarChart"]) {
+    const source = readSource(`src/charts/${name}.jsx`);
+    const start = source.indexOf("createChart(host, {");
+    assert.ok(start >= 0, `${name} builds its chart with createChart(host, {...})`);
+    const options = source.slice(start, source.indexOf("\n      });", start));
+    assert.match(options, /\.\.\.baseChartOptions\(\),/, `${name} starts from the shared options`);
+    // A chart that sets its own localization replaces the shared one, so it must spread it back in.
+    if (/localization:/.test(options)) {
+      assert.match(options, /localization: \{\s*\.\.\.baseChartOptions\(\)\.localization,/, `${name} keeps the locale`);
+    }
+  }
+});

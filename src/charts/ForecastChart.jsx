@@ -64,7 +64,7 @@ export default function ForecastChart({ rows, live, range = "3Y", modelLabel = "
         height: host.clientHeight || 320,
         rightPriceScale: { borderColor: SURFACE.rule, scaleMargins: { top: 0.06, bottom: 0.04 } },
         timeScale: { borderColor: SURFACE.rule, rightOffset: 5, fixLeftEdge: true, minBarSpacing: 0.2 },
-        localization: { priceFormatter: (price) => `${Number(price).toFixed(0)}%` },
+        localization: { ...baseChartOptions().localization, priceFormatter: (price) => `${Number(price).toFixed(0)}%` },
       });
       const quiet = { lastValueVisible: false, priceLineVisible: false };
       const band = chart.addCustomSeries(new BandSeries(), { ...quiet, fillColor: withAlpha(SERIES.model, 0.16) });

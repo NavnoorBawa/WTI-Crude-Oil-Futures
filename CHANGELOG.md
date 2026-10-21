@@ -4,6 +4,14 @@ All notable changes. Research results are versioned like code: when a published 
 the correction is listed under **Errata** with the old and the new value, and the artifact that
 backs the new one.
 
+## Unreleased
+
+### Fixed
+
+- The three canvas charts format their axis labels in en-US, like the rest of the page. They used
+  the visitor's `navigator.language`, which threw on a POSIX locale tag (`en-US@posix`) and left
+  the chart blank.
+
 ## 2.0.0 — 2026-10-20
 
 ### Research

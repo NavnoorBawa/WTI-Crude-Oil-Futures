@@ -77,6 +77,9 @@ export const MONO_FONT = '"JetBrains Mono Variable", "JetBrains Mono", ui-monosp
  * link to https://www.tradingview.com/, which is what its licence asks for.
  */
 export const baseChartOptions = () => ({
+  // lightweight-charts formats axis labels with navigator.language unless told otherwise. That throws on a
+  // POSIX tag ("en-US@posix") and elsewhere mixes a visitor's date style into an en-US page.
+  localization: { locale: "en-US" },
   layout: {
     attributionLogo: false,
     background: { type: "solid", color: SURFACE.bg1 },
