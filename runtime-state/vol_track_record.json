@@ -1,5 +1,42 @@
 {
   "schema_version": 1,
   "started": "2026-10-20",
-  "entries": []
+  "entries": [
+    {
+      "as_of": "2026-10-20",
+      "issued_at": "2026-10-21T05:03:50.557851Z",
+      "recorded_at": "2026-10-21T05:03:53.823172Z",
+      "sealed_at": "2026-10-21T05:04:20.872633Z",
+      "frozen_at": "2026-10-21T05:03:53.458875+00:00",
+      "contract": "CLZ26",
+      "model_version": "har-iv/2",
+      "model": "HAR-IV (RV5,RV22,RV66,OVX)",
+      "forecast_pct": 47.3,
+      "median_pct": 39.8,
+      "prob_vol_rises_pct": 52.4,
+      "direction": "RISING",
+      "rv5_pct": 38.85,
+      "lo80_pct": 23.1,
+      "hi80_pct": 63.6,
+      "inputs": {
+        "ovx": 50.22,
+        "ovx_last_print": "2026-10-20",
+        "ovx_session": "2026-10-19",
+        "ovx_source": "yahoo ^OVX",
+        "rv22_pct": 36.93,
+        "rv5_pct": 38.85,
+        "rv66_pct": 46.31
+      },
+      "challenger": {
+        "key": "har_iv_range",
+        "forecast_pct": 47.6,
+        "median_pct": 40.3
+      },
+      "base_session": "2026-10-21",
+      "target_start": "2026-10-22",
+      "target_end": "2026-10-28",
+      "status": "pending",
+      "realized_pct": null
+    }
+  ]
 }
