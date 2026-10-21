@@ -229,6 +229,7 @@ function PriceChart({ actualPayload = null, snapshotPrice = null, range = "ALL" 
           tickMarkFormatter,
         },
         localization: {
+          ...baseChartOptions().localization,
           priceFormatter: (price) => `$${Number(price).toFixed(2)}`,
           timeFormatter: (time) => formatWallTime(Number(time), "daily"),
         },

@@ -1,6 +1,7 @@
 // tokens.css is the source of truth for colour; canvas charts read the JS mirror in chartTheme.js.
 // This keeps the two from drifting apart.
 import assert from "node:assert/strict";
+import { readdirSync } from "node:fs";
 import { test } from "node:test";
 import { readSource } from "./load.mjs";
 import * as theme from "../../src/theme/chartTheme.js";
@@ -48,4 +49,41 @@ test("no logo is drawn inside the charts, and the footer carries the library's n
   const footer = readSource("src/app/SiteFooter.jsx");
   assert.match(footer, /TradingView Lightweight Charts™, Copyright © \d{4} TradingView,\s+Inc\./);
   assert.match(footer, /href="https:\/\/www\.tradingview\.com\/"/);
+});
+
+// The options object literal of each createChart call in a source file, found by brace matching.
+const createChartOptions = (source) =>
+  [...source.matchAll(/createChart\(\s*\w+,\s*\{/g)].map((match) => {
+    let depth = 0;
+    for (let i = match.index + match[0].length - 1; i < source.length; i += 1) {
+      if (source[i] === "{") depth += 1;
+      else if (source[i] === "}" && --depth === 0) return source.slice(match.index, i + 1);
+    }
+    throw new Error("unbalanced createChart options");
+  });
+
+test("every chart formats with the page's en-US locale, not the visitor's navigator.language", () => {
+  // Without a locale lightweight-charts calls toLocaleString(navigator.language), and a POSIX tag throws.
+  assert.throws(() => new Date(0).toLocaleString("en-US@posix"), RangeError);
+  assert.equal(theme.baseChartOptions().localization.locale, "en-US");
+  const files = readdirSync(new URL("../../src/charts/", import.meta.url)).filter((file) =>
+    readSource(`src/charts/${file}`).includes("createChart("),
+  );
+  assert.ok(files.length >= 3, "the lightweight-charts figures are found");
+  for (const file of files) {
+    const source = readSource(`src/charts/${file}`);
+    const calls = createChartOptions(source);
+    assert.equal(calls.length, source.match(/createChart\(/g).length, `${file} passes createChart an inline options object`);
+    for (const options of calls) {
+      assert.match(options, /\.\.\.baseChartOptions\(\),/, `${file} starts from the shared options`);
+      // A chart that sets its own localization replaces the shared one, so it must spread it back in.
+      if (/\blocalization\b/.test(options)) {
+        assert.match(
+          options,
+          /localization: \{\s*\.\.\.baseChartOptions\(\)\.localization,/,
+          `${file} keeps the shared locale: write localization: { ...baseChartOptions().localization, ... }`,
+        );
+      }
+    }
+  }
 });
