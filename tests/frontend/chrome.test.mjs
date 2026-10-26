@@ -267,6 +267,15 @@ test("view params round-trip through the URL, and a bad value reads as the defau
   assert.deepEqual(parseViewParams(null), {});
 });
 
+test("only reserved view keys are read from the URL, so a crafted link cannot pick a property", () => {
+  const { parseViewParams } = view;
+  const params = parseViewParams("?__proto__=x&constructor=y&prototype=z&utm_source=w&fcst=all");
+  assert.deepEqual(Object.keys(params), ["fcst"]);
+  assert.equal(params.fcst, "all");
+  assert.equal(Object.getPrototypeOf(params), Object.prototype, "the prototype is untouched");
+  assert.equal({}.x, undefined, "nothing leaks onto Object.prototype");
+});
+
 // ---------------------------------------------------------------------------------- formats
 test("fmtPValue with digits prints that many decimals, without moving a p-value onto a threshold", () => {
   const f = m.format;

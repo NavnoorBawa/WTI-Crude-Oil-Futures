@@ -49,12 +49,12 @@ const parseRules = (css, context = []) => {
     const body = text.slice(open + 1, j - 1);
     if (/^@(media|container|supports|layer)\b/.test(prelude)) rules.push(...parseRules(body, [...context, prelude]));
     else if (!prelude.startsWith("@")) {
-      const decls = {};
+      const decls = new Map();
       for (const declaration of splitTopLevel(body, ";")) {
         const colon = declaration.indexOf(":");
-        if (colon > 0) decls[declaration.slice(0, colon).trim()] = declaration.slice(colon + 1).trim();
+        if (colon > 0) decls.set(declaration.slice(0, colon).trim(), declaration.slice(colon + 1).trim());
       }
-      rules.push({ selectors: splitTopLevel(prelude, ","), decls, context });
+      rules.push({ selectors: splitTopLevel(prelude, ","), decls: Object.fromEntries(decls), context });
     }
     i = j;
   }

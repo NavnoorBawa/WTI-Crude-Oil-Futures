@@ -3,7 +3,8 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 /*
  * View state in the URL query, so every view of the page is a link that can be shared.
  *
- * Reserved keys (each panel reads only its own; anything else in the query is kept untouched):
+ * Reserved keys (each panel reads only its own). Only these are read; any other query parameter is
+ * ignored, and dropped the next time the view is written:
  *   fcst    FCST chart range            1y | 3y | all       (default 3y)
  *   risk    RISK chart range            3y | 10y | all      (default 3y)
  *   var     RISK VaR level              99 | 95             (default 99)
@@ -31,13 +32,19 @@ export const VIEW_DEFAULTS = Object.freeze({
 
 const registeredDefaults = new Map();
 
-/** "?fcst=all&table=fcst,modl" -> {fcst: "all", table: "fcst,modl"} (the last of a repeated key wins). Pure. */
+/**
+ * "?fcst=all&table=fcst,modl" -> {fcst: "all", table: "fcst,modl"} (the last of a repeated key wins).
+ * Only reserved keys are kept, and the object is built from a Map, so a crafted link
+ * ("?__proto__=…") never chooses which property is written. Pure.
+ */
 export const parseViewParams = (search) => {
-  const params = {};
   const text = typeof search === "string" ? search.replace(/^\?/, "") : "";
-  if (!text) return params;
-  for (const [key, value] of new URLSearchParams(text)) params[key] = value;
-  return params;
+  if (!text) return {};
+  const reserved = new Map();
+  for (const [key, value] of new URLSearchParams(text)) {
+    if (Object.hasOwn(VIEW_DEFAULTS, key)) reserved.set(key, value);
+  }
+  return Object.fromEntries(reserved);
 };
 
 const sameValue = (a, b) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
