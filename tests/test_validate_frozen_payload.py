@@ -423,6 +423,10 @@ class VolForecastValidationTest(unittest.TestCase):
             "other pairs": [entry(0, "resolved", 35.0, None, model_version="har/2"),
                             entry(1, "resolved", 35.0, key="combo"), entry(2, "resolved", 35.0, None),
                             entry(3, "resolved", 35.0), entry(4, "pending", None, None, model_version="har/2")],
+            # An entry with the forecaster's inputs and probability, as extract_entry stores them.
+            "with inputs": [dict(entry(0, "pending"), prob_vol_rises_pct=58.0, inputs={
+                "ovx": 41.0, "ovx_last_print": "2026-10-30", "ovx_session": "2026-10-29", "ovx_source": "yahoo ^OVX",
+                "rv5_pct": 30.0, "rv22_pct": 33.0, "rv66_pct": 35.0})],
         }
         due, summaries = {}, {}
         for name, entries in records.items():
@@ -434,7 +438,9 @@ class VolForecastValidationTest(unittest.TestCase):
         self.assertEqual(summaries["decided"]["promotion"]["status"], "promote")
         # The one pending entry (week 0) is the next result; with nothing pending there is none.
         self.assertEqual(due, {"seeded": None, "every status": "2026-11-09", "decided": None,
-                               "other pairs": "2026-12-07"})
+                               "other pairs": "2026-12-07", "with inputs": "2026-11-09"})
+        self.assertEqual(summaries["with inputs"]["recent"][0]["inputs"],
+                         {"ovx": 41.0, "ovx_session": "2026-10-29", "rv5_pct": 30.0, "rv22_pct": 33.0, "rv66_pct": 35.0})
         other = summaries["other pairs"]
         self.assertEqual({k: other["promotion"][k] for k in self.PAIR},
                          dict(self.PAIR, n_excluded_other_version=1, n_excluded_other_challenger=1,
@@ -553,6 +559,35 @@ class VolForecastValidationTest(unittest.TestCase):
                 self.assertIn(message, self.record_errors(recent=[{**row, "model_version": bad}]))
         self.assertIn(message, self.record_errors(recent=[{k: v for k, v in row.items() if k != "model_version"}]))
         self.assertEqual(self.record_errors(recent=[{**row, "model_version": "har/2"}]), [])
+
+    def test_recent_audit_fields_are_optional_but_well_formed_when_present(self):
+        where = "vol_forecast.live_record.recent"
+        row = self.LIVE_RECORD["recent"][0]
+        audited = {**row, "recorded_at": "2026-10-20T12:02:03Z", "sealed_at": "2026-10-20T12:02:30.5+00:00",
+                   "base_session": "2026-10-20", "prob_vol_rises_pct": 58.3,
+                   "inputs": {"ovx": 50.74, "ovx_session": "2026-10-16", "rv5_pct": 36.76, "rv22_pct": 36.81,
+                              "rv66_pct": 46.96}}
+        self.assertEqual(self.record_errors(recent=[audited]), [])
+        # Older summaries omit them; a row may carry null for any of them (an entry not sealed yet).
+        self.assertEqual(self.record_errors(recent=[row]), [])
+        nulls = {**audited, "sealed_at": None, "prob_vol_rises_pct": None, "inputs": None}
+        self.assertEqual(self.record_errors(recent=[nulls]), [])
+        self.assertEqual(self.record_errors(recent=[{**audited, "inputs": dict.fromkeys(audited["inputs"])}]), [])
+        cases = {
+            "recorded_at": ("2026-10-20T12:02:03", f"{where} recorded_at must be an ISO timestamp with a UTC offset, or null"),
+            "sealed_at": ("soon", f"{where} sealed_at must be an ISO timestamp with a UTC offset, or null"),
+            "base_session": ("2026-10-20T00:00:00Z", f"{where} base_session must be an ISO date (YYYY-MM-DD), or null"),
+            "prob_vol_rises_pct": (101.0, f"{where} prob_vol_rises_pct must be a percentage, or null"),
+        }
+        for key, (bad, message) in cases.items():
+            with self.subTest(key):
+                self.assertIn(message, self.record_errors(recent=[{**audited, key: bad}]))
+        inputs_message = (f"{where} inputs must be an object of finite vol points (ovx, rv5_pct, rv22_pct, rv66_pct) "
+                          "and an ISO ovx_session, each possibly null, or null")
+        for bad in ([], "50.7", {**audited["inputs"], "ovx": float("nan")}, {**audited["inputs"], "rv5_pct": "36.8"},
+                    {**audited["inputs"], "rv22_pct": True}, {**audited["inputs"], "ovx_session": "Oct 16"}):
+            with self.subTest(inputs=bad):
+                self.assertIn(inputs_message, self.record_errors(recent=[{**audited, "inputs": bad}]))
 
     def test_promotion_verdicts_pass(self):
         self.assertEqual(self.promotion_errors(), [])

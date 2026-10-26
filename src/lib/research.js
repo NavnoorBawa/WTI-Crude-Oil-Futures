@@ -444,13 +444,23 @@ export const promotionStatus = (raw) => {
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}/;
 
 /**
+ * Independent (non-overlapping) resolved weeks the live record needs before the page compares the
+ * two models' losses: below this many independent weeks a loss comparison is noise-dominated.
+ */
+export const LIVE_MIN_INDEPENDENT = 10;
+
+/**
  * The live forward record (data.json vol_forecast.live_record), normalized. `firstResult` is the
  * record's next_result_due: the earliest target_end of a pending call whose window does not span
  * a contract roll, or null when no result is due.
  *
- * Two samples of QLIKE appear. `paired` compares the two models on the same resolved weeks (the
+ * Two samples of QLIKE appear. `paired` compares the two models on the same resolved calls (the
  * pinned pair's, challenger.n of them); `champion` scores the model of record on every resolved
- * week of its pinned version (champion.n), a larger sample, and is only ever shown labelled as such.
+ * call of its pinned version (champion.n), a larger sample, and is only ever shown labelled as such.
+ * Calls are daily and their five-session windows overlap: `independent` (n_independent) counts the
+ * resolved calls whose windows do not, the effective sample, and only it is ever called "weeks".
+ * `recent` rows pass through as published (newest first), with the audit fields of
+ * vol_record._recent when the payload has them.
  */
 export const liveRecordSummary = (record) => {
   const lr = asObject(record);

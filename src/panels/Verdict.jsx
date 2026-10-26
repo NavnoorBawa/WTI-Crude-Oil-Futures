@@ -1,8 +1,8 @@
 import Chip from "../components/Chip";
 import Kpi from "../components/Kpi";
 import keepHyphenated from "../components/keepHyphenated";
-import { promotionText } from "../lib/assertions";
-import { DASH, NBSP, fmtDate, fmtInt, fmtNum, fmtP, fmtPct, num } from "../lib/format";
+import { liveTileFoot } from "../lib/assertions";
+import { DASH, fmtDate, fmtInt, fmtP, fmtPct, num } from "../lib/format";
 import { asObject, asText, getVol, liveRecordSummary } from "../lib/research";
 import { evidenceTiles, progressGlyph, tilesKey } from "../lib/tiles";
 import Hero from "./Hero";
@@ -18,23 +18,7 @@ export default function Verdict({ data, research, researchStatus }) {
   const { live, liveRecord } = getVol(data);
   const tiles = evidenceTiles(data, research, researchStatus);
   const record = liveRecordSummary(liveRecord);
-  const promotion = promotionText(record?.promotion);
-
-  let liveFoot = null;
-  if (record) {
-    const paired = record.paired;
-    let status;
-    if ((record.resolved ?? 0) === 0) {
-      status = record.firstResult
-        ? `first result ${fmtDate(record.firstResult)}`
-        : `${fmtInt(record.recorded ?? 0)} recorded · ${fmtInt(record.skipped ?? 0)} skipped at roll${record.lateCommit ? ` · ${fmtInt(record.lateCommit)} not sealed in time` : ""}`;
-    } else {
-      status = paired.n > 0 && paired.record != null && paired.challenger != null
-        ? `QLIKE ${fmtNum(paired.record, 3)} record vs ${fmtNum(paired.challenger, 3)} challenger, same ${fmtInt(paired.n)}${NBSP}wk`
-        : `${fmtInt(record.independent)} independent · no week with both forecasts yet`;
-    }
-    liveFoot = promotion ? `${status} · promotion ${promotion}` : status;
-  }
+  const liveFoot = liveTileFoot(record);
 
   return (
     <section className="verdict" aria-labelledby="verdict-title">

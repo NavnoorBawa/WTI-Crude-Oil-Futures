@@ -471,7 +471,8 @@ button { font: inherit; color: inherit; }
   max-width: var(--measure);
 }
 .callout .chip { flex: none; }
-.rule-note { display: flex; flex-wrap: wrap; gap: 4px var(--sp-3); margin-top: var(--sp-4); max-width: 120ch; font-size: var(--fs-12); color: var(--text-2); line-height: 1.5; }
+/* A block of prose: inline code identifiers and the text after them flow on the same line. */
+.rule-note { display: block; margin-top: var(--sp-4); max-width: var(--measure); font-size: var(--fs-body); color: var(--text-2); line-height: 1.55; }
 
 .figure-empty {
   display: grid;

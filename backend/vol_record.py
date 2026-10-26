@@ -798,15 +798,36 @@ def next_result_due(entries: list[Entry]) -> str | None:
     return min(due) if due else None
 
 
+# The forecaster's inputs a `recent` row repeats (live.inputs as recorded), so the dashboard can show
+# how they moved from one call to the next. Numbers are vol points; ovx_session is the OVX print's date.
+_RECENT_INPUT_NUMBERS = ("ovx", "rv5_pct", "rv22_pct", "rv66_pct")
+
+
+def _recent_inputs(raw: object) -> dict[str, Any] | None:
+    """The subset of an entry's recorded `inputs` a `recent` row carries, or None when it has none."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        session: str | None = _iso_date(raw.get("ovx_session")).isoformat()
+    except ValueError:
+        session = None
+    return {**{key: _number(raw.get(key)) for key in _RECENT_INPUT_NUMBERS}, "ovx_session": session}
+
+
 def _recent(entry: Entry) -> dict[str, Any]:
+    """One `recent` row: what the entry already stores, for the dashboard. Entries recorded before a
+    field existed (no `inputs`, no seal yet) give null for it."""
     challenger = entry.get("challenger") or {}
     return {
-        "as_of": entry["as_of"], "issued_at": entry["issued_at"], "model_version": entry["model_version"],
-        "target_start": entry["target_start"], "target_end": entry["target_end"],
+        "as_of": entry["as_of"], "issued_at": entry["issued_at"], "recorded_at": entry["recorded_at"],
+        "sealed_at": entry.get("sealed_at"), "model_version": entry["model_version"],
+        "base_session": entry["base_session"], "target_start": entry["target_start"], "target_end": entry["target_end"],
         "forecast_pct": entry["forecast_pct"], "median_pct": entry.get("median_pct"),
         "lo80_pct": entry.get("lo80_pct"), "hi80_pct": entry.get("hi80_pct"),
+        "prob_vol_rises_pct": entry.get("prob_vol_rises_pct"),
         "challenger_pct": challenger.get("forecast_pct"),
         "realized_pct": entry.get("realized_pct") if entry["status"] == "resolved" else None,
+        "inputs": _recent_inputs(entry.get("inputs")),
         "status": entry["status"],
     }
 
@@ -830,7 +851,8 @@ def summarize(record: Record, noise_floor_pct: object = None) -> dict[str, Any]:
     (PROMOTION_CHALLENGER) with the model of record on the resolved entries of exactly that pair;
     `promotion` is the promotion rule's single test on the same pair. `next_result_due` is the date
     the next score can arrive (next_result_due()). `recent` lists up to RECENT_ENTRIES entries,
-    newest first, each with its model_version.
+    newest first, each with its model_version, its recording and seal times and the inputs it was
+    recorded with (_recent()), so a reader can check each seal against the window it opened.
     """
     entries = record["entries"]
     resolved = [e for e in entries if e["status"] == "resolved"]
