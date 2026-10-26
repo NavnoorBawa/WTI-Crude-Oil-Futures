@@ -287,15 +287,17 @@ button { font: inherit; color: inherit; }
   gap: 1px;
   background: var(--rule);
 }
-.kpi { background: var(--bg-1); padding: var(--sp-4) var(--sp-5); min-width: 0; display: flex; flex-direction: column; }
-.kpi-label { font-size: var(--fs-11); letter-spacing: var(--tracking-micro); text-transform: uppercase; color: var(--text-3); line-height: 16px; }
+/* A flex column per tile; src/styles/verdict-tiles.css lines the five rows up across tiles with subgrid. */
+.kpi { position: relative; background: var(--bg-1); padding: var(--sp-4) var(--sp-5); min-width: 0; display: flex; flex-direction: column; }
+/* Sentence case, no tracking: forced capitals would turn notation (VaR, QLIKE, p) into VAR, P. */
+.kpi-label { font-size: var(--fs-12); font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text-3); line-height: 16px; }
 .kpi-link { color: inherit; text-decoration: none; }
 .kpi-link:hover { color: var(--text-1); text-decoration: underline; }
 .kpi-value { font-size: var(--fs-28); line-height: 1.1; font-weight: 500; letter-spacing: -0.01em; color: var(--text-1); margin-top: var(--sp-2); }
 .kpi-unit { font-size: var(--fs-12); font-weight: 400; color: var(--text-3); margin-left: 6px; letter-spacing: 0; }
-.kpi-base { font-size: var(--fs-12); color: var(--text-2); margin-top: var(--sp-1); }
+.kpi-base { font-size: var(--fs-12); color: var(--text-2); margin-top: var(--sp-1); line-height: 1.45; }
 .kpi-base b { color: var(--text-1); font-weight: 500; }
-.kpi-foot { font-family: var(--font-mono); font-size: var(--fs-11); color: var(--text-3); margin-top: auto; padding-top: var(--sp-2); line-height: 1.4; }
+.kpi-foot { font-size: var(--fs-12); color: var(--text-3); margin-top: auto; padding-top: var(--sp-2); line-height: 1.45; }
 
 /* -------------------------------------------------------------------- retracted + market line */
 .strip-row {

@@ -386,15 +386,21 @@ test("the ledger shows a failure to reject as not supported, and keeps the post-
 });
 
 test("the hero names the OVX-only regression as the leaderboard does, with the leaderboard's DM sign", () => {
-  const { text } = render(data, research);
-  const v = data.vol_forecast.validation;
+  const { html, text } = render(data, research);
   const label = m.research.ovxOnlyLabel(research.vol_lab);
+  const ovxOnly = m.research.leaderboardRows(research.vol_lab).find((row) => row.key === m.research.OVX_ONLY_KEY);
   const f = m.format;
-  assert.ok(text.includes(`DM t (+ = lower loss than HAR-IV): persistence ${f.fmtSigned(-v.har_vs_persistence_qlike_dm, 2)}, `
-    + `${label} ${f.fmtSigned(-v.har_vs_ovx_only_qlike_dm, 2)} (${f.fmtP(v.har_vs_ovx_only_qlike_dm_p_value).replace(/\s/g, " ")})`), "hero DM");
-  assert.ok(text.includes(`${f.fmtNum(v.ovx_only_qlike, 3)} ${label}`), "hero comparator name");
+  const tile = visibleText(html.match(/<div class="kpi">[\s\S]*?<\/div>/)[0]);
+  assert.ok(tile.includes(`${f.fmtNum(ovxOnly.qlike, 3)} ${label}`), "the QLIKE tile's comparator name");
+  assert.doesNotMatch(tile, /DM/, "the DM statistics are the lede's, not repeated in the tile");
+  // The lede detail (src/panels/VerdictLede.jsx) carries the DM t in the leaderboard's sign: + = lower loss than the record.
+  if (readdirSync(fileURLToPath(new URL("../../src/panels", import.meta.url))).includes("VerdictLede.jsx")) {
+    const detail = html.match(/<p class="verdict-answer-detail">([\s\S]*?)<\/p>/)?.[1];
+    assert.ok(detail, "the lede detail renders");
+    assert.ok(visibleText(detail).includes(`${label} ${f.fmtSigned(ovxOnly.dmStat, 2)}`), "lede DM sign");
+  }
   assert.ok(text.includes(`not distinguishable from the ${label}`), "FCST title");
-  assert.ok(visibleText(section(render(data, research).html, "modl")).includes(label), "the same name in the leaderboard");
+  assert.ok(visibleText(section(html, "modl")).includes(label), "the same name in the leaderboard");
 });
 
 test("LIVE compares the two models on the same weeks and labels the all-weeks QLIKE as its own sample", () => {
