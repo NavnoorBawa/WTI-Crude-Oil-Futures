@@ -1,6 +1,6 @@
 /*
  * Layout and components. Tokens live in theme/tokens.css. Principles: hairline rules instead of
- * boxes (a 1px-gap grid over --rule), one 4px spacing scale, type scale 11/12/13/14/16/20/28/48,
+ * boxes (a 1px-gap grid over --rule), one 4px spacing scale, type scale 11/12/13/14/16/18/20/24/28/48,
  * tabular figures, no shadows, gradients or blur. Colour carries meaning only through the series
  * and status tokens.
  */
@@ -36,7 +36,8 @@ h1, h2, h3, h4, p, dl, dd, figure, ul { margin: 0; }
 ul { padding: 0; list-style: none; }
 a { color: var(--text-2); text-decoration-color: var(--text-4); text-underline-offset: 2px; }
 a:hover { color: var(--text-1); text-decoration-color: var(--text-2); }
-code, pre, .mono { font-family: var(--font-mono); font-size: 0.92em; }
+/* Mono runs a little large beside Inter, so it is set 8% smaller, but never under the 11px floor. */
+code, pre, .mono { font-family: var(--font-mono); font-size: max(11px, 0.92em); }
 button { font: inherit; color: inherit; }
 
 :focus-visible {
@@ -257,10 +258,11 @@ button { font: inherit; color: inherit; }
 
 .hero-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-3) var(--sp-4); }
 .hero-sub .swatch { margin-right: 6px; }
+/* Labels keep their case: forced capitals would turn notation (VaR, p, t, n) into VAR, P, T, N. */
 .fact dt {
-  font-size: var(--fs-11);
-  letter-spacing: var(--tracking-micro);
-  text-transform: uppercase;
+  font-size: var(--fs-12);
+  font-weight: 500;
+  letter-spacing: 0.01em;
   color: var(--text-3);
   white-space: nowrap;
   overflow: hidden;
@@ -327,15 +329,14 @@ button { font: inherit; color: inherit; }
   color: var(--text-2);
 }
 .ms-symbol { display: inline-flex; align-items: center; gap: var(--sp-2); }
-.ms-spark { display: inline-flex; align-items: center; gap: 6px; }
-.ms-spark-label { font-size: var(--fs-11); color: var(--text-3); white-space: nowrap; }
 .sparkline { display: inline-flex; align-items: center; }
 .sparkline path { fill: none; stroke: var(--s-truth); stroke-width: 1.25; stroke-linejoin: round; }
 .sparkline.is-muted path { stroke: var(--text-4); stroke-dasharray: 2 2; }
 .ms-name { color: var(--text-3); }
 .ms-price { font-size: var(--fs-14); font-weight: 600; color: var(--text-1); }
-.ms-change.is-up { color: var(--pos); }
-.ms-change.is-down { color: var(--neg); }
+/* Price direction is context on a volatility page: an arrow, not a saturated colour. */
+.ms-change { color: var(--text-2); }
+.ms-arrow { margin-right: 3px; font-size: 0.8em; color: var(--text-3); }
 .quote-stamp { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); }
 .ms-meta { color: var(--text-3); }
 .ms-link { color: var(--text-2); }
@@ -381,13 +382,14 @@ button { font: inherit; color: inherit; }
 .panel-meta {
   grid-column: 1 / -1;
   margin-top: var(--sp-1);
-  font-family: var(--font-mono);
-  font-size: var(--fs-11);
+  font-family: var(--font-sans);
+  font-size: var(--fs-12);
+  line-height: 1.5;
   color: var(--text-3);
 }
 .panel-body { margin-top: var(--sp-4); }
 .panel-figure[hidden], .panel-table[hidden] { display: none; }
-.panel-caption { margin-top: var(--sp-3); max-width: 110ch; font-size: var(--fs-12); line-height: 1.5; color: var(--text-2); }
+.panel-caption { margin-top: var(--sp-3); max-width: var(--measure); font-size: var(--fs-body); line-height: 1.55; color: var(--text-2); }
 .panel-source {
   display: flex;
   flex-wrap: wrap;
@@ -405,11 +407,10 @@ button { font: inherit; color: inherit; }
 
 .figure-title {
   margin: var(--sp-5) 0 var(--sp-2);
-  font-size: var(--fs-11);
+  font-size: var(--fs-12);
   line-height: 16px;
   font-weight: 500;
-  letter-spacing: var(--tracking-micro);
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
   color: var(--text-3);
 }
 .panel-body > .panel-figure > .figure-title:first-child,
@@ -422,8 +423,13 @@ button { font: inherit; color: inherit; }
 
 .split { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-5); }
 @container (min-width: 880px) {
-  .split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-6); }
-  .split--wide { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); }
+  .split:where(:not(.split--wide)) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-6); }
+}
+/* A wide split pairs a figure with a side column that often holds a table, so it waits for a wider
+   panel, and its side column never gets narrower than its own content (the table's columns stay
+   on screen instead of behind a sideways scroll). */
+@container (min-width: 1100px) {
+  .split--wide { grid-template-columns: minmax(0, 1.5fr) minmax(min-content, 1fr); gap: var(--sp-6); }
 }
 /* Studies of unequal length are stacked at full width, so neither leaves a column of blank space. */
 .studies { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-5); }
@@ -436,9 +442,9 @@ button { font: inherit; color: inherit; }
 .study-title { font-size: var(--fs-14); line-height: 1.4; font-weight: 600; color: var(--text-1); margin-bottom: var(--sp-3); }
 .study-head { margin-bottom: var(--sp-3); }
 .study-head .study-title { margin-bottom: 0; text-wrap: balance; }
-.study-meta { margin-top: var(--sp-1); font-family: var(--font-mono); font-size: var(--fs-11); line-height: 1.5; color: var(--text-3); }
+.study-meta { margin-top: var(--sp-1); font-family: var(--font-sans); font-size: var(--fs-12); line-height: 1.5; color: var(--text-3); }
 
-.prose-note { margin-top: var(--sp-3); max-width: var(--measure); font-size: var(--fs-12); line-height: 1.55; color: var(--text-2); }
+.prose-note { margin-top: var(--sp-3); max-width: var(--measure); font-size: var(--fs-body); line-height: 1.55; color: var(--text-2); }
 .prose-note.is-muted { color: var(--text-3); }
 /* A long note in a full-width panel: two columns at the usual line length instead of one beside a blank half. */
 @container (min-width: 880px) {
@@ -452,10 +458,10 @@ button { font: inherit; color: inherit; }
   margin-top: var(--sp-4);
   padding: var(--sp-2) var(--sp-3);
   border-left: 2px solid var(--warn);
-  font-size: var(--fs-12);
-  line-height: 1.5;
+  font-size: var(--fs-body);
+  line-height: 1.55;
   color: var(--text-2);
-  max-width: 120ch;
+  max-width: var(--measure);
 }
 .callout .chip { flex: none; }
 .rule-note { display: flex; flex-wrap: wrap; gap: 4px var(--sp-3); margin-top: var(--sp-4); max-width: 120ch; font-size: var(--fs-12); color: var(--text-2); line-height: 1.5; }
@@ -527,16 +533,15 @@ button { font: inherit; color: inherit; }
 .table-scroll:focus-visible { outline-offset: -2px; }
 .data-table { width: 100%; border-collapse: collapse; font-size: var(--fs-13); }
 .data-table.is-dense { font-size: var(--fs-12); }
-.table-caption { margin: 0 0 var(--sp-2); font-size: var(--fs-11); line-height: 16px; letter-spacing: var(--tracking-micro); text-transform: uppercase; color: var(--text-3); }
+.table-caption { margin: 0 0 var(--sp-2); font-size: var(--fs-12); line-height: 1.4; font-weight: 500; letter-spacing: 0.01em; color: var(--text-3); }
 .data-table.has-sticky tbody th[scope="row"], .data-table.has-sticky thead th:first-child { position: sticky; left: 0; z-index: 1; background: var(--bg-1); }
 .data-table th, .data-table td { padding: 6px var(--sp-2); border-bottom: 1px solid var(--rule); text-align: left; vertical-align: middle; white-space: nowrap; }
 .data-table.is-dense th, .data-table.is-dense td { padding: 5px var(--sp-2); }
 .data-table th:first-child, .data-table td:first-child { padding-left: 0; }
 .data-table thead th {
-  font-size: var(--fs-11);
+  font-size: var(--fs-12);
   font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
   color: var(--text-3);
   border-bottom: 1px solid var(--rule-strong);
   vertical-align: bottom;
@@ -570,8 +575,15 @@ button { font: inherit; color: inherit; }
 .align-right .sort-button { flex-direction: row-reverse; }
 .sort-glyph { color: var(--text-4); font-size: var(--fs-11); }
 .sort-glyph.is-active { color: var(--text-1); }
-.table-footnote { margin-top: var(--sp-2); font-size: var(--fs-11); line-height: 1.5; color: var(--text-3); max-width: 120ch; }
-.footnotes { display: grid; gap: var(--sp-1); padding-left: 0; }
+.table-footnote { margin-top: var(--sp-2); font-size: var(--fs-12); line-height: 1.5; color: var(--text-2); max-width: var(--measure); }
+/* Short notes side by side at a readable measure, instead of one note per 150-character line. */
+.footnotes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 38ch), 1fr));
+  gap: var(--sp-2) var(--sp-8);
+  padding-left: 0;
+}
+.table-footnote:has(.footnotes) { max-width: none; }
 .footnotes li { position: relative; padding-left: var(--sp-3); }
 .footnotes li::before { content: "–"; position: absolute; left: 0; color: var(--text-4); }
 .panel-table .table-wrap + .table-wrap { margin-top: var(--sp-5); }
@@ -603,7 +615,7 @@ tr.is-record .grid-dots .dot.is-on { background: var(--s-model); border-color: v
 
 .hash { color: var(--text-2); }
 
-.table-scroll.is-tall { max-height: 560px; overflow-y: auto; }
+.table-scroll.is-tall { max-height: max(360px, calc(100vh - var(--topbar-h) - 160px)); overflow-y: auto; }
 .table-scroll.is-tall thead th { position: sticky; top: 0; z-index: 2; background: var(--bg-1); }
 .table-scroll.is-tall thead th:first-child { z-index: 3; }
 .ledger-id { display: block; margin-top: 2px; font-size: var(--fs-11); font-weight: 400; color: var(--text-3); }
@@ -656,9 +668,10 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 .swatch-alt2 { --c: var(--s-alt2); }
 .swatch-neutral { --c: var(--text-2); }
 .swatch-median { --c: var(--text-3); }
-.swatch-cone-inner { --c: rgb(201 209 217 / 0.32); }
-.swatch-cone-outer { --c: rgb(201 209 217 / 0.14); }
-.swatch-band { --c: rgb(57 135 229 / 0.35); height: 8px; }
+/* Soft fills carry a 1px edge of at least 3:1 on --bg-1, as the plots do (theme.test.mjs checks the alphas). */
+.swatch-cone-inner { --c: rgb(201 209 217 / 0.32); border: 1px solid rgb(201 209 217 / 0.45); }
+.swatch-cone-outer { --c: rgb(201 209 217 / 0.14); border: 1px solid rgb(201 209 217 / 0.45); }
+.swatch-band { --c: rgb(57 135 229 / 0.35); height: 8px; border: 1px solid rgb(57 135 229 / 0.7); }
 .swatch-bar { --c: var(--text-3); width: 4px; height: 10px; }
 .swatch.is-dot { width: 8px; height: 8px; border-radius: 50%; }
 .swatch.is-ring { width: 8px; height: 8px; border-radius: 50%; background: transparent; border: 1.5px solid var(--c); }
@@ -706,12 +719,12 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 .label-target { fill: var(--text-3); }
 .dashed { stroke-dasharray: 4 3; }
 .stroke-median { stroke: var(--text-3); stroke-dasharray: 2 3; stroke-width: 1.25; }
-.stroke-range { stroke: var(--rule-strong); stroke-width: 6; stroke-linecap: round; }
+.stroke-range { stroke: var(--text-4); stroke-width: 6; stroke-linecap: round; }
 .fill-noise-zone { fill: var(--bg-2); }
 .fill-grid-dot { fill: var(--text-3); }
 .fill-cone-outer { fill: var(--s-truth); fill-opacity: 0.08; }
 .fill-cone-inner { fill: var(--s-truth); fill-opacity: 0.14; }
-.dot-premium { fill: var(--s-implied); fill-opacity: 0.5; }
+.dot-premium { fill: var(--s-implied); fill-opacity: 0.75; }
 .dot-loss { fill: var(--s-truth); fill-opacity: 0.75; }
 .bar-train { fill: var(--text-4); }
 .bar-purged { fill: none; stroke: var(--text-3); stroke-dasharray: 3 2; }
@@ -720,7 +733,7 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 .end-label { font-weight: 600; }
 .end-value { fill: var(--text-2); }
 .line-2 { stroke-width: 2; }
-.thin { stroke-width: 1; stroke-opacity: 0.55; }
+.thin { stroke-width: 1; stroke-opacity: 0.85; }
 .whisker { stroke-width: 1.5; }
 .thin-range { stroke-width: 2; stroke: var(--text-4); }
 .row-label.is-strong { fill: var(--text-1); font-weight: 600; }
@@ -797,7 +810,9 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 .footer-credits { max-width: 120ch; line-height: 1.5; }
 
 /* ------------------------------------------------------------------------------ status screens */
-.status-screen { display: grid; place-items: center; min-height: 60vh; padding: var(--sp-8) 0; }
+/* Fills the viewport below the bar, so the footer starts below the fold while loading and nothing
+   shifts when the dashboard replaces it (the two-row bar at <=960px is 40px taller). */
+.status-screen { display: grid; place-items: center; min-height: calc(100svh - var(--topbar-h) - 1px); padding: var(--sp-8) 0; }
 .status-card { max-width: 520px; text-align: center; display: grid; justify-items: center; gap: var(--sp-2); }
 .status-title { font-size: var(--fs-16); font-weight: 600; color: var(--text-1); }
 .status-title.is-error { color: var(--neg); }
@@ -824,7 +839,7 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
   .codenav::-webkit-scrollbar { display: none; }
   .codenav ul { justify-content: flex-start; padding: 0 var(--sp-2); width: max-content; }
   .codenav a { padding: 0 10px; min-width: 44px; justify-content: center; }
-  .panel.span-half { grid-column: 1 / -1; }
+  .status-screen { min-height: calc(100svh - var(--topbar-h) - 41px); }
   .main { padding: 0 var(--sp-4) var(--sp-8); }
   .strip-row { grid-template-columns: minmax(0, 1fr); }
   .market-strip { justify-content: flex-start; }
