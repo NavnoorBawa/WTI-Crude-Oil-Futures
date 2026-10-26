@@ -1,14 +1,25 @@
 import { useMemo } from "react";
 import { fmtCT, toMs } from "../lib/format";
 import useNow from "../lib/useNow";
-import { STALE_SNAPSHOT_MS, STATIC_DATA_MODE } from "./config";
+import { REPO_URL, STALE_SNAPSHOT_MS, STATIC_DATA_MODE } from "./config";
 import Dashboard from "./Dashboard";
 import { describeQuoteTime, resolveQuote } from "./quote";
 import SiteFooter from "./SiteFooter";
 import TopBar from "./TopBar";
 import useDashboardData from "./useDashboardData";
+import useHashLanding from "./useHashLanding";
 import useLiveQuote from "./useLiveQuote";
 import useResearch from "./useResearch";
+
+/** Where to read about the project while the data cannot be shown (as the app-level error boundary says). */
+function GitHubNote() {
+  return (
+    <p className="status-text">
+      The research write-up and its history are on{" "}
+      <a href={REPO_URL} target="_blank" rel="noopener noreferrer">GitHub</a>.
+    </p>
+  );
+}
 
 function StaleSnapshotBanner({ frozenAtMs }) {
   const now = useNow(60 * 1000);
@@ -46,13 +57,14 @@ function StatusScreen({ title, text, isError = false, onRetry = null, children }
 export default function App() {
   const { data, loading, error, loadingMessage, lastUpdate, retryNow } = useDashboardData();
   const frozenAt = typeof data?.frozen_at === "string" ? data.frozen_at : null;
-  const { research, status: researchStatus } = useResearch(frozenAt);
+  const { research, status: researchStatus, retry: retryResearch } = useResearch(frozenAt);
   const liveQuote = useLiveQuote(data);
   const quote = useMemo(() => {
     const resolved = resolveQuote(liveQuote, data);
     return { ...resolved, label: describeQuoteTime(resolved) };
   }, [liveQuote, data]);
   const frozenAtMs = toMs(frozenAt);
+  useHashLanding(Boolean(data) && !data.error, researchStatus);
 
   let body;
   if (loading && !data) {
@@ -61,12 +73,26 @@ export default function App() {
     body = (
       <StatusScreen title="Data connection unavailable" text={error} isError onRetry={retryNow}>
         <p className="status-text">Real data only: no placeholder values are shown. Retrying automatically.</p>
+        <GitHubNote />
       </StatusScreen>
     );
   } else if (data?.error) {
-    body = <StatusScreen title="System error" text={[data.error, data.message].filter(Boolean).map(String).join(" ")} isError />;
+    body = (
+      <StatusScreen title="System error" text={[data.error, data.message].filter(Boolean).map(String).join(" ")} isError onRetry={retryNow}>
+        <GitHubNote />
+      </StatusScreen>
+    );
   } else if (data) {
-    body = <Dashboard data={data} research={research} researchStatus={researchStatus} quote={quote} error={error} />;
+    body = (
+      <Dashboard
+        data={data}
+        research={research}
+        researchStatus={researchStatus}
+        quote={quote}
+        error={error}
+        onRetryResearch={retryResearch}
+      />
+    );
   }
 
   return (

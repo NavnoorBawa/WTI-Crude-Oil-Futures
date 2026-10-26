@@ -55,8 +55,8 @@ test("the full dashboard renders every section with its computed title", () => {
   assert.ok(text.includes("CL=F continuous front month (unadjusted; rolls at expiry)"));
   assert.ok(text.includes("Research project") === false, "the footer is outside the dashboard body");
   // Section anatomy: chips, assertion titles, source footers, table toggles.
-  assert.equal((html.match(/class="chip chip--code"/g) ?? []).length >= 13, true);
-  assert.ok((html.match(/aria-pressed="false"[^>]*>Table<\/button>/g) ?? []).length >= 8, "table toggles");
+  assert.equal((html.match(/class="chip chip--code[ "]/g) ?? []).length >= 13, true);
+  assert.ok((html.match(/aria-pressed="false"[^>]*>Table<span class="sr-only"> view of [^<]+<\/span><\/button>/g) ?? []).length >= 8, "table toggles");
   // Each panel names the command that rebuilds what it shows, not the lab's by default.
   const reproduce = (id) => html.match(new RegExp(`<section id="${id}"[\\s\\S]*?</section>`))?.[0].match(/<span class="micro">Reproduce<\/span>(.*?)<\/span>/s)?.[1] ?? "";
   for (const [id, commands] of Object.entries({
@@ -218,7 +218,7 @@ test("without research.json every panel still renders, with an explicit note", (
     assert.deepEqual(errors, []);
     assert.ok(!/could not be displayed/.test(text));
     assert.ok(text.includes(`${data.vol_forecast.live.forecast_next_week_vol_annualized_pct} %`), "the hero still comes from data.json");
-    assert.ok(text.includes(status === "loading" ? "Loading research.json" : "research.json is not available"));
+    assert.ok(text.includes(status === "loading" ? "Loading research.json" : "research.json did not load; see the notice under the verdict."));
     assert.ok(text.includes("No live forecast has resolved yet"), "the live record needs only data.json");
   }
 });

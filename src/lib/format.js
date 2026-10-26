@@ -16,20 +16,31 @@ export const num = (value) => {
   return null;
 };
 
-export const fmtNum = (value, digits = 1) => {
+// A magnitude with a fixed number of decimals; `group` adds en-US thousands separators ("1,082.7").
+const magnitude = (absolute, digits, group) => (group
+  ? absolute.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })
+  : absolute.toFixed(digits));
+
+/**
+ * A number with `digits` decimals and a real minus sign. Option `group` adds thousands separators,
+ * so a figure of a thousand or more reads like the dollar amounts elsewhere on the page.
+ */
+export const fmtNum = (value, digits = 1, { group = false } = {}) => {
   const n = num(value);
   if (n == null) return DASH;
   const rounded = Number(n.toFixed(digits));
-  return rounded < 0 ? `${MINUS}${Math.abs(rounded).toFixed(digits)}` : Math.abs(rounded).toFixed(digits);
+  const body = magnitude(Math.abs(rounded), digits, group);
+  return rounded < 0 ? `${MINUS}${body}` : body;
 };
 
 // Signed number with a real minus sign; a value that rounds to zero is shown unsigned ("0.0").
-export const fmtSigned = (value, digits = 1, suffix = "") => {
+// Option `group` as in fmtNum.
+export const fmtSigned = (value, digits = 1, suffix = "", { group = false } = {}) => {
   const n = num(value);
   if (n == null) return DASH;
   const rounded = Number(n.toFixed(digits));
   if (rounded === 0) return `${(0).toFixed(digits)}${suffix}`;
-  return `${rounded > 0 ? "+" : MINUS}${Math.abs(rounded).toFixed(digits)}${suffix}`;
+  return `${rounded > 0 ? "+" : MINUS}${magnitude(Math.abs(rounded), digits, group)}${suffix}`;
 };
 
 export const fmtPct = (value, digits = 1) => {
@@ -63,12 +74,15 @@ export const fmtSignedUsd = (value, digits = 0) => {
 const P_THRESHOLDS = [0.01, 0.05, 0.1, 1];
 const MAX_P_DIGITS = 4;
 const pText = (relation, value) => `p${NBSP}${relation}${NBSP}${value}`;
+// The threshold a printed p-value would wrongly reach, from below ("crossed") or from above ("landed").
+const crossedThreshold = (p, text) => P_THRESHOLDS.find((t) => p < t && Number(text) >= t);
+const landedThreshold = (p, text) => P_THRESHOLDS.find((t) => p > t && Number(text) === t);
 export const fmtP = (value) => {
   const p = num(value);
   if (p == null) return null;
   if (p < 0.001) return pText("<", "0.001");
-  const crossed = (text) => P_THRESHOLDS.find((t) => p < t && Number(text) >= t);
-  const landed = (text) => P_THRESHOLDS.find((t) => p > t && Number(text) === t);
+  const crossed = (text) => crossedThreshold(p, text);
+  const landed = (text) => landedThreshold(p, text);
   let digits = p < 0.01 ? 3 : 2;
   let text = p.toFixed(digits);
   while ((crossed(text) != null || landed(text) != null) && digits < MAX_P_DIGITS) {
@@ -161,8 +175,19 @@ export const fmtShare = (value, digits = 1) => {
   return n == null ? DASH : `${(n * 100).toFixed(digits)}%`;
 };
 
-/** p-value text without the "p = " prefix, for table cells ("0.0059", "< 0.001"). */
-export const fmtPValue = (value) => {
+/**
+ * p-value text without the "p = " prefix, for table cells ("0.0059", "< 0.001"). With `digits`,
+ * every p of at least 10^-digits prints with exactly that many decimals, so the decimal points of a
+ * column line up ("0.020", "0.007", "0.270"). Smaller values keep the "< 0.001" style, and a value
+ * the fixed decimals would round onto or across a threshold (0.0496 as "0.050") keeps the extra
+ * digits fmtP gives it.
+ */
+export const fmtPValue = (value, { digits } = {}) => {
+  const p = num(value);
+  if (Number.isInteger(digits) && digits > 0 && p != null && p >= 10 ** -digits) {
+    const fixed = p.toFixed(digits);
+    if (crossedThreshold(p, fixed) == null && landedThreshold(p, fixed) == null) return fixed;
+  }
   const text = fmtP(value);
   return text == null ? DASH : text.replace(/^p\s=\s/, "").replace(/^p\s([<>])\s/, `$1${NBSP}`);
 };
