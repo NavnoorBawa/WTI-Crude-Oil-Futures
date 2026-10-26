@@ -90,8 +90,9 @@ test("labels that can hold notation are never set in forced capitals (VaR, p, t,
       assert.notEqual(rule.decls["text-transform"], "uppercase", `${name}: ${rule.selectors.join(", ")}`);
     }
   }
-  // The section name sits in a .micro label, whose capitals the eyebrow turns off.
-  const eyebrow = all.find((rule) => rule.selectors.includes(".panel-eyebrow .micro"));
+  // The section name sits in a .micro label, whose capitals the eyebrow turns off. Several sheets
+  // style that label, so the check reads the last rule that sets its case (the one that wins).
+  const eyebrow = all.filter((rule) => rule.selectors.includes(".panel-eyebrow .micro") && rule.decls["text-transform"]).at(-1);
   assert.equal(eyebrow?.decls["text-transform"], "none");
   // A sort button inherits its header's case rather than setting its own.
   const sortButton = all.find((rule) => rule.selectors.includes(".sort-button"));
