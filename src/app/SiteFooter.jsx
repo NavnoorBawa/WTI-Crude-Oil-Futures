@@ -1,7 +1,16 @@
 import { fmtCT, toMs } from "../lib/format";
+import { printPage } from "../lib/print";
+import { METH_APPENDIX } from "../lib/reference";
 import { GIT_SHA, REPO_URL } from "./config";
 
-/** Provenance, the not-advice line, data credits and the chart-library attribution. */
+// The METH appendix, linked from the footer of every page.
+const APPENDIX_LINKS = [
+  { href: `#${METH_APPENDIX.cite}`, label: "Cite" },
+  { href: `#${METH_APPENDIX.corrections}`, label: "Corrections" },
+  { href: `#${METH_APPENDIX.reuse}`, label: "Reuse" },
+];
+
+/** Provenance, the appendix links, print, the not-advice line, data credits and the chart-library attribution. */
 export default function SiteFooter({ data }) {
   const frozenMs = toMs(data?.frozen_at);
   return (
@@ -15,6 +24,14 @@ export default function SiteFooter({ data }) {
           <span>data snapshot {frozenMs != null ? fmtCT(frozenMs) : "not loaded"}</span>
           <a href={REPO_URL} target="_blank" rel="noopener noreferrer">source and history on GitHub</a>
         </p>
+        {data && (
+          <nav className="footer-links" aria-label="Cite, corrections and reuse">
+            <ul className="sep-list">
+              {APPENDIX_LINKS.map((link) => <li key={link.href}><a href={link.href}>{link.label}</a></li>)}
+            </ul>
+            <button type="button" className="footer-print" onClick={() => { printPage(); }}>Print / save PDF</button>
+          </nav>
+        )}
         <p className="footer-disclaimer">
           Research project, not investment advice. Forecasts describe volatility, not price direction, and
           past out-of-sample results do not guarantee future accuracy.

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useViewParam } from "../app/viewState";
 import { getEquityChart, getLeakDumbbell, getPurgeDiagram, getSignAgreementLadder } from "../charts/lazy";
 import DataTable from "../components/DataTable";
 import LazyMount from "../components/LazyMount";
@@ -10,9 +10,12 @@ import { asObject, asText, getLab, leakAnatomy, postmortemWindow } from "../lib/
 import { Facts, Legend, ResearchUnavailable } from "./common";
 
 const WINDOWS = [
-  { value: "five_year", label: "5Y", title: "Five-year walk-forward" },
-  { value: "ten_year", label: "10Y", title: "Ten-year walk-forward" },
+  { value: "five_year", param: "5y", label: "5Y", title: "Five-year walk-forward" },
+  { value: "ten_year", param: "10y", label: "10Y", title: "Ten-year walk-forward" },
 ];
+const WINDOW_PARAMS = WINDOWS.map((option) => option.param);
+// Every P&L on this panel is per trade on one CL contract (backend/backtest_walk_forward.py), after costs.
+const PNL_BASIS = "P&L per trade on one CL contract (1,000 barrels)";
 
 /**
  * research.json leak_anatomy: the same unpurged pipeline on data with nothing to forecast. The
@@ -50,7 +53,6 @@ function LeakAnatomy({ anatomy }) {
             <LazyMount minHeight={anatomy.ladder.length * 24 + 34} label="sign-agreement chart">
               <Ladder rows={anatomy.ladder} />
             </LazyMount>
-            {anatomy.formula && <p className="prose-note is-muted">{anatomy.formula}.</p>}
           </div>
         )}
         {anatomy.experiments.length > 0 && (
@@ -58,7 +60,7 @@ function LeakAnatomy({ anatomy }) {
             <h4 className="figure-title">Result: accuracy without and with the purge</h4>
             <Legend items={[
               { tone: "alt2", label: "unpurged", shape: "dot" },
-              { tone: "truth", label: "purged", shape: "dot" },
+              { tone: "ink", label: "purged", shape: "dot" },
               hasBaseRate && { tone: "median", label: "base rate: no skill on CL=F", shape: "tick" },
             ].filter(Boolean)} />
             <LazyMount minHeight={anatomy.experiments.length * 22 + 58} label="experiment chart">
@@ -67,7 +69,6 @@ function LeakAnatomy({ anatomy }) {
           </div>
         )}
       </div>
-      {anatomy.conclusion && <p className="prose-note is-wide">{tidyProse(anatomy.conclusion)}</p>}
     </div>
   );
 }
@@ -77,11 +78,20 @@ const SOURCE = {
   reproduce: [REPRODUCE.walkForward, REPRODUCE.leakAnatomy],
 };
 
+/** Cumulative P&L of both runs by date, from the purged run's dates (the leaked run's on the same date). */
+const equityRows = (leaked, purged) => {
+  const leakedByDate = new Map(leaked.equity.map((point) => [point.date, point.pnl]));
+  return purged.equity.map((point) => ({ date: point.date, purged: point.pnl, leaked: leakedByDate.get(point.date) ?? null }));
+};
+
 /** LEAK: the retracted 1-week direction model, leaked vs purged. The integrity story. */
 export default function LeakPanel({ data, research, researchStatus }) {
-  const [windowKey, setWindowKey] = useState("five_year");
-  const pm = postmortemWindow(research, windowKey);
+  const [windowParam, setWindowParam] = useViewParam("leak", WINDOW_PARAMS, "5y");
   const available = WINDOWS.filter((option) => postmortemWindow(research, option.value));
+  // The window the URL asks for, else the first one this research.json has.
+  const chosen = available.find((option) => option.param === windowParam) ?? available[0] ?? WINDOWS[0];
+  const windowKey = chosen.value;
+  const pm = postmortemWindow(research, windowKey);
   const lab = getLab(research);
   const horizon = num(lab?.config?.horizon_sessions);
   const retracted = asObject(data?.retracted_direction_model);
@@ -102,7 +112,7 @@ export default function LeakPanel({ data, research, researchStatus }) {
   const { leaked, purged } = pm;
   const runs = [
     { key: "leaked", label: "Leaked (no purge)", tone: "alt2", ...leaked },
-    { key: "purged", label: "Purged (correct)", tone: "truth", ...purged },
+    { key: "purged", label: "Purged (correct)", tone: "ink", ...purged },
   ];
   const label = WINDOWS.find((option) => option.value === windowKey)?.title ?? "";
   return (
@@ -118,47 +128,60 @@ export default function LeakPanel({ data, research, researchStatus }) {
         label.toLowerCase(),
         pm.trainWindow != null ? `train window ${fmtInt(pm.trainWindow)} days` : null,
         pm.purgeRows != null ? `purge ${pm.purgeRows} rows` : null,
+        PNL_BASIS,
       ]}
-      actions={available.length > 1
-        ? <Segmented label="Walk-forward window" options={available} value={windowKey} onChange={setWindowKey} />
+      controls={available.length > 1
+        ? (
+          <Segmented
+            label="Walk-forward window"
+            options={available.map((option) => ({ value: option.param, label: option.label, title: option.title }))}
+            value={chosen.param}
+            onChange={setWindowParam}
+          />
+        )
         : null}
       caption={`Same model, data and costs; the only change is dropping the training rows whose labels overlap the forecast. ${asText(retracted?.status) ? `Status: ${retracted.status.toLowerCase()}` : "Retracted"}; the direction model is not run in production.`}
+      notes={[
+        anatomy?.formula ? `Why the leak works: ${anatomy.formula}.` : null,
+        anatomy?.conclusion ? tidyProse(anatomy.conclusion) : null,
+      ]}
       source={SOURCE}
       resetKey={research}
       table={() => (<>
         <DataTable
-          caption={`Cumulative P&L, ${label.toLowerCase()} (last 26 weekly points, USD)`}
+          caption={`Cumulative P&L, ${label.toLowerCase()} (last 26 weekly points; USD, 1 contract)`}
           rowKey={(row) => row.date}
           dense
+          exportName={`leak-pnl-${chosen.param}`}
+          exportRows={equityRows(leaked, purged)}
           columns={[
             { key: "date", label: "Date", rowHeader: true, render: (row) => fmtDate(row.date) },
-            { key: "leaked", label: "Leaked", align: "right", render: (row) => fmtSignedUsd(row.leaked) },
-            { key: "purged", label: "Purged", align: "right", render: (row) => fmtSignedUsd(row.purged) },
+            { key: "leaked", label: "Leaked, USD", csvLabel: "Leaked cumulative P&L, USD (1 contract)", align: "right", render: (row) => fmtSignedUsd(row.leaked) },
+            { key: "purged", label: "Purged, USD", csvLabel: "Purged cumulative P&L, USD (1 contract)", align: "right", render: (row) => fmtSignedUsd(row.purged) },
           ]}
-          rows={purged.equity.slice(-26).reverse().map((point) => ({
-            date: point.date,
-            purged: point.pnl,
-            leaked: leaked.equity.find((other) => other.date === point.date)?.pnl ?? null,
-          }))}
+          rows={equityRows(leaked, purged).slice(-26).reverse()}
         />
         {anatomy?.experiments.length > 0 && (
         <DataTable
           caption={`Leak anatomy: direction accuracy and Sharpe${anatomy.sharpeBasis.experiments ? `, ${anatomy.sharpeBasis.experiments}` : ""}, without and with the purge, against the no-skill accuracy`}
           rowKey={(row) => row.key}
           dense
+          exportName="leak-anatomy"
           columns={[
             { key: "label", label: "Data · model", rowHeader: true },
             { key: "runs", label: "Runs", align: "right", render: (row) => fmtInt(row.runs) },
             { key: "unpurged", label: "Unpurged acc.", align: "right", render: (row) => fmtPct(row.unpurged) },
-            { key: "unpurgedSharpe", label: "Sharpe", title: `Mean Sharpe across runs${anatomy.sharpeBasis.experiments ? `, ${anatomy.sharpeBasis.experiments}` : ""}`, align: "right", render: (row) => fmtNum(row.unpurgedSharpe, 2) },
+            { key: "unpurgedSharpe", label: "Sharpe", csvLabel: "Unpurged Sharpe", title: `Mean Sharpe across runs${anatomy.sharpeBasis.experiments ? `, ${anatomy.sharpeBasis.experiments}` : ""}`, align: "right", render: (row) => fmtNum(row.unpurgedSharpe, 2) },
             { key: "purged", label: "Purged acc.", align: "right", render: (row) => fmtPct(row.purged) },
-            { key: "purgedSharpe", label: "Sharpe", title: `Mean Sharpe across runs${anatomy.sharpeBasis.experiments ? `, ${anatomy.sharpeBasis.experiments}` : ""}`, align: "right", render: (row) => fmtNum(row.purgedSharpe, 2) },
+            { key: "purgedSharpe", label: "Sharpe", csvLabel: "Purged Sharpe", title: `Mean Sharpe across runs${anatomy.sharpeBasis.experiments ? `, ${anatomy.sharpeBasis.experiments}` : ""}`, align: "right", render: (row) => fmtNum(row.purgedSharpe, 2) },
             {
               key: "noSkill", label: "No skill", title: "50% on symmetric random-walk returns; on CL=F returns, the mean of each run's base rate (the share of the more common sign)", align: "right",
               render: (row) => (row.noSkill != null ? `${fmtPct(row.noSkill)}${row.symmetric ? "" : " base rate"}` : DASH),
             },
             {
               key: "beatBase", label: "Runs > base rate", title: "Runs whose accuracy beats their own base rate at 5% (binomial), unpurged · purged", align: "right",
+              csv: (row) => (row.unpurgedBeatBase != null && row.purgedBeatBase != null
+                ? `${row.unpurgedBeatBase}/${row.runs} · ${row.purgedBeatBase}/${row.purgedRuns ?? row.runs}` : null),
               render: (row) => (row.unpurgedBeatBase != null && row.purgedBeatBase != null
                 ? `${fmtInt(row.unpurgedBeatBase)}/${fmtInt(row.runs)} · ${fmtInt(row.purgedBeatBase)}/${fmtInt(row.purgedRuns ?? row.runs)}`
                 : DASH),
@@ -174,7 +197,7 @@ export default function LeakPanel({ data, research, researchStatus }) {
         <div className="split-figure">
           <Legend items={[
             { tone: "alt2", label: "leaked (unpurged)", shape: "line" },
-            { tone: "truth", label: "purged", shape: "line" },
+            { tone: "ink", label: "purged", shape: "line" },
           ]} />
           <LazyMount minHeight={240} label="equity curves">
             <EquityChart leaked={leaked.equity} purged={purged.equity} />
@@ -185,13 +208,14 @@ export default function LeakPanel({ data, research, researchStatus }) {
             caption="Same model, leaked vs purged"
             rowKey={(row) => row.key}
             dense
+            cardsBelow={640}
             columns={[
               { key: "label", label: "Walk-forward", rowHeader: true, render: (row) => <span className={`label-${row.tone}`}>{row.label}</span> },
               { key: "accuracy", label: "Accuracy", align: "right", render: (row) => <span className="num">{fmtPct(row.accuracy)}</span> },
               { key: "p", label: "p", align: "right", render: (row) => <span className="num">{fmtPValue(row.p)}</span> },
               { key: "sharpe", label: "Sharpe", align: "right", render: (row) => <span className="num">{fmtNum(row.sharpe, 2)}</span> },
-              { key: "pnl", label: "P&L", align: "right", render: (row) => <span className="num">{fmtSignedUsd(row.pnl)}</span> },
-              { key: "maxDrawdown", label: "Max DD", align: "right", render: (row) => <span className="num">{fmtSignedUsd(row.maxDrawdown == null ? null : -Math.abs(row.maxDrawdown))}</span> },
+              { key: "pnl", label: "P&L, USD (1 contract)", title: "Total P&L after costs, trading one CL contract (1,000 barrels) per weekly call", align: "right", className: "wrap-head", render: (row) => <span className="num">{fmtSignedUsd(row.pnl)}</span> },
+              { key: "maxDrawdown", label: "Max DD, USD", align: "right", className: "wrap-head", render: (row) => <span className="num">{fmtSignedUsd(row.maxDrawdown == null ? null : -Math.abs(row.maxDrawdown))}</span> },
             ]}
             rows={runs}
             footnote={purged.p != null
@@ -201,7 +225,7 @@ export default function LeakPanel({ data, research, researchStatus }) {
           {pm.purgeRows != null && (
             <>
               <h3 className="figure-title">The purge</h3>
-              <LazyMount minHeight={180} label="purge diagram">
+              <LazyMount minHeight={175} label="purge diagram">
                 <PurgeDiagram purgeRows={pm.purgeRows} horizon={horizon ?? pm.purgeRows + 1} />
               </LazyMount>
               <p className="prose-note">

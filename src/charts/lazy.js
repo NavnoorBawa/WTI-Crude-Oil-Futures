@@ -17,3 +17,7 @@ export const getEquityChart = retryingLazy(svg, "EquityChart");
 export const getPurgeDiagram = retryingLazy(svg, "PurgeDiagram");
 export const getSignAgreementLadder = retryingLazy(svg, "SignAgreementLadder");
 export const getLeakDumbbell = retryingLazy(svg, "LeakDumbbell");
+
+const reference = () => import("./referenceCharts.jsx");
+export const getLedgerStrip = retryingLazy(reference, "LedgerStrip");
+export const getElasticityPath = retryingLazy(reference, "ElasticityPath");

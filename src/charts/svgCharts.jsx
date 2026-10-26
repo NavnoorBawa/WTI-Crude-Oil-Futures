@@ -9,7 +9,7 @@ import { fmtNum, fmtSigned, fmtSignedUsd } from "../lib/format";
 const MARGIN = { top: 12, right: 16, bottom: 26, left: 44 };
 
 /** A chart frame that measures its container and renders `draw(width)` once the width is known. */
-function Frame({ height, className = "", draw }) {
+export function Frame({ height, className = "", draw }) {
   const [ref, width] = useMeasure();
   return (
     <div ref={ref} className={`svg-frame ${className}`} style={{ minHeight: height }}>
@@ -18,7 +18,7 @@ function Frame({ height, className = "", draw }) {
   );
 }
 
-function YAxis({ scale, ticks, format, left, right }) {
+export function YAxis({ scale, ticks, format, left, right }) {
   return (
     <g className="axis axis-y">
       {ticks.map((tick) => (
@@ -31,7 +31,7 @@ function YAxis({ scale, ticks, format, left, right }) {
   );
 }
 
-function XAxis({ scale, ticks, format, y, anchor = "middle" }) {
+export function XAxis({ scale, ticks, format, y, anchor = "middle" }) {
   return (
     <g className="axis axis-x" transform={`translate(0,${y})`}>
       {ticks.map((tick, index) => (
@@ -41,7 +41,7 @@ function XAxis({ scale, ticks, format, y, anchor = "middle" }) {
   );
 }
 
-const extent = (values) => {
+export const extent = (values) => {
   const finite = values.filter((value) => Number.isFinite(value));
   return finite.length ? [Math.min(...finite), Math.max(...finite)] : [0, 1];
 };
@@ -475,7 +475,8 @@ const fmtK = (value) => {
 };
 
 /**
- * Cumulative P&L of the same 1-week direction model, leaked vs purged walk-forward.
+ * Cumulative P&L of the same 1-week direction model, leaked vs purged walk-forward, in USD on one
+ * CL contract per trade. The purged run is drawn in ink: grey is realized volatility's colour.
  * @param {{leaked: {date:string,pnl:number}[], purged: {date:string,pnl:number}[]}} props
  */
 export function EquityChart({ leaked, purged }) {
@@ -484,7 +485,7 @@ export function EquityChart({ leaked, purged }) {
     <Frame
       height={height}
       draw={(width) => {
-        const m = { ...MARGIN, left: 52, right: 104 };
+        const m = { ...MARGIN, top: 22, left: 52, right: 104 };
         const parse = (d) => Date.parse(`${d}T00:00:00Z`);
         const all = [...leaked, ...purged];
         const x = scaleUtc().domain(extent(all.map((p) => parse(p.date)))).range([m.left, width - m.right]);
@@ -494,18 +495,19 @@ export function EquityChart({ leaked, purged }) {
         const ticks = x.ticks(width < 520 ? 3 : 6);
         const labels = [
           { series: leaked, tone: "alt2", name: "Leaked" },
-          { series: purged, tone: "truth", name: "Purged" },
+          { series: purged, tone: "ink", name: "Purged" },
         ].filter((item) => item.series.length);
         // Keep the two end labels at least 14px apart.
         const placed = labels.map((item) => ({ ...item, ly: y(end(item.series).pnl) })).sort((a, b) => a.ly - b.ly);
         for (let i = 1; i < placed.length; i += 1) placed[i].ly = Math.max(placed[i].ly, placed[i - 1].ly + 26);
         return (
           <svg width={width} height={height} className="svg-chart" role="img"
-            aria-label={`Cumulative P&L, leaked ${fmtSignedUsd(end(leaked)?.pnl)} vs purged ${fmtSignedUsd(end(purged)?.pnl)}`}>
+            aria-label={`Cumulative P&L on one contract, leaked ${fmtSignedUsd(end(leaked)?.pnl)} vs purged ${fmtSignedUsd(end(purged)?.pnl)}`}>
             <YAxis scale={y} ticks={y.ticks(5)} format={fmtK} left={m.left} right={width - m.right} />
+            <text className="axis-note" x={4} y={9}>USD, 1 contract</text>
             <line className="stroke-axis" x1={m.left} x2={width - m.right} y1={y(0)} y2={y(0)} />
             {leaked.length > 1 && <path d={path(leaked)} className="stroke-alt2 line-2" fill="none" />}
-            {purged.length > 1 && <path d={path(purged)} className="stroke-truth line-2" fill="none" />}
+            {purged.length > 1 && <path d={path(purged)} className="stroke-ink line-2" fill="none" />}
             {placed.map((item) => (
               <g key={item.name}>
                 <text className={`end-label label-${item.tone}`} x={width - m.right + 8} y={item.ly} dy="0.32em">{item.name}</text>
@@ -613,7 +615,7 @@ export function LeakDumbbell({ rows, reference }) {
                       <title>{`${row.label}: base rate ${fmtNum(row.noSkill, 1)}%, the no-skill accuracy on these returns`}</title>
                     </line>
                   )}
-                  <circle cx={x(row.purged)} cy={cy} r={4} className="fill-truth"><title>{`${row.label}, purged: ${fmtNum(row.purged, 1)}%`}</title></circle>
+                  <circle cx={x(row.purged)} cy={cy} r={4} className="fill-ink"><title>{`${row.label}, purged: ${fmtNum(row.purged, 1)}%`}</title></circle>
                   <circle cx={x(row.unpurged)} cy={cy} r={4} className="fill-alt2"><title>{`${row.label}, unpurged: ${fmtNum(row.unpurged, 1)}%`}</title></circle>
                 </g>
               );
@@ -646,7 +648,7 @@ export function PurgeDiagram({ purgeRows, horizon, shown = 8 }) {
         return (
           <svg width={width} height={height} className="svg-chart" role="img"
             aria-label={`Purge diagram: the ${purgeRows} training rows whose ${horizon}-day labels end after the forecast time are dropped`}>
-            <line className="stroke-model dashed" x1={x(0)} x2={x(0)} y1={m.top - 4} y2={tY + rowHeight} />
+            <line className="stroke-ink dashed" x1={x(0)} x2={x(0)} y1={m.top - 4} y2={tY + rowHeight} />
             {rows.map((offset, index) => {
               const cy = m.top + index * rowHeight + rowHeight / 2;
               const purged = -offset <= purgeRows;
@@ -662,9 +664,9 @@ export function PurgeDiagram({ purgeRows, horizon, shown = 8 }) {
               );
             })}
             <g>
-              <text className="row-label label-model" x={m.left - 8} y={tY + rowHeight / 2} dy="0.32em" textAnchor="end">test t</text>
-              <circle cx={x(0)} cy={tY + rowHeight / 2} r={3} className="fill-model" />
-              <rect x={x(0) + 4} width={cell * horizon - 4} y={tY + rowHeight / 2 - 3} height={6} className="fill-model" />
+              <text className="row-label label-ink" x={m.left - 8} y={tY + rowHeight / 2} dy="0.32em" textAnchor="end">test t</text>
+              <circle cx={x(0)} cy={tY + rowHeight / 2} r={3} className="fill-ink" />
+              <rect x={x(0) + 4} width={cell * horizon - 4} y={tY + rowHeight / 2 - 3} height={6} className="fill-ink" />
             </g>
             <text className="axis-note" x={x(0)} y={height - 16} textAnchor="middle">forecast time t</text>
             <text className="axis-note" x={x(horizon)} y={height - 4} textAnchor="end">{horizon}-day label window</text>
