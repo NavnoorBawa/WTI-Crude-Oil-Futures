@@ -22,3 +22,8 @@ export const getLiveCalls = retryingLazy(() => import("./LiveCalls.jsx"));
 const stability = () => import("./stabilityCharts.jsx");
 export const getYearlyGapRows = retryingLazy(stability, "YearlyGapRows");
 export const getRollingGap = retryingLazy(stability, "RollingGap");
+
+// LEDG's status strip and METH's elasticity path (they reuse the d3 chunk's frame and axes).
+const reference = () => import("./referenceCharts.jsx");
+export const getLedgerStrip = retryingLazy(reference, "LedgerStrip");
+export const getElasticityPath = retryingLazy(reference, "ElasticityPath");

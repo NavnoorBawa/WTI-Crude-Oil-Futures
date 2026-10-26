@@ -631,7 +631,17 @@ tr.is-challenger .grid-dots .dot.is-on { background: var(--s-alt); border-color:
 .pass-meter .num { margin-left: 6px; font-size: var(--fs-11); color: var(--text-3); }
 .pass-meter.is-zero .num { color: var(--neg); }
 
-.hash { color: var(--text-2); }
+/* A digest is printed in full (selecting or copying it gets all 64 characters) and cut on screen. */
+.hash {
+  display: inline-block;
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  user-select: all;
+  color: var(--text-2);
+}
 
 .table-scroll.is-tall { max-height: max(360px, calc(100vh - var(--topbar-h) - 160px)); overflow-y: auto; }
 .table-scroll.is-tall thead th { position: sticky; top: 0; z-index: 2; background: var(--bg-1); }
@@ -830,6 +840,23 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 .footer-provenance code { color: var(--text-2); }
 .footer-disclaimer { color: var(--text-2); }
 .footer-credits { max-width: 120ch; line-height: 1.5; }
+/* Every footer link is at least a 24px target: block links by their height, links in running text
+   by vertical padding (which does not move the lines). */
+.site-footer a { padding-block: 4px; }
+.footer-provenance a, .footer-links a { display: inline-flex; align-items: center; min-height: 24px; padding-block: 0; }
+.footer-links { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-4); }
+.footer-links ul { margin: 0; padding: 0; list-style: none; }
+.footer-print {
+  min-height: 24px;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+}
+.footer-print:hover { color: var(--text-1); border-color: var(--text-4); }
 
 /* ------------------------------------------------------------------------------ status screens */
 /* Fills the viewport below the bar, so the footer starts below the fold while loading and nothing

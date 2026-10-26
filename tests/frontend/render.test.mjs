@@ -368,6 +368,10 @@ test("the ledger filter narrows by family and status", () => {
   assert.ok(retracted.length > 0 && retracted.every((row) => row.status === "retracted"));
   const family = rows[0].family;
   assert.ok(filterLedger(rows, family, "all").every((row) => row.family === family));
+  // A search narrows within the filters: every term must match the hypothesis, test, id or family.
+  const searched = filterLedger(rows, family, "all", "qlike");
+  assert.ok(searched.length < filterLedger(rows, family, "all").length);
+  assert.ok(searched.every((row) => row.family === family && /qlike/i.test([row.hypothesis, row.test, row.id].join(" "))));
 });
 
 const section = (html, id) => html.match(new RegExp(`<section id="${id}"[\\s\\S]*?</section>`))?.[0] ?? "";
@@ -379,14 +383,25 @@ test("every section title makes one claim, short enough to scan", () => {
   for (const title of titles) assert.ok(title.length <= 90, `${title.length}: ${title}`);
 });
 
-test("the ledger shows a failure to reject as not supported, and keeps the post-selection row out of the adjustment", () => {
+test("the ledger shows a failure to reject as not supported, and keeps the post-selection row out of the adjustment", async () => {
+  const reference = await m.load("/src/lib/reference.js");
   const { html } = render(data, research);
   const ledg = section(html, "ledg");
   const summary = research.ledger.summary;
-  assert.doesNotMatch(visibleText(ledg), /\brejected\b/);
-  assert.equal((ledg.match(/class="chip chip--muted"[^>]*>not supported</g) ?? []).length, summary.by_status.not_supported);
-  assert.equal((ledg.match(/>underpowered</g) ?? []).length, summary.underpowered.length);
-  assert.match(visibleText(ledg), /a failure to reject, not evidence against the hypothesis/);
+  const text = visibleText(ledg);
+  assert.doesNotMatch(text, /\brejected\b/);
+  // The first rows of the default order are on screen (the rest behind "Show all"), each status as its label.
+  const ledger = m.research.researchLedger(research);
+  const order = [{ key: "status", sortValue: reference.ledgerOrderValue }];
+  const shown = m.table.orderRows(ledger.rows, order, { key: "status", direction: "asc" }).slice(0, reference.LEDGER_PAGE);
+  for (const [status, label] of [["supported", "supported"], ["inconclusive", "inconclusive"], ["not_supported", "not supported"], ["retracted", "retracted"]]) {
+    const chips = (ledg.match(new RegExp(`class="chip chip--[a-z_-]+"[^>]*>${label}<`, "g")) ?? []).length;
+    assert.equal(chips, shown.filter((row) => row.status === status).length, label);
+    assert.ok(text.includes(`${summary.by_status[status]} ${label}`), `the meta counts every ${label} row`);
+  }
+  assert.equal((ledg.match(/>underpowered</g) ?? []).length, shown.filter((row) => summary.underpowered.includes(row.id)).length);
+  assert.ok(text.includes(`${summary.underpowered.length} underpowered`));
+  assert.match(text, /a failure to reject, not evidence against the hypothesis/);
   for (const id of summary.selected_after_search) {
     const rowHtml = ledg.match(new RegExp(`<tr[^>]*>(?:(?!</tr>)[\\s\\S])*?>${id}</code>[\\s\\S]*?</tr>`))?.[0];
     assert.ok(rowHtml, id);
@@ -394,7 +409,9 @@ test("the ledger shows a failure to reject as not supported, and keeps the post-
     assert.equal((rowHtml.match(/>excluded</g) ?? []).length, 2, "no BH or t > 3 verdict");
     assert.doesNotMatch(rowHtml, />yes</, "never shown as surviving an adjustment it was not in");
   }
-  assert.ok(visibleText(ledg).includes(`${summary.selected_after_search.length} selected after a search, outside the adjustment`));
+  // One phrase reconciles the supported count with the title's "of N supported claims".
+  const outside = summary.supported_selected_after_search.length;
+  assert.ok(text.includes(`${summary.supported.length} supported; ${summary.supported.length - outside} in the adjusted family (${outside} selected after a search)`));
 });
 
 test("the hero names the OVX-only regression as the leaderboard does, with the leaderboard's DM sign", () => {

@@ -102,6 +102,42 @@ export const supplyStudyNotes = (study) => {
   return notes;
 };
 
+/**
+ * The shared x-domain of the supply table's interval glyphs: every group's 95% interval and median
+ * peak, and the ordinary-date median, with a little room at each end. Null without any value.
+ */
+export const peakGlyphDomain = (study) => {
+  const values = [
+    study?.placebo?.peak,
+    ...(study?.groups ?? []).flatMap((group) => [group.peak, ...(group.ciPeak ?? [])]),
+  ].filter((value) => Number.isFinite(value));
+  if (!values.length) return null;
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const pad = (hi - lo || 1) * 0.04;
+  return [lo - pad, hi + pad];
+};
+
+/**
+ * A 120 x 12 px glyph beside a group's median peak: its 95% interval (line), its median (dot) and
+ * the ordinary-date median (dashed rule), on one domain shared by every row. The dot is in ink for
+ * a group that passes the study's rule. Decorative: the numbers are in the cell's text.
+ */
+function IntervalGlyph({ domain, lo = null, hi = null, median = null, placebo = null, strong = false }) {
+  if (!domain) return null;
+  const [d0, d1] = domain;
+  const at = (value) => `${(((value - d0) / (d1 - d0)) * 100).toFixed(2)}%`;
+  return (
+    <span className="interval-glyph" aria-hidden="true">
+      {Number.isFinite(lo) && Number.isFinite(hi) && (
+        <i className="ig-range" style={{ left: at(lo), width: `${(((hi - lo) / (d1 - d0)) * 100).toFixed(2)}%` }} />
+      )}
+      {Number.isFinite(placebo) && <i className="ig-placebo" style={{ left: at(placebo) }} />}
+      {Number.isFinite(median) && <i className={`ig-dot${strong ? " is-strong" : ""}`} style={{ left: at(median) }} />}
+    </span>
+  );
+}
+
 /** The placebo-controlled event study (research.json supply_study). */
 function SupplyStudyTable({ study }) {
   const rows = [
@@ -111,7 +147,8 @@ function SupplyStudyTable({ study }) {
     }] : []),
     ...study.groups.slice().sort((a, b) => (a.peakPRule ?? a.peakP ?? 1) - (b.peakPRule ?? b.peakP ?? 1)),
   ];
-  const pCell = (key) => (row) => (row.isPlacebo ? <span className="muted">ref.</span> : <span className="num">{fmtPValue(row[key])}</span>);
+  const pCell = (key) => (row) => (row.isPlacebo ? <span className="muted">ref.</span> : <span className="num">{fmtPValue(row[key], { digits: 3 })}</span>);
+  const domain = peakGlyphDomain(study);
   const overlapping = study.overlapping;
   const anyOverlap = study.groups.some((group) => group.overlaps.length > 0);
   const alpha = `${fmtNum(ALPHA * 100, 0)}%`;
@@ -124,6 +161,7 @@ function SupplyStudyTable({ study }) {
       ? `† Contains events whose windows share sessions${overlapping?.definition ? ` (${overlapping.definition})` : ""}; the tests treat them as independent draws, which they are not.`
       : null,
     "p-values are not adjusted for the number of groups (see LEDG).",
+    domain ? "Beside each median peak, the line is its 95% bootstrap interval, the dot the median (solid where the group passes the rule) and the dashed rule the ordinary-date median, on one scale for every row." : null,
   ].filter(Boolean).join(" ");
   return (
     <DataTable
@@ -132,8 +170,10 @@ function SupplyStudyTable({ study }) {
       rowKey={(row) => row.key}
       rowClass={(row) => (row.isPlacebo ? "is-reference" : passesRule(row) ? "passes-rule" : undefined)}
       dense
+      exportName="supply-study"
+      groups={[{ label: "", span: 2 }, { label: "Peak, sessions 0–19", span: 3 }, { label: "Settle, session 10", span: 3 }]}
       columns={[
-        { key: "name", label: "Group", rowHeader: true, className: "wrap-cell is-narrow", render: (row) => <span title={row.definition ?? undefined}>{row.name}</span> },
+        { key: "name", label: "Group", rowHeader: true, csv: (row) => row.name, className: "wrap-cell is-narrow", render: (row) => <span title={row.definition ?? undefined}>{row.name}</span> },
         {
           key: "n", label: "n", align: "right",
           render: (row) => (
@@ -146,25 +186,40 @@ function SupplyStudyTable({ study }) {
           ),
         },
         {
-          key: "peak", label: "Peak", title: "Median 20-session peak, with its 95% bootstrap interval", align: "right",
-          render: (row) => (
-            <span className="stat-cell is-stacked">
-              <span className="num">{fmtSignedPct(row.peak)}</span>
-              {row.ciPeak?.length === 2 && row.ciPeak.every((v) => v != null) && <span className="stat-range num">[{fmtNum(row.ciPeak[0], 1)}, {fmtNum(row.ciPeak[1], 1)}]</span>}
-            </span>
-          ),
+          key: "peak", label: "Median [95% CI]", title: "Median 20-session peak, with its 95% bootstrap interval", align: "right",
+          csvLabel: "Median peak %",
+          render: (row) => {
+            const ci = row.ciPeak?.length === 2 && row.ciPeak.every((v) => v != null) ? row.ciPeak : null;
+            return (
+              <span className="peak-cell">
+                <span className="num">{fmtSignedPct(row.peak)}</span>
+                {ci && <span className="stat-range num">[{fmtNum(ci[0], 1)}, {fmtNum(ci[1], 1)}]</span>}
+                <IntervalGlyph domain={domain} lo={ci?.[0]} hi={ci?.[1]} median={row.peak} placebo={study.placebo?.peak}
+                  strong={!row.isPlacebo && passesRule(row)} />
+              </span>
+            );
+          },
         },
-        { key: "peakP", label: "vs placebo", title: `Peak p: ${UNMATCHED_TITLE}`, align: "right", className: "wrap-head", render: pCell("peakP") },
-        { key: "peakPYear", label: "year-matched", title: `Peak p: ${YEAR_MATCHED_TITLE}`, align: "right", className: "wrap-head", render: pCell("peakPYear") },
-        { key: "settle", label: "Settle", title: "Median move to the session-10 close", align: "right", render: (row) => <span className="num">{fmtSignedPct(row.settle)}</span> },
-        { key: "settleP", label: "vs placebo", title: `Settle p: ${UNMATCHED_TITLE}`, align: "right", className: "wrap-head", render: pCell("settleP") },
-        { key: "settlePYear", label: "year-matched", title: `Settle p: ${YEAR_MATCHED_TITLE}`, align: "right", className: "wrap-head", render: pCell("settlePYear") },
+        { key: "peakP", label: "vs placebo", csvLabel: "Peak p vs placebo", title: `Peak p: ${UNMATCHED_TITLE}`, align: "right", className: "wrap-head", render: pCell("peakP") },
+        { key: "peakPYear", label: "year-matched", csvLabel: "Peak p year-matched", title: `Peak p: ${YEAR_MATCHED_TITLE}`, align: "right", className: "wrap-head", render: pCell("peakPYear") },
+        { key: "settle", label: "Median", csvLabel: "Median settle %", title: "Median move to the session-10 close", align: "right", render: (row) => <span className="num">{fmtSignedPct(row.settle)}</span> },
+        { key: "settleP", label: "vs placebo", csvLabel: "Settle p vs placebo", title: `Settle p: ${UNMATCHED_TITLE}`, align: "right", className: "wrap-head", render: pCell("settleP") },
+        { key: "settlePYear", label: "year-matched", csvLabel: "Settle p year-matched", title: `Settle p: ${YEAR_MATCHED_TITLE}`, align: "right", className: "wrap-head", render: pCell("settlePYear") },
       ]}
       rows={rows}
       footnote={footnote}
     />
   );
 }
+
+/**
+ * The supply study's method as notes: the sentences that read as prose (a sentence that names a
+ * payload field, e.g. p_value_vs_placebo, is left out; the table's column titles describe those).
+ */
+export const methodSentences = (method) => {
+  const sentences = (asText(method) ?? "").split(/(?<=\.)\s+/).filter((sentence) => sentence && !/\b[a-z]+_[a-z_*]+/.test(sentence));
+  return sentences.length ? `Supply shocks: ${tidyProse(sentences.join(" "))}` : null;
+};
 
 /** STDY: two side studies. Neither is a forecast; both are reported with their limits. */
 export default function StudiesPanel({ data, research }) {
@@ -199,6 +254,10 @@ export default function StudiesPanel({ data, research }) {
         study?.placebo?.n != null ? `${fmtInt(study.placebo.n)} placebo dates` : null,
         "descriptive; not traded",
       ]}
+      notes={[
+        asText(carry?.method) ? `Carry: ${tidyProse(carry.method)}` : null,
+        hasStudy ? methodSentences(study.method) : null,
+      ]}
       source={{
         artifact: ["research.json → carry", "research.json → supply_study", "data.json → supply_shock_playbook"],
         reproduce: [REPRODUCE.carry, REPRODUCE.supply],
@@ -214,11 +273,14 @@ export default function StudiesPanel({ data, research }) {
               captionHidden
               rowKey={(row) => row.key}
               dense
+              exportName="carry"
               columns={[
                 { key: "label", label: "Sample", rowHeader: true, render: (row) => <span title={row.stats.span ?? undefined}>{row.label}</span> },
-                { key: "months", label: "Months", align: "right", render: (row) => fmtInt(row.stats.n_months) },
+                { key: "months", label: "Months", align: "right", csv: (row) => num(row.stats.n_months), render: (row) => fmtInt(row.stats.n_months) },
                 {
                   key: "spread", label: "Above / below", title: "Mean monthly return (%) with carry above vs at or below the median of all prior months", align: "right",
+                  csvLabel: "Mean return above / below median carry, %/month",
+                  csv: (row) => `${num(row.stats.mean_ret_above_median_carry_pct ?? row.stats.mean_ret_backwardated_pct) ?? ""} / ${num(row.stats.mean_ret_below_median_carry_pct ?? row.stats.mean_ret_contango_pct) ?? ""}`,
                   render: (row) => (
                     <span className="num">
                       {fmtNum(row.stats.mean_ret_above_median_carry_pct ?? row.stats.mean_ret_backwardated_pct, 2)}
@@ -227,10 +289,12 @@ export default function StudiesPanel({ data, research }) {
                     </span>
                   ),
                 },
-                { key: "p", label: "Spread p", title: "One-sided p-value of the spread", align: "right", render: (row) => <span className="num">{fmtPValue(row.stats.spread_p_value_one_sided)}</span> },
-                { key: "rank", label: "Rank corr", title: "Rank correlation of carry with the next return", align: "right", render: (row) => <span className="num">{fmtNum(row.stats.carry_rank_corr, 2)}</span> },
+                { key: "p", label: "Spread p", title: "One-sided p-value of the spread", align: "right", csv: (row) => num(row.stats.spread_p_value_one_sided), render: (row) => <span className="num">{fmtPValue(row.stats.spread_p_value_one_sided)}</span> },
+                { key: "rank", label: "Rank corr", title: "Rank correlation of carry with the next return", align: "right", csv: (row) => num(row.stats.carry_rank_corr), render: (row) => <span className="num">{fmtNum(row.stats.carry_rank_corr, 2)}</span> },
                 {
                   key: "sharpe", label: "Sharpe vs B&H", title: "Carry-timed vs buy-and-hold Sharpe; p from the Ledoit-Wolf test of the difference", align: "right",
+                  csvLabel: "Sharpe carry-timed / buy-and-hold",
+                  csv: (row) => `${num(row.stats.carry_timed_sharpe) ?? ""} / ${num(row.stats.buy_hold_sharpe) ?? ""}`,
                   render: (row) => (
                     <span className="num">
                       {fmtNum(row.stats.carry_timed_sharpe, 2)} <span className="muted">/ {fmtNum(row.stats.buy_hold_sharpe, 2)}</span>
@@ -242,8 +306,7 @@ export default function StudiesPanel({ data, research }) {
               rows={carryRows}
               footnote={signSplit ? `By the sign of carry (backwardation vs contango) the full-sample spread is ${fmtNum(signSplit.mean_ret_carry_positive_pct, 2)} vs ${fmtNum(signSplit.mean_ret_carry_nonpositive_pct, 2)} %/month (${fmtP(signSplit.spread_p_value_one_sided)}); the two splits agree in ${fmtNum(signSplit.share_agreeing_with_median_rule_pct, 1)}% of months.` : null}
             />
-            {asText(carry.verdict) && <p className="prose-note">{tidyProse(carry.verdict)}</p>}
-            {asText(carry.method) && <p className="prose-note is-muted">{tidyProse(carry.method)}</p>}
+            {asText(carry.verdict) && <p className="prose-note is-wide">{tidyProse(carry.verdict)}</p>}
           </div>
         )}
 
@@ -272,7 +335,7 @@ export default function StudiesPanel({ data, research }) {
                 rows={rows}
               />
             )}
-            {hasStudy && <p className="prose-note">{supplyStudyNotes(study).join(" ")}</p>}
+            {hasStudy && <p className="prose-note is-wide">{supplyStudyNotes(study).join(" ")}</p>}
             {hasStudy && study.superseded.length > 0 && (
               <ul className="footnotes superseded">
                 {study.superseded.map((text) => <li key={text}><span className="micro">Superseded</span> {text}</li>)}
@@ -284,7 +347,6 @@ export default function StudiesPanel({ data, research }) {
                 {priced.definition && <span className="muted"> Definition: {priced.definition}.</span>}
               </p>
             )}
-            {hasStudy && study.method && <p className="prose-note is-muted">{tidyProse(study.method.split(/(?<=\.)\s/)[0])}</p>}
           </div>
         )}
       </div>
