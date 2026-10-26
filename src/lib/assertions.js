@@ -5,7 +5,11 @@
 // *Detail function, so every figure stays computed from the payload. Every figure names its sample
 // when two samples of the same statistic appear on the page.
 import { NBSP, fmtDate, fmtInt, fmtNum, fmtP, fmtPct, fmtPValue, fmtSigned, num, ordinal } from "./format";
-import { asArray, asObject, asText, coverageByYear, ovxOnlyBenchmark, recordVar, shortLabel, vrpSummary, yearsBetter } from "./research";
+import {
+  LIVE_MIN_INDEPENDENT, OVX_ONLY_KEY, asArray, asObject, asText, coverageByYear, ovxOnlyBenchmark, recordVar, shortLabel, vrpSummary,
+  yearsBetter,
+} from "./research";
+import { coneView } from "./cone";
 
 /** The nominal coverage of the contract's interval_80 fields (a design level, not a statistic). */
 export const INTERVAL_LEVEL_PCT = 80;
@@ -26,17 +30,6 @@ const plural = (count, word) => `${fmtInt(count)} ${word}${count === 1 ? "" : "s
 const pct = (value) => fmtNum(value * 100, 0);
 /** "MCS p = 0.04" with no-break spaces, so a wrapped line never ends on "MCS". */
 const labelledP = (label, p) => (fmtP(p) ? `${label}${NBSP}${fmtP(p)}` : null);
-
-/**
- * Which pipeline produced the band drawn on the forecast chart (see bandCoverage()): the benchmark
- * lab's adaptive conformal band, the production validation's, or the lab's with newer production weeks.
- */
-export const bandSourceLabel = (band) => {
-  if (!band?.n) return null;
-  if (band.lab && !band.live) return "benchmark lab";
-  if (band.live && !band.lab) return "production validation";
-  return `benchmark lab; production validation for the latest ${plural(band.live, "week")}`;
-};
 
 /**
  * FCST: the model against the weakest benchmark (persistence, on out-of-sample R²) and the
@@ -74,42 +67,68 @@ export const forecastDetail = (validation, { ovxLabel = "OVX-only regression" } 
 
 const INFO_TEXT = { implied: "OVX", range: "the intraday range" };
 
+/** The longest title the page prints (the render test holds every h2 and h3 to it). */
+const TITLE_MAX = 90;
+
 /**
  * MODL: what the Model Confidence Set contains, true by construction from the rows: which inputs
  * every member uses and whether the model of record is among them. Timing controls (and anything
- * else not eligible) are left out.
+ * else not eligible) are left out. When the record is out of the full-sample set but in it on some
+ * sampling grid, or under the range proxy, the record clause says so, since the exclusion then
+ * depends on the setting: "{rec} is out, though in on k/n grids" (the grid count comes from
+ * `robustness`, else from the rows), else "though in under the range proxy". The set is named in
+ * full unless that makes the title longer than TITLE_MAX characters; then it is "MCS".
+ *
  * @param {import("./research").LeaderRow[]} rows
- * @param {{level?: number|null, available?: boolean}} [options]  MCS level in percent; whether
- *   the payload carries MCS results at all
+ * @param {{level?: number|null, available?: boolean,
+ *   robustness?: {record?: {gridsIn?: number|null, gridCount?: number, rangeProxy?: boolean|null}|null}|null}} [options]
+ *   MCS level in percent; whether the payload carries MCS results at all; mcsRobustness(lab)
  */
-export const leaderboardAssertion = (rows, { level = null, available = true } = {}) => {
+export const leaderboardAssertion = (rows, { level = null, available = true, robustness = null } = {}) => {
   if (!Array.isArray(rows) || !available) return null;
   const eligible = rows.filter((row) => row.mcsEligible !== false && !row.timingControl);
   const survivors = eligible.filter((row) => row.inMcs);
   if (!eligible.length || !survivors.length) return null;
-  const set = `${level != null ? `${level}% ` : ""}Model Confidence Set`;
   const record = eligible.find((row) => row.role === "record") ?? null;
   const recordName = record ? shortLabel(record.label) : null;
 
-  if (survivors.length === 1) {
-    const only = survivors[0];
-    return `${shortLabel(only.label)}${only === record ? ", the model of record," : ""} alone is in the ${set}`;
+  let recordPart = null;
+  if (record?.inMcs) recordPart = `${recordName} is one of them`;
+  else if (record) {
+    const grids = asArray(record.grids);
+    const settings = asObject(robustness?.record);
+    const gridsIn = num(settings?.gridsIn) ?? grids.filter(Boolean).length;
+    const gridCount = num(settings?.gridCount) || grids.length;
+    if (gridsIn > 0 && gridCount > 0) recordPart = `${recordName} is out, though in on ${fmtInt(gridsIn)}/${fmtInt(gridCount)} grids`;
+    else if (settings?.rangeProxy === true) recordPart = `${recordName} is out, though in under the range proxy`;
+    else recordPart = `${recordName} is not among them`;
   }
   const shared = Object.keys(INFO_TEXT).find((kind) => survivors.every((row) => row.info.has(kind)));
   const uses = shared ? INFO_TEXT[shared]
     : survivors.every((row) => row.info.size > 0) ? `${INFO_TEXT.implied} or ${INFO_TEXT.range}` : null;
-  const first = uses
-    ? `All ${fmtInt(survivors.length)} models in the ${set} use ${uses}`
-    : `${fmtInt(survivors.length)} of ${fmtInt(eligible.length)} models are in the ${set}`;
-  const recordPart = record ? `${recordName} is ${record.inMcs ? "one of them" : "not among them"}` : null;
-  return join([first, recordPart]);
+
+  const title = (name) => {
+    const set = `${level != null ? `${level}% ` : ""}${name}`;
+    if (survivors.length === 1) {
+      const only = survivors[0];
+      return `${shortLabel(only.label)}${only === record ? ", the model of record," : ""} alone is in the ${set}`;
+    }
+    const first = uses
+      ? `All ${fmtInt(survivors.length)} models in the ${set} use ${uses}`
+      : `${fmtInt(survivors.length)} of ${fmtInt(eligible.length)} models are in the ${set}`;
+    return join([first, recordPart]);
+  };
+  const long = title("Model Confidence Set");
+  return long.length <= TITLE_MAX ? long : title("MCS");
 };
 
 /**
- * MODL meta: the record's MCS p-value and whether the return-only models are significantly worse
- * than it (every one of them, by a Diebold-Mariano test at ALPHA).
+ * MODL meta: the record's MCS p-value, whether the return-only models are significantly worse
+ * than it (every one of them, by a Diebold-Mariano test at ALPHA) and, given mcsRobustness(lab),
+ * under how many of the settings research.json reports the record is in the set (each sampling
+ * grid counts as one setting).
  */
-export const leaderboardDetail = (rows, { available = true } = {}) => {
+export const leaderboardDetail = (rows, { available = true, robustness = null } = {}) => {
   if (!Array.isArray(rows) || !available) return [];
   const eligible = rows.filter((row) => row.mcsEligible !== false && !row.timingControl);
   const record = eligible.find((row) => row.role === "record") ?? null;
@@ -122,6 +141,10 @@ export const leaderboardDetail = (rows, { available = true } = {}) => {
       && row.dmP != null && row.dmP < ALPHA);
     if (allWorse) parts.push(`every return-only model has significantly higher QLIKE than ${recordName}`);
     else if (returnOnly.every((row) => !row.inMcs)) parts.push("no return-only model is in the set");
+  }
+  const settings = asObject(robustness?.record);
+  if (num(settings?.settingCount) > 0 && num(settings?.inCount) != null) {
+    parts.push(`${recordName}: in the set under ${fmtInt(settings.inCount)} of ${fmtInt(settings.settingCount)} settings`);
   }
   return parts.filter(Boolean);
 };
@@ -146,18 +169,23 @@ export const spaAssertion = (spa, { recordName = "the model of record", mcsLevel
   return `Hansen SPA test of ${recordName} against ${count ? plural(count, "alternative") : "the alternatives"}: consistent ${fmtP(p)}${bounds}; ${reading}.`;
 };
 
-/** STAB: does the ranking hold year by year? "Beat" means a lower QLIKE in that calendar year. */
+/**
+ * STAB: does the ranking hold year by year? "Beat" means a lower QLIKE in that calendar year. The
+ * bench is the comparison that matters, the OVX-only regression (named with "the", as on the rest
+ * of the page), not the weakest model that makes the record look good.
+ */
 export const stabilityAssertion = (yearly, { champion, challenger, bench, labels = new Map() } = {}) => {
   if (!Array.isArray(yearly) || !yearly.length || !champion) return null;
   const name = (key) => shortLabel(labels.get(key) ?? key);
   const parts = [];
   if (bench) {
     const { wins, total } = yearsBetter(yearly, champion, bench);
-    if (total) parts.push(`${name(champion)} beat ${name(bench)} in ${wins} of ${total} years`);
+    if (total) parts.push(`${name(champion)} beat ${bench === OVX_ONLY_KEY ? "the " : ""}${name(bench)} in ${wins} of ${total} years`);
   }
   if (challenger) {
     const { wins, total } = yearsBetter(yearly, challenger, champion);
-    if (total) parts.push(`the challenger beat ${name(champion)} in ${wins}`);
+    // After the bench clause the year count is understood; alone, the clause states it.
+    if (total) parts.push(parts.length ? `the challenger beat ${name(champion)} in ${wins}` : `The challenger beat ${name(champion)} in ${wins} of ${total} years`);
   }
   return parts.length ? join(parts) : null;
 };
@@ -232,18 +260,30 @@ export const riskDetail = (rows) => {
   return parts.filter(Boolean);
 };
 
-/** CONE: where current realized vol sits in its own history, shortest vs longest window. */
-export const coneAssertion = (cone) => {
-  const windows = asArray(cone?.windows)
-    .map((row) => ({ window: num(row?.window), percentile: num(row?.latest_percentile), latest: num(row?.latest) }))
-    .filter((row) => row.window != null && row.percentile != null)
-    .sort((a, b) => a.window - b.window);
-  if (!windows.length) return null;
-  const short = windows[0];
-  const long = windows[windows.length - 1];
-  if (short === long) return `Realized vol is at the ${ordinal(short.percentile)} percentile of its ${short.window}-day history`;
-  return `Realized vol is at the ${ordinal(short.percentile)} percentile on a ${short.window}-day window `
-    + `and the ${ordinal(long.percentile)} on ${long.window} days`;
+/**
+ * CONE: where realized vol sits in its own history. When data.json is newer than the lab's cone,
+ * the title reads data.json's latest 5-session realized vol, with its date, against the band of
+ * that window's stored percentiles (never an interpolated percentile); otherwise it reads the
+ * cone's own latest values on the cone's date, shortest vs longest window.
+ */
+export const coneAssertion = (cone, live = null) => {
+  const view = coneView(cone, live);
+  const short = view.marks[0];
+  if (view.lagDays != null && view.lagDays > 0 && short?.source === "live" && short.bracket) {
+    const head = `${short.window}-day realized vol (${fmtPct(short.value)}, ${fmtDate(short.date, { year: false })})`;
+    const { low, high } = short.bracket;
+    if (low == null) return `${head} is below the ${ordinal(high)} percentile of its history`;
+    if (high == null) return `${head} is above the ${ordinal(low)} percentile of its history`;
+    const band = `${head} is in the ${ordinal(low)}–${ordinal(high)} percentile band of its history`;
+    return band.length <= 90 ? band : `${head} is between its ${ordinal(low)} and ${ordinal(high)} percentiles`;
+  }
+  const rows = view.windows.filter((row) => row.percentile != null);
+  if (!rows.length) return null;
+  const first = rows[0];
+  const last = rows[rows.length - 1];
+  const when = view.labDate ? `On ${fmtDate(view.labDate, { year: false })}, ` : "";
+  const subject = `${when}${first.window}-day realized vol was at the ${ordinal(first.percentile)} percentile`;
+  return first === last ? `${subject} of its history` : `${subject}; ${last.window}-day, the ${ordinal(last.percentile)}`;
 };
 
 /**
@@ -267,21 +307,30 @@ export const vrpAssertion = (vrp) => {
   return null;
 };
 
-/** The challenger's promotion status in a few words: "accruing 3/52", "keep the model of record (one-sided p = 0.41)". */
+/**
+ * The promotion test's state in a few words, with no statistic (promotionDetail() carries those):
+ * "accruing 3/52 weeks", "keep the record", "promote the challenger".
+ */
 export const promotionText = (promotion) => {
   if (!promotion) return null;
-  const progress = promotion.paired != null && promotion.required != null
-    ? `${fmtInt(promotion.paired)}/${fmtInt(promotion.required)}`
-    : null;
-  if (promotion.status === "accruing") return `accruing${progress ? ` ${progress}` : ""}`;
-  const p = fmtP(promotion.p);
-  return `${promotion.status === "promote" ? "promote the challenger" : "keep the model of record"}${p ? ` (one-sided ${p})` : ""}`;
+  if (promotion.status === "accruing") {
+    return promotion.paired != null && promotion.required != null
+      ? `accruing ${fmtInt(promotion.paired)}/${fmtInt(promotion.required)} weeks`
+      : "accruing";
+  }
+  return promotion.status === "promote" ? "promote the challenger" : "keep the record";
 };
 
+/** The longest title the page shows (characters); see the header comment. */
+const LIVE_TITLE_MAX = 90;
+
 /**
- * LIVE: forward record status. Once weeks resolve, the two models are compared on the same weeks
- * only (the pinned pair's, liveRecordSummary().paired); the record's QLIKE over all its resolved
- * weeks is a different sample and appears only labelled as such, in the panel.
+ * LIVE: forward record status. The record holds one call per session, and the five-session windows
+ * of consecutive calls overlap, so calls are counted as calls and only non-overlapping windows as
+ * (independent) weeks. Below LIVE_MIN_INDEPENDENT independent weeks the title states the record's
+ * progress instead of a loss comparison; once the promotion test has decided, it states the verdict.
+ * The comparison itself uses the same calls for both models (liveRecordSummary().paired); the
+ * record's QLIKE over all its resolved calls is a different sample, shown only labelled as such.
  */
 export const liveAssertion = (summary) => {
   if (!summary) return null;
@@ -292,11 +341,29 @@ export const liveAssertion = (summary) => {
       ? `No live forecast has resolved yet; the first is due ${fmtDate(summary.firstResult)}`
       : "No live forecast has resolved yet";
   }
+  const promotion = summary.promotion;
+  if (promotion && promotion.status !== "accruing") {
+    const p = fmtP(promotion.p);
+    const sample = promotion.required != null ? plural(promotion.required, "independent week") : "its fixed sample";
+    return `Promotion test on ${sample}: ${promotion.status === "promote" ? "promote the challenger" : "keep the model of record"}`
+      + `${p ? ` (${p})` : ""}`;
+  }
+  const weeks = summary.independent;
+  if (weeks == null) return `${plural(resolved, "call")} resolved; no independent-week count, so the models are not compared`;
+  if (weeks < LIVE_MIN_INDEPENDENT) {
+    return `${plural(weeks, "independent week")} resolved (${plural(resolved, "call")}); too few to compare the two models`;
+  }
   const { n, record, challenger } = summary.paired ?? {};
   if (n > 0 && record != null && challenger != null) {
-    return `On the same ${plural(n, "live week")}, QLIKE ${fmtNum(record, 3)} for the model of record vs ${fmtNum(challenger, 3)} for the challenger`;
+    // The independent-week count covers every resolved call, so it is quoted only when all of them
+    // carry both forecasts.
+    const sample = n === resolved
+      ? `On ${plural(n, "resolved call")} (${plural(weeks, "independent week")})`
+      : `On the ${plural(n, "resolved call")} with both forecasts`;
+    const full = `${sample}, QLIKE ${fmtNum(record, 3)} for the record vs ${fmtNum(challenger, 3)} for the challenger`;
+    return full.length <= LIVE_TITLE_MAX ? full : `${sample}, QLIKE ${fmtNum(record, 3)} record vs ${fmtNum(challenger, 3)} challenger`;
   }
-  return `${plural(resolved, "live week")} resolved; none has both forecasts yet`;
+  return `${plural(resolved, "call")} resolved (${plural(weeks, "independent week")}); none has both forecasts yet`;
 };
 
 /**
@@ -319,6 +386,54 @@ export const liveDetail = (summary) => {
   const unscored = skipped + late + expired;
   const never = unscored > 0 ? ` (${unscored === recorded ? "" : `${fmtInt(unscored)} `}never scored)` : "";
   return [`${plural(recorded, "call")} recorded${breakdown.length ? `: ${breakdown.join(", ")}` : ""}${never}`];
+};
+
+/**
+ * The promotion test's statistics once it has decided, the one place its p-value is printed beside
+ * the verdict: "DM +0.30, one-sided p = 0.38, 52 independent weeks". Null while accruing.
+ */
+export const promotionDetail = (promotion) => {
+  if (!promotion || promotion.status === "accruing") return null;
+  const parts = [
+    promotion.dmStat != null ? `DM ${fmtSigned(promotion.dmStat, 2)}` : null,
+    promotion.p != null ? `one-sided ${fmtP(promotion.p)}` : null,
+    // Identical losses leave nothing to test: the mean difference is the whole result.
+    promotion.dmStat == null && promotion.p == null && promotion.meanDifference != null
+      ? `mean QLIKE difference ${fmtSigned(promotion.meanDifference, 4)}` : null,
+    promotion.paired != null ? plural(promotion.paired, "independent week") : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(", ") : null;
+};
+
+/**
+ * The verdict strip's LIVE tile foot. Before any result: when the first is due and the promotion
+ * test's progress. After: calls resolved and independent weeks, the two models' QLIKE on the same
+ * calls once there are LIVE_MIN_INDEPENDENT independent weeks, and the promotion verdict once decided.
+ */
+export const liveTileFoot = (summary) => {
+  if (!summary) return null;
+  const resolved = summary.resolved ?? 0;
+  const promotion = summary.promotion;
+  if (resolved <= 0) {
+    const status = summary.firstResult
+      ? `first result ${fmtDate(summary.firstResult)}`
+      : `${plural(summary.recorded ?? 0, "call")} recorded, no result due`;
+    const progress = promotion?.paired != null && promotion?.required != null
+      ? `promotion test ${fmtInt(promotion.paired)}/${fmtInt(promotion.required)} weeks`
+      : null;
+    return [status, progress].filter(Boolean).join(" · ");
+  }
+  const weeks = summary.independent;
+  const parts = [`${plural(resolved, "call")} resolved${weeks != null ? ` (${plural(weeks, "independent week")})` : ""}`];
+  const { n, record, challenger } = summary.paired ?? {};
+  if (weeks != null && weeks >= LIVE_MIN_INDEPENDENT && n > 0 && record != null && challenger != null) {
+    parts.push(`QLIKE ${fmtNum(record, 3)} record vs ${fmtNum(challenger, 3)} challenger${n === resolved ? "" : `, same ${plural(n, "call")}`}`);
+  }
+  if (promotion && promotion.status !== "accruing") {
+    const p = fmtP(promotion.p);
+    parts.push(`promotion test: ${promotionText(promotion)}${p ? ` (${p})` : ""}`);
+  }
+  return parts.join(" · ");
 };
 
 /** LEAK: what the leak did to the headline number. */

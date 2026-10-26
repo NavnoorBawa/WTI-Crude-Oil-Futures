@@ -3373,15 +3373,26 @@
         {
           "as_of": "2026-10-19",
           "issued_at": "2026-10-20T12:20:04.993549Z",
+          "recorded_at": "2026-10-20T12:20:07.218354Z",
+          "sealed_at": "2026-10-20T12:20:31.402917Z",
           "model_version": "har-iv/2",
+          "base_session": "2026-10-20",
           "target_start": "2026-10-21",
           "target_end": "2026-10-27",
           "forecast_pct": 47.6,
           "median_pct": 40.0,
           "lo80_pct": 23.3,
           "hi80_pct": 63.9,
+          "prob_vol_rises_pct": 58.3,
           "challenger_pct": 48.4,
           "realized_pct": null,
+          "inputs": {
+            "ovx": 50.74,
+            "ovx_session": "2026-10-16",
+            "rv5_pct": 36.76,
+            "rv22_pct": 36.81,
+            "rv66_pct": 46.96
+          },
           "status": "pending"
         }
       ],

@@ -1,1 +1,148 @@
 /* reference-sections: styles owned by the reference-sections work package. Loaded after index.css, in package order. */
+
+/* ---------------------------------------------------------------------------- LEDG: search */
+.search-input {
+  width: 220px;
+  min-height: 28px;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--bg-1);
+  color: var(--text-1);
+  font: 400 var(--fs-12) / 1 var(--font-sans);
+}
+.search-input::placeholder { color: var(--text-3); }
+.search-input:hover { border-color: var(--text-4); }
+.search-input:focus-visible { outline: 2px solid var(--s-model); outline-offset: 1px; }
+@media (max-width: 640px) {
+  .search-input { flex: 1 1 100%; width: auto; }
+}
+
+/* --------------------------------------------------------------------- LEDG: status strip */
+#ledg .lazy-mount { margin-bottom: var(--sp-4); }
+.ledger-strip { overflow: visible; }
+.strip-cell { fill: var(--text-4); }
+.strip-cell.is-supported { fill: var(--text-1); }
+.strip-cell.is-survivor { fill: var(--text-1); stroke: var(--s-model); stroke-width: 1.5; }
+.strip-cell.is-inconclusive { fill: var(--text-3); }
+.strip-cell.is-not-supported { fill: var(--text-4); }
+.strip-cell.is-retracted { fill: var(--warn); }
+.strip-leader { stroke: var(--text-4); shape-rendering: crispEdges; }
+.strip-label { fill: var(--text-2); }
+.strip-count { fill: var(--text-1); font-weight: 600; }
+
+/* A label drawn over lines keeps a rim of the panel colour, so a crossing line never cuts it. */
+.svg-chart text.halo { paint-order: stroke; stroke: var(--bg-1); stroke-width: 6px; stroke-linejoin: round; }
+
+/* ----------------------------------------------------------------------- LEDG: table rows */
+/* A copy button's visually hidden status is absolutely positioned: a positioned parent keeps it
+   inside a table's scroll box, which would otherwise not clip it and the page would widen. */
+.ledger-id-row { position: relative; display: flex; align-items: center; gap: 2px; margin-top: 2px; }
+.ledger-id-row .ledger-id { margin-top: 0; }
+a.ledger-id { color: var(--text-3); text-decoration: none; }
+a.ledger-id:hover { color: var(--text-1); text-decoration: underline; text-decoration-color: var(--text-4); }
+/* The row's copy-link button shows with the row's hover or focus, and always on touch screens. */
+@media (hover: hover) {
+  .ledger-copy { opacity: 0; transition: opacity 120ms ease-out; }
+  .data-table tr:hover .ledger-copy,
+  .data-table tr:focus-within .ledger-copy,
+  .ledger-copy.is-done { opacity: 1; }
+}
+/* Columns that exist for the CSV export only. */
+.data-table th.csv-only,
+.data-table td.csv-only,
+.data-table.is-cards thead th.csv-only,
+.data-table.is-cards tbody td.csv-only { display: none; }
+/* A row reached by a #ledg-<id> link: an inset rule in the model colour for two seconds. */
+.data-table tr.is-target > * { background: var(--bg-2); box-shadow: inset 0 1px 0 var(--s-model), inset 0 -1px 0 var(--s-model); }
+.data-table tr.is-target > :first-child { box-shadow: inset 2px 0 0 var(--s-model), inset 0 1px 0 var(--s-model), inset 0 -1px 0 var(--s-model); padding-left: var(--sp-2); }
+@media (prefers-reduced-motion: no-preference) {
+  .data-table tr.is-target > * { animation: ledger-target 2s ease-out 1; }
+}
+@keyframes ledger-target {
+  from { background: color-mix(in srgb, var(--s-model) 22%, var(--bg-1)); }
+  to { background: var(--bg-2); }
+}
+.ledger-more { margin-top: var(--sp-3); }
+/* On a phone each hypothesis is a card: the claim on top, then one line per statistic. */
+@media (max-width: 640px) {
+  .data-table.is-cards .ledger-hypothesis { min-width: 0; max-width: none; }
+  .data-table.is-cards .status-cell { min-width: 0; }
+  .data-table.is-cards .stat-block { align-items: flex-end; }
+}
+
+/* ------------------------------------------------------------------------- METH: model card */
+.method-block > .study-title:first-child { margin-top: 0; }
+.method-block .study-title { margin-bottom: var(--sp-3); }
+.method-block .study-title:focus { outline: none; }
+.method-block .study-title:focus-visible { outline: 2px solid var(--s-model); outline-offset: 4px; }
+.model-card { columns: 2 380px; column-gap: var(--sp-8); }
+.card-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 9.5rem) minmax(0, 1fr);
+  gap: var(--sp-3);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule);
+  break-inside: avoid;
+  font-size: var(--fs-12);
+  line-height: 1.5;
+}
+.card-row dt { padding-top: 1px; color: var(--text-3); font-weight: 500; }
+.card-row dd { margin: 0; color: var(--text-2); }
+.card-row .chip-link { margin-left: 2px; vertical-align: 1px; }
+.model-equation { color: var(--text-1); white-space: normal; overflow-wrap: anywhere; }
+.card-note { display: block; color: var(--text-3); font-size: var(--fs-11); }
+.card-lines { margin: 4px 0 0; padding: 0; list-style: none; display: grid; gap: 3px; }
+.card-line-label { color: var(--text-3); }
+@media (max-width: 640px) {
+  .card-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
+
+/* ------------------------------------------------------------- METH: vintage, sources, refs */
+.vintage-artifact { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px var(--sp-2); }
+.hash-cell { position: relative; display: inline-flex; align-items: center; gap: 2px; }
+.reference-list li { scroll-margin-top: calc(var(--topbar-h) + var(--sp-8)); }
+.reference-list li:target { background: var(--bg-2); box-shadow: inset 2px 0 0 var(--s-model); padding-left: var(--sp-2); }
+.reference-list li:target > :first-child { color: var(--text-1); }
+.code-copy { display: flex; align-items: flex-start; gap: var(--sp-1); }
+.code-copy > .code-block { flex: 1; min-width: 0; }
+
+/* -------------------------------------------------------------- METH: cite, corrections, docs */
+.cite-text { margin-top: var(--sp-1); max-width: var(--measure); font-size: var(--fs-body); line-height: 1.55; color: var(--text-1); }
+.cite-text .copy-button { margin-left: 4px; vertical-align: -6px; }
+.appendix-block .code-copy { margin-top: var(--sp-3); }
+.appendix-block .code-block { white-space: pre-wrap; overflow-wrap: anywhere; }
+.cite-facts { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-6); margin-top: var(--sp-3); font-size: var(--fs-12); }
+.cite-facts > div { display: flex; align-items: center; gap: var(--sp-2); }
+.cite-facts dt { color: var(--text-3); }
+.cite-facts dd { display: inline-flex; align-items: center; gap: 2px; margin: 0; color: var(--text-1); }
+.corrections-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: var(--fs-12); line-height: 1.5; }
+.corrections-list li { position: relative; padding-left: var(--sp-3); color: var(--text-2); }
+.corrections-list li::before { content: "–"; position: absolute; left: 0; color: var(--text-4); }
+.link-list { display: flex; flex-wrap: wrap; gap: 0 var(--sp-4); margin-top: var(--sp-2); font-size: var(--fs-12); }
+.link-list a { display: inline-flex; align-items: center; min-height: 24px; }
+
+/* ----------------------------------------------------------------- LEAK: the purged run in ink */
+.swatch-ink { --c: var(--text-2); }
+.swatch-ink.is-dot { --c: var(--text-1); }
+
+/* ------------------------------------------------------------ STDY: interval glyph in the table */
+.peak-cell { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; }
+.interval-glyph { position: relative; display: inline-block; flex: none; width: 120px; height: 12px; }
+.ig-range { position: absolute; top: 5px; height: 2px; background: var(--text-4); }
+.ig-placebo { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed var(--text-2); }
+.ig-dot { position: absolute; top: 2px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: var(--text-3); }
+.ig-dot.is-strong { background: var(--text-1); }
+@media (max-width: 640px) {
+  .interval-glyph { width: 56px; }
+}
+@media (forced-colors: active) {
+  .ig-range, .ig-dot, .strip-cell { forced-color-adjust: none; }
+}
+
+/* ------------------------------------------------------------------------------------ print */
+@media print {
+  .hash { max-width: none; white-space: normal; overflow-wrap: anywhere; }
+  .footer-links, .ledger-more, .search-input { display: none !important; }
+  .data-table tr.is-target > * { animation: none; background: none; box-shadow: none; }
+}

@@ -8,7 +8,6 @@ export const getPriceChart = retryingLazy(() => import("./PriceChart.jsx"));
 
 const svg = () => import("./svgCharts.jsx");
 export const getConeChart = retryingLazy(svg, "ConeChart");
-export const getYearlySmallMultiples = retryingLazy(svg, "YearlySmallMultiples");
 export const getDmGridStrip = retryingLazy(svg, "DmGridStrip");
 export const getCoverageByYear = retryingLazy(svg, "CoverageByYear");
 export const getMzForest = retryingLazy(svg, "MzForest");
@@ -17,3 +16,14 @@ export const getEquityChart = retryingLazy(svg, "EquityChart");
 export const getPurgeDiagram = retryingLazy(svg, "PurgeDiagram");
 export const getSignAgreementLadder = retryingLazy(svg, "SignAgreementLadder");
 export const getLeakDumbbell = retryingLazy(svg, "LeakDumbbell");
+export const getLiveCalls = retryingLazy(() => import("./LiveCalls.jsx"));
+
+// STAB's yearly-gap and rolling-gap figures (they reuse the d3 chunk's frame and axes).
+const stability = () => import("./stabilityCharts.jsx");
+export const getYearlyGapRows = retryingLazy(stability, "YearlyGapRows");
+export const getRollingGap = retryingLazy(stability, "RollingGap");
+
+// LEDG's status strip and METH's elasticity path (they reuse the d3 chunk's frame and axes).
+const reference = () => import("./referenceCharts.jsx");
+export const getLedgerStrip = retryingLazy(reference, "LedgerStrip");
+export const getElasticityPath = retryingLazy(reference, "ElasticityPath");

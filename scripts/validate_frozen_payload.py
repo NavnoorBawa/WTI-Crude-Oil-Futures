@@ -39,6 +39,8 @@ LIVE_RECORD_COUNTS = ("n_recorded", "n_resolved", "n_pending", "n_skipped_roll",
                       "n_independent")
 LIVE_RECORD_STATUSES = ("pending", "resolved", "skipped_roll", "expired", "late_commit")
 PROMOTION_STATUSES = ("accruing", "promote", "keep")
+# The forecaster inputs a recent[] row repeats (vol_record._RECENT_INPUT_NUMBERS), in vol points.
+RECENT_INPUT_NUMBERS = ("ovx", "rv5_pct", "rv22_pct", "rv66_pct")
 # Resolved entries left out of the pinned pair's comparison, by reason (vol_record.promotion_exclusions).
 PROMOTION_EXCLUSIONS = ("n_excluded_other_version", "n_excluded_other_challenger", "n_excluded_no_challenger")
 PROMOTION_KEYS = ("status", "n_independent_paired", "required", "dm_stat", "p_value", "mean_qlike_difference",
@@ -317,6 +319,7 @@ def _validate_live_record(record: Any) -> list[str]:
             errors.append(f"vol_forecast.live_record.recent statuses must be one of {', '.join(LIVE_RECORD_STATUSES)}")
         if not all(_text(row.get("model_version")) for row in recent):
             errors.append("vol_forecast.live_record.recent model_version must be a non-empty string")
+        errors.extend(_validate_recent_audit_fields(recent))
     if "next_result_due" not in record:
         errors.append("vol_forecast.live_record.next_result_due is required (an ISO date or null)")
     elif record["next_result_due"] is not None and not _strict_iso_date(record["next_result_due"]):
@@ -326,6 +329,37 @@ def _validate_live_record(record: Any) -> list[str]:
     promotion_errors = _validate_promotion(record.get("promotion"))
     errors.extend(promotion_errors)
     errors.extend(_validate_comparison(record, check_promotion=not promotion_errors))
+    return errors
+
+
+def _validate_recent_audit_fields(recent: list[dict]) -> list[str]:
+    """The optional audit fields of recent[] rows (vol_record._recent), checked only when present.
+
+    Summaries written before these fields existed omit them; a row may also carry null for any of
+    them (an entry not sealed yet, or recorded before inputs were stored). When present, each must
+    be what the dashboard reads: timestamps with a UTC offset, an ISO date, a percentage, and an
+    inputs object of finite vol points with an ISO-dated OVX session.
+    """
+    where = "vol_forecast.live_record.recent"
+    errors: list[str] = []
+    for key in ("recorded_at", "sealed_at"):
+        if any(row.get(key) is not None and _parse_timestamp(row[key]) is None for row in recent):
+            errors.append(f"{where} {key} must be an ISO timestamp with a UTC offset, or null")
+    if any(row.get("base_session") is not None and not _strict_iso_date(row["base_session"]) for row in recent):
+        errors.append(f"{where} base_session must be an ISO date (YYYY-MM-DD), or null")
+    if any(row.get("prob_vol_rises_pct") is not None and not _percentage(row["prob_vol_rises_pct"]) for row in recent):
+        errors.append(f"{where} prob_vol_rises_pct must be a percentage, or null")
+    for row in recent:
+        inputs = row.get("inputs")
+        if inputs is None:
+            continue
+        if (not isinstance(inputs, dict)
+                or any(inputs.get(key) is not None and not _finite_number(inputs[key])
+                       for key in RECENT_INPUT_NUMBERS)
+                or (inputs.get("ovx_session") is not None and not _strict_iso_date(inputs["ovx_session"]))):
+            errors.append(f"{where} inputs must be an object of finite vol points ({', '.join(RECENT_INPUT_NUMBERS)}) "
+                          "and an ISO ovx_session, each possibly null, or null")
+            break
     return errors
 
 

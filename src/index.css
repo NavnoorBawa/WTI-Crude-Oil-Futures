@@ -10,7 +10,8 @@
 
 html {
   background: var(--bg-0);
-  scroll-padding-top: calc(var(--topbar-h) + 12px);
+  /* --topbar-total is the bar's measured height (TopBar writes it; 0 while the bar does not stick). */
+  scroll-padding-top: calc(var(--topbar-total, var(--topbar-h)) + 12px);
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
@@ -113,7 +114,8 @@ button { font: inherit; color: inherit; }
   padding: 0 var(--sp-6);
   display: flex;
   align-items: center;
-  gap: var(--sp-6);
+  --bar-gap: var(--sp-6);
+  gap: var(--bar-gap);
 }
 .brand {
   display: flex;
@@ -128,8 +130,12 @@ button { font: inherit; color: inherit; }
 .brand-mark-band { fill: var(--s-model); fill-opacity: 0.3; }
 .brand-mark-line { fill: none; stroke: var(--s-model); stroke-width: 1.5; stroke-linejoin: round; }
 
-.codenav { flex: 1; min-width: 0; height: 100%; }
-.codenav ul { display: flex; height: 100%; justify-content: center; }
+/* The strip scrolls sideways (no scrollbar; navigation.css fades the edge with more codes) only
+   when the codes do not fit; the list is centred with auto margins, so an overflow never runs
+   off the left edge where it could not be reached. */
+.codenav { flex: 1; min-width: 0; height: 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.codenav::-webkit-scrollbar { display: none; }
+.codenav ul { display: flex; height: 100%; width: max-content; margin: 0 auto; }
 .codenav a {
   display: flex;
   align-items: center;
@@ -144,6 +150,9 @@ button { font: inherit; color: inherit; }
   box-shadow: inset 0 -2px 0 transparent;
 }
 .codenav a:hover { color: var(--text-1); }
+/* Every section crossing the mid-viewport band is underlined (both halves of a paired row); the
+   current one (aria-current) also gets the brightest text. */
+.codenav a.is-inview { color: var(--text-2); box-shadow: inset 0 -2px 0 var(--s-model); }
 .codenav a[aria-current="location"] { color: var(--text-1); box-shadow: inset 0 -2px 0 var(--s-model); }
 .codenav a:focus-visible { outline-offset: -2px; }
 
@@ -162,6 +171,7 @@ button { font: inherit; color: inherit; }
 .snapshot-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
 .snapshot-chip.is-stale { color: var(--warn); }
 .snapshot-chip.is-stale .snapshot-dot { background: var(--warn); }
+.snapshot-old { display: none; }
 
 /* ------------------------------------------------------------------------------------ notices */
 .notice {
@@ -223,7 +233,8 @@ button { font: inherit; color: inherit; }
   background: var(--rule);
   border: 1px solid var(--rule);
 }
-.verdict-hero { grid-column: span 5; background: var(--bg-1); padding: var(--sp-5) var(--sp-6); min-width: 0; }
+/* The hero spans the row: the call, its facts and notes, its arithmetic (verdict-lede.css lays out the three). */
+.verdict-hero { grid-column: 1 / -1; background: var(--bg-1); padding: var(--sp-5) var(--sp-6); min-width: 0; }
 .verdict-label { display: block; }
 .hero-row { display: flex; align-items: flex-end; gap: var(--sp-5); margin-top: var(--sp-2); }
 .hero-value {
@@ -239,7 +250,7 @@ button { font: inherit; color: inherit; }
 .hero-interval { font-size: var(--fs-14); color: var(--text-2); margin-top: 2px; }
 .hero-interval b { color: var(--text-1); font-weight: 600; }
 
-.rangebar { position: relative; margin: var(--sp-5) 0 var(--sp-6); }
+.rangebar { position: relative; margin: var(--sp-4) 0 var(--sp-2); }
 .rb-track { position: relative; height: 8px; background: var(--bg-2); }
 .rb-band {
   position: absolute;
@@ -256,7 +267,7 @@ button { font: inherit; color: inherit; }
 .rb-ends { position: relative; height: 14px; margin-top: 4px; font-family: var(--font-mono); font-size: var(--fs-11); color: var(--text-3); }
 .rb-ends span { position: absolute; transform: translateX(-50%); }
 
-.hero-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-3) var(--sp-4); }
+.hero-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4) var(--sp-5); }
 .hero-sub .swatch { margin-right: 6px; }
 /* Labels keep their case: forced capitals would turn notation (VaR, p, t, n) into VAR, P, T, N. */
 .fact dt {
@@ -270,10 +281,9 @@ button { font: inherit; color: inherit; }
 }
 .fact dd { font-size: var(--fs-14); color: var(--text-1); margin-top: 2px; }
 .fact-note { display: block; font-size: var(--fs-11); color: var(--text-3); margin-top: 1px; }
-.accent-model { color: var(--s-model); font-weight: 600; }
-.fact--minor dd { color: var(--text-2); }
+/* The model line closes its column at the bottom, level with the end of the other two. */
 .hero-model {
-  margin-top: var(--sp-4);
+  margin-top: auto;
   padding-top: var(--sp-3);
   border-top: 1px solid var(--rule);
   font-size: var(--fs-12);
@@ -287,15 +297,17 @@ button { font: inherit; color: inherit; }
   gap: 1px;
   background: var(--rule);
 }
-.kpi { background: var(--bg-1); padding: var(--sp-4) var(--sp-5); min-width: 0; display: flex; flex-direction: column; }
-.kpi-label { font-size: var(--fs-11); letter-spacing: var(--tracking-micro); text-transform: uppercase; color: var(--text-3); line-height: 16px; }
+/* A flex column per tile; src/styles/verdict-tiles.css lines the five rows up across tiles with subgrid. */
+.kpi { position: relative; background: var(--bg-1); padding: var(--sp-4) var(--sp-5); min-width: 0; display: flex; flex-direction: column; }
+/* Sentence case, no tracking: forced capitals would turn notation (VaR, QLIKE, p) into VAR, P. */
+.kpi-label { font-size: var(--fs-12); font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text-3); line-height: 16px; }
 .kpi-link { color: inherit; text-decoration: none; }
 .kpi-link:hover { color: var(--text-1); text-decoration: underline; }
 .kpi-value { font-size: var(--fs-28); line-height: 1.1; font-weight: 500; letter-spacing: -0.01em; color: var(--text-1); margin-top: var(--sp-2); }
 .kpi-unit { font-size: var(--fs-12); font-weight: 400; color: var(--text-3); margin-left: 6px; letter-spacing: 0; }
-.kpi-base { font-size: var(--fs-12); color: var(--text-2); margin-top: var(--sp-1); }
+.kpi-base { font-size: var(--fs-12); color: var(--text-2); margin-top: var(--sp-1); line-height: 1.45; }
 .kpi-base b { color: var(--text-1); font-weight: 500; }
-.kpi-foot { font-family: var(--font-mono); font-size: var(--fs-11); color: var(--text-3); margin-top: auto; padding-top: var(--sp-2); line-height: 1.4; }
+.kpi-foot { font-size: var(--fs-12); color: var(--text-3); margin-top: auto; padding-top: var(--sp-2); line-height: 1.45; }
 
 /* -------------------------------------------------------------------- retracted + market line */
 .strip-row {
@@ -469,7 +481,8 @@ button { font: inherit; color: inherit; }
   max-width: var(--measure);
 }
 .callout .chip { flex: none; }
-.rule-note { display: flex; flex-wrap: wrap; gap: 4px var(--sp-3); margin-top: var(--sp-4); max-width: 120ch; font-size: var(--fs-12); color: var(--text-2); line-height: 1.5; }
+/* A block of prose: inline code identifiers and the text after them flow on the same line. */
+.rule-note { display: block; margin-top: var(--sp-4); max-width: var(--measure); font-size: var(--fs-body); color: var(--text-2); line-height: 1.55; }
 
 .figure-empty {
   display: grid;
@@ -603,17 +616,22 @@ button { font: inherit; color: inherit; }
 .stat-cell { display: inline-flex; align-items: baseline; gap: 6px; }
 .stat-cell.is-stacked { flex-direction: column; align-items: flex-end; gap: 0; }
 .stat-range { font-size: var(--fs-11); color: var(--text-3); }
-.inline-bar { display: flex; align-items: center; gap: var(--sp-2); min-width: 150px; }
-.bar-track { flex: 1; min-width: 60px; height: 6px; background: var(--bg-2); }
-.bar-fill { display: block; height: 100%; background: var(--text-4); }
-tr.is-in-set .bar-fill { background: var(--text-2); }
-tr.is-record .bar-fill { background: var(--s-model); }
-tr.is-challenger .bar-fill { background: var(--s-alt); }
+/* QLIKE strip (MODL): a 7px dot on a 1px rule, on one scale for every row with no zero baseline
+   (lib/comparison.js qlikeScale); a value beyond the scale is a "›" at the track's end. */
+.inline-bar { display: flex; align-items: center; gap: var(--sp-3); min-width: 168px; }
+.bar-track { position: relative; display: flex; align-items: center; justify-content: flex-end; flex: 1; min-width: 96px; height: 9px; }
+.bar-track::before { content: ""; position: absolute; left: 0; right: 0; top: 4px; height: 1px; background: var(--rule-strong); }
+.bar-dot { position: absolute; top: 1px; width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%; background: var(--text-3); }
+.bar-dot.is-member { background: var(--text-1); }
+.bar-dot.is-record { background: var(--s-model); }
+.bar-dot.is-challenger { background: var(--s-alt); }
+.bar-off { position: relative; margin-right: -2px; font-size: var(--fs-14); line-height: 9px; color: var(--text-2); }
 
 .grid-dots { display: inline-flex; align-items: center; gap: 3px; }
 .grid-dots .dot { width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--text-4); }
 .grid-dots .dot.is-on { background: var(--text-2); border-color: var(--text-2); }
 tr.is-record .grid-dots .dot.is-on { background: var(--s-model); border-color: var(--s-model); }
+tr.is-challenger .grid-dots .dot.is-on { background: var(--s-alt); border-color: var(--s-alt); }
 .grid-count { margin-left: 6px; color: var(--text-3); font-size: var(--fs-11); }
 
 .pass-meter { display: inline-flex; align-items: center; gap: 2px; }
@@ -623,7 +641,17 @@ tr.is-record .grid-dots .dot.is-on { background: var(--s-model); border-color: v
 .pass-meter .num { margin-left: 6px; font-size: var(--fs-11); color: var(--text-3); }
 .pass-meter.is-zero .num { color: var(--neg); }
 
-.hash { color: var(--text-2); }
+/* A digest is printed in full (selecting or copying it gets all 64 characters) and cut on screen. */
+.hash {
+  display: inline-block;
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  user-select: all;
+  color: var(--text-2);
+}
 
 .table-scroll.is-tall { max-height: max(360px, calc(100vh - var(--topbar-h) - 160px)); overflow-y: auto; }
 .table-scroll.is-tall thead th { position: sticky; top: 0; z-index: 2; background: var(--bg-1); }
@@ -694,10 +722,13 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 
 /* -------------------------------------------------------------------------- canvas charts */
 .lw-figure { position: relative; min-width: 0; }
+/* The legend row: the reading and, at its right end, the tap hint or "Reset view" (on a line of their
+   own once the reading needs the full width, as on a phone). */
 .chart-legend {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 4px var(--sp-4);
   min-height: 20px;
   margin-bottom: var(--sp-2);
@@ -705,6 +736,7 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
   font-size: var(--fs-11);
   color: var(--text-2);
 }
+.legend-readout { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--sp-4); min-width: 0; min-height: 20px; }
 .legend-date { color: var(--text-1); }
 .legend-status.is-var99 { color: var(--neg); }
 .legend-status.is-var95 { color: var(--warn); }
@@ -818,6 +850,23 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 .footer-provenance code { color: var(--text-2); }
 .footer-disclaimer { color: var(--text-2); }
 .footer-credits { max-width: 120ch; line-height: 1.5; }
+/* Every footer link is at least a 24px target: block links by their height, links in running text
+   by vertical padding (which does not move the lines). */
+.site-footer a { padding-block: 4px; }
+.footer-provenance a, .footer-links a { display: inline-flex; align-items: center; min-height: 24px; padding-block: 0; }
+.footer-links { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-4); }
+.footer-links ul { margin: 0; padding: 0; list-style: none; }
+.footer-print {
+  min-height: 24px;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+}
+.footer-print:hover { color: var(--text-1); border-color: var(--text-4); }
 
 /* ------------------------------------------------------------------------------ status screens */
 /* Fills the viewport below the bar, so the footer starts below the fold while loading and nothing
@@ -832,7 +881,7 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 
 /* --------------------------------------------------------------------------------- responsive */
 @media (max-width: 1240px) {
-  .topbar-inner { gap: var(--sp-4); }
+  .topbar-inner { --bar-gap: var(--sp-4); }
   .codenav a { padding: 0 6px; }
 }
 
@@ -841,13 +890,12 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 }
 
 @media (max-width: 960px) {
-  html { scroll-padding-top: calc(var(--topbar-h) + 40px + 12px); }
+  html { scroll-padding-top: calc(var(--topbar-total, calc(var(--topbar-h) + 40px)) + 12px); }
   .topbar-inner { flex-wrap: wrap; height: auto; padding: 0; gap: 0; }
   .brand { height: var(--topbar-h); padding: 0 var(--sp-4); flex: 1; }
   .topbar-right { height: var(--topbar-h); padding: 0 var(--sp-4); }
-  .codenav { order: 3; flex: 1 0 100%; height: 40px; border-top: 1px solid var(--rule); overflow-x: auto; scrollbar-width: none; }
-  .codenav::-webkit-scrollbar { display: none; }
-  .codenav ul { justify-content: flex-start; padding: 0 var(--sp-2); width: max-content; }
+  .codenav { order: 3; flex: 1 0 100%; height: 40px; border-top: 1px solid var(--rule); }
+  .codenav ul { margin: 0; padding: 0 var(--sp-2); }
   .codenav a { padding: 0 10px; min-width: 44px; justify-content: center; }
   .status-screen { min-height: calc(100svh - var(--topbar-h) - 41px); }
   .main { padding: 0 var(--sp-4) var(--sp-8); }
@@ -880,7 +928,9 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
   .app > .notice { width: 100%; }
   .brand-title { font-size: var(--fs-13); }
   .snapshot-chip { font-size: var(--fs-11); }
-  .snapshot-word { display: none; }
+  /* "3h old": the short age keeps its word. */
+  .snapshot-word, .snapshot-rest { display: none; }
+  .snapshot-old { display: inline; }
   .brand, .topbar-right { padding: 0 var(--sp-3); }
   .topbar-right { gap: var(--sp-2); }
   .site-footer-inner { padding: var(--sp-4) var(--sp-4) var(--sp-6); }

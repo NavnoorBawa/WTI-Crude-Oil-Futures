@@ -73,7 +73,9 @@ test("every Table button says which section it shows, and no two share a name", 
   const { html } = renderDashboard(research);
   const names = [...html.matchAll(/<button type="button" class="toggle-button"[^>]*>([\s\S]*?)<\/button>/g)].map((match) => visibleText(match[1]).replace(/\s+/g, " ").trim());
   assert.ok(names.length >= 8, `${names.length} table buttons`);
-  for (const name of names) assert.match(name, /^Table view of \S/, name);
+  // "Table", or a panel's own tableLabel (MODL's "By grid": its figure is already a table; MKT's
+  // "Closes"), then the section it shows.
+  for (const name of names) assert.match(name, /^(?:Table|By grid|Closes) view of \S/, name);
   assert.equal(new Set(names).size, names.length, `duplicate names: ${names.join(" | ")}`);
   const fcst = SECTIONS.find((item) => item.id === "fcst");
   assert.ok(names.includes(`Table view of ${fcst.name}`));
@@ -274,6 +276,22 @@ test("only reserved view keys are read from the URL, so a crafted link cannot pi
   assert.equal(params.fcst, "all");
   assert.equal(Object.getPrototypeOf(params), Object.prototype, "the prototype is untouched");
   assert.equal({}.x, undefined, "nothing leaks onto Object.prototype");
+});
+
+test("every view key a panel reads is a reserved key, so its link survives parsing", async () => {
+  const { readdir, readFile } = await import("node:fs/promises");
+  const root = new URL("../../src/", import.meta.url);
+  const files = (await readdir(root, { recursive: true })).filter((name) => /\.jsx?$/.test(name));
+  const keys = new Set();
+  for (const name of files) {
+    const text = await readFile(new URL(name, root), "utf8");
+    for (const match of text.matchAll(/\buseView(?:Param|List)\(\s*"([^"]+)"/g)) keys.add(match[1]);
+  }
+  assert.ok(keys.has("ledg") && keys.has("fcst"), [...keys].join(", "));
+  for (const key of keys) {
+    assert.ok(Object.hasOwn(view.VIEW_DEFAULTS, key), `${key} is read by a panel but not reserved`);
+    assert.deepEqual(Object.keys(view.parseViewParams(`?${key}=x`)), [key]);
+  }
 });
 
 // ---------------------------------------------------------------------------------- formats

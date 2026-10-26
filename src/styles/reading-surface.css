@@ -88,7 +88,7 @@
    their own colours; area keys and the interval band get a system-colour edge so they read on a
    light or a dark contrast theme. Line, dash and ring keys are already their own stroke. */
 @media (forced-colors: active) {
-  .swatch, .rb-band, .rb-mark, .rb-tail, .bar-track, .bar-fill,
+  .swatch, .rb-band, .rb-mark, .rb-tail, .bar-track, .bar-dot,
   .grid-dots .dot, .pass-meter i, .snapshot-dot { forced-color-adjust: none; }
   .rb-band,
   .swatch:is(.is-band, .is-dot, .is-diamond, .swatch-band, .swatch-bar) { border: 1px solid CanvasText; }

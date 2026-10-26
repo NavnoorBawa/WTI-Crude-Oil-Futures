@@ -64,6 +64,13 @@ export async function loadDashboard() {
 }
 
 /** The visible text of server-rendered markup: every character outside a tag, whitespace collapsed. */
+/** A string as a literal inside a RegExp: every metacharacter, the backslash included, escaped. */
+export const escapeRegExp = (text) => String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Decodes the five entities React escapes; &amp; goes last so "&amp;lt;" stays the text "&lt;". */
+export const decodeEntities = (text) => text
+  .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#x27;/g, "'").replace(/&amp;/g, "&");
+
 export const visibleText = (html) => {
   let visible = "";
   let inTag = false;
@@ -72,7 +79,5 @@ export const visibleText = (html) => {
     else if (character === ">") { inTag = false; visible += " "; }
     else if (!inTag) visible += character;
   }
-  return visible
-    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#x27;/g, "'")
-    .replace(/\s+/g, " ");
+  return decodeEntities(visible).replace(/\s+/g, " ");
 };

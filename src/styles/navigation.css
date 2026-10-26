@@ -1,1 +1,355 @@
 /* navigation: styles owned by the navigation work package. Loaded after index.css, in package order. */
+
+/* ------------------------------------------------------------------------- code bar: groups */
+/* A short rule and a little air before the first code of each group (evidence | market context |
+   integrity | reference). */
+.codenav li.group-start { position: relative; margin-left: var(--sp-2); padding-left: var(--sp-2); }
+.codenav li.group-start::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 0;
+  height: 16px;
+  margin-top: -8px;
+  border-left: 1px solid var(--rule-strong); /* a border, so high-contrast modes keep it */
+}
+
+/* Until the dashboard is on screen the strip keeps its space but holds no links. */
+.codenav.is-reserved { pointer-events: none; }
+
+/* ------------------------------------------------------------------- breadcrumb (wide only) */
+.brand-section { display: none; }
+@media (min-width: 1100px) {
+  .brand-section {
+    display: block;
+    flex: none;
+    width: 152px;
+    margin-left: calc(var(--sp-2) - var(--bar-gap, var(--sp-6)));
+    font-size: var(--fs-12);
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+/* ------------------------------------------------------------------------------- Jump button */
+.jump-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 4px 0 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-12);
+  cursor: pointer;
+}
+.jump-button:hover { color: var(--text-1); border-color: var(--text-4); }
+.jump-button.is-reserved { visibility: hidden; }
+.jump-key,
+.palette kbd {
+  display: inline-block;
+  min-width: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--bg-0);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: 16px;
+  text-align: center;
+}
+
+/* --------------------------------------------------------------------------------- the palette */
+.palette {
+  width: min(640px, calc(100vw - 32px));
+  max-width: none;
+  max-height: min(560px, calc(100dvh - 15vh - 16px));
+  margin: 12vh auto auto;
+  padding: 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  background: var(--bg-1);
+  color: var(--text-1);
+  overflow: hidden;
+}
+.palette[open] { display: flex; flex-direction: column; }
+/* A literal: older browsers do not pass custom properties to ::backdrop. The colour is --bg-0. */
+.palette::backdrop { background: rgb(10 12 16 / 0.78); }
+.palette-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+.palette-search {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-2) 0 var(--sp-4);
+  border-bottom: 1px solid var(--rule);
+}
+.palette-search:focus-within { box-shadow: inset 0 -1px 0 var(--s-model); }
+.palette-glyph { flex: none; fill: none; stroke: var(--text-3); stroke-width: 1.5; stroke-linecap: round; }
+.palette-input {
+  flex: 1;
+  min-width: 0;
+  height: 52px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-16);
+}
+.palette-input::placeholder { color: var(--text-3); }
+.palette-input:focus, .palette-input:focus-visible { outline: none; }
+.palette-close {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 var(--sp-2);
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  cursor: pointer;
+}
+.palette-close:hover { color: var(--text-1); }
+.palette-close-word { display: none; }
+/* Touch screens have no Esc key: the button says what it does. */
+@media (pointer: coarse) {
+  .palette-close { font-family: var(--font-sans); font-size: var(--fs-13); color: var(--text-2); }
+  .palette-close-key { display: none; }
+  .palette-close-word { display: inline; }
+}
+
+.palette-list { position: relative; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: var(--sp-1) 0 var(--sp-2); }
+.palette-group + .palette-group { margin-top: var(--sp-1); }
+.palette-group-label {
+  padding: var(--sp-2) var(--sp-4) var(--sp-1);
+  font-size: var(--fs-11);
+  line-height: 16px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--text-3);
+}
+.palette-option {
+  display: grid;
+  gap: 2px;
+  min-height: 44px;
+  align-content: center;
+  padding: 6px var(--sp-4) 6px calc(var(--sp-4) - 2px);
+  border-left: 2px solid transparent;
+  cursor: pointer;
+}
+.palette-option.is-active { background: var(--bg-2); border-left-color: var(--s-model); }
+.palette-option-main { display: flex; align-items: baseline; gap: var(--sp-2); min-width: 0; }
+.palette-option-main .chip { flex: none; align-self: center; }
+.palette-label { min-width: 0; font-size: var(--fs-13); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kind-hypothesis .palette-label { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.palette-mono { color: var(--text-2); }
+.palette-current {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  font-size: var(--fs-11);
+  line-height: 16px;
+  color: var(--text-2);
+}
+.palette-detail {
+  font-size: var(--fs-12);
+  line-height: 1.4;
+  color: var(--text-3);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+}
+.kind-term .palette-detail { -webkit-line-clamp: 2; line-clamp: 2; }
+.palette-list:empty { display: none; }
+.palette-empty { flex: 1; padding: var(--sp-4); font-size: var(--fs-13); color: var(--text-2); max-width: var(--measure); }
+
+.palette-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-2) 0 var(--sp-4);
+  border-top: 1px solid var(--rule);
+  min-height: 36px;
+}
+.palette-status { font-size: var(--fs-12); color: var(--text-3); min-width: 0; }
+.palette-text-button {
+  flex: none;
+  min-height: 32px;
+  padding: 0 var(--sp-2);
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-12);
+  text-decoration: underline;
+  text-decoration-color: var(--text-4);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.palette-text-button:hover { color: var(--text-1); }
+
+/* The shortcuts view */
+.palette-shortcuts { overflow-y: auto; padding: var(--sp-4) var(--sp-4) var(--sp-5); }
+.palette-shortcuts-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.palette-title { font-size: var(--fs-16); font-weight: 600; }
+.palette-subtitle { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-12); font-weight: 500; color: var(--text-3); }
+.palette-switch-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-3); margin-top: var(--sp-4); }
+.palette-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 36px;
+  padding: 0 var(--sp-2) 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-1);
+  font-size: var(--fs-13);
+  cursor: pointer;
+}
+.palette-switch-track {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  border: 1px solid var(--text-4);
+  border-radius: 8px;
+  background: var(--bg-0);
+}
+.palette-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-3);
+  transition: transform 0.12s ease;
+}
+.palette-switch[aria-checked="true"] .palette-switch-track { border-color: var(--s-model); background: color-mix(in srgb, var(--s-model) 25%, transparent); }
+.palette-switch[aria-checked="true"] .palette-switch-thumb { transform: translateX(12px); background: var(--text-1); }
+.palette-switch-note { font-size: var(--fs-12); color: var(--text-3); }
+.palette-keys { display: grid; gap: var(--sp-1); }
+.palette-keys > div { display: grid; grid-template-columns: minmax(0, 168px) minmax(0, 1fr); gap: var(--sp-3); align-items: baseline; }
+.palette-keys dt { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--sp-1); }
+.palette-keys dd { margin: 0; font-size: var(--fs-13); color: var(--text-2); }
+.palette-keys.is-off dd { color: var(--text-3); text-decoration: line-through; text-decoration-color: var(--text-4); }
+.palette-keys.is-off > div:first-child dd { text-decoration: none; color: var(--text-2); }
+.palette-key { display: inline-flex; align-items: baseline; gap: var(--sp-1); }
+.palette-or { font-size: var(--fs-11); color: var(--text-3); }
+
+/* -------------------------------------------------------------------------------- confirmations */
+.nav-toast {
+  position: fixed;
+  left: 50%;
+  bottom: var(--sp-6);
+  z-index: 40;
+  max-width: calc(100vw - 32px);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  background: var(--bg-2);
+  color: var(--text-1);
+  font-size: var(--fs-13);
+  transform: translateX(-50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.nav-toast[data-shown] { opacity: 1; }
+
+/* --------------------------------------------------------------------- a strip that scrolls */
+/* When the codes do not fit (phones, large text), fade whichever edge has more codes beyond it.
+   TopBar sets the attributes only while the strip overflows. */
+.codenav[data-more-right] {
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+}
+.codenav[data-more-left] {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px);
+  mask-image: linear-gradient(90deg, transparent, #000 32px);
+}
+.codenav[data-more-left][data-more-right] {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+}
+
+/* ------------------------------------------------------------------- narrower one-row bars */
+/* 961-1360px: the thirteen codes share the row with the brand, so the right side goes compact
+   ("4h old", no key hint) and the groups sit closer. */
+@media (min-width: 961px) and (max-width: 1360px) {
+  .snapshot-word, .snapshot-rest, .jump-key { display: none; }
+  .snapshot-old { display: inline; }
+  .jump-button { padding: 0 var(--sp-2); }
+  .topbar-inner { --bar-gap: var(--sp-3); }
+  .brand-section { width: 136px; }
+  .codenav li.group-start { margin-left: var(--sp-1); padding-left: var(--sp-1); }
+  .codenav a { padding: 0 var(--sp-1); }
+}
+
+/* ------------------------------------------------------------------------ phones and short views */
+@media (max-width: 960px) {
+  .codenav li.group-start { margin-left: var(--sp-1); padding-left: var(--sp-1); }
+}
+
+@media (max-width: 640px) {
+  /* A 44px target around a smaller-looking button; the "/" key hint is for keyboards. */
+  .jump-button { height: 32px; padding: 0 var(--sp-3); }
+  .jump-button::before { content: ""; position: absolute; inset: -6px -2px; }
+  .jump-key { display: none; }
+  .palette { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); margin-top: 8px; }
+  .palette-keys > div { grid-template-columns: minmax(0, 120px) minmax(0, 1fr); }
+}
+
+/* Phones: brand, snapshot age and Jump fill the first row; the GitHub link stays in the footer
+   and in the palette ("Source on GitHub"). */
+@media (max-width: 480px) {
+  .topbar-link { display: none; }
+}
+
+/* At 320-360px the brand keeps its mark (the link keeps its name), so the bar stays two rows. */
+@media (max-width: 360px) {
+  .brand-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}
+
+/* Landscape phones and 400% zoom: the bar scrolls away with the page instead of covering it. */
+@media (max-height: 480px) {
+  .topbar { position: static; }
+  html { scroll-padding-top: 12px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-toast, .palette-switch-thumb { transition: none; }
+}
+
+/* Windows high contrast drops box-shadows and backgrounds: the current code, the active result
+   and the switch keep a mark drawn in system colours. */
+@media (forced-colors: active) {
+  .codenav a.is-inview, .codenav a[aria-current="location"] { text-decoration: underline 2px; text-underline-offset: 6px; }
+  .palette-option.is-active { outline: 2px solid Highlight; outline-offset: -2px; }
+  .palette-switch-thumb { forced-color-adjust: none; background: CanvasText; }
+  .palette-switch[aria-checked="true"] .palette-switch-track { forced-color-adjust: none; background: Highlight; border-color: Highlight; }
+  .palette-switch[aria-checked="true"] .palette-switch-thumb { background: HighlightText; }
+}
+
+@media print {
+  .nav-toast, .brand-section, .jump-button { display: none !important; }
+}

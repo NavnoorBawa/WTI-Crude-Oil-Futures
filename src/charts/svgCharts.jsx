@@ -4,12 +4,12 @@
 import { scaleLinear, scaleLog, scaleUtc } from "d3-scale";
 import { area, line } from "d3-shape";
 import useMeasure from "../lib/useMeasure";
-import { fmtNum, fmtSigned, fmtSignedUsd } from "../lib/format";
+import { fmtDate, fmtNum, fmtSigned, fmtSignedUsd, fmtSpan } from "../lib/format";
 
 const MARGIN = { top: 12, right: 16, bottom: 26, left: 44 };
 
 /** A chart frame that measures its container and renders `draw(width)` once the width is known. */
-function Frame({ height, className = "", draw }) {
+export function Frame({ height, className = "", draw }) {
   const [ref, width] = useMeasure();
   return (
     <div ref={ref} className={`svg-frame ${className}`} style={{ minHeight: height }}>
@@ -18,7 +18,7 @@ function Frame({ height, className = "", draw }) {
   );
 }
 
-function YAxis({ scale, ticks, format, left, right }) {
+export function YAxis({ scale, ticks, format, left, right }) {
   return (
     <g className="axis axis-y">
       {ticks.map((tick) => (
@@ -31,7 +31,7 @@ function YAxis({ scale, ticks, format, left, right }) {
   );
 }
 
-function XAxis({ scale, ticks, format, y, anchor = "middle" }) {
+export function XAxis({ scale, ticks, format, y, anchor = "middle" }) {
   return (
     <g className="axis axis-x" transform={`translate(0,${y})`}>
       {ticks.map((tick, index) => (
@@ -41,7 +41,7 @@ function XAxis({ scale, ticks, format, y, anchor = "middle" }) {
   );
 }
 
-const extent = (values) => {
+export const extent = (values) => {
   const finite = values.filter((value) => Number.isFinite(value));
   return finite.length ? [Math.min(...finite), Math.max(...finite)] : [0, 1];
 };
@@ -111,122 +111,97 @@ export const spreadLabels = (items, gap = 12) => {
 
 // --------------------------------------------------------------------------------------- CONE
 
+// Below this plot width the cone keeps only its key window labels (see ConeChart).
+const CONE_THIN_TICKS_PX = 260;
+const CONE_TICK_HALF = 8;
+
 /**
- * Realized-volatility cone: p5-p95 and p25-p75 bands and the median by window length, the latest
- * realized vol per window, OVX as a dashed level and the live forecast at the 5-session window.
+ * Realized-volatility cone: the p5–p95 and p25–p75 bands of each window's history (with 3:1 edges)
+ * and the median, by window length on a log axis. Marks follow the page-wide rule: a tick is
+ * realized vol (solid for the latest date, open for an older one), a diamond is OVX (at its own
+ * horizon, on a dashed level) and a dot is the forecast (at its horizon, the first window by
+ * default). Every mark has a <title>. Below CONE_THIN_TICKS_PX of plot width only the first, last
+ * and `keyWindows` labels stay.
  *
- * @param {{windows: {window:number,p5:number,p25:number,p50:number,p75:number,p95:number,latest:number}[],
- *   implied: number|null, impliedLabel?: string|null, forecast: number|null}} props
+ * @param {{windows: {window:number,p5:number,p25:number,p50:number,p75:number,p95:number}[],
+ *   marks?: {window:number, value:number, open?:boolean, title:string}[],
+ *   ovx?: {value:number, horizon?:number|null, title:string}|null,
+ *   forecast?: {value:number, window?:number|null, title:string}|null, keyWindows?: number[], summary?: string}} props
  */
-export function ConeChart({ windows, implied = null, impliedLabel = null, forecast = null }) {
+export function ConeChart({ windows, marks = [], ovx = null, forecast = null, keyWindows = [], summary = null }) {
   const height = 300;
   const rows = windows.filter((row) => [row.window, row.p5, row.p95].every(Number.isFinite));
+  const shown = marks.filter((mark) => Number.isFinite(mark.window) && Number.isFinite(mark.value));
   return (
     <Frame
       height={height}
       draw={(width) => {
-        // Room right of the cone for the percentile and OVX labels.
-        const m = { ...MARGIN, right: Math.max(68, Math.ceil((impliedLabel ?? "").length * MONO_CHAR_PX) + 14) };
+        const first = rows[0];
+        const last = rows[rows.length - 1];
+        if (!first) return null;
+        // Room right of the cone for the percentile labels and "OVX 55.6" (the date is in the legend).
+        const ovxText = ovx ? `OVX ${fmtNum(ovx.value, 1)}` : "";
+        const m = { ...MARGIN, right: Math.ceil(Math.max(3, ovxText.length) * MONO_CHAR_PX) + 14 };
         const x = scaleLog().domain(extent(rows.map((row) => row.window))).range([m.left + 8, width - m.right - 8]);
-        const top = Math.max(...rows.map((row) => Math.max(row.p95, row.latest ?? 0)), implied ?? 0, forecast ?? 0);
+        const plotWidth = x.range()[1] - x.range()[0];
+        const top = Math.max(...rows.map((row) => row.p95), ...shown.map((mark) => mark.value), ovx?.value ?? 0, forecast?.value ?? 0);
         const y = scaleLinear().domain([0, top * 1.08]).nice().range([height - m.bottom, m.top]);
         const band = (lo, hi) => area().x((row) => x(row.window)).y0((row) => y(row[lo])).y1((row) => y(row[hi]))(rows);
         const path = (key) => line().x((row) => x(row.window)).y((row) => y(row[key])).defined((row) => Number.isFinite(row[key]))(rows);
-        const last = rows[rows.length - 1];
-        const first = rows[0];
+        const keep = new Set([first.window, last.window, ...keyWindows]);
+        const ticks = rows.map((row) => row.window).filter((window) => plotWidth >= CONE_THIN_TICKS_PX || keep.has(window));
+        const span = `${first.window}- to ${last.window}-day`;
+        const ovxX = ovx?.horizon != null && ovx.horizon >= first.window && ovx.horizon <= last.window ? x(ovx.horizon) : null;
+        // The forecast dot sits at its horizon (the first window by default); its label sits right of
+        // it and steps off the OVX level when the two are close.
+        const fx = x(Math.min(last.window, Math.max(first.window, forecast?.window ?? first.window)));
+        const fy = forecast ? y(forecast.value) : null;
+        const oy = ovx ? y(ovx.value) : null;
+        const labelY = fy == null ? null : oy != null && Math.abs(fy - oy) < 10 ? (fy >= oy ? oy + 11 : oy - 11) : fy;
         return (
           <svg width={width} height={height} className="svg-chart" role="img"
-            aria-label={`Volatility cone over ${rows.length} windows from ${first?.window} to ${last?.window} trading days`}>
+            aria-label={summary ?? `Volatility cone over ${rows.length} windows from ${first.window} to ${last.window} trading days`}>
             <YAxis scale={y} ticks={y.ticks(5)} format={(t) => `${t}%`} left={m.left} right={width - m.right} />
-            <path d={band("p5", "p95")} className="fill-cone-outer" />
-            <path d={band("p25", "p75")} className="fill-cone-inner" />
-            <path d={path("p50")} className="stroke-median" fill="none" />
-            {implied != null && (
-              <line className="stroke-implied dashed" x1={m.left} x2={x(last.window)} y1={y(implied)} y2={y(implied)} />
-            )}
-            <path d={path("latest")} className="stroke-truth" fill="none" />
-            {rows.map((row) => Number.isFinite(row.latest) && (
-              <circle key={row.window} cx={x(row.window)} cy={y(row.latest)} r={3.5} className="fill-truth" />
-            ))}
-            {forecast != null && first && (
+            <path d={band("p5", "p95")} className="fill-cone-outer"><title>{`5th–95th percentile of ${span} realized vol`}</title></path>
+            <path d={band("p25", "p75")} className="fill-cone-inner"><title>{`25th–75th percentile of ${span} realized vol`}</title></path>
+            {["p5", "p25", "p75", "p95"].map((key) => <path key={key} d={path(key)} className="stroke-cone-edge" />)}
+            <path d={path("p50")} className="stroke-median" fill="none"><title>{`Median of ${span} realized vol`}</title></path>
+            {ovx && (
               <g>
-                <rect x={x(first.window) - 4.5} y={y(forecast) - 4.5} width={9} height={9}
-                  transform={`rotate(45 ${x(first.window)} ${y(forecast)})`} className="fill-model" />
-                <text className="label-model" x={x(first.window) + 9} y={y(forecast)} dy="0.32em">forecast {fmtNum(forecast, 1)}</text>
+                <line className="stroke-implied dashed" x1={m.left} x2={x(last.window)} y1={oy} y2={oy}><title>{ovx.title}</title></line>
+                {ovxX != null && (
+                  <rect x={ovxX - 4} y={oy - 4} width={8} height={8} transform={`rotate(45 ${ovxX} ${oy})`} className="fill-implied mark-edge">
+                    <title>{ovx.title}</title>
+                  </rect>
+                )}
               </g>
             )}
-            {last && spreadLabels([
-              ...["p95", "p75", "p50", "p25", "p5"].map((key) => ({ key, text: key, y: y(last[key]), className: "axis-label" })),
-              ...(implied != null ? [{ key: "ovx", text: impliedLabel ?? `OVX ${fmtNum(implied, 1)}`, y: y(implied), className: "label-implied" }] : []),
-            ]).map((item) => (
-              <text key={item.key} className={item.className} x={x(last.window) + 8} y={item.y} dy="0.32em">{item.text}</text>
-            ))}
-            <XAxis scale={x} ticks={rows.map((row) => row.window)} format={(t) => `${t}d`} y={height - m.bottom} />
-          </svg>
-        );
-      }}
-    />
-  );
-}
-
-// --------------------------------------------------------------------------- YEARLY (STAB)
-
-/**
- * Small multiples of yearly QLIKE: one panel per model on a shared y scale. Every panel but the
- * first also draws the first model's yearly values as faint ticks, so each is read against it.
- *
- * @param {{years: {year:number, values: Record<string, number|null>}[],
- *   models: {key:string, label:string, tone:string}[]}} props
- */
-export function YearlySmallMultiples({ years, models }) {
-  const panelHeight = 170;
-  return (
-    <Frame
-      height={panelHeight}
-      className="multiples"
-      draw={(width) => {
-        const columns = width < 560 ? 2 : models.length;
-        const rowsOfPanels = Math.ceil(models.length / columns);
-        const gap = 16;
-        const panelWidth = (width - gap * (columns - 1)) / columns;
-        const height = rowsOfPanels * (panelHeight + 18) - 18;
-        const all = years.flatMap((row) => models.map((model) => row.values[model.key]));
-        const y = scaleLinear().domain([0, extent(all)[1] * 1.05]).nice().range([panelHeight - 22, 18]);
-        const yearExtent = extent(years.map((row) => row.year));
-        const reference = models[0];
-        return (
-          <svg width={width} height={height} className="svg-chart" role="img"
-            aria-label={`Yearly QLIKE ${yearExtent[0]}–${yearExtent[1]} for ${models.map((m) => m.label).join(", ")}`}>
-            {models.map((model, index) => {
-              const col = index % columns;
-              const row = Math.floor(index / columns);
-              const left = col * (panelWidth + gap);
-              const top = row * (panelHeight + 18);
-              const axisWidth = col === 0 ? 34 : 6;
-              const x = scaleLinear().domain(yearExtent).range([left + axisWidth + 4, left + panelWidth - 6]);
-              return (
-                <g key={model.key} transform={`translate(0,${top})`}>
-                  <text className={`multiple-title label-${model.tone}`} x={left + axisWidth + 4} y={10}>{model.label}</text>
-                  {y.ticks(4).map((tick) => (
-                    <g key={tick}>
-                      <line className="grid-line" x1={left + axisWidth} x2={left + panelWidth} y1={y(tick)} y2={y(tick)} />
-                      {col === 0 && <text className="axis-label" x={left + axisWidth - 4} y={y(tick)} dy="0.32em" textAnchor="end">{fmtNum(tick, 1)}</text>}
-                    </g>
-                  ))}
-                  {index > 0 && years.map((yr) => Number.isFinite(yr.values[reference.key]) && (
-                    <line key={`r${yr.year}`} className="stroke-reference" x1={x(yr.year) - 3} x2={x(yr.year) + 3}
-                      y1={y(yr.values[reference.key])} y2={y(yr.values[reference.key])} />
-                  ))}
-                  {years.map((yr) => Number.isFinite(yr.values[model.key]) && (
-                    <circle key={yr.year} cx={x(yr.year)} cy={y(yr.values[model.key])} r={2.6} className={`fill-${model.tone}`}>
-                      <title>{`${model.label} ${yr.year}: QLIKE ${fmtNum(yr.values[model.key], 3)}`}</title>
-                    </circle>
-                  ))}
-                  <text className="axis-label" x={x(yearExtent[0])} y={panelHeight - 6} textAnchor="start">{yearExtent[0]}</text>
-                  <text className="axis-label" x={x(yearExtent[1])} y={panelHeight - 6} textAnchor="end">{yearExtent[1]}</text>
-                </g>
+            {shown.map((mark) => {
+              const cx = x(mark.window);
+              const cy = y(mark.value);
+              return mark.open ? (
+                <rect key={mark.window} x={cx - CONE_TICK_HALF} y={cy - 2.5} width={CONE_TICK_HALF * 2} height={5} className="tick-open">
+                  <title>{mark.title}</title>
+                </rect>
+              ) : (
+                <line key={mark.window} x1={cx - CONE_TICK_HALF} x2={cx + CONE_TICK_HALF} y1={cy} y2={cy} className="tick-realized">
+                  <title>{mark.title}</title>
+                </line>
               );
             })}
+            {forecast && (
+              <g>
+                <circle cx={fx} cy={fy} r={5} className="fill-model mark-edge"><title>{forecast.title}</title></circle>
+                <text className="label-model has-halo" x={fx + 9} y={labelY} dy="0.32em">forecast {fmtNum(forecast.value, 1)}</text>
+              </g>
+            )}
+            {spreadLabels([
+              ...["p95", "p75", "p50", "p25", "p5"].map((key) => ({ key, text: key, y: y(last[key]), className: "axis-label" })),
+              ...(ovx ? [{ key: "ovx", text: ovxText, y: oy, className: "label-implied" }] : []),
+            ], 14).map((item) => (
+              <text key={item.key} className={item.className} x={x(last.window) + CONE_TICK_HALF + 5} y={item.y} dy="0.32em">{item.text}</text>
+            ))}
+            <XAxis scale={x} ticks={ticks} format={(t) => `${t}d`} y={height - m.bottom} />
           </svg>
         );
       }}
@@ -236,10 +211,38 @@ export function YearlySmallMultiples({ years, models }) {
 
 // ---------------------------------------------------------------------- DM BY GRID (STAB)
 
+/** Under this plot width the DM strip's left axis note drops "than record". */
+const DM_NOTE_SHORT_BELOW = 300;
+
+/**
+ * The DM strip's two axis notes, anchored at t = 0 and running outward: "← worse than record" ends
+ * just left of zero and "better →" starts just right of it, each kept inside the plot. Under 300 px
+ * of plot width the left one shortens to "← worse", so the two never run together on a phone.
+ *
+ * @param {number} zero   x of t = 0
+ * @param {number} left   the plot's left edge
+ * @param {number} right  the plot's right edge
+ * @returns {{key: string, text: string, x: number, anchor: "start"|"end"}[]}
+ */
+export const dmAxisNotes = (zero, left, right) => {
+  const gap = 6;
+  const worse = right - left < DM_NOTE_SHORT_BELOW ? "← worse" : "← worse than record";
+  const better = "better →";
+  const worseWidth = worse.length * MONO_CHAR_PX;
+  const betterWidth = better.length * MONO_CHAR_PX;
+  // Zero near either edge: the pair moves inward together, so one never runs into the other.
+  const centre = Math.min(Math.max(zero, left + worseWidth + gap), right - betterWidth - gap);
+  return [
+    { key: "worse", text: worse, anchor: "end", x: centre - gap },
+    { key: "better", text: better, anchor: "start", x: centre + gap },
+  ];
+};
+
 /**
  * Diebold-Mariano t of each model vs the model of record, full sample (large dot) and on each of
  * the 5-session sampling grids (small dots on the min-max range). Positive = lower loss than the record.
- * A row's optional `tag` ("timing control") is printed as a muted line under its label.
+ * A row's optional `tag` ("timing control") is printed as a muted line under its label. Tones: "alt"
+ * (the challenger), "ink" (uses OVX or the range) and "faint" (returns only).
  *
  * @param {{rows: {key:string,label:string,tag?:string,dmStat:number|null,dmMin:number|null,dmMax:number|null,
  *   grid:number[], tone:string}[], critical?: number}} props
@@ -282,8 +285,9 @@ export function DmGridStrip({ rows, critical = 1.96 }) {
               );
             })}
             <XAxis scale={x} ticks={x.ticks(6)} format={(t) => fmtSigned(t, 0)} y={bottom} />
-            <text className="axis-note" x={x(x.domain()[0])} y={height - 2} textAnchor="start">← worse than record</text>
-            <text className="axis-note" x={x(x.domain()[1])} y={height - 2} textAnchor="end">better →</text>
+            {dmAxisNotes(x(0), x.range()[0], x.range()[1]).map((note) => (
+              <text key={note.key} className="axis-note" x={note.x} y={height - 2} textAnchor={note.anchor}>{note.text}</text>
+            ))}
           </svg>
         );
       }}
@@ -438,9 +442,13 @@ export function VrpScatter({ points }) {
         const y = scaleLog().domain(domain).range([height - m.bottom, m.top]);
         const ticks = [5, 10, 20, 50, 100, 200, 500].filter((t) => t >= domain[0] && t <= domain[1]);
         const latest = points[points.length - 1];
+        const below = points.filter((p) => p.actual < p.ovx).length;
+        const summary = `Scatter of ${points.length} weeks, ${fmtSpan(points[0]?.date, latest?.date)}: OVX against the following week's `
+          + `realized volatility, log scales; ${below} weeks (${fmtNum((below / Math.max(1, points.length)) * 100, 1)}%) fall below `
+          + `the diagonal, where implied exceeded realized${latest ? `. Latest week, ${fmtDate(latest.date)}: OVX ${fmtNum(latest.ovx, 1)}, realized ${fmtNum(latest.actual, 1)}` : ""}`;
         return (
-          <svg width={size} height={height} className="svg-chart" role="img"
-            aria-label={`Scatter of ${points.length} weeks: OVX against the following week's realized volatility`}>
+          <svg width={size} height={height} className="svg-chart" role="img" aria-label={summary}>
+            <title>{summary}</title>
             {ticks.map((t) => (
               <g key={t}>
                 <line className="grid-line" x1={m.left} x2={size - m.right} y1={y(t)} y2={y(t)} />
@@ -475,7 +483,8 @@ const fmtK = (value) => {
 };
 
 /**
- * Cumulative P&L of the same 1-week direction model, leaked vs purged walk-forward.
+ * Cumulative P&L of the same 1-week direction model, leaked vs purged walk-forward, in USD on one
+ * CL contract per trade. The purged run is drawn in ink: grey is realized volatility's colour.
  * @param {{leaked: {date:string,pnl:number}[], purged: {date:string,pnl:number}[]}} props
  */
 export function EquityChart({ leaked, purged }) {
@@ -484,7 +493,7 @@ export function EquityChart({ leaked, purged }) {
     <Frame
       height={height}
       draw={(width) => {
-        const m = { ...MARGIN, left: 52, right: 104 };
+        const m = { ...MARGIN, top: 22, left: 52, right: 104 };
         const parse = (d) => Date.parse(`${d}T00:00:00Z`);
         const all = [...leaked, ...purged];
         const x = scaleUtc().domain(extent(all.map((p) => parse(p.date)))).range([m.left, width - m.right]);
@@ -494,18 +503,19 @@ export function EquityChart({ leaked, purged }) {
         const ticks = x.ticks(width < 520 ? 3 : 6);
         const labels = [
           { series: leaked, tone: "alt2", name: "Leaked" },
-          { series: purged, tone: "truth", name: "Purged" },
+          { series: purged, tone: "ink", name: "Purged" },
         ].filter((item) => item.series.length);
         // Keep the two end labels at least 14px apart.
         const placed = labels.map((item) => ({ ...item, ly: y(end(item.series).pnl) })).sort((a, b) => a.ly - b.ly);
         for (let i = 1; i < placed.length; i += 1) placed[i].ly = Math.max(placed[i].ly, placed[i - 1].ly + 26);
         return (
           <svg width={width} height={height} className="svg-chart" role="img"
-            aria-label={`Cumulative P&L, leaked ${fmtSignedUsd(end(leaked)?.pnl)} vs purged ${fmtSignedUsd(end(purged)?.pnl)}`}>
+            aria-label={`Cumulative P&L on one contract, leaked ${fmtSignedUsd(end(leaked)?.pnl)} vs purged ${fmtSignedUsd(end(purged)?.pnl)}`}>
             <YAxis scale={y} ticks={y.ticks(5)} format={fmtK} left={m.left} right={width - m.right} />
+            <text className="axis-note" x={4} y={9}>USD, 1 contract</text>
             <line className="stroke-axis" x1={m.left} x2={width - m.right} y1={y(0)} y2={y(0)} />
             {leaked.length > 1 && <path d={path(leaked)} className="stroke-alt2 line-2" fill="none" />}
-            {purged.length > 1 && <path d={path(purged)} className="stroke-truth line-2" fill="none" />}
+            {purged.length > 1 && <path d={path(purged)} className="stroke-ink line-2" fill="none" />}
             {placed.map((item) => (
               <g key={item.name}>
                 <text className={`end-label label-${item.tone}`} x={width - m.right + 8} y={item.ly} dy="0.32em">{item.name}</text>
@@ -613,7 +623,7 @@ export function LeakDumbbell({ rows, reference }) {
                       <title>{`${row.label}: base rate ${fmtNum(row.noSkill, 1)}%, the no-skill accuracy on these returns`}</title>
                     </line>
                   )}
-                  <circle cx={x(row.purged)} cy={cy} r={4} className="fill-truth"><title>{`${row.label}, purged: ${fmtNum(row.purged, 1)}%`}</title></circle>
+                  <circle cx={x(row.purged)} cy={cy} r={4} className="fill-ink"><title>{`${row.label}, purged: ${fmtNum(row.purged, 1)}%`}</title></circle>
                   <circle cx={x(row.unpurged)} cy={cy} r={4} className="fill-alt2"><title>{`${row.label}, unpurged: ${fmtNum(row.unpurged, 1)}%`}</title></circle>
                 </g>
               );
@@ -646,7 +656,7 @@ export function PurgeDiagram({ purgeRows, horizon, shown = 8 }) {
         return (
           <svg width={width} height={height} className="svg-chart" role="img"
             aria-label={`Purge diagram: the ${purgeRows} training rows whose ${horizon}-day labels end after the forecast time are dropped`}>
-            <line className="stroke-model dashed" x1={x(0)} x2={x(0)} y1={m.top - 4} y2={tY + rowHeight} />
+            <line className="stroke-ink dashed" x1={x(0)} x2={x(0)} y1={m.top - 4} y2={tY + rowHeight} />
             {rows.map((offset, index) => {
               const cy = m.top + index * rowHeight + rowHeight / 2;
               const purged = -offset <= purgeRows;
@@ -662,9 +672,9 @@ export function PurgeDiagram({ purgeRows, horizon, shown = 8 }) {
               );
             })}
             <g>
-              <text className="row-label label-model" x={m.left - 8} y={tY + rowHeight / 2} dy="0.32em" textAnchor="end">test t</text>
-              <circle cx={x(0)} cy={tY + rowHeight / 2} r={3} className="fill-model" />
-              <rect x={x(0) + 4} width={cell * horizon - 4} y={tY + rowHeight / 2 - 3} height={6} className="fill-model" />
+              <text className="row-label label-ink" x={m.left - 8} y={tY + rowHeight / 2} dy="0.32em" textAnchor="end">test t</text>
+              <circle cx={x(0)} cy={tY + rowHeight / 2} r={3} className="fill-ink" />
+              <rect x={x(0) + 4} width={cell * horizon - 4} y={tY + rowHeight / 2 - 3} height={6} className="fill-ink" />
             </g>
             <text className="axis-note" x={x(0)} y={height - 16} textAnchor="middle">forecast time t</text>
             <text className="axis-note" x={x(horizon)} y={height - 4} textAnchor="end">{horizon}-day label window</text>

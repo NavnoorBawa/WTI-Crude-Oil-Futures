@@ -56,7 +56,7 @@ test("the full dashboard renders every section with its computed title", () => {
   assert.ok(text.includes("Research project") === false, "the footer is outside the dashboard body");
   // Section anatomy: chips, assertion titles, source footers, table toggles.
   assert.equal((html.match(/class="chip chip--code[ "]/g) ?? []).length >= 13, true);
-  assert.ok((html.match(/aria-pressed="false"[^>]*>Table<span class="sr-only"> view of [^<]+<\/span><\/button>/g) ?? []).length >= 8, "table toggles");
+  assert.ok((html.match(/aria-pressed="false"[^>]*>(?:Table|By grid)<span class="sr-only"> view of [^<]+<\/span><\/button>/g) ?? []).length >= 8, "table toggles");
   // Each panel names the command that rebuilds what it shows, not the lab's by default.
   const reproduce = (id) => html.match(new RegExp(`<section id="${id}"[\\s\\S]*?</section>`))?.[0].match(/<span class="micro">Reproduce<\/span>(.*?)<\/span>/s)?.[1] ?? "";
   for (const [id, commands] of Object.entries({
@@ -79,11 +79,13 @@ test("the full dashboard renders every section with its computed title", () => {
 test("the timing control is listed below the ranking, outside the MCS and every count", () => {
   const { html, text } = render(data, research);
   const modl = html.match(/<section id="modl"[\s\S]*?<\/section>/)[0];
+  // The leaderboard is the section's first table; the membership matrix under it lists eligible models only.
   const bodies = [...modl.matchAll(/<tbody>([\s\S]*?)<\/tbody>/g)].map((match) => match[1]);
-  const rows = [...bodies[bodies.length - 1].matchAll(/<tr( class="([^"]*)")?>/g)].map((match) => match[2] ?? "");
+  const rows = [...bodies[0].matchAll(/<tr\b([^>]*)>/g)].map((match) => /class="([^"]*)"/.exec(match[1])?.[1] ?? "");
   const controls = rows.map((cls, index) => (cls.includes("is-timing-control") ? index : -1)).filter((index) => index >= 0);
   assert.ok(controls.length >= 1, "the timing control row is shown");
   assert.deepEqual(controls, controls.map((_, k) => rows.length - controls.length + k), "and pinned after the ranked rows");
+  assert.ok(bodies.slice(1).every((body) => !/timing control/.test(body)), "and left out of the membership matrix");
   assert.match(modl, /chip--warn"[^>]*>timing control</);
   assert.match(modl, />not eligible</);
   const summary = m.research.mcsSummary(research.vol_lab);
@@ -94,7 +96,10 @@ test("the timing control is listed below the ranking, outside the MCS and every 
 test("the direction probability is demoted and labelled uncalibrated", () => {
   const { html } = render(data, research);
   const hero = html.match(/<div class="verdict-hero">[\s\S]*?<dl class="kpi-grid">/)[0];
-  assert.match(hero, /<div class="fact fact--minor"><dt>P\(vol rises\)<\/dt><dd class="num">[^<]*<span class="fact-note">model-implied, uncalibrated<\/span>/);
+  // Not a fact beside the forecast: one sentence in the hero's notes, its model stated.
+  assert.doesNotMatch(hero.match(/<dl class="hero-facts">[\s\S]*?<\/dl>/)[0], /P\(vol rises\)/);
+  const line = visibleText(hero.match(/<li class="hero-prob">[\s\S]*?<\/li>/)[0]);
+  assert.match(line, /P\(vol rises\): model-implied chance .*: \d+% \(lognormal .*not calibrated; direction is not evidence of skill\)/);
   assert.doesNotMatch(hero, /accent-model/, "no accent colour");
   assert.doesNotMatch(hero, /[↑↓]/, "no direction arrow");
 });
@@ -119,7 +124,8 @@ test("degraded payloads say exactly what is missing", () => {
   const fcst = none.html.match(/<section id="fcst"[\s\S]*?<\/section>/)[0];
   assert.ok(visibleText(fcst).includes(`${recent} weeks drawn`), "FCST meta describes the rows drawn");
   assert.ok(!visibleText(fcst).includes(`${data.vol_forecast.validation.n} weeks drawn`));
-  assert.match(visibleText(fcst), /The band drawn is the production validation 80% interval, which covered /);
+  assert.match(visibleText(fcst), /Bright points are weeks whose realized vol fell outside the 80% band; \d+ of the last \d+ production weeks fell inside\./);
+  assert.doesNotMatch(visibleText(fcst), /lab; production|1 week 80%/, "no pipeline label spliced into a phrase");
 
   const noLive = structuredClone(data);
   delete noLive.vol_forecast.live;
@@ -140,15 +146,15 @@ test("late commits and the promotion status render, and degrade when absent", ()
   const live = html.match(/<section id="live"[\s\S]*?<\/section>/)[0];
   assert.match(live, /chip--status-late_commit"[^>]*>late commit</);
   assert.match(live, /title="Not sealed in time \(less than five minutes before the settlement that opens its window, or never\); never scored"/);
-  assert.ok(visibleText(live).includes("promotion accruing 0/52"));
+  assert.ok(visibleText(live).includes("promotion test: accruing 0/52 weeks"));
   assert.ok(text.includes("1 not sealed in time (never scored)"));
   assert.doesNotMatch(text, /sealed after/);
-  assert.ok(text.includes("promotion accruing 0/52 "), "the verdict tile carries the promotion status");
+  assert.ok(text.includes("promotion test 0/52 weeks"), "the verdict tile carries the promotion status");
   const withoutPromotion = structuredClone(data);
   delete withoutPromotion.vol_forecast.live_record.promotion;
   const plain = render(withoutPromotion, research);
   assert.deepEqual(plain.errors, []);
-  assert.ok(!/promotion accruing/.test(plain.text), "no promotion block, no promotion status");
+  assert.ok(!/accruing|promotion test \d|Promotion test \d/.test(plain.text), "no promotion block, no promotion status");
   assert.ok(plain.text.includes("13:30 CT"), "the scoring note's ET time also reads in CT");
 });
 
@@ -195,14 +201,23 @@ test("STDY shows both placebo tests and highlights a group only when both reject
 test("canvas charts carry an accessible summary of what they draw", async () => {
   const { createElement: h } = await import("react");
   const rows = m.research.forecastRows(research.vol_lab, data.vol_forecast.recent_oos);
-  const forecast = renderToStaticMarkup(h(m.forecastChart.default, { rows, live: null, modelLabel: "HAR-IV", bandLabel: "benchmark lab" }));
-  assert.match(forecast, new RegExp(`role="img" aria-label="Weekly HAR-IV forecast against realized next-week volatility, ${rows.length} weeks from `));
-  assert.match(forecast, /with the 80% band \(benchmark lab\) and OVX/);
+  // A focusable group with a short name, described by the full summary; the plot host is hidden.
+  const description = (html) => {
+    const id = html.match(/aria-describedby="([^"]+)"/)?.[1];
+    assert.ok(id, "the figure is described by its summary");
+    return html.match(new RegExp(`<p id="${id.replace(/[^\w-]/g, "\\$&")}" class="sr-only">([^<]*)</p>`))?.[1] ?? "";
+  };
+  const forecast = renderToStaticMarkup(h(m.forecastChart.default, { rows, live: null, modelLabel: "HAR-IV" }));
+  assert.match(forecast, /<div class="lw-figure" tabindex="0" role="group" aria-roledescription="chart" aria-label="HAR-IV forecast vs realized weekly volatility, [\d,]+ weeks, /);
+  assert.match(forecast, /class="lw-host lw-host--forecast" aria-hidden="true"/);
+  assert.match(description(forecast), new RegExp(`^Weekly HAR-IV forecast against realized next-week volatility, ${rows.length} weeks from `));
+  assert.match(description(forecast), /with the 80% band \(production for \d+ weeks, benchmark lab for \d+ weeks\) and OVX/);
   const series = m.research.varSeries(research.vol_lab);
   const counts = m.research.countExceedances(series);
   const varChart = renderToStaticMarkup(h(m.varChart.default, { rows: series }));
-  assert.match(varChart, new RegExp(`role="img" aria-label="Weekly 5-session log returns, ${series.length} weeks`));
-  assert.ok(varChart.includes(`${counts.e99} of ${counts.n} weeks fell below the 99% line and ${counts.e95} below the 95% line`));
+  assert.match(varChart, /role="group" aria-roledescription="chart" aria-label="Weekly log returns against the 95% and 99% VaR, /);
+  assert.match(description(varChart), new RegExp(`^Weekly 5-session log returns, ${series.length} weeks`));
+  assert.ok(description(varChart).includes(`${counts.e99} of ${counts.n} weeks fell below the 99% line and ${counts.e95} below the 95% line`));
   assert.match(varChart, /5-session log return/);
 });
 
@@ -353,6 +368,10 @@ test("the ledger filter narrows by family and status", () => {
   assert.ok(retracted.length > 0 && retracted.every((row) => row.status === "retracted"));
   const family = rows[0].family;
   assert.ok(filterLedger(rows, family, "all").every((row) => row.family === family));
+  // A search narrows within the filters: every term must match the hypothesis, test, id or family.
+  const searched = filterLedger(rows, family, "all", "qlike");
+  assert.ok(searched.length < filterLedger(rows, family, "all").length);
+  assert.ok(searched.every((row) => row.family === family && /qlike/i.test([row.hypothesis, row.test, row.id].join(" "))));
 });
 
 const section = (html, id) => html.match(new RegExp(`<section id="${id}"[\\s\\S]*?</section>`))?.[0] ?? "";
@@ -364,14 +383,25 @@ test("every section title makes one claim, short enough to scan", () => {
   for (const title of titles) assert.ok(title.length <= 90, `${title.length}: ${title}`);
 });
 
-test("the ledger shows a failure to reject as not supported, and keeps the post-selection row out of the adjustment", () => {
+test("the ledger shows a failure to reject as not supported, and keeps the post-selection row out of the adjustment", async () => {
+  const reference = await m.load("/src/lib/reference.js");
   const { html } = render(data, research);
   const ledg = section(html, "ledg");
   const summary = research.ledger.summary;
-  assert.doesNotMatch(visibleText(ledg), /\brejected\b/);
-  assert.equal((ledg.match(/class="chip chip--muted"[^>]*>not supported</g) ?? []).length, summary.by_status.not_supported);
-  assert.equal((ledg.match(/>underpowered</g) ?? []).length, summary.underpowered.length);
-  assert.match(visibleText(ledg), /a failure to reject, not evidence against the hypothesis/);
+  const text = visibleText(ledg);
+  assert.doesNotMatch(text, /\brejected\b/);
+  // The first rows of the default order are on screen (the rest behind "Show all"), each status as its label.
+  const ledger = m.research.researchLedger(research);
+  const order = [{ key: "status", sortValue: reference.ledgerOrderValue }];
+  const shown = m.table.orderRows(ledger.rows, order, { key: "status", direction: "asc" }).slice(0, reference.LEDGER_PAGE);
+  for (const [status, label] of [["supported", "supported"], ["inconclusive", "inconclusive"], ["not_supported", "not supported"], ["retracted", "retracted"]]) {
+    const chips = (ledg.match(new RegExp(`class="chip chip--[a-z_-]+"[^>]*>${label}<`, "g")) ?? []).length;
+    assert.equal(chips, shown.filter((row) => row.status === status).length, label);
+    assert.ok(text.includes(`${summary.by_status[status]} ${label}`), `the meta counts every ${label} row`);
+  }
+  assert.equal((ledg.match(/>underpowered</g) ?? []).length, shown.filter((row) => summary.underpowered.includes(row.id)).length);
+  assert.ok(text.includes(`${summary.underpowered.length} underpowered`));
+  assert.match(text, /a failure to reject, not evidence against the hypothesis/);
   for (const id of summary.selected_after_search) {
     const rowHtml = ledg.match(new RegExp(`<tr[^>]*>(?:(?!</tr>)[\\s\\S])*?>${id}</code>[\\s\\S]*?</tr>`))?.[0];
     assert.ok(rowHtml, id);
@@ -379,42 +409,51 @@ test("the ledger shows a failure to reject as not supported, and keeps the post-
     assert.equal((rowHtml.match(/>excluded</g) ?? []).length, 2, "no BH or t > 3 verdict");
     assert.doesNotMatch(rowHtml, />yes</, "never shown as surviving an adjustment it was not in");
   }
-  assert.ok(visibleText(ledg).includes(`${summary.selected_after_search.length} selected after a search, outside the adjustment`));
+  // One phrase reconciles the supported count with the title's "of N supported claims".
+  const outside = summary.supported_selected_after_search.length;
+  assert.ok(text.includes(`${summary.supported.length} supported; ${summary.supported.length - outside} in the adjusted family (${outside} selected after a search)`));
 });
 
 test("the hero names the OVX-only regression as the leaderboard does, with the leaderboard's DM sign", () => {
-  const { text } = render(data, research);
-  const v = data.vol_forecast.validation;
+  const { html, text } = render(data, research);
   const label = m.research.ovxOnlyLabel(research.vol_lab);
+  const ovxOnly = m.research.leaderboardRows(research.vol_lab).find((row) => row.key === m.research.OVX_ONLY_KEY);
   const f = m.format;
-  assert.ok(text.includes(`DM t (+ = lower loss than HAR-IV): persistence ${f.fmtSigned(-v.har_vs_persistence_qlike_dm, 2)}, `
-    + `${label} ${f.fmtSigned(-v.har_vs_ovx_only_qlike_dm, 2)} (${f.fmtP(v.har_vs_ovx_only_qlike_dm_p_value).replace(/\s/g, " ")})`), "hero DM");
-  assert.ok(text.includes(`${f.fmtNum(v.ovx_only_qlike, 3)} ${label}`), "hero comparator name");
+  const tile = visibleText(html.match(/<div class="kpi">[\s\S]*?<\/div>/)[0]);
+  assert.ok(tile.includes(`${f.fmtNum(ovxOnly.qlike, 3)} ${label}`), "the QLIKE tile's comparator name");
+  assert.doesNotMatch(tile, /DM/, "the DM statistics are the lede's, not repeated in the tile");
+  // The lede detail (src/panels/VerdictLede.jsx) carries the DM t in the leaderboard's sign: + = lower loss than the record.
+  if (readdirSync(fileURLToPath(new URL("../../src/panels", import.meta.url))).includes("VerdictLede.jsx")) {
+    const detail = html.match(/<p class="verdict-answer-detail">([\s\S]*?)<\/p>/)?.[1];
+    assert.ok(detail, "the lede detail renders");
+    assert.ok(visibleText(detail).includes(`${label} ${f.fmtSigned(ovxOnly.dmStat, 2)}`), "lede DM sign");
+  }
   assert.ok(text.includes(`not distinguishable from the ${label}`), "FCST title");
-  assert.ok(visibleText(section(render(data, research).html, "modl")).includes(label), "the same name in the leaderboard");
+  assert.ok(visibleText(section(html, "modl")).includes(label), "the same name in the leaderboard");
 });
 
-test("LIVE compares the two models on the same weeks and labels the all-weeks QLIKE as its own sample", () => {
+test("LIVE compares the two models on the same calls and labels the all-calls QLIKE as its own sample", () => {
   const payload = structuredClone(data);
   const record = payload.vol_forecast.live_record;
   Object.assign(record, {
-    n_recorded: 3, n_resolved: 3, n_pending: 0, n_independent: 3, next_result_due: null,
-    champion: { ...record.champion, n: 3, qlike: 0.815, interval_80_coverage_pct: 66.7, mean_forecast_pct: 40.1, mean_realized_pct: 44.2 },
-    challenger: { ...record.challenger, n: 2, qlike: 0.0187, champion_qlike: 0.0213 },
-    promotion: { ...record.promotion, n_independent_paired: 2, n_excluded_no_challenger: 1 },
+    n_recorded: 30, n_resolved: 30, n_pending: 0, n_independent: 11, next_result_due: null,
+    champion: { ...record.champion, n: 30, qlike: 0.815, interval_80_coverage_pct: 66.7, mean_forecast_pct: 40.1, mean_realized_pct: 44.2 },
+    challenger: { ...record.challenger, n: 29, qlike: 0.0187, champion_qlike: 0.0213 },
+    promotion: { ...record.promotion, n_independent_paired: 10, n_excluded_no_challenger: 1 },
   });
   const { html, text } = render(payload, research);
   const live = visibleText(section(html, "live"));
   const f = m.format;
-  const same = `${f.fmtNum(record.challenger.champion_qlike, 3)} for the model of record vs ${f.fmtNum(record.challenger.qlike, 3)} for the challenger`;
-  assert.ok(live.includes(`On the same ${record.challenger.n} live weeks, QLIKE ${same}`), "title");
-  assert.ok(live.includes(`QLIKE, same weeks ${f.fmtNum(record.challenger.champion_qlike, 3)} / ${f.fmtNum(record.challenger.qlike, 3)}`
-    + ` record / HAR-IV-range, n ${record.challenger.n}`), "paired fact");
-  assert.ok(live.includes(`QLIKE, record, all weeks ${f.fmtNum(record.champion.qlike, 3)} ${record.champion.model_version}, n ${record.champion.n}`), "all-weeks fact");
+  const [a, b] = [f.fmtNum(record.challenger.champion_qlike, 3), f.fmtNum(record.challenger.qlike, 3)];
+  // One resolved call has no challenger forecast, so the title names the paired calls, not every resolved one.
+  assert.ok(live.includes(`On the ${record.challenger.n} resolved calls with both forecasts, QLIKE ${a} record vs ${b} challenger`), "title");
+  assert.ok(live.includes(`QLIKE, same calls ${a} / ${b} record / HAR-IV-range, n ${record.challenger.n}`), "paired fact");
+  assert.ok(live.includes(`QLIKE, record, all calls ${f.fmtNum(record.champion.qlike, 3)} ${record.champion.model_version}, n ${record.champion.n}`), "all-calls fact");
   assert.ok(live.includes(`pinned pair: HAR-IV (${record.promotion.model_version}) vs HAR-IV-range`));
-  assert.ok(live.includes("Resolved weeks left out of it: 1 with no challenger forecast."));
-  assert.ok(text.includes(`QLIKE ${f.fmtNum(record.challenger.champion_qlike, 3)} record vs ${f.fmtNum(record.challenger.qlike, 3)} challenger, same ${record.challenger.n} wk`), "verdict tile");
-  assert.ok(!text.includes(`QLIKE ${f.fmtNum(record.champion.qlike, 3)} for the model of record`), "never the mixed-sample pair");
+  assert.ok(live.includes("Resolved calls left out of it: 1 with no challenger forecast."));
+  assert.ok(text.includes(`${record.n_resolved} calls resolved (${record.n_independent} independent weeks) · QLIKE ${a} record vs ${b} challenger, same ${record.challenger.n} calls`), "verdict tile");
+  assert.ok(!text.includes(`QLIKE ${f.fmtNum(record.champion.qlike, 3)} for the`), "never the mixed-sample pair");
+  assert.doesNotMatch(live, /live weeks?\b/);
 });
 
 test("a missing challenger, OVX source or economic block says why in one neutral note", () => {
@@ -424,6 +463,9 @@ test("a missing challenger, OVX source or economic block says why in one neutral
     implied_vol_ovx_pct: null, ovx_error: "Yahoo ^OVX: timeout; FRED OVXCLS: timeout",
   });
   payload.vol_forecast.economic = { unavailable_reason: "no same-contract returns (HTTPError)" };
+  // The record entry of this same issuance carries the inputs it was computed from: no OVX either.
+  const entry = payload.vol_forecast.live_record.recent.find((row) => row.issued_at === payload.vol_forecast.live.issued_at);
+  if (entry?.inputs) Object.assign(entry.inputs, { ovx: null, ovx_session: null });
   const { html, text, errors } = render(payload, research);
   assert.deepEqual(errors, []);
   assert.ok(text.includes("Challenger — not published this session"), "hero challenger");

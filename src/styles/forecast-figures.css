@@ -1,1 +1,60 @@
 /* forecast-figures: styles owned by the forecast-figures work package. Loaded after index.css, in package order. */
+
+/* ------------------------------------------------------------------------ canvas chart reading */
+/* The figure is a focusable group read with the arrow keys; the ring sits outside the legend row. */
+.lw-figure:focus { outline: none; }
+.lw-figure:focus-visible { outline: 2px solid var(--s-model); outline-offset: 4px; }
+
+.legend-tools { display: flex; flex: none; align-items: center; gap: var(--sp-3); min-height: 20px; margin-left: auto; }
+.chart-hint { color: var(--text-3); white-space: nowrap; }
+/* "Reset view" shows only while the chart is dragged or pinched off its range preset. */
+.reset-view {
+  min-height: 20px;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.reset-view:hover { color: var(--text-1); border-color: var(--text-4); }
+@media (pointer: coarse) {
+  .reset-view { min-height: 32px; }
+}
+
+/* The screenshot that replaces each canvas on paper exists only between beforeprint and afterprint. */
+.print-shot { display: none; }
+
+/* --------------------------------------------------------------------------------- FCST table */
+/* Columns that exist for the CSV only (the band's raw edges; the table shows them as one range). */
+.data-table .col-csv-only { display: none; }
+.table-show-all {
+  min-height: 28px;
+  margin-top: var(--sp-1);
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  cursor: pointer;
+}
+.table-show-all:hover { color: var(--text-1); border-color: var(--text-4); }
+@media (pointer: coarse) {
+  .table-show-all { min-height: 40px; }
+}
+
+@media print {
+  .lw-figure:focus-visible { outline: none; }
+  .legend-tools, .table-show-all { display: none; }
+}
+
+@media (max-width: 640px) {
+  /* The caption explains the bright points; the phone legend keeps one line per series. */
+  .legend-note { display: none; }
+}

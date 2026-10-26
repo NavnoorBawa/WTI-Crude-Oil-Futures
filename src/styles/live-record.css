@@ -1,1 +1,54 @@
 /* live-record: styles owned by the live-record work package. Loaded after index.css, in package order. */
+
+/* Method notes: each note is a paragraph headed by its label on a line of its own. */
+.rule-note > .micro:first-child { display: block; margin-bottom: var(--sp-1); }
+.rule-note code { white-space: nowrap; }
+.disclosure-body > .rule-note:first-child { margin-top: 0; }
+
+/* Every recorded call, counted by status in one line. */
+.live-status { margin-bottom: var(--sp-3); font-size: var(--fs-12); line-height: 1.5; color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+/* The promotion test's progress beside the scores, or beside the one-line empty state. */
+.live-summary { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3) var(--sp-8); align-items: start; margin-bottom: var(--sp-2); }
+@container (min-width: 640px) {
+  .live-summary { grid-template-columns: minmax(200px, 280px) minmax(0, 1fr); }
+  .live-summary:not(.has-scores) { align-items: center; }
+  .live-summary > :only-child { grid-column: 1 / -1; }   /* no promotion block: the scores take the row */
+}
+.live-progress .facts { margin-top: 0; }
+.live-strip {
+  display: grid;
+  grid-template-columns: repeat(var(--cells, 52), minmax(0, 1fr));
+  gap: 2px;
+  max-width: 280px;
+  height: 10px;
+  margin-top: var(--sp-2);
+}
+.live-strip i { border: 1px solid var(--rule-strong); background: var(--bg-2); }
+.live-strip i.is-filled { border-color: var(--s-model); background: var(--s-model); }
+.live-summary .facts--row { margin-top: 0; margin-bottom: 0; }
+@container (max-width: 639px) {
+  .live-summary .facts--row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.live-empty { max-width: var(--measure); font-size: var(--fs-body); line-height: 1.55; color: var(--text-2); }
+
+/* Recorded calls on a phone: the band moves under the forecast and the in-band verdict under the
+   realized value, where their own columns are hidden, and the date drops its year. */
+.live-band-note, .live-inband-note, .live-date-short { display: none; }
+@media (max-width: 640px) {
+  .live-band-note, .live-inband-note { display: block; }
+  .live-date-short { display: inline; }
+  .live-date { display: none; }
+  /* The short date needs none of the room a phone's sticky row header reserves. */
+  .live-table .data-table.has-sticky tbody th[scope="row"],
+  .live-table .data-table.has-sticky thead tr:not(.group-row) th:first-child { min-width: 0; }
+}
+.live-outside { color: var(--warn); }
+.live-history { margin-top: var(--sp-3); font-size: var(--fs-12); line-height: 1.5; }
+
+/* Chart marks: the realized bar is filled inside the band, open in the warn colour outside it. */
+.live-truth { fill: var(--s-truth); }
+.live-truth.is-outside { fill: none; stroke: var(--warn); stroke-width: 1.5; }
+.swatch-warn { --c: var(--warn); }
+.swatch.is-bar { width: 12px; height: 5px; }
+.swatch.is-bar-open { width: 12px; height: 5px; background: transparent; border: 1.5px solid var(--c); }
