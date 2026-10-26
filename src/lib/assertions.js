@@ -6,6 +6,7 @@
 // when two samples of the same statistic appear on the page.
 import { NBSP, fmtDate, fmtInt, fmtNum, fmtP, fmtPct, fmtPValue, fmtSigned, num, ordinal } from "./format";
 import { asArray, asObject, asText, coverageByYear, ovxOnlyBenchmark, recordVar, shortLabel, vrpSummary, yearsBetter } from "./research";
+import { coneView } from "./cone";
 
 /** The nominal coverage of the contract's interval_80 fields (a design level, not a statistic). */
 export const INTERVAL_LEVEL_PCT = 80;
@@ -232,18 +233,30 @@ export const riskDetail = (rows) => {
   return parts.filter(Boolean);
 };
 
-/** CONE: where current realized vol sits in its own history, shortest vs longest window. */
-export const coneAssertion = (cone) => {
-  const windows = asArray(cone?.windows)
-    .map((row) => ({ window: num(row?.window), percentile: num(row?.latest_percentile), latest: num(row?.latest) }))
-    .filter((row) => row.window != null && row.percentile != null)
-    .sort((a, b) => a.window - b.window);
-  if (!windows.length) return null;
-  const short = windows[0];
-  const long = windows[windows.length - 1];
-  if (short === long) return `Realized vol is at the ${ordinal(short.percentile)} percentile of its ${short.window}-day history`;
-  return `Realized vol is at the ${ordinal(short.percentile)} percentile on a ${short.window}-day window `
-    + `and the ${ordinal(long.percentile)} on ${long.window} days`;
+/**
+ * CONE: where realized vol sits in its own history. When data.json is newer than the lab's cone,
+ * the title reads data.json's latest 5-session realized vol, with its date, against the band of
+ * that window's stored percentiles (never an interpolated percentile); otherwise it reads the
+ * cone's own latest values on the cone's date, shortest vs longest window.
+ */
+export const coneAssertion = (cone, live = null) => {
+  const view = coneView(cone, live);
+  const short = view.marks[0];
+  if (view.lagDays != null && view.lagDays > 0 && short?.source === "live" && short.bracket) {
+    const head = `${short.window}-day realized vol (${fmtPct(short.value)}, ${fmtDate(short.date, { year: false })})`;
+    const { low, high } = short.bracket;
+    if (low == null) return `${head} is below the ${ordinal(high)} percentile of its history`;
+    if (high == null) return `${head} is above the ${ordinal(low)} percentile of its history`;
+    const band = `${head} is in the ${ordinal(low)}–${ordinal(high)} percentile band of its history`;
+    return band.length <= 90 ? band : `${head} is between its ${ordinal(low)} and ${ordinal(high)} percentiles`;
+  }
+  const rows = view.windows.filter((row) => row.percentile != null);
+  if (!rows.length) return null;
+  const first = rows[0];
+  const last = rows[rows.length - 1];
+  const when = view.labDate ? `On ${fmtDate(view.labDate, { year: false })}, ` : "";
+  const subject = `${when}${first.window}-day realized vol was at the ${ordinal(first.percentile)} percentile`;
+  return first === last ? `${subject} of its history` : `${subject}; ${last.window}-day, the ${ordinal(last.percentile)}`;
 };
 
 /**

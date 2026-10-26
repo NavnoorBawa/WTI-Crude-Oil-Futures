@@ -1,1 +1,67 @@
 /* calibration-risk-cone: styles owned by the calibration-risk-cone work package. Loaded after index.css, in package order. */
+
+/* ------------------------------------------------------------------------------- cone marks */
+/* Page-wide mark rule: a tick is realized vol, a diamond is OVX, a dot is the forecast. A solid tick
+   is the latest date; an open tick is an older one (the lab's snapshot beside newer data.json). */
+.tick-realized { stroke: var(--s-truth); stroke-width: 2; }
+.tick-open { fill: var(--bg-1); stroke: var(--s-truth); stroke-width: 1.25; }
+/* A panel-coloured edge keeps a dot or diamond apart from the line or band it sits on. */
+.mark-edge { stroke: var(--bg-1); stroke-width: 2; }
+.swatch.is-mark-tick { width: 12px; height: 2px; }
+.swatch.is-mark-tick-open { width: 12px; height: 6px; background: transparent; border: 1.25px solid var(--c); }
+
+/* ------------------------------------------------------------------------------ cone layout */
+/* The chart on the left; the dated facts, caption and notes beside it (stacked below 1100px). */
+.cone-side .facts--stack { margin-top: 0; }
+.cone-side .facts--stack .fact { grid-template-columns: minmax(132px, 42%) minmax(0, 1fr); align-items: baseline; }
+.cone-side .facts--stack .fact dd { font-size: var(--fs-14); color: var(--text-1); }
+.cone-side .facts--stack .fact-note { display: inline; margin-left: var(--sp-2); }
+.cone-side .panel-caption { margin-top: var(--sp-3); }
+
+/* ------------------------------------------------------------------------------- calibration */
+.calb-regimes { margin-top: var(--sp-1); margin-bottom: 0; }
+
+/* ---------------------------------------------------------------------------------------- risk */
+.zone-note { margin-left: 6px; font-size: var(--fs-11); color: var(--text-3); }
+.label-short { display: none; }
+/* On a phone the key columns (method, breaches and the Kupiec and independence pass meters) fit
+   without a sideways scroll: the method name and its quantile stack and wrap at spaces (never at a
+   hyphen), the meters drop their repeated "k/5", and "Independence" is abbreviated on screen. */
+@media (max-width: 640px) {
+  .data-table tbody .risk-method { white-space: normal; }
+  .data-table .risk-method .model-cell { flex-direction: column; align-items: flex-start; gap: 0; }
+  .data-table .pass-meter .num { display: none; }
+  .data-table .label-full {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  .data-table .label-short { display: inline; }
+}
+
+/* The vol-targeting sub-study: its claim and the tests that qualify it are the disclosure's summary. */
+.study-disclosure > .disclosure-summary {
+  display: grid;
+  grid-template-columns: 1em minmax(0, 1fr);
+  column-gap: 6px;
+  align-items: baseline;
+}
+.study-disclosure > .disclosure-summary::before { grid-column: 1; grid-row: 1; }
+.study-disclosure > .disclosure-summary > * { grid-column: 2; }
+.study-disclosure > .disclosure-summary .study-title { margin: 0; text-wrap: balance; }
+.study-disclosure > .disclosure-summary .study-meta { display: block; margin-top: var(--sp-1); }
+.study-disclosure > .disclosure-summary:hover .study-title { color: var(--text-1); text-decoration: underline; text-decoration-color: var(--text-4); }
+.study-disclosure > .disclosure-body { margin-top: var(--sp-3); }
+
+/* ----------------------------------------------------------------------------------------- vrp */
+/* Scatter | statistics | reading at 1100px and wider (.split--3); from 600 to 879px the scatter and
+   the table share a row (.split--vrp) and the reading takes the row below. */
+@container (min-width: 600px) and (max-width: 879px) {
+  .vrp-split > :nth-child(3) { grid-column: 1 / -1; }
+}
+.figure-empty + .vrp-split { margin-top: var(--sp-4); }
+.split-reading > .figure-title:first-child { margin-top: 0; }
+.split-reading .prose-note { margin-top: 0; }

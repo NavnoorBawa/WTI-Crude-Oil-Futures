@@ -4,7 +4,7 @@
 import { scaleLinear, scaleLog, scaleUtc } from "d3-scale";
 import { area, line } from "d3-shape";
 import useMeasure from "../lib/useMeasure";
-import { fmtNum, fmtSigned, fmtSignedUsd } from "../lib/format";
+import { fmtDate, fmtNum, fmtSigned, fmtSignedUsd, fmtSpan } from "../lib/format";
 
 const MARGIN = { top: 12, right: 16, bottom: 26, left: 44 };
 
@@ -111,57 +111,97 @@ export const spreadLabels = (items, gap = 12) => {
 
 // --------------------------------------------------------------------------------------- CONE
 
+// Below this plot width the cone keeps only its key window labels (see ConeChart).
+const CONE_THIN_TICKS_PX = 260;
+const CONE_TICK_HALF = 8;
+
 /**
- * Realized-volatility cone: p5-p95 and p25-p75 bands and the median by window length, the latest
- * realized vol per window, OVX as a dashed level and the live forecast at the 5-session window.
+ * Realized-volatility cone: the p5–p95 and p25–p75 bands of each window's history (with 3:1 edges)
+ * and the median, by window length on a log axis. Marks follow the page-wide rule: a tick is
+ * realized vol (solid for the latest date, open for an older one), a diamond is OVX (at its own
+ * horizon, on a dashed level) and a dot is the forecast (at its horizon, the first window by
+ * default). Every mark has a <title>. Below CONE_THIN_TICKS_PX of plot width only the first, last
+ * and `keyWindows` labels stay.
  *
- * @param {{windows: {window:number,p5:number,p25:number,p50:number,p75:number,p95:number,latest:number}[],
- *   implied: number|null, impliedLabel?: string|null, forecast: number|null}} props
+ * @param {{windows: {window:number,p5:number,p25:number,p50:number,p75:number,p95:number}[],
+ *   marks?: {window:number, value:number, open?:boolean, title:string}[],
+ *   ovx?: {value:number, horizon?:number|null, title:string}|null,
+ *   forecast?: {value:number, window?:number|null, title:string}|null, keyWindows?: number[], summary?: string}} props
  */
-export function ConeChart({ windows, implied = null, impliedLabel = null, forecast = null }) {
+export function ConeChart({ windows, marks = [], ovx = null, forecast = null, keyWindows = [], summary = null }) {
   const height = 300;
   const rows = windows.filter((row) => [row.window, row.p5, row.p95].every(Number.isFinite));
+  const shown = marks.filter((mark) => Number.isFinite(mark.window) && Number.isFinite(mark.value));
   return (
     <Frame
       height={height}
       draw={(width) => {
-        // Room right of the cone for the percentile and OVX labels.
-        const m = { ...MARGIN, right: Math.max(68, Math.ceil((impliedLabel ?? "").length * MONO_CHAR_PX) + 14) };
+        const first = rows[0];
+        const last = rows[rows.length - 1];
+        if (!first) return null;
+        // Room right of the cone for the percentile labels and "OVX 55.6" (the date is in the legend).
+        const ovxText = ovx ? `OVX ${fmtNum(ovx.value, 1)}` : "";
+        const m = { ...MARGIN, right: Math.ceil(Math.max(3, ovxText.length) * MONO_CHAR_PX) + 14 };
         const x = scaleLog().domain(extent(rows.map((row) => row.window))).range([m.left + 8, width - m.right - 8]);
-        const top = Math.max(...rows.map((row) => Math.max(row.p95, row.latest ?? 0)), implied ?? 0, forecast ?? 0);
+        const plotWidth = x.range()[1] - x.range()[0];
+        const top = Math.max(...rows.map((row) => row.p95), ...shown.map((mark) => mark.value), ovx?.value ?? 0, forecast?.value ?? 0);
         const y = scaleLinear().domain([0, top * 1.08]).nice().range([height - m.bottom, m.top]);
         const band = (lo, hi) => area().x((row) => x(row.window)).y0((row) => y(row[lo])).y1((row) => y(row[hi]))(rows);
         const path = (key) => line().x((row) => x(row.window)).y((row) => y(row[key])).defined((row) => Number.isFinite(row[key]))(rows);
-        const last = rows[rows.length - 1];
-        const first = rows[0];
+        const keep = new Set([first.window, last.window, ...keyWindows]);
+        const ticks = rows.map((row) => row.window).filter((window) => plotWidth >= CONE_THIN_TICKS_PX || keep.has(window));
+        const span = `${first.window}- to ${last.window}-day`;
+        const ovxX = ovx?.horizon != null && ovx.horizon >= first.window && ovx.horizon <= last.window ? x(ovx.horizon) : null;
+        // The forecast dot sits at its horizon (the first window by default); its label sits right of
+        // it and steps off the OVX level when the two are close.
+        const fx = x(Math.min(last.window, Math.max(first.window, forecast?.window ?? first.window)));
+        const fy = forecast ? y(forecast.value) : null;
+        const oy = ovx ? y(ovx.value) : null;
+        const labelY = fy == null ? null : oy != null && Math.abs(fy - oy) < 10 ? (fy >= oy ? oy + 11 : oy - 11) : fy;
         return (
           <svg width={width} height={height} className="svg-chart" role="img"
-            aria-label={`Volatility cone over ${rows.length} windows from ${first?.window} to ${last?.window} trading days`}>
+            aria-label={summary ?? `Volatility cone over ${rows.length} windows from ${first.window} to ${last.window} trading days`}>
             <YAxis scale={y} ticks={y.ticks(5)} format={(t) => `${t}%`} left={m.left} right={width - m.right} />
-            <path d={band("p5", "p95")} className="fill-cone-outer" />
-            <path d={band("p25", "p75")} className="fill-cone-inner" />
-            <path d={path("p50")} className="stroke-median" fill="none" />
-            {implied != null && (
-              <line className="stroke-implied dashed" x1={m.left} x2={x(last.window)} y1={y(implied)} y2={y(implied)} />
-            )}
-            <path d={path("latest")} className="stroke-truth" fill="none" />
-            {rows.map((row) => Number.isFinite(row.latest) && (
-              <circle key={row.window} cx={x(row.window)} cy={y(row.latest)} r={3.5} className="fill-truth" />
-            ))}
-            {forecast != null && first && (
+            <path d={band("p5", "p95")} className="fill-cone-outer"><title>{`5th–95th percentile of ${span} realized vol`}</title></path>
+            <path d={band("p25", "p75")} className="fill-cone-inner"><title>{`25th–75th percentile of ${span} realized vol`}</title></path>
+            {["p5", "p25", "p75", "p95"].map((key) => <path key={key} d={path(key)} className="stroke-cone-edge" />)}
+            <path d={path("p50")} className="stroke-median" fill="none"><title>{`Median of ${span} realized vol`}</title></path>
+            {ovx && (
               <g>
-                <rect x={x(first.window) - 4.5} y={y(forecast) - 4.5} width={9} height={9}
-                  transform={`rotate(45 ${x(first.window)} ${y(forecast)})`} className="fill-model" />
-                <text className="label-model" x={x(first.window) + 9} y={y(forecast)} dy="0.32em">forecast {fmtNum(forecast, 1)}</text>
+                <line className="stroke-implied dashed" x1={m.left} x2={x(last.window)} y1={oy} y2={oy}><title>{ovx.title}</title></line>
+                {ovxX != null && (
+                  <rect x={ovxX - 4} y={oy - 4} width={8} height={8} transform={`rotate(45 ${ovxX} ${oy})`} className="fill-implied mark-edge">
+                    <title>{ovx.title}</title>
+                  </rect>
+                )}
               </g>
             )}
-            {last && spreadLabels([
+            {shown.map((mark) => {
+              const cx = x(mark.window);
+              const cy = y(mark.value);
+              return mark.open ? (
+                <rect key={mark.window} x={cx - CONE_TICK_HALF} y={cy - 2.5} width={CONE_TICK_HALF * 2} height={5} className="tick-open">
+                  <title>{mark.title}</title>
+                </rect>
+              ) : (
+                <line key={mark.window} x1={cx - CONE_TICK_HALF} x2={cx + CONE_TICK_HALF} y1={cy} y2={cy} className="tick-realized">
+                  <title>{mark.title}</title>
+                </line>
+              );
+            })}
+            {forecast && (
+              <g>
+                <circle cx={fx} cy={fy} r={5} className="fill-model mark-edge"><title>{forecast.title}</title></circle>
+                <text className="label-model has-halo" x={fx + 9} y={labelY} dy="0.32em">forecast {fmtNum(forecast.value, 1)}</text>
+              </g>
+            )}
+            {spreadLabels([
               ...["p95", "p75", "p50", "p25", "p5"].map((key) => ({ key, text: key, y: y(last[key]), className: "axis-label" })),
-              ...(implied != null ? [{ key: "ovx", text: impliedLabel ?? `OVX ${fmtNum(implied, 1)}`, y: y(implied), className: "label-implied" }] : []),
-            ]).map((item) => (
-              <text key={item.key} className={item.className} x={x(last.window) + 8} y={item.y} dy="0.32em">{item.text}</text>
+              ...(ovx ? [{ key: "ovx", text: ovxText, y: oy, className: "label-implied" }] : []),
+            ], 14).map((item) => (
+              <text key={item.key} className={item.className} x={x(last.window) + CONE_TICK_HALF + 5} y={item.y} dy="0.32em">{item.text}</text>
             ))}
-            <XAxis scale={x} ticks={rows.map((row) => row.window)} format={(t) => `${t}d`} y={height - m.bottom} />
+            <XAxis scale={x} ticks={ticks} format={(t) => `${t}d`} y={height - m.bottom} />
           </svg>
         );
       }}
@@ -438,9 +478,13 @@ export function VrpScatter({ points }) {
         const y = scaleLog().domain(domain).range([height - m.bottom, m.top]);
         const ticks = [5, 10, 20, 50, 100, 200, 500].filter((t) => t >= domain[0] && t <= domain[1]);
         const latest = points[points.length - 1];
+        const below = points.filter((p) => p.actual < p.ovx).length;
+        const summary = `Scatter of ${points.length} weeks, ${fmtSpan(points[0]?.date, latest?.date)}: OVX against the following week's `
+          + `realized volatility, log scales; ${below} weeks (${fmtNum((below / Math.max(1, points.length)) * 100, 1)}%) fall below `
+          + `the diagonal, where implied exceeded realized${latest ? `. Latest week, ${fmtDate(latest.date)}: OVX ${fmtNum(latest.ovx, 1)}, realized ${fmtNum(latest.actual, 1)}` : ""}`;
         return (
-          <svg width={size} height={height} className="svg-chart" role="img"
-            aria-label={`Scatter of ${points.length} weeks: OVX against the following week's realized volatility`}>
+          <svg width={size} height={height} className="svg-chart" role="img" aria-label={summary}>
+            <title>{summary}</title>
             {ticks.map((t) => (
               <g key={t}>
                 <line className="grid-line" x1={m.left} x2={size - m.right} y1={y(t)} y2={y(t)} />

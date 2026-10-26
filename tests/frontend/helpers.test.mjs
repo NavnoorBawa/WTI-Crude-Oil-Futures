@@ -414,7 +414,15 @@ test("assertion titles state one claim each, and only what the numbers support",
   assert.match(a.leakAssertion({ leaked: { sharpe: 2 }, purged: { sharpe: 1, p: 0.01 } }), /^Purging a look-ahead leak cut/);
   assert.equal(a.leakAssertion(null), null);
 
-  assert.match(keep(a.coneAssertion(research.vol_lab.vol_cone)), /^Realized vol is at the \d+(st|nd|rd|th) percentile on a 5-day window/);
+  // CONE: on the cone's own date the lab's values, dated; with newer data.json its 5-day value and band.
+  const cone = research.vol_lab.vol_cone;
+  const coneRows = [...cone.windows].sort((x, y) => x.window - y.window);
+  assert.equal(data.vol_forecast.live.as_of, cone.as_of, "the fixture's live block and cone share a date");
+  assert.equal(keep(a.coneAssertion(cone, data.vol_forecast.live)),
+    `On ${f.fmtDate(cone.as_of, { year: false })}, ${coneRows[0].window}-day realized vol was at the ${f.ordinal(coneRows[0].latest_percentile)} percentile; `
+    + `${coneRows.at(-1).window}-day, the ${f.ordinal(coneRows.at(-1).latest_percentile)}`);
+  const laterLive = { ...data.vol_forecast.live, as_of: "2026-10-23" };
+  assert.match(keep(a.coneAssertion(cone, laterLive)), /^5-day realized vol \(\d+\.\d%, Oct 23\) is (in the|below the|above the) /);
 
   // VRP: read in variance units; the share of positive periods is never the evidence on its own.
   const vrp = data.vol_forecast.economic.variance_risk_premium;
