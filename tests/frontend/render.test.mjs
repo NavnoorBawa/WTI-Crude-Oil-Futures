@@ -56,7 +56,7 @@ test("the full dashboard renders every section with its computed title", () => {
   assert.ok(text.includes("Research project") === false, "the footer is outside the dashboard body");
   // Section anatomy: chips, assertion titles, source footers, table toggles.
   assert.equal((html.match(/class="chip chip--code[ "]/g) ?? []).length >= 13, true);
-  assert.ok((html.match(/aria-pressed="false"[^>]*>Table<span class="sr-only"> view of [^<]+<\/span><\/button>/g) ?? []).length >= 8, "table toggles");
+  assert.ok((html.match(/aria-pressed="false"[^>]*>(?:Table|By grid)<span class="sr-only"> view of [^<]+<\/span><\/button>/g) ?? []).length >= 8, "table toggles");
   // Each panel names the command that rebuilds what it shows, not the lab's by default.
   const reproduce = (id) => html.match(new RegExp(`<section id="${id}"[\\s\\S]*?</section>`))?.[0].match(/<span class="micro">Reproduce<\/span>(.*?)<\/span>/s)?.[1] ?? "";
   for (const [id, commands] of Object.entries({
@@ -79,11 +79,13 @@ test("the full dashboard renders every section with its computed title", () => {
 test("the timing control is listed below the ranking, outside the MCS and every count", () => {
   const { html, text } = render(data, research);
   const modl = html.match(/<section id="modl"[\s\S]*?<\/section>/)[0];
+  // The leaderboard is the section's first table; the membership matrix under it lists eligible models only.
   const bodies = [...modl.matchAll(/<tbody>([\s\S]*?)<\/tbody>/g)].map((match) => match[1]);
-  const rows = [...bodies[bodies.length - 1].matchAll(/<tr( class="([^"]*)")?>/g)].map((match) => match[2] ?? "");
+  const rows = [...bodies[0].matchAll(/<tr\b([^>]*)>/g)].map((match) => /class="([^"]*)"/.exec(match[1])?.[1] ?? "");
   const controls = rows.map((cls, index) => (cls.includes("is-timing-control") ? index : -1)).filter((index) => index >= 0);
   assert.ok(controls.length >= 1, "the timing control row is shown");
   assert.deepEqual(controls, controls.map((_, k) => rows.length - controls.length + k), "and pinned after the ranked rows");
+  assert.ok(bodies.slice(1).every((body) => !/timing control/.test(body)), "and left out of the membership matrix");
   assert.match(modl, /chip--warn"[^>]*>timing control</);
   assert.match(modl, />not eligible</);
   const summary = m.research.mcsSummary(research.vol_lab);

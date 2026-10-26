@@ -524,11 +524,18 @@ test("MODL states only what the confidence set contains, and leaves timing contr
   ];
   assert.equal(leaderboardAssertion(base, { level: 90 }), "All 2 models in the 90% Model Confidence Set use OVX; HAR-IV is not among them");
   assert.deepEqual(leaderboardDetail(base).map(spaced), ["HAR-IV MCS p = 0.04", "every return-only model has significantly higher QLIKE than HAR-IV"]);
-  // Survivors that do not share an input are described by what each uses.
+  // Survivors that do not share an input are described by what each uses (with "MCS" once the
+  // full name would take the title past 90 characters).
   const mixed = base.map((r) => (r.key === "HAR-IV-range" ? { ...r, info: new Set(["range"]) } : r));
-  assert.match(leaderboardAssertion(mixed, { level: 90 }), /^All 2 models in the 90% Model Confidence Set use OVX or the intraday range;/);
+  assert.match(leaderboardAssertion(mixed, { level: 90 }), /^All 2 models in the 90% MCS use OVX or the intraday range;/);
   const shared = base.map((r) => (r.key === "OVX-only" ? { ...r, info: new Set(["range"]) } : r));
-  assert.match(leaderboardAssertion(shared, { level: 90 }), /^All 2 models in the 90% Model Confidence Set use the intraday range;/);
+  assert.match(leaderboardAssertion(shared, { level: 90 }), /^All 2 models in the 90% MCS use the intraday range;/);
+  // A record out of the full-sample set but in it on some grid, or under the range proxy, says so.
+  const onGrids = base.map((r) => (r === record ? { ...r, grids: [true, false, true, false, false] } : r));
+  assert.equal(leaderboardAssertion(onGrids, { level: 90 }), "All 2 models in the 90% MCS use OVX; HAR-IV is out, though in on 2/5 grids");
+  assert.equal(leaderboardAssertion(base, { level: 90, robustness: { record: { gridsIn: 0, gridCount: 5, rangeProxy: true } } }),
+    "All 2 models in the 90% MCS use OVX; HAR-IV is out, though in under the range proxy");
+  assert.match(leaderboardAssertion(base, { level: 90, robustness: { record: { gridsIn: 0, gridCount: 5, rangeProxy: false } } }), /; HAR-IV is not among them$/);
   // A return-only survivor: no input claim, and no claim about return-only models.
   const garchIn = base.map((r) => (r.key === "GARCH" ? { ...r, inMcs: true } : r));
   assert.match(leaderboardAssertion(garchIn, { level: 90 }), /^3 of 4 models are in the 90% Model Confidence Set;/);
@@ -543,14 +550,19 @@ test("MODL states only what the confidence set contains, and leaves timing contr
   assert.deepEqual(leaderboardDetail(base, { available: false }), []);
   assert.equal(leaderboardAssertion([]), null);
 
-  // On the fixture: the stated count is the eligible members, and the record clause matches its flag.
+  // On the fixture: the stated count is the eligible members, and the record clause matches its
+  // flag and the grids it is in.
   for (const lab of [research.vol_lab, flaggedLab()]) {
     const rows = m.research.leaderboardRows(lab);
     const title = leaderboardAssertion(rows, { level: m.research.mcsLevel(lab) });
     const members = rows.filter((r) => r.inMcs);
-    assert.ok(title.startsWith(`All ${members.length} models in the 90% Model Confidence Set use `), title);
+    assert.match(title, new RegExp(`^All ${members.length} models in the 90% (Model Confidence Set|MCS) use `), title);
     const fixtureRecord = rows.find((r) => r.role === "record");
-    assert.ok(title.endsWith(`${m.research.shortLabel(fixtureRecord.label)} is ${fixtureRecord.inMcs ? "one of them" : "not among them"}`), title);
+    const gridsIn = fixtureRecord.grids.filter(Boolean).length;
+    const clause = fixtureRecord.inMcs ? "one of them"
+      : gridsIn ? `out, though in on ${gridsIn}/${fixtureRecord.grids.length} grids` : "not among them";
+    assert.ok(title.endsWith(`${m.research.shortLabel(fixtureRecord.label)} is ${clause}`), title);
+    assert.ok(title.length <= 90, title);
     assert.ok(!members.some((r) => r.timingControl));
   }
 });

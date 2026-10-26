@@ -9,7 +9,7 @@ import { fmtNum, fmtSigned, fmtSignedUsd } from "../lib/format";
 const MARGIN = { top: 12, right: 16, bottom: 26, left: 44 };
 
 /** A chart frame that measures its container and renders `draw(width)` once the width is known. */
-function Frame({ height, className = "", draw }) {
+export function Frame({ height, className = "", draw }) {
   const [ref, width] = useMeasure();
   return (
     <div ref={ref} className={`svg-frame ${className}`} style={{ minHeight: height }}>
@@ -18,7 +18,7 @@ function Frame({ height, className = "", draw }) {
   );
 }
 
-function YAxis({ scale, ticks, format, left, right }) {
+export function YAxis({ scale, ticks, format, left, right }) {
   return (
     <g className="axis axis-y">
       {ticks.map((tick) => (
@@ -31,7 +31,7 @@ function YAxis({ scale, ticks, format, left, right }) {
   );
 }
 
-function XAxis({ scale, ticks, format, y, anchor = "middle" }) {
+export function XAxis({ scale, ticks, format, y, anchor = "middle" }) {
   return (
     <g className="axis axis-x" transform={`translate(0,${y})`}>
       {ticks.map((tick, index) => (
@@ -41,7 +41,7 @@ function XAxis({ scale, ticks, format, y, anchor = "middle" }) {
   );
 }
 
-const extent = (values) => {
+export const extent = (values) => {
   const finite = values.filter((value) => Number.isFinite(value));
   return finite.length ? [Math.min(...finite), Math.max(...finite)] : [0, 1];
 };
@@ -169,77 +169,40 @@ export function ConeChart({ windows, implied = null, impliedLabel = null, foreca
   );
 }
 
-// --------------------------------------------------------------------------- YEARLY (STAB)
+// ---------------------------------------------------------------------- DM BY GRID (STAB)
+
+/** Under this plot width the DM strip's left axis note drops "than record". */
+const DM_NOTE_SHORT_BELOW = 300;
 
 /**
- * Small multiples of yearly QLIKE: one panel per model on a shared y scale. Every panel but the
- * first also draws the first model's yearly values as faint ticks, so each is read against it.
+ * The DM strip's two axis notes, anchored at t = 0 and running outward: "← worse than record" ends
+ * just left of zero and "better →" starts just right of it, each kept inside the plot. Under 300 px
+ * of plot width the left one shortens to "← worse", so the two never run together on a phone.
  *
- * @param {{years: {year:number, values: Record<string, number|null>}[],
- *   models: {key:string, label:string, tone:string}[]}} props
+ * @param {number} zero   x of t = 0
+ * @param {number} left   the plot's left edge
+ * @param {number} right  the plot's right edge
+ * @returns {{key: string, text: string, x: number, anchor: "start"|"end"}[]}
  */
-export function YearlySmallMultiples({ years, models }) {
-  const panelHeight = 170;
-  return (
-    <Frame
-      height={panelHeight}
-      className="multiples"
-      draw={(width) => {
-        const columns = width < 560 ? 2 : models.length;
-        const rowsOfPanels = Math.ceil(models.length / columns);
-        const gap = 16;
-        const panelWidth = (width - gap * (columns - 1)) / columns;
-        const height = rowsOfPanels * (panelHeight + 18) - 18;
-        const all = years.flatMap((row) => models.map((model) => row.values[model.key]));
-        const y = scaleLinear().domain([0, extent(all)[1] * 1.05]).nice().range([panelHeight - 22, 18]);
-        const yearExtent = extent(years.map((row) => row.year));
-        const reference = models[0];
-        return (
-          <svg width={width} height={height} className="svg-chart" role="img"
-            aria-label={`Yearly QLIKE ${yearExtent[0]}–${yearExtent[1]} for ${models.map((m) => m.label).join(", ")}`}>
-            {models.map((model, index) => {
-              const col = index % columns;
-              const row = Math.floor(index / columns);
-              const left = col * (panelWidth + gap);
-              const top = row * (panelHeight + 18);
-              const axisWidth = col === 0 ? 34 : 6;
-              const x = scaleLinear().domain(yearExtent).range([left + axisWidth + 4, left + panelWidth - 6]);
-              return (
-                <g key={model.key} transform={`translate(0,${top})`}>
-                  <text className={`multiple-title label-${model.tone}`} x={left + axisWidth + 4} y={10}>{model.label}</text>
-                  {y.ticks(4).map((tick) => (
-                    <g key={tick}>
-                      <line className="grid-line" x1={left + axisWidth} x2={left + panelWidth} y1={y(tick)} y2={y(tick)} />
-                      {col === 0 && <text className="axis-label" x={left + axisWidth - 4} y={y(tick)} dy="0.32em" textAnchor="end">{fmtNum(tick, 1)}</text>}
-                    </g>
-                  ))}
-                  {index > 0 && years.map((yr) => Number.isFinite(yr.values[reference.key]) && (
-                    <line key={`r${yr.year}`} className="stroke-reference" x1={x(yr.year) - 3} x2={x(yr.year) + 3}
-                      y1={y(yr.values[reference.key])} y2={y(yr.values[reference.key])} />
-                  ))}
-                  {years.map((yr) => Number.isFinite(yr.values[model.key]) && (
-                    <circle key={yr.year} cx={x(yr.year)} cy={y(yr.values[model.key])} r={2.6} className={`fill-${model.tone}`}>
-                      <title>{`${model.label} ${yr.year}: QLIKE ${fmtNum(yr.values[model.key], 3)}`}</title>
-                    </circle>
-                  ))}
-                  <text className="axis-label" x={x(yearExtent[0])} y={panelHeight - 6} textAnchor="start">{yearExtent[0]}</text>
-                  <text className="axis-label" x={x(yearExtent[1])} y={panelHeight - 6} textAnchor="end">{yearExtent[1]}</text>
-                </g>
-              );
-            })}
-          </svg>
-        );
-      }}
-    />
-  );
-}
-
-// ---------------------------------------------------------------------- DM BY GRID (STAB)
+export const dmAxisNotes = (zero, left, right) => {
+  const gap = 6;
+  const worse = right - left < DM_NOTE_SHORT_BELOW ? "← worse" : "← worse than record";
+  const better = "better →";
+  const worseWidth = worse.length * MONO_CHAR_PX;
+  const betterWidth = better.length * MONO_CHAR_PX;
+  // Zero near either edge: the pair moves inward together, so one never runs into the other.
+  const centre = Math.min(Math.max(zero, left + worseWidth + gap), right - betterWidth - gap);
+  return [
+    { key: "worse", text: worse, anchor: "end", x: centre - gap },
+    { key: "better", text: better, anchor: "start", x: centre + gap },
+  ];
+};
 
 /**
  * Diebold-Mariano t of each model vs the model of record, full sample (large dot) and on each of
  * the 5-session sampling grids (small dots on the min-max range). Positive = lower loss than the record.
- * A row's optional `tag` ("timing control") is printed as a muted line under its label.
+ * A row's optional `tag` ("timing control") is printed as a muted line under its label. Tones: "alt"
+ * (the challenger), "ink" (uses OVX or the range) and "faint" (returns only).
  *
  * @param {{rows: {key:string,label:string,tag?:string,dmStat:number|null,dmMin:number|null,dmMax:number|null,
  *   grid:number[], tone:string}[], critical?: number}} props
@@ -282,8 +245,9 @@ export function DmGridStrip({ rows, critical = 1.96 }) {
               );
             })}
             <XAxis scale={x} ticks={x.ticks(6)} format={(t) => fmtSigned(t, 0)} y={bottom} />
-            <text className="axis-note" x={x(x.domain()[0])} y={height - 2} textAnchor="start">← worse than record</text>
-            <text className="axis-note" x={x(x.domain()[1])} y={height - 2} textAnchor="end">better →</text>
+            {dmAxisNotes(x(0), x.range()[0], x.range()[1]).map((note) => (
+              <text key={note.key} className="axis-note" x={note.x} y={height - 2} textAnchor={note.anchor}>{note.text}</text>
+            ))}
           </svg>
         );
       }}

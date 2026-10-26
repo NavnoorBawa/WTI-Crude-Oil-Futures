@@ -1,1 +1,60 @@
 /* model-comparison: styles owned by the model-comparison work package. Loaded after index.css, in package order. */
+
+/* ------------------------------------------------------------------------ MODL leaderboard */
+/* A long model name may wrap, its chip moving under it, and so may the inputs and family words,
+   so the ten columns fit from 1280px and need less sideways room below it. */
+.leaderboard .data-table :is(.leader-model, .muted-cell) { white-space: normal; }
+.leaderboard .leader-model .model-cell { flex-wrap: wrap; row-gap: 2px; }
+/* MCS p reads strong for a member of the set and muted otherwise; "In set" says it in words. */
+.mcs-p { color: var(--text-3); }
+.mcs-p.is-member { color: var(--text-1); font-weight: 500; }
+.in-set { color: var(--text-1); font-weight: 500; }
+
+/* Membership matrix: as wide as its columns (so a row reads in one sweep), one narrow, centred
+   column per setting, headers wrapping when space is short. A cell holds its own screen-reader
+   word (position), so the word never widens the page while the table scrolls sideways. */
+.mcs-matrix .table-wrap { width: fit-content; max-width: 100%; }
+.mcs-matrix .data-table { width: auto; }
+.data-table thead th.set-col { white-space: normal; min-width: 0; line-height: 1.25; text-align: center; }
+.data-table td.set-col { position: relative; text-align: center; }
+.mcs-matrix .data-table th.set-col, .mcs-matrix .data-table td.set-col { padding-left: var(--sp-3); padding-right: var(--sp-3); }
+.set-mark { color: var(--text-4); }
+.set-mark.is-in { color: var(--text-1); }
+tr.is-record .set-mark.is-in { color: var(--s-model); }
+tr.is-challenger .set-mark.is-in { color: var(--s-alt); }
+
+/* ------------------------------------------------------------------------------- STAB marks */
+/* Neutral series: ink for models that use OVX or the range, faint for returns-only models. The
+   faint label is text-3, since text-4 is for decoration only. */
+.swatch-ink { --c: var(--text-1); }
+.swatch-faint { --c: var(--text-4); }
+.label-faint { fill: var(--text-3); color: var(--text-3); }
+/* A yearly-gap bar cut at the scale's edge carries a break near its end. */
+.gap-break { stroke: var(--bg-1); stroke-width: 1.5; }
+/* Rolling gap: the region where the challenger had the lower loss. */
+.fill-gap-better { fill: var(--s-alt); fill-opacity: 0.22; }
+
+/* ----------------------------------------------------------------------------------- tablets */
+/* Below 1280px the QLIKE strip is shorter and the DM t range sits under its value, so the ten
+   columns fit at 1024px. */
+@media (max-width: 1279px) {
+  .leaderboard .inline-bar { min-width: 0; }
+  .leaderboard .bar-track { min-width: 56px; }
+  .leaderboard .leader-dm .stat-cell { flex-direction: column; align-items: flex-end; gap: 0; }
+}
+
+/* ------------------------------------------------------------------------------------ phones */
+/* The leaderboard fits a phone without sideways scrolling: model, QLIKE, DM t, MCS p and In set
+   stay (the wider columns are hidden through hideBelow); the QLIKE strip and the DM t range across
+   grids give way to the numbers. */
+@media (max-width: 640px) {
+  .inline-bar { min-width: 0; }
+  .bar-track { display: none; }
+  .leader-dm .stat-range, .dm-range-note { display: none; }
+  .data-table .not-eligible { white-space: normal; }
+  .leaderboard .data-table { font-size: var(--fs-12); }
+  .leaderboard .data-table thead th { white-space: normal; }
+  .leaderboard .data-table :is(th, td):not(:first-child) { padding-left: 4px; padding-right: 4px; }
+  .leaderboard .data-table :is(th, td):first-child { padding-right: 4px; }
+  .mcs-matrix .data-table th.set-col, .mcs-matrix .data-table td.set-col { padding-left: 4px; padding-right: 4px; }
+}

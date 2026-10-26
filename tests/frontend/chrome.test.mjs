@@ -73,7 +73,8 @@ test("every Table button says which section it shows, and no two share a name", 
   const { html } = renderDashboard(research);
   const names = [...html.matchAll(/<button type="button" class="toggle-button"[^>]*>([\s\S]*?)<\/button>/g)].map((match) => visibleText(match[1]).replace(/\s+/g, " ").trim());
   assert.ok(names.length >= 8, `${names.length} table buttons`);
-  for (const name of names) assert.match(name, /^Table view of \S/, name);
+  // MODL's figure is already a table, so its toggle names what it switches to (tableLabel "By grid").
+  for (const name of names) assert.match(name, /^(?:Table|By grid) view of \S/, name);
   assert.equal(new Set(names).size, names.length, `duplicate names: ${names.join(" | ")}`);
   const fcst = SECTIONS.find((item) => item.id === "fcst");
   assert.ok(names.includes(`Table view of ${fcst.name}`));

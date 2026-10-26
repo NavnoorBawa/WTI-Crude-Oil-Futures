@@ -5,7 +5,10 @@
 // *Detail function, so every figure stays computed from the payload. Every figure names its sample
 // when two samples of the same statistic appear on the page.
 import { NBSP, fmtDate, fmtInt, fmtNum, fmtP, fmtPct, fmtPValue, fmtSigned, num, ordinal } from "./format";
-import { LIVE_MIN_INDEPENDENT, asArray, asObject, asText, coverageByYear, ovxOnlyBenchmark, recordVar, shortLabel, vrpSummary, yearsBetter } from "./research";
+import {
+  LIVE_MIN_INDEPENDENT, OVX_ONLY_KEY, asArray, asObject, asText, coverageByYear, ovxOnlyBenchmark, recordVar, shortLabel, vrpSummary,
+  yearsBetter,
+} from "./research";
 
 /** The nominal coverage of the contract's interval_80 fields (a design level, not a statistic). */
 export const INTERVAL_LEVEL_PCT = 80;
@@ -63,42 +66,68 @@ export const forecastDetail = (validation, { ovxLabel = "OVX-only regression" } 
 
 const INFO_TEXT = { implied: "OVX", range: "the intraday range" };
 
+/** The longest title the page prints (the render test holds every h2 and h3 to it). */
+const TITLE_MAX = 90;
+
 /**
  * MODL: what the Model Confidence Set contains, true by construction from the rows: which inputs
  * every member uses and whether the model of record is among them. Timing controls (and anything
- * else not eligible) are left out.
+ * else not eligible) are left out. When the record is out of the full-sample set but in it on some
+ * sampling grid, or under the range proxy, the record clause says so, since the exclusion then
+ * depends on the setting: "{rec} is out, though in on k/n grids" (the grid count comes from
+ * `robustness`, else from the rows), else "though in under the range proxy". The set is named in
+ * full unless that makes the title longer than TITLE_MAX characters; then it is "MCS".
+ *
  * @param {import("./research").LeaderRow[]} rows
- * @param {{level?: number|null, available?: boolean}} [options]  MCS level in percent; whether
- *   the payload carries MCS results at all
+ * @param {{level?: number|null, available?: boolean,
+ *   robustness?: {record?: {gridsIn?: number|null, gridCount?: number, rangeProxy?: boolean|null}|null}|null}} [options]
+ *   MCS level in percent; whether the payload carries MCS results at all; mcsRobustness(lab)
  */
-export const leaderboardAssertion = (rows, { level = null, available = true } = {}) => {
+export const leaderboardAssertion = (rows, { level = null, available = true, robustness = null } = {}) => {
   if (!Array.isArray(rows) || !available) return null;
   const eligible = rows.filter((row) => row.mcsEligible !== false && !row.timingControl);
   const survivors = eligible.filter((row) => row.inMcs);
   if (!eligible.length || !survivors.length) return null;
-  const set = `${level != null ? `${level}% ` : ""}Model Confidence Set`;
   const record = eligible.find((row) => row.role === "record") ?? null;
   const recordName = record ? shortLabel(record.label) : null;
 
-  if (survivors.length === 1) {
-    const only = survivors[0];
-    return `${shortLabel(only.label)}${only === record ? ", the model of record," : ""} alone is in the ${set}`;
+  let recordPart = null;
+  if (record?.inMcs) recordPart = `${recordName} is one of them`;
+  else if (record) {
+    const grids = asArray(record.grids);
+    const settings = asObject(robustness?.record);
+    const gridsIn = num(settings?.gridsIn) ?? grids.filter(Boolean).length;
+    const gridCount = num(settings?.gridCount) || grids.length;
+    if (gridsIn > 0 && gridCount > 0) recordPart = `${recordName} is out, though in on ${fmtInt(gridsIn)}/${fmtInt(gridCount)} grids`;
+    else if (settings?.rangeProxy === true) recordPart = `${recordName} is out, though in under the range proxy`;
+    else recordPart = `${recordName} is not among them`;
   }
   const shared = Object.keys(INFO_TEXT).find((kind) => survivors.every((row) => row.info.has(kind)));
   const uses = shared ? INFO_TEXT[shared]
     : survivors.every((row) => row.info.size > 0) ? `${INFO_TEXT.implied} or ${INFO_TEXT.range}` : null;
-  const first = uses
-    ? `All ${fmtInt(survivors.length)} models in the ${set} use ${uses}`
-    : `${fmtInt(survivors.length)} of ${fmtInt(eligible.length)} models are in the ${set}`;
-  const recordPart = record ? `${recordName} is ${record.inMcs ? "one of them" : "not among them"}` : null;
-  return join([first, recordPart]);
+
+  const title = (name) => {
+    const set = `${level != null ? `${level}% ` : ""}${name}`;
+    if (survivors.length === 1) {
+      const only = survivors[0];
+      return `${shortLabel(only.label)}${only === record ? ", the model of record," : ""} alone is in the ${set}`;
+    }
+    const first = uses
+      ? `All ${fmtInt(survivors.length)} models in the ${set} use ${uses}`
+      : `${fmtInt(survivors.length)} of ${fmtInt(eligible.length)} models are in the ${set}`;
+    return join([first, recordPart]);
+  };
+  const long = title("Model Confidence Set");
+  return long.length <= TITLE_MAX ? long : title("MCS");
 };
 
 /**
- * MODL meta: the record's MCS p-value and whether the return-only models are significantly worse
- * than it (every one of them, by a Diebold-Mariano test at ALPHA).
+ * MODL meta: the record's MCS p-value, whether the return-only models are significantly worse
+ * than it (every one of them, by a Diebold-Mariano test at ALPHA) and, given mcsRobustness(lab),
+ * under how many of the settings research.json reports the record is in the set (each sampling
+ * grid counts as one setting).
  */
-export const leaderboardDetail = (rows, { available = true } = {}) => {
+export const leaderboardDetail = (rows, { available = true, robustness = null } = {}) => {
   if (!Array.isArray(rows) || !available) return [];
   const eligible = rows.filter((row) => row.mcsEligible !== false && !row.timingControl);
   const record = eligible.find((row) => row.role === "record") ?? null;
@@ -111,6 +140,10 @@ export const leaderboardDetail = (rows, { available = true } = {}) => {
       && row.dmP != null && row.dmP < ALPHA);
     if (allWorse) parts.push(`every return-only model has significantly higher QLIKE than ${recordName}`);
     else if (returnOnly.every((row) => !row.inMcs)) parts.push("no return-only model is in the set");
+  }
+  const settings = asObject(robustness?.record);
+  if (num(settings?.settingCount) > 0 && num(settings?.inCount) != null) {
+    parts.push(`${recordName}: in the set under ${fmtInt(settings.inCount)} of ${fmtInt(settings.settingCount)} settings`);
   }
   return parts.filter(Boolean);
 };
@@ -135,18 +168,23 @@ export const spaAssertion = (spa, { recordName = "the model of record", mcsLevel
   return `Hansen SPA test of ${recordName} against ${count ? plural(count, "alternative") : "the alternatives"}: consistent ${fmtP(p)}${bounds}; ${reading}.`;
 };
 
-/** STAB: does the ranking hold year by year? "Beat" means a lower QLIKE in that calendar year. */
+/**
+ * STAB: does the ranking hold year by year? "Beat" means a lower QLIKE in that calendar year. The
+ * bench is the comparison that matters, the OVX-only regression (named with "the", as on the rest
+ * of the page), not the weakest model that makes the record look good.
+ */
 export const stabilityAssertion = (yearly, { champion, challenger, bench, labels = new Map() } = {}) => {
   if (!Array.isArray(yearly) || !yearly.length || !champion) return null;
   const name = (key) => shortLabel(labels.get(key) ?? key);
   const parts = [];
   if (bench) {
     const { wins, total } = yearsBetter(yearly, champion, bench);
-    if (total) parts.push(`${name(champion)} beat ${name(bench)} in ${wins} of ${total} years`);
+    if (total) parts.push(`${name(champion)} beat ${bench === OVX_ONLY_KEY ? "the " : ""}${name(bench)} in ${wins} of ${total} years`);
   }
   if (challenger) {
     const { wins, total } = yearsBetter(yearly, challenger, champion);
-    if (total) parts.push(`the challenger beat ${name(champion)} in ${wins}`);
+    // After the bench clause the year count is understood; alone, the clause states it.
+    if (total) parts.push(parts.length ? `the challenger beat ${name(champion)} in ${wins}` : `The challenger beat ${name(champion)} in ${wins} of ${total} years`);
   }
   return parts.length ? join(parts) : null;
 };
