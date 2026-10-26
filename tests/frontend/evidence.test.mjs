@@ -199,7 +199,8 @@ test("RISK: the caption's breach counts are the backtest's Kupiec counts at both
   assert.ok(!caption.includes("rounded series"));
   // The record row of the 99% table shows the same count.
   const recordRow = html.match(/<tr class="is-record">([\s\S]*?)<\/tr>/)?.[1] ?? "";
-  assert.match(visibleText(recordRow), new RegExp(`^\\s*\\S.*? ${at(0.01).kupiec.exceedances} / `));
+  const recordText = visibleText(recordRow);
+  assert.ok(recordText.includes(` ${at(0.01).kupiec.exceedances} / `), recordText);
 });
 
 test("RISK: a last-250-weeks column, 3-decimal Kupiec p-values, and pass meters that are images", () => {

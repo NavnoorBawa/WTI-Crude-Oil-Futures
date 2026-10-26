@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { loadDashboard, readFixture, visibleText } from "./load.mjs";
+import { escapeRegExp, loadDashboard, readFixture, visibleText } from "./load.mjs";
 
 const FIXED_NOW = Date.parse("2026-10-21T12:00:00Z");
 Date.now = () => FIXED_NOW;
@@ -158,7 +158,7 @@ test("the table view lists the latest weeks newest first, with miss, log error a
     assert.ok(headers.includes(label), `${label} in ${headers.join(" | ")}`);
   }
   for (const label of ["Miss (pts)", "Log error", "QLIKE"]) {
-    assert.match(html, new RegExp(`aria-sort="none"[^>]*><button type="button" class="sort-button"><span>${label.replace(/[()]/g, "\\$&")}</span>`), `${label} sorts`);
+    assert.match(html, new RegExp(`aria-sort="none"[^>]*><button type="button" class="sort-button"><span>${escapeRegExp(label)}</span>`), `${label} sorts`);
   }
   assert.match(html, /class="csv-button"[^>]*><span class="sr-only">Download <\/span>CSV<\/button>/);
   const bodyRows = [...html.matchAll(/<tr><th scope="row"[^>]*>([^<]*)<\/th>/g)].map((match) => match[1]);

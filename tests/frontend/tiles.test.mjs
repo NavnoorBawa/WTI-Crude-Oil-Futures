@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { loadDashboard, readFixture, readSource } from "./load.mjs";
+import { decodeEntities, loadDashboard, readFixture, readSource } from "./load.mjs";
 
 const FIXED_NOW = Date.parse("2026-10-21T12:00:00Z");
 Date.now = () => FIXED_NOW;
@@ -32,9 +32,16 @@ const recordModel = lab.leaderboard.models.find((model) => model.key === champio
 const DASH = "—";
 
 /** Text inside one element: tags dropped (inline spans add no spaces), entities and NBSPs decoded. */
-const plain = (html) => html.replace(/<[^>]+>/g, "")
-  .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#x27;/g, "'")
-  .replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+const plain = (html) => {
+  let text = "";
+  let inTag = false;
+  for (const character of html) {
+    if (character === "<") inTag = true;
+    else if (character === ">") inTag = false;
+    else if (!inTag) text += character;
+  }
+  return decodeEntities(text).replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+};
 
 const renderVerdict = (payload, researchPayload, status = researchPayload ? "ready" : "unavailable") => {
   const errors = [];

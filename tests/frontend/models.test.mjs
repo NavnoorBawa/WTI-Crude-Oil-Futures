@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { loadDashboard, readFixture, visibleText } from "./load.mjs";
+import { escapeRegExp, loadDashboard, readFixture, visibleText } from "./load.mjs";
 
 const FIXED_NOW = Date.parse("2026-10-21T12:00:00Z");
 Date.now = () => FIXED_NOW;
@@ -153,7 +153,7 @@ test("the QLIKE strip has no zero baseline and marks a far outlier off-scale, wi
   assert.ok(scale.position(values[0]) > 0, "the best model is not at the track's end");
   const outlier = board.models.find((model) => model.qlike === worst);
   const markup = section(renderDashboard(), "modl");
-  const rowOf = (key) => markup.match(new RegExp(`<tr id="modl-${key}"[\\s\\S]*?</tr>`))?.[0] ?? "";
+  const rowOf = (key) => markup.match(new RegExp(`<tr id="modl-${escapeRegExp(key)}"[\\s\\S]*?</tr>`))?.[0] ?? "";
   assert.ok(rowOf(outlier.key).includes("›"), "drawn as › at the track's end");
   assert.ok(rowOf(outlier.key).includes(m.format.fmtNum(worst, 4)), "with the number still printed");
   for (const model of board.models.filter((item) => item.key !== outlier.key)) {
