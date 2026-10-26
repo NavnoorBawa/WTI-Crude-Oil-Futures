@@ -1,0 +1,146 @@
+/* reading-surface: styles owned by the reading-surface work package. Loaded after index.css, in package order. */
+
+/* ---------------------------------------------------------------------- notation-safe labels */
+/* The section name keeps its case, like every label that can hold notation (VaR, p, t, n). Capitals
+   stay only on chips, the remaining micro labels and buttons, which carry no notation. */
+.panel-eyebrow .micro { font-size: var(--fs-12); letter-spacing: 0.01em; text-transform: none; }
+
+/* ------------------------------------------------------------------------------ reading text */
+/* Notes read like captions: 13px at about 75 characters per line. A note that holds a table or a
+   figure keeps the full width for it. */
+.disclosure-body { font-size: var(--fs-body); line-height: 1.55; }
+.disclosure-body > :is(p, ul, ol),
+.disclosure-body:not(:has(table, svg, canvas, img)) { max-width: var(--measure); }
+
+/* --------------------------------------------------------------------------------- hierarchy */
+/* Levels: 24 verdict, 18 section, 14 study, 12 figure title and labels. More air above each
+   section title on a desktop, where 13 sections otherwise run together. */
+@media (min-width: 1024px) {
+  .panel { padding: var(--sp-8) var(--sp-6) var(--sp-4); }
+  .panel-title { font-size: var(--fs-18); line-height: 1.3; }
+}
+
+/* ------------------------------------------------------------------------------------ layout */
+/* Paired halves share the row height; a column flex sends each source footer to the bottom, so the
+   two footers share a baseline. The element above the footer keeps the usual gap. */
+.panel.span-half { display: flex; flex-direction: column; }
+.panel.span-half > .panel-source { margin-top: auto; }
+.panel.span-half > :has(+ .panel-source) { margin-bottom: var(--sp-3); }
+/* Below 1280px a half panel would be about 610px wide or less: each takes the full row instead of
+   leaving a column of blank space beside a longer partner. */
+@media (max-width: 1279px) {
+  .panel.span-half { grid-column: 1 / -1; }
+}
+
+/* Three columns (figure | table | reading) in a wide panel; between 880 and 1100px the third
+   column moves below the first two. */
+@container (min-width: 880px) {
+  .split--3 > :nth-child(3) { grid-column: 1 / -1; }
+}
+@container (min-width: 1100px) {
+  .split--3 { grid-template-columns: minmax(0, 420px) minmax(0, 1fr) minmax(0, 1fr); }
+  .split--3 > :nth-child(3) { grid-column: auto; }
+}
+
+/* The retraction line and the market strip share one row on a wide screen. The columns are fixed
+   halves, not sized to content: the retraction line grows when research.json arrives, and a
+   content-sized column would then push the market strip sideways (a layout shift). */
+@media (min-width: 1280px) {
+  .strip-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .strip-row > :only-child { grid-column: 1 / -1; }
+}
+
+/* Lazy figures reserve their mounted height (LazyMount sets both variables). */
+.lazy-mount > .figure-placeholder { min-height: var(--lazy-h, 240px); }
+@media (max-width: 640px) {
+  .lazy-mount > .figure-placeholder { min-height: var(--lazy-h-narrow, var(--lazy-h, 240px)); }
+}
+
+/* -------------------------------------------------------------------------------- tables */
+/* A phone scrolls the page, never a table nested inside it. */
+@media (max-width: 640px) {
+  .table-scroll.is-tall { max-height: none; overflow-y: visible; }
+}
+/* With a pointer, only the sorted column shows its glyph; the others show theirs on hover or focus.
+   Touch screens keep every glyph as the cue that a header sorts. */
+@media (hover: hover) {
+  .sort-glyph:not(.is-active) { visibility: hidden; }
+  .sort-button:hover .sort-glyph,
+  .sort-button:focus-visible .sort-glyph { visibility: visible; }
+}
+/* 16px stops iOS from zooming the page when a control takes focus; 40px is a usable touch target. */
+@media (pointer: coarse) {
+  select.select,
+  input.search-input { font-size: 16px; min-height: 40px; }
+}
+
+/* ------------------------------------------------------------------- marks drawn in ink */
+/* Meaning-bearing marks meet 3:1 on --bg-1 (WCAG 1.4.11; tests/frontend/theme.test.mjs). Truth grey
+   is kept for realized volatility only; other neutral marks are ink (strong) or faint. */
+.stroke-cone-edge { fill: none; stroke: var(--s-truth); stroke-opacity: 0.45; stroke-width: 1; }
+.fill-ink { fill: var(--text-1); }
+.label-ink { fill: var(--text-1); color: var(--text-1); }
+.stroke-ink { stroke: var(--text-2); stroke-width: 1.5; }
+.fill-faint { fill: var(--text-4); }
+
+/* ------------------------------------------------------------------------- forced colours */
+/* Windows High Contrast would flatten these keys and bars to the system colours, so they keep
+   their own colours; area keys and the interval band get a system-colour edge so they read on a
+   light or a dark contrast theme. Line, dash and ring keys are already their own stroke. */
+@media (forced-colors: active) {
+  .swatch, .rb-band, .rb-mark, .rb-tail, .bar-track, .bar-fill,
+  .grid-dots .dot, .pass-meter i, .snapshot-dot { forced-color-adjust: none; }
+  .rb-band,
+  .swatch:is(.is-band, .is-dot, .is-diamond, .swatch-band, .swatch-bar) { border: 1px solid CanvasText; }
+}
+
+/* ---------------------------------------------------------------------------------- print */
+/* A light page without screen chrome: full tables, figures as images (forecast-figures inserts
+   .print-shot for each canvas chart), notes opened by src/lib/print.js or on beforeprint. */
+@media print {
+  @page { margin: 12mm; }
+
+  :root {
+    color-scheme: light;
+    --bg-0: #fff;
+    --bg-1: #fff;
+    --bg-2: #f3f4f6;
+    --rule: #ddd;
+    --rule-strong: #bbb;
+    --text-1: #111;
+    --text-2: #333;
+    --text-3: #555;
+    --text-4: #888;
+    /* the realized-vol grey and the amber would fade on white */
+    --s-truth: #444;
+    --warn: #9a6700;
+  }
+  html { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+
+  .codenav, .topbar-right, .skip-link, .panel-actions, .figure-controls, .copy-link, .csv-button,
+  .table-more, .sort-glyph, .notice button, dialog { display: none !important; }
+  .topbar { position: static; }
+  /* The hairline grid paints its 1px gaps with its own background, which would also fill the rest
+     of every page a panel does not reach; in print each section draws its own rule instead. */
+  .panel-grid { gap: 0; background: none; border: 0; }
+  .panel-grid > * { border-top: 1px solid var(--rule); }
+
+  .table-scroll, .table-scroll.is-tall { max-height: none; overflow: visible; box-shadow: none; }
+  .data-table thead th,
+  .table-scroll.is-tall thead th,
+  .data-table.has-sticky tbody th[scope="row"],
+  .data-table.has-sticky thead th:first-child { position: static; }
+  /* Columns wrap instead of running off the page edge. */
+  .data-table th, .data-table td { white-space: normal; }
+
+  .panel { break-inside: avoid-page; }
+  .panel:has(tbody tr:nth-child(21)) { break-inside: auto; }
+  .panel-title, .figure-title, .study-title { break-after: avoid; }
+  tr { break-inside: avoid; }
+
+  .lw-host:has(~ .print-shot) { display: none; }
+  img.print-shot { display: block; width: 100%; height: auto; }
+
+  .panel-source a[href^="http"]::after,
+  .site-footer a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 10px; overflow-wrap: anywhere; }
+}

@@ -41,6 +41,7 @@ export async function loadDashboard() {
   });
   const load = (path) => server.ssrLoadModule(path);
   return {
+    load,
     chart: await load("/src/charts/PriceChart.jsx"),
     quote: await load("/src/app/quote.js"),
     format: await load("/src/lib/format.js"),

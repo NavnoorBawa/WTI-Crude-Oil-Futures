@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { REQUEST_TIMEOUT_MS, RESEARCH_URL } from "./config";
 
 const isResearchPayload = (value) =>
@@ -8,37 +8,64 @@ const isResearchPayload = (value) =>
 /**
  * research.json is optional. It is fetched once at start-up, in parallel with data.json, and again
  * whenever a newer data snapshot arrives (`snapshotKey` changes after the first one), keeping the
- * previous copy if a refresh fails. Panels that need it render an "unavailable" note instead.
+ * previous copy if a refresh fails. While it is unavailable it is fetched again when the browser
+ * comes back online or the tab becomes visible, and `retry()` fetches it on demand (the page-level
+ * notice's Retry button). A retry never flips the status back to "loading", so the panels do not
+ * flash placeholders while it runs. Panels that need it render a one-line note instead.
  *
  * @param {string|null} snapshotKey e.g. data.frozen_at
- * @returns {{research: object|null, status: "loading"|"ready"|"unavailable"}}
+ * @returns {{research: object|null, status: "loading"|"ready"|"unavailable", retry: () => Promise<boolean>}}
+ *   retry resolves to whether research.json is now loaded
  */
 export default function useResearch(snapshotKey) {
   const [state, setState] = useState({ research: null, status: "loading" });
   const aliveRef = useRef(true);
   const seenKeyRef = useRef(null);
   const loadRef = useRef(null);
+  const inFlightRef = useRef(null);
+  const statusRef = useRef(state.status);
+  statusRef.current = state.status;
 
   loadRef.current = () => {
+    if (inFlightRef.current) return inFlightRef.current;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     const keepOrFail = (previous) => (previous.research ? previous : { research: null, status: "unavailable" });
-    fetch(RESEARCH_URL, { signal: controller.signal, cache: "no-cache", headers: { Accept: "application/json" } })
+    const request = fetch(RESEARCH_URL, { signal: controller.signal, cache: "no-cache", headers: { Accept: "application/json" } })
       .then((response) => (response.ok ? response.json() : null))
       .then((payload) => {
-        if (!aliveRef.current) return;
-        setState(isResearchPayload(payload) ? { research: payload, status: "ready" } : keepOrFail);
+        const ok = isResearchPayload(payload);
+        if (aliveRef.current) setState(ok ? { research: payload, status: "ready" } : keepOrFail);
+        return ok;
       })
       .catch(() => {
         if (aliveRef.current) setState(keepOrFail);
+        return false;
       })
-      .finally(() => clearTimeout(timeoutId));
+      .finally(() => {
+        clearTimeout(timeoutId);
+        inFlightRef.current = null;
+      });
+    inFlightRef.current = request;
+    return request;
   };
 
   useEffect(() => {
     aliveRef.current = true;
     loadRef.current();
-    return () => { aliveRef.current = false; };
+    const retryIfUnavailable = () => {
+      if (statusRef.current === "unavailable") loadRef.current();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") retryIfUnavailable();
+    };
+    window.addEventListener("online", retryIfUnavailable);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      aliveRef.current = false;
+      window.removeEventListener("online", retryIfUnavailable);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, []);
 
   useEffect(() => {
@@ -52,5 +79,6 @@ export default function useResearch(snapshotKey) {
     loadRef.current();
   }, [snapshotKey]);
 
-  return state;
+  const retry = useCallback(() => loadRef.current(), []);
+  return { research: state.research, status: state.status, retry };
 }

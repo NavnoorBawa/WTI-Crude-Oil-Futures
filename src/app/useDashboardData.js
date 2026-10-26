@@ -152,7 +152,14 @@ export default function useDashboardData() {
             }
 
             if (responseParseError || responsePayload == null || typeof responsePayload !== "object" || Array.isArray(responsePayload)) {
-              throw new Error("The data endpoint returned invalid JSON");
+              // The file arrived but cannot be read: a broken deploy, not a network problem.
+              const invalidError = new Error(
+                responseParseError
+                  ? (STATIC_DATA_MODE ? "The data file is not valid JSON" : "The data service returned invalid JSON")
+                  : (STATIC_DATA_MODE ? "The data file does not hold a JSON object" : "The data service did not return a JSON object")
+              );
+              invalidError.code = "INVALID_JSON";
+              throw invalidError;
             }
 
             result = responsePayload;
@@ -189,11 +196,13 @@ export default function useDashboardData() {
         const isStarting = err?.code === "SYSTEM_INITIALIZING";
         const userMessage = isStarting
           ? err.message || "Backend is warming up the model."
-          : err?.code === "REQUEST_TIMEOUT" || err?.name === "AbortError"
-            ? "Server timeout - Please wait and refresh"
-            : err?.name === "TypeError" && String(err.message).includes("Failed to fetch")
-              ? "Cannot connect to the data service"
-              : `Network error: ${err?.message || "Unknown request failure"}`;
+          : err?.code === "INVALID_JSON"
+            ? err.message
+            : err?.code === "REQUEST_TIMEOUT" || err?.name === "AbortError"
+              ? "Server timeout - Please wait and refresh"
+              : err?.name === "TypeError" && String(err.message).includes("Failed to fetch")
+                ? "Cannot connect to the data service"
+                : `Network error: ${err?.message || "Unknown request failure"}`;
 
         if (!latestDataRef.current) {
           const scheduled = scheduleInitialRetry(isStarting ? err.retryAfterMs : STARTUP_RETRY_MS, userMessage);

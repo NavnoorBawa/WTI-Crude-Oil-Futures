@@ -1,4 +1,5 @@
 // Small pieces shared by the panels.
+import keepHyphenated from "../components/keepHyphenated";
 import { asText } from "../lib/research";
 import { fmtMonthYear, fmtSpan } from "../lib/format";
 
@@ -19,13 +20,10 @@ export function ResearchUnavailable({ status, what = "this figure" }) {
       </div>
     );
   }
+  // Unavailable: one line; the page-level notice under the verdict says what is affected and retries.
   return (
-    <div className="figure-empty">
-      <p className="empty-title">research.json is not available</p>
-      <p className="empty-text">
-        It holds the reproducible research behind {what}. The live forecast, its validation and the
-        live record above come from data.json and are unaffected.
-      </p>
+    <div className="figure-empty is-line">
+      <p className="empty-text">research.json did not load; see the notice under the verdict.</p>
     </div>
   );
 }
@@ -56,7 +54,7 @@ export function Facts({ items, className = "" }) {
       {shown.map((item) => (
         <div key={item.label} className="fact">
           <dt>{item.label}</dt>
-          <dd className="num">{item.value}{item.note && <span className="fact-note">{item.note}</span>}</dd>
+          <dd className="num">{item.value}{item.note && <span className="fact-note">{keepHyphenated(item.note)}</span>}</dd>
         </div>
       ))}
     </dl>

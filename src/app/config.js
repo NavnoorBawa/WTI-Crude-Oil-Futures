@@ -21,6 +21,25 @@ export const REPO_URL = "https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures";
 export const GIT_SHA = typeof import.meta.env.VITE_GIT_SHA === "string" && /^[0-9a-f]{7,40}$/i.test(import.meta.env.VITE_GIT_SHA)
   ? import.meta.env.VITE_GIT_SHA
   : null;
+// The same-origin copy of the live quote that every deploy carries (useLiveQuote reads it too).
+export const PRICE_URL = `${BASE_URL}price.json`;
+
+/** A file in the repository on GitHub, at the commit the bundle was built from (else main). */
+export const codeUrl = (path) => `${REPO_URL}/blob/${GIT_SHA ?? "main"}/${String(path).replace(/^\/+/, "")}`;
+// Commit histories that let a reader check the record and the snapshots from the page: every live
+// forecast is committed to runtime-state/vol_track_record.json on the live-data branch, and every
+// deploy commits data.json to gh-pages.
+export const RECORD_HISTORY_URL = `${REPO_URL}/commits/live-data/runtime-state/vol_track_record.json`;
+export const DATA_HISTORY_URL = `${REPO_URL}/commits/gh-pages/data.json`;
+// The written documentation, always the current version on main.
+export const DOCS = {
+  modelCard: `${REPO_URL}/blob/main/docs/MODEL_CARD.md`,
+  methodology: `${REPO_URL}/blob/main/docs/METHODOLOGY.md`,
+  datasheet: `${REPO_URL}/blob/main/docs/DATASHEET.md`,
+  changelog: `${REPO_URL}/blob/main/CHANGELOG.md`,
+  citation: `${REPO_URL}/blob/main/CITATION.cff`,
+  license: `${REPO_URL}/blob/main/LICENSE`,
+};
 
 // A frozen snapshot changes every ~4h, so it is re-checked every 15 min; a live backend polls faster.
 export const POLL_INTERVAL_MS = clampMilliseconds(
