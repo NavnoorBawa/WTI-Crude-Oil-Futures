@@ -223,7 +223,8 @@ button { font: inherit; color: inherit; }
   background: var(--rule);
   border: 1px solid var(--rule);
 }
-.verdict-hero { grid-column: span 5; background: var(--bg-1); padding: var(--sp-5) var(--sp-6); min-width: 0; }
+/* The hero spans the row: the call, its facts and notes, its arithmetic (verdict-lede.css lays out the three). */
+.verdict-hero { grid-column: 1 / -1; background: var(--bg-1); padding: var(--sp-5) var(--sp-6); min-width: 0; }
 .verdict-label { display: block; }
 .hero-row { display: flex; align-items: flex-end; gap: var(--sp-5); margin-top: var(--sp-2); }
 .hero-value {
@@ -239,7 +240,7 @@ button { font: inherit; color: inherit; }
 .hero-interval { font-size: var(--fs-14); color: var(--text-2); margin-top: 2px; }
 .hero-interval b { color: var(--text-1); font-weight: 600; }
 
-.rangebar { position: relative; margin: var(--sp-5) 0 var(--sp-6); }
+.rangebar { position: relative; margin: var(--sp-4) 0 var(--sp-2); }
 .rb-track { position: relative; height: 8px; background: var(--bg-2); }
 .rb-band {
   position: absolute;
@@ -256,7 +257,7 @@ button { font: inherit; color: inherit; }
 .rb-ends { position: relative; height: 14px; margin-top: 4px; font-family: var(--font-mono); font-size: var(--fs-11); color: var(--text-3); }
 .rb-ends span { position: absolute; transform: translateX(-50%); }
 
-.hero-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-3) var(--sp-4); }
+.hero-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4) var(--sp-5); }
 .hero-sub .swatch { margin-right: 6px; }
 /* Labels keep their case: forced capitals would turn notation (VaR, p, t, n) into VAR, P, T, N. */
 .fact dt {
@@ -270,10 +271,9 @@ button { font: inherit; color: inherit; }
 }
 .fact dd { font-size: var(--fs-14); color: var(--text-1); margin-top: 2px; }
 .fact-note { display: block; font-size: var(--fs-11); color: var(--text-3); margin-top: 1px; }
-.accent-model { color: var(--s-model); font-weight: 600; }
-.fact--minor dd { color: var(--text-2); }
+/* The model line closes its column at the bottom, level with the end of the other two. */
 .hero-model {
-  margin-top: var(--sp-4);
+  margin-top: auto;
   padding-top: var(--sp-3);
   border-top: 1px solid var(--rule);
   font-size: var(--fs-12);

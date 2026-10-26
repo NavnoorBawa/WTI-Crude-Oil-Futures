@@ -7,6 +7,7 @@ import Segmented from "../components/Segmented";
 import { INTERVAL_LEVEL_PCT, bandSourceLabel, forecastAssertion, forecastDetail, shortModelName } from "../lib/assertions";
 import { DASH, fmtDate, fmtInt, fmtNum, fmtPct, fmtSpan, num } from "../lib/format";
 import { bandCoverage, forecastRows, getLab, getVol, ovxOnlyLabel } from "../lib/research";
+import { forecastOfRecord } from "../lib/verdict";
 
 const RANGES = [
   { value: "1Y", label: "1Y" },
@@ -26,13 +27,11 @@ export default function ForecastPanel({ data, research }) {
   const { live, validation, recentOos } = getVol(data);
   const lab = getLab(research);
   const rows = useMemo(() => forecastRows(lab, recentOos), [lab, recentOos]);
-  const liveRow = useMemo(() => (live ? {
-    date: typeof live.as_of === "string" ? live.as_of : null,
-    forecast: num(live.forecast_next_week_vol_annualized_pct),
-    lo: num(live.interval_80?.low_pct),
-    hi: num(live.interval_80?.high_pct),
-    ovx: num(live.implied_vol_ovx_pct),
-  } : null), [live]);
+  // The live week is drawn as the live record holds it (the recorded call when it has this as-of).
+  const liveRow = useMemo(() => {
+    const call = forecastOfRecord(live, getVol(data).liveRecord);
+    return call ? { date: call.asOf, forecast: call.forecast, lo: call.lo, hi: call.hi, ovx: call.ovx.value } : null;
+  }, [live, data]);
   const ForecastChart = getForecastChart();
   const modelName = shortModelName(live?.model) ?? shortModelName(validation?.model) ?? "Forecast";
   const ratio = num(validation?.har_mean_ratio_actual_to_forecast);

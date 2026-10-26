@@ -1,1 +1,137 @@
 /* verdict-lede: styles owned by the verdict-lede work package. Loaded after index.css, in package order. */
+
+/* -------------------------------------------------------------------------------------- lede */
+/* The question, then the computed answer: the first thing on the page, across the full width. */
+.verdict-lede { grid-column: 1 / -1; background: var(--bg-1); padding: var(--sp-5) var(--sp-6); min-width: 0; }
+.verdict-question { margin-top: 2px; font-size: var(--fs-14); color: var(--text-2); }
+/* At most about 40 characters a line: a two-line headline at every desktop width, so the answer
+   from the lab and the one from the weekly validation (shown while research.json loads) take the
+   same space. */
+.verdict-answer {
+  margin-top: var(--sp-2);
+  max-width: 36em;
+  font-size: var(--fs-24, 24px);
+  line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-1);
+  text-wrap: balance;
+}
+.verdict-answer-detail { margin-top: var(--sp-2); max-width: 110ch; font-size: var(--fs-13); line-height: 1.5; color: var(--text-2); }
+
+/* --------------------------------------------------------------------------------------- hero */
+/* Three groups side by side on a wide screen (the call | its facts and notes | its arithmetic and
+   provenance), two on a tablet with the arithmetic below, one on a phone. The six tiles follow at
+   full width, so the page reads question, answer, call, evidence. */
+.verdict-hero { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-5) var(--sp-8); }
+.verdict > .kpi-grid { grid-column: 1 / -1; }
+@media (min-width: 1100px) {
+  .verdict-hero { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.8fr); }
+}
+@media (min-width: 641px) and (max-width: 1099px) {
+  .verdict-hero { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
+  .hero-more { grid-column: 1 / -1; }
+}
+.hero-call, .hero-detail { min-width: 0; }
+.hero-more { display: flex; flex-direction: column; min-width: 0; }
+.hero-more > .hero-model { margin-top: auto; }
+/* Whatever sits last above the model line keeps the usual gap, since that line is pushed down. */
+.hero-more > :has(+ .hero-model) { margin-bottom: var(--sp-4); }
+
+/* The version is an identifier: it keeps its case inside the capitalised label. */
+.verdict-label .mono { text-transform: none; letter-spacing: 0; }
+.swatch.is-open-tick { width: 4px; height: 10px; background: var(--bg-1); border: 1px solid var(--c); vertical-align: -1px; }
+.swatch-hist { --c: var(--text-4); }
+.swatch-hist.is-tick { width: 1px; }
+.hero-change { margin-top: 2px; font-size: var(--fs-12); color: var(--text-2); }
+
+.hero-window { margin-top: var(--sp-3); font-size: var(--fs-12); color: var(--text-2); }
+.hero-window b { font-weight: 500; color: var(--text-1); }
+.hero-calls { margin-top: 2px; font-size: var(--fs-12); color: var(--text-3); }
+.hero-calls b { font-weight: 500; color: var(--text-2); }
+.hero-calls .is-current b { color: var(--text-1); }
+.hero-calls > .hero-calls-label::after { content: ":"; margin: 0 6px 0 0; color: var(--text-3); }
+
+/* The region outside the band is drawn (hatched), so it reads as possible rather than empty. */
+.rb-tail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background-image: repeating-linear-gradient(-45deg, var(--rule-strong) 0 1px, transparent 1px 4px);
+}
+/* The median: an open tick, distinct from the filled dot of the expected value. */
+.rb-median { width: 4px; height: 14px; background: var(--bg-1); border: 1px solid var(--s-model); }
+.rb-hist { width: 1px; height: 14px; background: var(--text-4); }
+.rb-tails {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  color: var(--text-3);
+}
+
+.hero-track, .hero-scale { margin-top: var(--sp-1); font-size: var(--fs-12); line-height: 1.5; color: var(--text-3); }
+.hero-scale .swatch { margin-right: 6px; height: 10px; }
+/* research.json still loading: its lines keep the height they will need, so the call does not move. */
+.hero-scale.is-pending { min-height: 36px; min-height: 2lh; }
+.hero-notes .is-pending { min-height: 90px; min-height: 5lh; }
+@media (min-width: 1440px) {
+  .hero-notes .is-pending { min-height: 72px; min-height: 4lh; }
+}
+@media (min-width: 641px) and (max-width: 899px) {
+  .verdict-lede[aria-busy="true"] .verdict-answer-detail { min-height: 59px; min-height: 3lh; }
+}
+@media (max-width: 360px) {
+  .verdict-lede[aria-busy="true"] .verdict-answer-detail { min-height: 117px; min-height: 6lh; }
+}
+
+.hero-detail .fact dd { font-size: var(--fs-16); }
+
+.hero-notes { display: grid; gap: var(--sp-2); margin-top: var(--sp-4); font-size: var(--fs-12); line-height: 1.5; color: var(--text-3); }
+.hero-note-label { font-weight: 500; color: var(--text-2); }
+.hero-elasticity { font-size: var(--fs-12); line-height: 1.5; color: var(--text-3); }
+.hero-math { margin-top: var(--sp-2); }
+.hero-math .disclosure-body { font-size: var(--fs-12); color: var(--text-3); }
+.hero-math-line { font-family: var(--font-mono); font-size: var(--fs-11); line-height: 1.6; color: var(--text-2); }
+.hero-recompute {
+  margin-top: var(--sp-3);
+  padding-left: var(--sp-2);
+  border-left: 2px solid var(--rule-strong);
+  font-size: var(--fs-12);
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+/* ----------------------------------------------------------------------------------- evidence */
+/* Every section's claim as an index entry; two columns read top to bottom on a wide screen. */
+.evidence { grid-column: 1 / -1; background: var(--bg-1); padding: var(--sp-4) var(--sp-6) var(--sp-5); min-width: 0; }
+.evidence-list { margin: var(--sp-2) 0 0; padding: 0; list-style: none; }
+.evidence-list li { break-inside: avoid; border-top: 1px solid var(--rule); }
+.evidence-link {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  padding: 7px 0;
+  font-size: var(--fs-13);
+  line-height: 1.45;
+  color: var(--text-1);
+  text-decoration: none;
+}
+.evidence-link .chip { flex: none; min-width: 44px; justify-content: center; }
+.evidence-link:hover .evidence-text { text-decoration: underline; text-decoration-color: var(--text-3); text-underline-offset: 2px; }
+.evidence-link:hover .chip { border-color: var(--text-4); }
+@media (min-width: 1100px) {
+  .evidence-list { columns: 2; column-gap: var(--sp-8); }
+}
+
+@media (max-width: 640px) {
+  .verdict-lede { padding: var(--sp-4); }
+  .verdict-answer { font-size: var(--fs-18); }
+  .rb-tails { display: none; }
+  .evidence { padding: var(--sp-3) var(--sp-4) var(--sp-4); }
+}
+
+@media print {
+  .verdict-lede { break-inside: avoid; }
+}

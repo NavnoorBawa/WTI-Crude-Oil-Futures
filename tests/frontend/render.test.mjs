@@ -94,7 +94,10 @@ test("the timing control is listed below the ranking, outside the MCS and every 
 test("the direction probability is demoted and labelled uncalibrated", () => {
   const { html } = render(data, research);
   const hero = html.match(/<div class="verdict-hero">[\s\S]*?<dl class="kpi-grid">/)[0];
-  assert.match(hero, /<div class="fact fact--minor"><dt>P\(vol rises\)<\/dt><dd class="num">[^<]*<span class="fact-note">model-implied, uncalibrated<\/span>/);
+  // Not a fact beside the forecast: one sentence in the hero's notes, its model stated.
+  assert.doesNotMatch(hero.match(/<dl class="hero-facts">[\s\S]*?<\/dl>/)[0], /P\(vol rises\)/);
+  const line = visibleText(hero.match(/<li class="hero-prob">[\s\S]*?<\/li>/)[0]);
+  assert.match(line, /P\(vol rises\): model-implied chance .*: \d+% \(lognormal .*not calibrated; direction is not evidence of skill\)/);
   assert.doesNotMatch(hero, /accent-model/, "no accent colour");
   assert.doesNotMatch(hero, /[↑↓]/, "no direction arrow");
 });
