@@ -15,6 +15,7 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
  *   status  LEDG status filter          a status key        (default: all statuses)
  *   q       LEDG search text            free text           (default: empty)
  *   sort    LEDG sort                   <column>-<asc|desc> (default: the ledger's own order)
+ *   ledg    LEDG rows shown             all                 (default: the first rows only)
  *
  * Reading never trusts the URL: a value outside the allowed set reads as the default, so a bad or
  * outdated link can never break a render. Writing uses history.replaceState (no history entry per
@@ -27,7 +28,7 @@ const EMPTY = Object.freeze({});
 
 /** Defaults of the reserved keys, used when a non-React caller writes a key no mounted panel reads. */
 export const VIEW_DEFAULTS = Object.freeze({
-  fcst: "3y", risk: "3y", var: "99", leak: "5y", mkt: "all", table: "", family: "all", status: "all", q: "", sort: "",
+  fcst: "3y", risk: "3y", var: "99", leak: "5y", mkt: "all", table: "", family: "all", status: "all", q: "", sort: "", ledg: "",
 });
 
 const registeredDefaults = new Map();

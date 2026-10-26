@@ -278,6 +278,22 @@ test("only reserved view keys are read from the URL, so a crafted link cannot pi
   assert.equal({}.x, undefined, "nothing leaks onto Object.prototype");
 });
 
+test("every view key a panel reads is a reserved key, so its link survives parsing", async () => {
+  const { readdir, readFile } = await import("node:fs/promises");
+  const root = new URL("../../src/", import.meta.url);
+  const files = (await readdir(root, { recursive: true })).filter((name) => /\.jsx?$/.test(name));
+  const keys = new Set();
+  for (const name of files) {
+    const text = await readFile(new URL(name, root), "utf8");
+    for (const match of text.matchAll(/\buseView(?:Param|List)\(\s*"([^"]+)"/g)) keys.add(match[1]);
+  }
+  assert.ok(keys.has("ledg") && keys.has("fcst"), [...keys].join(", "));
+  for (const key of keys) {
+    assert.ok(Object.hasOwn(view.VIEW_DEFAULTS, key), `${key} is read by a panel but not reserved`);
+    assert.deepEqual(Object.keys(view.parseViewParams(`?${key}=x`)), [key]);
+  }
+});
+
 // ---------------------------------------------------------------------------------- formats
 test("fmtPValue with digits prints that many decimals, without moving a p-value onto a threshold", () => {
   const f = m.format;
