@@ -98,7 +98,7 @@ export default function App() {
   return (
     <div className="app" id="top">
       <a className="skip-link" href="#main">Skip to content</a>
-      <TopBar frozenAtMs={frozenAtMs} lastUpdate={lastUpdate} hasData={Boolean(data)} />
+      <TopBar frozenAtMs={frozenAtMs} lastUpdate={lastUpdate} hasData={Boolean(data)} data={data} research={research} />
       {STATIC_DATA_MODE && frozenAtMs != null && <StaleSnapshotBanner frozenAtMs={frozenAtMs} />}
       <main id="main" className="main" tabIndex={-1}>{body}</main>
       <SiteFooter data={data} />

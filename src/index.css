@@ -10,7 +10,8 @@
 
 html {
   background: var(--bg-0);
-  scroll-padding-top: calc(var(--topbar-h) + 12px);
+  /* --topbar-total is the bar's measured height (TopBar writes it; 0 while the bar does not stick). */
+  scroll-padding-top: calc(var(--topbar-total, var(--topbar-h)) + 12px);
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
@@ -113,7 +114,8 @@ button { font: inherit; color: inherit; }
   padding: 0 var(--sp-6);
   display: flex;
   align-items: center;
-  gap: var(--sp-6);
+  --bar-gap: var(--sp-6);
+  gap: var(--bar-gap);
 }
 .brand {
   display: flex;
@@ -128,8 +130,12 @@ button { font: inherit; color: inherit; }
 .brand-mark-band { fill: var(--s-model); fill-opacity: 0.3; }
 .brand-mark-line { fill: none; stroke: var(--s-model); stroke-width: 1.5; stroke-linejoin: round; }
 
-.codenav { flex: 1; min-width: 0; height: 100%; }
-.codenav ul { display: flex; height: 100%; justify-content: center; }
+/* The strip scrolls sideways (no scrollbar; navigation.css fades the edge with more codes) only
+   when the codes do not fit; the list is centred with auto margins, so an overflow never runs
+   off the left edge where it could not be reached. */
+.codenav { flex: 1; min-width: 0; height: 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.codenav::-webkit-scrollbar { display: none; }
+.codenav ul { display: flex; height: 100%; width: max-content; margin: 0 auto; }
 .codenav a {
   display: flex;
   align-items: center;
@@ -144,6 +150,9 @@ button { font: inherit; color: inherit; }
   box-shadow: inset 0 -2px 0 transparent;
 }
 .codenav a:hover { color: var(--text-1); }
+/* Every section crossing the mid-viewport band is underlined (both halves of a paired row); the
+   current one (aria-current) also gets the brightest text. */
+.codenav a.is-inview { color: var(--text-2); box-shadow: inset 0 -2px 0 var(--s-model); }
 .codenav a[aria-current="location"] { color: var(--text-1); box-shadow: inset 0 -2px 0 var(--s-model); }
 .codenav a:focus-visible { outline-offset: -2px; }
 
@@ -162,6 +171,7 @@ button { font: inherit; color: inherit; }
 .snapshot-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
 .snapshot-chip.is-stale { color: var(--warn); }
 .snapshot-chip.is-stale .snapshot-dot { background: var(--warn); }
+.snapshot-old { display: none; }
 
 /* ------------------------------------------------------------------------------------ notices */
 .notice {
@@ -832,7 +842,7 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 
 /* --------------------------------------------------------------------------------- responsive */
 @media (max-width: 1240px) {
-  .topbar-inner { gap: var(--sp-4); }
+  .topbar-inner { --bar-gap: var(--sp-4); }
   .codenav a { padding: 0 6px; }
 }
 
@@ -841,13 +851,12 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 }
 
 @media (max-width: 960px) {
-  html { scroll-padding-top: calc(var(--topbar-h) + 40px + 12px); }
+  html { scroll-padding-top: calc(var(--topbar-total, calc(var(--topbar-h) + 40px)) + 12px); }
   .topbar-inner { flex-wrap: wrap; height: auto; padding: 0; gap: 0; }
   .brand { height: var(--topbar-h); padding: 0 var(--sp-4); flex: 1; }
   .topbar-right { height: var(--topbar-h); padding: 0 var(--sp-4); }
-  .codenav { order: 3; flex: 1 0 100%; height: 40px; border-top: 1px solid var(--rule); overflow-x: auto; scrollbar-width: none; }
-  .codenav::-webkit-scrollbar { display: none; }
-  .codenav ul { justify-content: flex-start; padding: 0 var(--sp-2); width: max-content; }
+  .codenav { order: 3; flex: 1 0 100%; height: 40px; border-top: 1px solid var(--rule); }
+  .codenav ul { margin: 0; padding: 0 var(--sp-2); }
   .codenav a { padding: 0 10px; min-width: 44px; justify-content: center; }
   .status-screen { min-height: calc(100svh - var(--topbar-h) - 41px); }
   .main { padding: 0 var(--sp-4) var(--sp-8); }
@@ -880,7 +889,9 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
   .app > .notice { width: 100%; }
   .brand-title { font-size: var(--fs-13); }
   .snapshot-chip { font-size: var(--fs-11); }
-  .snapshot-word { display: none; }
+  /* "3h old": the short age keeps its word. */
+  .snapshot-word, .snapshot-rest { display: none; }
+  .snapshot-old { display: inline; }
   .brand, .topbar-right { padding: 0 var(--sp-3); }
   .topbar-right { gap: var(--sp-2); }
   .site-footer-inner { padding: var(--sp-4) var(--sp-4) var(--sp-6); }
