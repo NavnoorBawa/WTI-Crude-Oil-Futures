@@ -3,21 +3,13 @@
 // model of record, and the record against the challenger on the weekly series. Every function
 // tolerates a missing or malformed field and returns null or [] instead of throwing.
 import { num } from "./format";
+import { weekQlike } from "./forecastErrors";
 import { asArray, asObject, asText, leaderboardRows, shortLabel, yearsBetter } from "./research";
 
 // ------------------------------------------------------------------------------------- QLIKE
 
-/**
- * QLIKE of one forecast on variances (Patton 2011), from vols in percent: (a/f)² − ln((a/f)²) − 1.
- * Zero when the forecast equals the outcome; null when either is missing or not positive.
- */
-export const weekQlike = (actual, forecast) => {
-  const a = num(actual);
-  const f = num(forecast);
-  if (a == null || f == null || a <= 0 || f <= 0) return null;
-  const ratio = (a / f) ** 2;
-  return ratio - Math.log(ratio) - 1;
-};
+/** One week's QLIKE from vols in percent; the same function FCST uses (src/lib/forecastErrors.js). */
+export { weekQlike };
 
 // ------------------------------------------------------------------------- QLIKE strip (MODL)
 
