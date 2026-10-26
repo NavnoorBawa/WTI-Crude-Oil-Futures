@@ -1,0 +1,366 @@
+import { Fragment } from "react";
+import Disclosure from "../components/Disclosure";
+import keepHyphenated from "../components/keepHyphenated";
+import { INTERVAL_LEVEL_PCT, promotionText, shortModelName } from "../lib/assertions";
+import { DASH, NBSP, fmtCT, fmtDate, fmtInt, fmtNum, fmtPct, fmtSigned, fmtSpan, num, toMs } from "../lib/format";
+import { asArray, asObject, asText, getLab, liveRecordSummary } from "../lib/research";
+import {
+  bandTrackRecord, callHistory, challengerStanding, changeSincePrevious, coneScale, elasticities, forecastDecomposition,
+  forecastOfRecord, plainNumber, reproduces, TOLERANCE, typicalMiss,
+} from "../lib/verdict";
+
+/** How many recorded calls the hero lists (the full record is in LIVE). */
+const MAX_CALLS = 5;
+
+/**
+ * Where the forecast sits: the 80% interval as a band with the region outside it drawn as possible
+ * (hatched), the expected forecast (filled dot), the median (open tick), the current 5-session
+ * realized vol and OVX as marks, and the history's 5-day median as a faint tick. Anchored at zero so
+ * the width and skew of the interval read honestly. Plain HTML so it needs no chart code above the
+ * fold; `track` labels the tails with the counted weeks that landed there.
+ */
+export function RangeBar({ lo, hi, forecast, median = null, realized = null, implied = null, track = null, history = null }) {
+  const values = [lo, hi, forecast, median, realized, implied, history?.p50].filter((value) => value != null);
+  if (lo == null || hi == null || values.length < 3) return null;
+  const max = Math.max(...values) * 1.1 || 1;
+  const left = (value) => `${((Math.max(0, value) / max) * 100).toFixed(2)}%`;
+  const label = [
+    `${INTERVAL_LEVEL_PCT}% interval ${fmtNum(lo, 1)} to ${fmtNum(hi, 1)} percent`,
+    forecast != null ? `expected ${fmtNum(forecast, 1)}` : null,
+    median != null ? `median ${fmtNum(median, 1)}` : null,
+    realized != null ? `realized last 5 sessions ${fmtNum(realized, 1)}` : null,
+    implied != null ? `OVX ${fmtNum(implied, 1)}` : null,
+    history ? `5-day realized vol has a historical median of ${fmtNum(history.p50, 1)}` : null,
+    track ? `in ${fmtInt(track.inside)} of ${fmtInt(track.n)} production-validation weeks realized vol landed inside that week's band, `
+      + `${fmtInt(track.below)} below and ${fmtInt(track.above)} above` : null,
+  ].filter(Boolean).join("; ");
+  return (
+    <div className="rangebar" role="img" aria-label={label}>
+      <div className="rb-track">
+        <div className="rb-tail" style={{ left: 0, width: left(lo) }} />
+        <div className="rb-tail" style={{ left: left(hi), right: 0 }} />
+        <div className="rb-band" style={{ left: left(lo), width: `calc(${left(hi)} - ${left(lo)})` }} />
+        {history && <div className="rb-mark rb-hist" style={{ left: left(history.p50) }} />}
+        {realized != null && <div className="rb-mark rb-truth" style={{ left: left(realized) }} />}
+        {implied != null && <div className="rb-mark rb-implied" style={{ left: left(implied) }} />}
+        {median != null && <div className="rb-mark rb-median" style={{ left: left(median) }} />}
+        {forecast != null && <div className="rb-mark rb-model" style={{ left: left(forecast) }} />}
+      </div>
+      <div className="rb-ends num" aria-hidden="true">
+        <span style={{ left: 0, transform: "none" }}>0</span>
+        <span style={{ left: left(lo) }}>{fmtNum(lo, 1)}</span>
+        <span style={{ left: left(hi) }}>{fmtNum(hi, 1)}</span>
+      </div>
+      {track && (
+        <div className="rb-tails" aria-hidden="true">
+          <span>below: {fmtInt(track.below)}{NBSP}wk</span>
+          <span>above: {fmtInt(track.above)}{NBSP}wk</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A model probability as a whole percent, never 0% or 100% (it is a model output, not a count). */
+const wholePercent = (value) => {
+  const rounded = Math.round(value);
+  if (rounded >= 100) return `>${NBSP}99%`;
+  if (rounded <= 0) return `<${NBSP}1%`;
+  return `${rounded}%`;
+};
+
+/** The challenger's note: why a model with the lower lab loss is not the model of record. */
+function ChallengerNote({ standing, label, promotion, pending = false }) {
+  const name = standing.name ?? label;
+  const lead = [standing.comparison, standing.search].filter(Boolean);
+  const head = lead.length === 2 ? `${lead[0]}, but ${lead[1]}` : lead[0] ?? null;
+  const spa = standing.spa;
+  const test = standing.test;
+  if (!head && !spa && !test) return null;
+  const decided = test && test.status && test.status !== "accruing";
+  const progress = test ? (decided ? promotionText(promotion) : test.paired != null ? `${fmtInt(test.paired)}/${fmtInt(test.required)}` : null) : null;
+  let joiner = "";
+  if (test) {
+    if (spa) joiner = spa.keepsRecord ? ", so it" : "; it still";
+    else joiner = head ? "; it" : "It";
+  }
+  const sentence = [head, spa?.text].filter(Boolean).join("; ");
+  return (
+    // While research.json loads, the note keeps the height its lab comparison will need.
+    <li className={pending ? "is-pending" : undefined}>
+      <span className="hero-note-label">Challenger{name ? ` ${name}` : ""}:</span>{" "}
+      {keepHyphenated(sentence)}
+      {test && (
+        <>
+          {joiner} replaces the model of record only through{" "}
+          <a href="#live">the {fmtInt(test.required)}-week live test</a>
+          {progress ? ` (${progress})` : ""}
+        </>
+      )}
+      .
+    </li>
+  );
+}
+
+/**
+ * HERO: this week's call exactly as the live record holds it (forecastOfRecord()), its target
+ * window and change since the previous call, the band drawn with the region outside it and the
+ * band's counted track record, the typical miss in vol points, and the arithmetic that reproduces
+ * the number. A later recomputation on the same close is shown below it, labelled as not scored.
+ */
+export default function Hero({ live, liveRecord, recentOos, research, researchStatus }) {
+  const call = forecastOfRecord(live, liveRecord);
+  const lab = getLab(research);
+  const model = asText(live?.model);
+  const version = asText(call?.entry?.model_version) ?? asText(live?.model_version);
+  const label = (
+    <p className="micro verdict-label">
+      This week&apos;s call{model && ` · ${shortModelName(model)}`}
+      {version && <>{" "}<span className="mono">{version}</span></>}
+    </p>
+  );
+
+  if (!call || call.forecast == null) {
+    return (
+      <div className="verdict-hero">
+        {label}
+        <div className="figure-empty is-compact">
+          <p className="empty-title">No live forecast in this snapshot</p>
+          <p className="empty-text">
+            data.json carries no usable vol_forecast.live block, so there is no current forecast or interval
+            to show. The out-of-sample evidence below does not depend on it.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const summary = liveRecordSummary(liveRecord);
+  const calls = callHistory(liveRecord);
+  const change = changeSincePrevious(call, calls);
+  const track = bandTrackRecord(recentOos);
+  const miss = typicalMiss(recentOos);
+  const scale = coneScale(lab);
+  // research.json still loading: its lines keep their place (empty), so the call does not move when it arrives.
+  const pending = researchStatus === "loading" && !lab;
+  const ovxError = asText(live?.ovx_error);
+  const ovxSource = asText(live?.inputs?.ovx_source);
+  const challengerError = asText(live?.challenger_error);
+  const challengerLabel = asText(asObject(live?.challenger)?.label);
+  const standing = challengerStanding(lab, summary?.promotion);
+  const issuedMs = toMs(call.issuedAt);
+  const sealedMs = toMs(call.sealedAt);
+  const implied = call.ovx.value;
+  // The arithmetic: the recorded inputs when they reproduce the call, else the live block's.
+  const coefficients = asArray(call.entry?.coefficients).length ? call.entry.coefficients : live?.coefficients;
+  const smearing = num(call.entry?.smearing_factor) ?? num(live?.smearing_factor);
+  let math = forecastDecomposition(coefficients, call.inputs, smearing);
+  let mathFrom = null;
+  if (!reproduces(math, call.median, call.forecast)) {
+    math = forecastDecomposition(coefficients, live?.inputs, smearing);
+    if (!reproduces(math, call.median, call.forecast)) math = null;
+    else if (call.source === "record" && toMs(live?.issued_at) !== issuedMs) mathFrom = toMs(live?.issued_at);
+  }
+  const weights = elasticities(coefficients);
+  const sd = num(live?.residual_sd);
+  const realized = call.realized.value;
+  const changeText = change && (Math.abs(change.delta) < TOLERANCE
+    ? `unchanged since the ${fmtDate(change.previous.as_of, { year: false })} call`
+    : `${fmtSigned(change.delta, 1)} pts since the ${fmtDate(change.previous.as_of, { year: false })} call (${fmtNum(change.previous.forecast_pct, 1)})`);
+  const recompute = call.recompute;
+  const recomputeParts = recompute ? [
+    recompute.fields.includes("forecast") ? `forecast ${fmtNum(recompute.values.forecast, 1)}` : null,
+    recompute.fields.includes("lo") || recompute.fields.includes("hi")
+      ? `band ${fmtNum(recompute.values.lo, 1)}–${fmtNum(recompute.values.hi, 1)}` : null,
+    recompute.fields.includes("challenger") ? `challenger ${fmtNum(recompute.values.challenger, 1)}` : null,
+  ].filter(Boolean) : [];
+
+  let challengerFact = null;
+  if (call.challenger != null) {
+    challengerFact = (
+      <div className="fact">
+        <dt>Challenger</dt>
+        <dd className="num">
+          {fmtPct(call.challenger)}
+          {(challengerLabel ?? standing.name) && <span className="fact-note">{keepHyphenated(challengerLabel ?? standing.name)}</span>}
+        </dd>
+      </div>
+    );
+  } else if (challengerError && (call.source === "live" || call.fromLive)) {
+    challengerFact = (
+      <div className="fact" title={challengerError}>
+        <dt>Challenger</dt>
+        <dd className="num">{DASH}<span className="fact-note">not published this session</span></dd>
+      </div>
+    );
+  } else if (call.source === "record") {
+    challengerFact = (
+      <div className="fact">
+        <dt>Challenger</dt>
+        <dd className="num">{DASH}<span className="fact-note">not in the recorded call</span></dd>
+      </div>
+    );
+  }
+
+  return (
+    <div className="verdict-hero">
+      <div className="hero-call">
+        {label}
+        <div className="hero-row">
+          <p className="hero-value num">
+            {fmtNum(call.forecast, 1)}
+            <span className="hero-unit">%</span>
+          </p>
+          <div className="hero-side">
+            <p className="hero-sub">
+              <i className="swatch swatch-model is-dot" />expected realized vol, annualized
+              {call.median != null && (
+                <> · <span className="nowrap"><i className="swatch swatch-model is-open-tick" />median{NBSP}{fmtPct(call.median)}</span></>
+              )}
+            </p>
+            <p className="hero-interval">
+              {INTERVAL_LEVEL_PCT}% interval{" "}
+              <b className="num">{call.lo != null && call.hi != null ? `${fmtNum(call.lo, 1)}–${fmtNum(call.hi, 1)}%` : DASH}</b>
+            </p>
+            {changeText && <p className="hero-change">{changeText}</p>}
+          </div>
+        </div>
+        {call.source === "record" && call.targetStart && call.targetEnd && (
+          <p className="hero-window">
+            Target window <b>{fmtDate(call.targetStart, { year: false })} – {fmtDate(call.targetEnd)}</b>, scored on its settlements
+          </p>
+        )}
+        {call.source === "live" && <p className="hero-window">Not in the live record yet</p>}
+        {calls.length > 0 && (
+          <p className="hero-calls sep-list">
+            <span className="hero-calls-label">Recorded</span>
+            {calls.slice(0, MAX_CALLS).map((row) => (
+              <span key={`${row.as_of} ${row.issued_at}`} className={row === call.entry ? "is-current" : undefined}>
+                {fmtDate(row.as_of, { year: false })}{NBSP}<b className="num">{fmtNum(row.forecast_pct, 1)}</b>
+              </span>
+            ))}
+            <span><a href="#live">All recorded calls →</a></span>
+          </p>
+        )}
+        <RangeBar
+          lo={call.lo} hi={call.hi} forecast={call.forecast} median={call.median}
+          realized={realized} implied={implied} track={track} history={scale}
+        />
+        {track && (
+          <p className="hero-track">
+            In {fmtInt(track.inside)} of {fmtInt(track.n)} out-of-sample weeks realized vol landed inside that
+            week&apos;s {INTERVAL_LEVEL_PCT}% band; {fmtInt(track.below)} below, {fmtInt(track.above)} above
+            (production validation, {fmtSpan(track.first, track.last)}).
+          </p>
+        )}
+        {scale ? (
+          <p className="hero-scale">
+            <i className="swatch swatch-hist is-tick" />For scale: 5-day realized vol since {fmtDate(scale.since)} has
+            median {fmtPct(scale.p50)} and 95th percentile {fmtPct(scale.p95)} (benchmark lab).
+          </p>
+        ) : pending && <p className="hero-scale is-pending" aria-hidden="true" />}
+      </div>
+      <div className="hero-detail">
+        <dl className="hero-facts">
+          <div className="fact">
+            <dt><i className="swatch swatch-truth is-tick" />Realized 5d</dt>
+            <dd className="num">
+              {fmtPct(realized)}
+              {call.asOf && (
+                <span className="fact-note">
+                  last 5 sessions to {fmtDate(call.asOf, { year: false })}{call.realized.recomputed ? " (recomputation)" : ""}
+                </span>
+              )}
+            </dd>
+          </div>
+          <div className="fact" title={ovxError ?? undefined}>
+            <dt><i className="swatch swatch-implied is-diamond" />OVX</dt>
+            <dd className="num">
+              {fmtNum(implied, 1)}
+              {implied == null && ovxError
+                ? <span className="fact-note">no OVX source this session; forecast without OVX</span>
+                : call.ovxSession && (
+                  <span className="fact-note">
+                    {fmtDate(call.ovxSession, { year: false })} close, the model&apos;s input
+                    {ovxError && ovxSource ? ` (from ${ovxSource})` : ""}{call.ovx.recomputed ? " (recomputation)" : ""}
+                  </span>
+                )}
+            </dd>
+          </div>
+          {challengerFact}
+          {miss && (
+            <div className="fact">
+              <dt>Typical miss</dt>
+              <dd className="num">
+                ±{fmtNum(miss.median, 1)}{NBSP}pts
+                <span className="fact-note">
+                  median <span className="nowrap">|realized − forecast|</span>, last {fmtInt(miss.n)}{NBSP}wk;{" "}
+                  {miss.quantile}th percentile {fmtNum(miss.upper, 1)}
+                </span>
+              </dd>
+            </div>
+          )}
+        </dl>
+        <ul className="hero-notes">
+          <ChallengerNote standing={standing} label={challengerLabel} promotion={summary?.promotion} pending={pending} />
+          {call.prob != null && realized != null && call.median != null && (
+            // Direction carries no demonstrated skill (LIVE, MODL: accuracy sits at its noise floor), so the
+            // probability is one plain sentence: whole percent, its model stated, never as a frequency.
+            <li className="hero-prob">
+              <span className="hero-note-label">P(vol rises):</span> model-implied chance that next-week realized vol exceeds
+              the last 5 sessions&apos; {fmtPct(realized)}: {wholePercent(call.prob)} (lognormal around the {fmtPct(call.median)} median
+              {sd != null ? `, log sd ${fmtNum(sd, 2)} from the fit's residuals` : ""}; not calibrated; direction is not evidence of skill).
+            </li>
+          )}
+        </ul>
+      </div>
+      <div className="hero-more">
+        {weights && (
+          <p className="hero-elasticity">
+            <span className="hero-note-label">Elasticity of the forecast:</span>{" "}
+            {weights.map((item, index) => (
+              <Fragment key={item.label}>
+                {index > 0 && ", "}<span className="nowrap">{item.label} {fmtNum(item.value, 2)}</span>
+              </Fragment>
+            ))}{" "}
+            (log-log, current fit).
+          </p>
+        )}
+        {math && (
+          <Disclosure summary={`How ${fmtNum(call.forecast, 1)} is computed`} className="hero-math">
+            {/* Each factor stays on one line; the lines break between factors. */}
+            <p className="hero-math-line">
+              <span className="nowrap">median = exp({math.intercept})</span>
+              {math.factors.map((factor, index) => (
+                <Fragment key={index}>{" "}<span className="nowrap">× {factor.base}^{factor.exponent}</span></Fragment>
+              ))}
+              {" "}<span className="nowrap">= {fmtPct(call.median)}</span>
+            </p>
+            <p className="hero-math-line">
+              <span className="nowrap">expected = median × √{plainNumber(math.smearing, 4)}</span>{" "}
+              <span className="nowrap">(Duan smearing)</span>{" "}<span className="nowrap">= {fmtPct(call.forecast)}</span>
+            </p>
+            <p>
+              RV in decimals, OVX in index points; coefficients from the fit as of {fmtDate(asText(live?.as_of) ?? call.asOf)}
+              {mathFrom != null ? `; inputs of the ${fmtCT(mathFrom)} computation` : ""}.{" "}
+              <a href="#meth">Model card (METH) →</a>
+            </p>
+          </Disclosure>
+        )}
+        {recompute && recomputeParts.length > 0 && (
+          <p className="hero-recompute">
+            Recomputed {fmtCT(toMs(recompute.issuedAt))} on the same close: {recomputeParts.join(", ")}. Not scored; the
+            recorded call is.
+          </p>
+        )}
+        <p className="hero-model sep-list">
+          <span>{model ?? "Model"}</span>
+          {version && <span className="mono">{version}</span>}
+          {call.asOf && <span>as of {fmtDate(call.asOf)} close</span>}
+          {issuedMs != null && <span>{call.source === "record" ? "recorded" : "issued"} {fmtCT(issuedMs)}</span>}
+          {sealedMs != null && <span>sealed {fmtCT(sealedMs)}</span>}
+        </p>
+      </div>
+    </div>
+  );
+}
