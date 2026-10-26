@@ -6,6 +6,7 @@ import {
   ALPHA, ALPHA_LOOSE, calibrationAssertion, forecastAssertion, leaderboardAssertion, liveAssertion, riskAssertion,
   stabilityAssertion, vrpAssertion,
 } from "./assertions";
+import { mcsRobustness } from "./comparison";
 import { NBSP, fmtInt, fmtNum, fmtP, fmtPValue, fmtSigned, fmtSpan, num, toMs } from "./format";
 import {
   OVX_ONLY_KEY, asArray, asObject, asText, coverageByYear, getLab, getRoles, getVol, hasMcsResults, leaderboardRows,
@@ -18,8 +19,8 @@ export const TOLERANCE = 0.05;
 const TITLE_MAX = 90;
 /** The lab key of OVX itself used as the forecast (the other "OVX alone" benchmark). */
 const RAW_OVX_KEY = "raw_ovx";
-/** The stability panel's benchmark (StabilityPanel.jsx passes the same key). */
-const STABILITY_BENCH = "gjr";
+/** The stability panel's comparison models after the record and challenger (StabilityPanel.jsx's COMPARISON_KEYS). */
+const STABILITY_COMPARISONS = [OVX_ONLY_KEY, RAW_OVX_KEY, "gjr"];
 /** The vol cone window that matches the forecast's 5-session horizon. */
 const CONE_WINDOW = 5;
 /** The typical miss's upper quantile: one week in five missed by more. */
@@ -163,17 +164,20 @@ export const evidenceRows = (data, research) => {
   const rows = leaderboardRows(lab);
   const methods = varRows(lab);
 
-  // StabilityPanel: the yearly QLIKE of the models present in the yearly table.
+  // StabilityPanel: the yearly QLIKE of the models present in the yearly table, benchmarked on the
+  // OVX-only regression.
   const yearlyKeys = new Set(Object.keys(asObject(asArray(lab?.yearly)[0]) ?? {})
     .filter((key) => key.endsWith("_qlike")).map((key) => key.slice(0, -"_qlike".length)));
-  const stabilityKeys = [champion, challenger, STABILITY_BENCH].filter((key) => key && yearlyKeys.has(key));
+  const stabilityKeys = [champion, challenger, ...STABILITY_COMPARISONS].filter((key) => key && yearlyKeys.has(key));
   const summary = liveRecordSummary(liveRecord);
 
   const titles = {
     fcst: forecastAssertion(validation, live, { ovxLabel: ovxOnlyLabel(lab) }),
-    modl: rows.length ? leaderboardAssertion(rows, { level: mcsLevel(lab), available: hasMcsResults(lab) }) : null,
+    modl: rows.length
+      ? leaderboardAssertion(rows, { level: mcsLevel(lab), available: hasMcsResults(lab), robustness: mcsRobustness(lab) })
+      : null,
     stab: stabilityKeys.length
-      ? stabilityAssertion(yearlyQlike(lab, stabilityKeys), { champion, challenger, bench: STABILITY_BENCH, labels })
+      ? stabilityAssertion(yearlyQlike(lab, stabilityKeys), { champion, challenger, bench: OVX_ONLY_KEY, labels })
       : null,
     calb: coverageByYear(lab, champion).length || coverageByYear(lab, challenger).length ? calibrationAssertion(lab, champion) : null,
     risk: methods.length && varSeries(lab).length ? riskAssertion(methods, labels, champion) : null,
