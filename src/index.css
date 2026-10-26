@@ -359,14 +359,16 @@ button { font: inherit; color: inherit; }
 .panel.span-full { grid-column: 1 / -1; }
 .panel.span-half { grid-column: span 6; } /* paired halves share the row height so the two figures align */
 
+/* DOM order is eyebrow, title, meta, actions (a screen reader hears the claim before the
+   controls); the grid lifts the actions to the top right, beside the eyebrow. */
 .panel-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   column-gap: var(--sp-4);
 }
-.panel-eyebrow { display: flex; align-items: center; gap: var(--sp-2); min-height: 28px; }
-.panel-actions { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; justify-content: flex-end; }
+.panel-eyebrow { grid-row: 1; grid-column: 1; display: flex; align-items: center; gap: var(--sp-2); min-width: 0; min-height: 28px; }
+.panel-actions { grid-row: 1; grid-column: 2; display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; justify-content: flex-end; }
 .panel-title {
   grid-column: 1 / -1;
   margin-top: var(--sp-2);
@@ -398,9 +400,12 @@ button { font: inherit; color: inherit; }
   font-size: var(--fs-11);
   color: var(--text-3);
 }
-.panel-source > span { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px var(--sp-2); }
+.panel-source > span { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px var(--sp-2); }
 .panel-source code { color: var(--text-2); }
-.panel-source code + code::before { content: "·"; margin-right: var(--sp-2); color: var(--text-4); }
+/* Source entries are links to the payload files, separated by a dot that trails each entry (so a
+   wrapped line never starts with one; an inline-block pseudo-element is not underlined with its
+   link). Each command is followed by its copy button, which separates the commands. */
+.panel-source .source-files .source-item:not(:last-child)::after { content: "·"; display: inline-block; margin-left: var(--sp-2); color: var(--text-4); text-decoration: none; }
 .panel-source .micro { line-height: inherit; }
 
 .figure-title {
@@ -528,7 +533,7 @@ button { font: inherit; color: inherit; }
 .data-table { width: 100%; border-collapse: collapse; font-size: var(--fs-13); }
 .data-table.is-dense { font-size: var(--fs-12); }
 .table-caption { margin: 0 0 var(--sp-2); font-size: var(--fs-11); line-height: 16px; letter-spacing: var(--tracking-micro); text-transform: uppercase; color: var(--text-3); }
-.data-table.has-sticky tbody th[scope="row"], .data-table.has-sticky thead th:first-child { position: sticky; left: 0; z-index: 1; background: var(--bg-1); }
+.data-table.has-sticky tbody th[scope="row"], .data-table.has-sticky thead tr:not(.group-row) th:first-child { position: sticky; left: 0; z-index: 1; background: var(--bg-1); }
 .data-table th, .data-table td { padding: 6px var(--sp-2); border-bottom: 1px solid var(--rule); text-align: left; vertical-align: middle; white-space: nowrap; }
 .data-table.is-dense th, .data-table.is-dense td { padding: 5px var(--sp-2); }
 .data-table th:first-child, .data-table td:first-child { padding-left: 0; }
@@ -553,16 +558,21 @@ button { font: inherit; color: inherit; }
 .data-table tr.is-challenger > :first-child { box-shadow: inset 2px 0 0 var(--s-alt); padding-left: var(--sp-2); }
 .data-table tr.is-flagged > :first-child { box-shadow: inset 2px 0 0 var(--warn); padding-left: var(--sp-2); }
 .data-table tr.passes-rule > :first-child { box-shadow: inset 2px 0 0 var(--text-2); padding-left: var(--sp-2); }
+/* The whole header cell is the target (at least 28px tall), aligned like its column. */
 .sort-button {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 4px;
+  width: 100%;
+  min-height: 28px;
   padding: 0;
   border: 0;
   background: none;
   font: inherit;
   letter-spacing: inherit;
   text-transform: inherit;
+  text-align: inherit;
   color: inherit;
   cursor: pointer;
 }
@@ -843,10 +853,11 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
   .kpi-value { font-size: var(--fs-20); }
   .retracted-line, .market-strip { padding: var(--sp-2) var(--sp-4); }
   .panel { padding: var(--sp-4) var(--sp-4) var(--sp-3); }
-  .panel-head { grid-template-columns: minmax(0, 1fr); row-gap: var(--sp-2); }
-  .panel-actions { justify-content: flex-start; grid-row: 3; }
-  .panel-title { grid-row: 2; margin-top: 0; }
-  .panel-meta { grid-row: 4; }
+  /* Eyebrow and actions share the first row, so the title runs straight into its meta. */
+  .panel-head { grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--sp-2); }
+  .panel-actions { grid-row: 1; grid-column: 2; }
+  .panel-title { grid-row: 2; grid-column: 1 / -1; margin-top: 0; }
+  .panel-meta { grid-row: 3; grid-column: 1 / -1; margin-top: 0; }
   .segmented-button, .toggle-button { min-height: 32px; min-width: 40px; }
   .lw-host--forecast { height: 260px; }
   .lw-host--var { height: 240px; }
@@ -863,6 +874,6 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
   /* A sticky row header takes at most about two fifths of a phone's width and wraps (a chip moves
      to its own line), so the columns scrolling past it stay readable. */
   .data-table.has-sticky tbody th[scope="row"],
-  .data-table.has-sticky thead th:first-child { white-space: normal; min-width: 112px; max-width: 40vw; }
+  .data-table.has-sticky thead tr:not(.group-row) th:first-child { white-space: normal; min-width: 112px; max-width: 40vw; }
   .data-table.has-sticky .model-cell { flex-wrap: wrap; row-gap: 2px; }
 }

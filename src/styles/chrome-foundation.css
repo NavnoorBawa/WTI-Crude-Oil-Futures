@@ -1,1 +1,234 @@
 /* chrome-foundation: styles owned by the chrome-foundation work package. Loaded after index.css, in package order. */
+
+/* ----------------------------------------------------------------------------- panel header */
+/* The title takes focus after a deep link or a code-bar jump (tabindex -1); a mouse jump shows no ring. */
+.panel-title:focus { outline: none; }
+.panel-title:focus-visible { outline: 2px solid var(--s-model); outline-offset: 4px; }
+/* Focus placed by a cold-load deep link, not by the reader: announced, but no ring. */
+.panel-title[data-landed]:focus-visible { outline: none; }
+
+/* The code chip links to its own section; the section name gives way before the actions do. */
+.chip-link { text-decoration: none; }
+.chip-link:hover { color: var(--text-1); border-color: var(--text-4); }
+.panel-eyebrow .micro { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes chip-target-flash {
+  from { background: var(--s-model); border-color: var(--s-model); color: var(--bg-0); }
+  to { background: var(--bg-2); border-color: var(--rule-strong); color: var(--text-1); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .panel:target .chip--code { animation: chip-target-flash 1.5s ease-out 1; }
+}
+
+/* Copy buttons: a 12px glyph in a 24px target (32px on touch), "Copied" beside it for 2 s. */
+.copy-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: 1;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.copy-button:hover { color: var(--text-1); background: var(--bg-2); }
+.copy-button.is-done { color: var(--text-1); }
+.copy-glyph { flex: none; fill: none; stroke: currentColor; stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; }
+/* The link button appears with the header's hover or focus, and always on touch screens. */
+.copy-link { opacity: 0; transition: opacity 120ms ease-out; }
+.panel-head:hover .copy-link,
+.panel-head:focus-within .copy-link,
+.copy-link.is-done { opacity: 1; }
+@media (pointer: coarse) {
+  .copy-link { opacity: 1; }
+  .copy-button { min-width: 32px; min-height: 32px; }
+}
+@media (hover: none) {
+  .copy-link { opacity: 1; }
+}
+
+@media (max-width: 640px) {
+  /* On a phone the actions share the eyebrow's row. More than one control (filters, or range presets
+     beside the Table toggle) would squeeze the section name, so those take their own row after the
+     meta, next to the figure they change; the title still runs straight into its meta. */
+  .panel-actions:has(> :nth-child(2)) { grid-row: 4; grid-column: 1 / -1; justify-content: flex-start; }
+}
+
+/* View controls (range presets) sit right-aligned above the figure they change. */
+.figure-controls { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+
+/* --------------------------------------------------------------------------- source footer */
+.panel-source a.source-item { text-decoration-color: var(--text-4); }
+.panel-source a.source-item:hover code { color: var(--text-1); }
+.panel-source .copy-command { margin-left: -4px; }
+
+/* ------------------------------------------------------------------------------ disclosures */
+.disclosure-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  font-size: var(--fs-12);
+  color: var(--text-2);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.disclosure-summary::-webkit-details-marker { display: none; }
+.disclosure-summary::before { content: "▸"; display: inline-block; width: 1em; color: var(--text-3); font-size: var(--fs-11); }
+.disclosure[open] > .disclosure-summary::before { content: "▾"; }
+.disclosure-summary:hover { color: var(--text-1); }
+.disclosure-body { display: grid; gap: var(--sp-2); margin-top: var(--sp-1); font-size: var(--fs-12); line-height: 1.55; color: var(--text-2); }
+.panel-notes { margin-top: var(--sp-3); max-width: var(--measure); }
+@media (pointer: coarse) {
+  .disclosure-summary { min-height: 44px; }
+}
+
+/* --------------------------------------------------------------------------- glossary terms */
+.term-wrap { position: relative; }
+.term {
+  background: none;
+  border: 0;
+  border-bottom: 1px dotted var(--text-3);
+  border-radius: 0;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  white-space: nowrap;
+  cursor: help;
+}
+.term:hover, .term[aria-expanded="true"] { color: var(--text-1); border-bottom-color: var(--text-1); }
+.term-pop {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 20;
+  width: max-content;
+  max-width: min(320px, 90vw);
+  margin-top: 4px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-2);
+  border: 1px solid var(--rule-strong);
+  font-family: var(--font-sans);
+  font-size: var(--fs-12);
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: normal;
+  text-transform: none;
+  text-align: left;
+  white-space: normal;
+  color: var(--text-2);
+  transform: translateX(var(--term-shift, 0px));
+}
+.term-pop[data-place="above"] { top: auto; bottom: 100%; margin: 0 0 4px; }
+.term-pop-name { font-weight: 600; color: var(--text-1); }
+.term-pop-ref { white-space: nowrap; }
+/* A panel with an open definition paints over its neighbours (each panel is its own stacking context). */
+.panel:has(.term-pop) { z-index: 1; }
+
+/* ---------------------------------------------------------------------------------- tables */
+.table-caption-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); margin: 0 0 var(--sp-2); }
+.table-caption-row .table-caption { margin: 0; }
+.csv-button {
+  flex: none;
+  margin-left: auto;
+  min-height: 24px;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.csv-button:hover { color: var(--text-1); border-color: var(--text-4); }
+
+.align-center .sort-button { justify-content: center; }
+
+/* The sticky first column draws its edge only once the table has scrolled under it (a pseudo-element,
+   so the record and challenger marks on the same cells keep their own inset rule). */
+.table-scroll.is-scrolled .data-table.has-sticky tbody th[scope="row"]::after,
+.table-scroll.is-scrolled .data-table.has-sticky thead tr:not(.group-row) th:first-child::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--rule-strong);
+  pointer-events: none;
+}
+
+/* Column groups: a header row over the groups and a rule before each group after the first. */
+.data-table .group-row th { padding-bottom: 2px; border-bottom: 1px solid var(--rule); vertical-align: bottom; }
+.data-table .group-start:not(:first-child) { border-left: 1px solid var(--rule); padding-left: var(--sp-3); }
+
+@media (max-width: 640px) {
+  .data-table .col-wide { display: none; }
+
+  /* Card rows: each row a card headed by its row header, then one label/value line per cell (the
+     label floats left, so a cell with several parts still wraps cleanly). Sortable headers stay
+     as a row of sort buttons above the cards; the others are read by screen readers only. */
+  .data-table.is-cards,
+  .data-table.is-cards tbody,
+  .data-table.is-cards tr { display: block; }
+  .data-table.is-cards .group-row { display: none; }
+  .data-table.is-cards thead tr { display: flex; flex-wrap: wrap; gap: 0 var(--sp-3); border-bottom: 1px solid var(--rule-strong); }
+  .data-table.is-cards thead th { display: block; padding: 0; border: 0; position: static; min-width: 0; max-width: none; }
+  .data-table.is-cards thead th:not([aria-sort]) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  .data-table.is-cards thead .sort-button { width: auto; flex-direction: row; }
+  .data-table.is-cards tbody tr { padding: var(--sp-3) 0; border-bottom: 1px solid var(--rule); }
+  .data-table.is-cards tbody > tr > * {
+    min-width: 0;
+    max-width: none;
+    border: 0;
+    position: static;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  /* Only the block padding: a row mark (record, flagged) keeps its own left padding. */
+  .data-table.is-cards tbody th[scope="row"] { display: block; padding-block: 0 var(--sp-2); padding-right: 0; text-align: left; }
+  .data-table.is-cards tbody td { display: flow-root; padding-block: 3px; padding-right: 0; text-align: right; }
+  .data-table.is-cards tbody td[data-label]::before {
+    content: attr(data-label);
+    float: left;
+    max-width: 45%;
+    margin-right: var(--sp-3);
+    font-size: var(--fs-11);
+    font-weight: 400;
+    color: var(--text-3);
+    text-align: left;
+  }
+  .data-table.is-cards tbody td.empty-cell::before { content: none; }
+}
+
+/* --------------------------------------------------------------------- research availability */
+.research-notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2) var(--sp-4); }
+.research-notice p { max-width: 120ch; }
+.research-notice .notice-button { margin-top: 0; min-height: 28px; }
+.figure-empty.is-line { min-height: 0; padding: var(--sp-3) var(--sp-4); place-content: start; text-align: left; }
+
+@media print {
+  .copy-button, .csv-button { display: none; }
+}
