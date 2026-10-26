@@ -17,3 +17,4 @@ export const getEquityChart = retryingLazy(svg, "EquityChart");
 export const getPurgeDiagram = retryingLazy(svg, "PurgeDiagram");
 export const getSignAgreementLadder = retryingLazy(svg, "SignAgreementLadder");
 export const getLeakDumbbell = retryingLazy(svg, "LeakDumbbell");
+export const getLiveCalls = retryingLazy(() => import("./LiveCalls.jsx"));

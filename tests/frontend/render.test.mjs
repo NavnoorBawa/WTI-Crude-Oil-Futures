@@ -140,15 +140,15 @@ test("late commits and the promotion status render, and degrade when absent", ()
   const live = html.match(/<section id="live"[\s\S]*?<\/section>/)[0];
   assert.match(live, /chip--status-late_commit"[^>]*>late commit</);
   assert.match(live, /title="Not sealed in time \(less than five minutes before the settlement that opens its window, or never\); never scored"/);
-  assert.ok(visibleText(live).includes("promotion accruing 0/52"));
+  assert.ok(visibleText(live).includes("promotion test: accruing 0/52 weeks"));
   assert.ok(text.includes("1 not sealed in time (never scored)"));
   assert.doesNotMatch(text, /sealed after/);
-  assert.ok(text.includes("promotion accruing 0/52 "), "the verdict tile carries the promotion status");
+  assert.ok(text.includes("promotion test 0/52 weeks"), "the verdict tile carries the promotion status");
   const withoutPromotion = structuredClone(data);
   delete withoutPromotion.vol_forecast.live_record.promotion;
   const plain = render(withoutPromotion, research);
   assert.deepEqual(plain.errors, []);
-  assert.ok(!/promotion accruing/.test(plain.text), "no promotion block, no promotion status");
+  assert.ok(!/accruing|promotion test \d|Promotion test \d/.test(plain.text), "no promotion block, no promotion status");
   assert.ok(plain.text.includes("13:30 CT"), "the scoring note's ET time also reads in CT");
 });
 
@@ -394,27 +394,28 @@ test("the hero names the OVX-only regression as the leaderboard does, with the l
   assert.ok(visibleText(section(render(data, research).html, "modl")).includes(label), "the same name in the leaderboard");
 });
 
-test("LIVE compares the two models on the same weeks and labels the all-weeks QLIKE as its own sample", () => {
+test("LIVE compares the two models on the same calls and labels the all-calls QLIKE as its own sample", () => {
   const payload = structuredClone(data);
   const record = payload.vol_forecast.live_record;
   Object.assign(record, {
-    n_recorded: 3, n_resolved: 3, n_pending: 0, n_independent: 3, next_result_due: null,
-    champion: { ...record.champion, n: 3, qlike: 0.815, interval_80_coverage_pct: 66.7, mean_forecast_pct: 40.1, mean_realized_pct: 44.2 },
-    challenger: { ...record.challenger, n: 2, qlike: 0.0187, champion_qlike: 0.0213 },
-    promotion: { ...record.promotion, n_independent_paired: 2, n_excluded_no_challenger: 1 },
+    n_recorded: 30, n_resolved: 30, n_pending: 0, n_independent: 11, next_result_due: null,
+    champion: { ...record.champion, n: 30, qlike: 0.815, interval_80_coverage_pct: 66.7, mean_forecast_pct: 40.1, mean_realized_pct: 44.2 },
+    challenger: { ...record.challenger, n: 29, qlike: 0.0187, champion_qlike: 0.0213 },
+    promotion: { ...record.promotion, n_independent_paired: 10, n_excluded_no_challenger: 1 },
   });
   const { html, text } = render(payload, research);
   const live = visibleText(section(html, "live"));
   const f = m.format;
-  const same = `${f.fmtNum(record.challenger.champion_qlike, 3)} for the model of record vs ${f.fmtNum(record.challenger.qlike, 3)} for the challenger`;
-  assert.ok(live.includes(`On the same ${record.challenger.n} live weeks, QLIKE ${same}`), "title");
-  assert.ok(live.includes(`QLIKE, same weeks ${f.fmtNum(record.challenger.champion_qlike, 3)} / ${f.fmtNum(record.challenger.qlike, 3)}`
-    + ` record / HAR-IV-range, n ${record.challenger.n}`), "paired fact");
-  assert.ok(live.includes(`QLIKE, record, all weeks ${f.fmtNum(record.champion.qlike, 3)} ${record.champion.model_version}, n ${record.champion.n}`), "all-weeks fact");
+  const [a, b] = [f.fmtNum(record.challenger.champion_qlike, 3), f.fmtNum(record.challenger.qlike, 3)];
+  // One resolved call has no challenger forecast, so the title names the paired calls, not every resolved one.
+  assert.ok(live.includes(`On the ${record.challenger.n} resolved calls with both forecasts, QLIKE ${a} record vs ${b} challenger`), "title");
+  assert.ok(live.includes(`QLIKE, same calls ${a} / ${b} record / HAR-IV-range, n ${record.challenger.n}`), "paired fact");
+  assert.ok(live.includes(`QLIKE, record, all calls ${f.fmtNum(record.champion.qlike, 3)} ${record.champion.model_version}, n ${record.champion.n}`), "all-calls fact");
   assert.ok(live.includes(`pinned pair: HAR-IV (${record.promotion.model_version}) vs HAR-IV-range`));
-  assert.ok(live.includes("Resolved weeks left out of it: 1 with no challenger forecast."));
-  assert.ok(text.includes(`QLIKE ${f.fmtNum(record.challenger.champion_qlike, 3)} record vs ${f.fmtNum(record.challenger.qlike, 3)} challenger, same ${record.challenger.n} wk`), "verdict tile");
-  assert.ok(!text.includes(`QLIKE ${f.fmtNum(record.champion.qlike, 3)} for the model of record`), "never the mixed-sample pair");
+  assert.ok(live.includes("Resolved calls left out of it: 1 with no challenger forecast."));
+  assert.ok(text.includes(`${record.n_resolved} calls resolved (${record.n_independent} independent weeks) · QLIKE ${a} record vs ${b} challenger, same ${record.challenger.n} calls`), "verdict tile");
+  assert.ok(!text.includes(`QLIKE ${f.fmtNum(record.champion.qlike, 3)} for the`), "never the mixed-sample pair");
+  assert.doesNotMatch(live, /live weeks?\b/);
 });
 
 test("a missing challenger, OVX source or economic block says why in one neutral note", () => {

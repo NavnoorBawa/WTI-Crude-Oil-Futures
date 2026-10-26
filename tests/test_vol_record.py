@@ -477,8 +477,10 @@ class SummaryTest(unittest.TestCase):
                  "n_excluded_no_challenger"}
     CHAMPION = {"model_version", "n", "qlike", "interval_80_coverage_pct", "direction_hit_pct",
                 "mean_forecast_pct", "mean_realized_pct"}
-    RECENT = {"as_of", "issued_at", "model_version", "target_start", "target_end", "forecast_pct", "median_pct",
-              "lo80_pct", "hi80_pct", "challenger_pct", "realized_pct", "status"}
+    RECENT = {"as_of", "issued_at", "recorded_at", "sealed_at", "model_version", "base_session", "target_start",
+              "target_end", "forecast_pct", "median_pct", "lo80_pct", "hi80_pct", "prob_vol_rises_pct",
+              "challenger_pct", "realized_pct", "inputs", "status"}
+    RECENT_INPUTS = {"ovx", "ovx_session", "rv5_pct", "rv22_pct", "rv66_pct"}
 
     def test_empty_record_has_the_contract_shape_with_null_statistics(self):
         summary = vr.summarize(empty_record())
@@ -521,6 +523,42 @@ class SummaryTest(unittest.TestCase):
         self.assertEqual(set(row), self.RECENT)
         self.assertEqual((row["status"], row["realized_pct"], row["challenger_pct"], row["model_version"]),
                          ("pending", None, 38.0, "har-iv/2"))
+
+    def test_recent_rows_carry_the_seal_and_the_inputs_each_entry_stores(self):
+        record = recorded()                                  # recorded 13:05Z, sealed ten minutes later
+        (entry,) = record["entries"]
+        (row,) = vr.summarize(record)["recent"]
+        # Passed through as stored, so the page can check each seal against the settlement that
+        # opens its window (14:30 ET on base_session).
+        for key in ("issued_at", "recorded_at", "sealed_at", "base_session", "prob_vol_rises_pct"):
+            self.assertEqual(row[key], entry[key], key)
+        self.assertEqual((row["recorded_at"], row["sealed_at"], row["base_session"], row["prob_vol_rises_pct"]),
+                         ("2026-11-03T13:05:00Z", "2026-11-03T13:15:00Z", "2026-11-03", 58.0))
+        # Only the forecaster's inputs; the OVX source and last-print bookkeeping stay in the record.
+        self.assertEqual(row["inputs"], {"ovx": 41.0, "ovx_session": "2026-10-30", "rv5_pct": 30.0,
+                                         "rv22_pct": 33.0, "rv66_pct": 35.0})
+        self.assertEqual(set(row["inputs"]), self.RECENT_INPUTS)
+        self.assertIsNone(vr.summarize(recorded(seal_after=None))["recent"][0]["sealed_at"])
+        json.dumps(row, allow_nan=False)
+
+    def test_recent_rows_of_entries_without_the_newer_fields_are_null_for_them(self):
+        # Entries recorded before inputs or a probability were stored, and inputs of the wrong type,
+        # still summarise: the missing fields read null and nothing else changes.
+        old = resolved_entry("2026-11-02", "2026-11-03", realized=40.0)
+        self.assertNotIn("inputs", old)
+        self.assertNotIn("prob_vol_rises_pct", old)
+        partial = dict(resolved_entry("2026-11-06", "2026-11-09", realized=45.0),
+                       inputs={"ovx": "41", "rv5_pct": True, "rv22_pct": 33.0, "ovx_session": 20261030})
+        record = vr.validate_record({"schema_version": 1, "started": "2026-11-02", "entries": [old, partial]})
+        summary = vr.summarize(record)
+        newest, oldest = summary["recent"]
+        self.assertEqual(set(oldest), self.RECENT)
+        self.assertEqual((oldest["inputs"], oldest["prob_vol_rises_pct"]), (None, None))
+        self.assertEqual((oldest["sealed_at"], oldest["base_session"]), (old["sealed_at"], "2026-11-03"))
+        self.assertEqual(newest["inputs"], {"ovx": None, "ovx_session": None, "rv5_pct": None, "rv22_pct": 33.0,
+                                            "rv66_pct": None})
+        self.assertEqual((summary["n_resolved"], summary["champion"]["n"]), (2, 2))
+        json.dumps(summary, allow_nan=False)
 
     def test_scores(self):
         a = resolved_entry("2026-11-02", "2026-11-03", realized=40.0, rv5=30.0)            # in, rose, hit

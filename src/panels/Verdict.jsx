@@ -1,7 +1,7 @@
 import Chip from "../components/Chip";
 import Kpi from "../components/Kpi";
-import { INTERVAL_LEVEL_PCT, promotionText, shortModelName } from "../lib/assertions";
-import { DASH, NBSP, fmtCT, fmtDate, fmtInt, fmtNum, fmtP, fmtPct, fmtSigned, num, toMs } from "../lib/format";
+import { INTERVAL_LEVEL_PCT, liveTileFoot, shortModelName } from "../lib/assertions";
+import { DASH, fmtCT, fmtDate, fmtInt, fmtNum, fmtP, fmtPct, fmtSigned, num, toMs } from "../lib/format";
 import {
   asObject, asText, getLab, getVol, liveRecordSummary, mcsSummary, ovxOnlyBenchmark, ovxOnlyLabel, persistenceBenchmark,
   recordVar, varRows,
@@ -169,7 +169,6 @@ export default function Verdict({ data, research, researchStatus }) {
   const n = num(validation?.n);
   const model = shortModelName(live?.model) ?? shortModelName(validation?.model) ?? "the model";
   const weeks = n != null ? `${fmtInt(n)} wk OOS, weekly` : "weekly OOS";
-  const promotion = promotionText(record?.promotion);
   // The leaderboard's convention, page-wide: positive = the benchmark has the lower loss.
   const dmParts = [
     persistence?.dm != null ? `persistence ${fmtSigned(persistence.dm, 2)}` : null,
@@ -177,21 +176,7 @@ export default function Verdict({ data, research, researchStatus }) {
   ].filter(Boolean);
   const mcsAvailable = mcs?.survivors != null;
 
-  let liveFoot = null;
-  if (record) {
-    const paired = record.paired;
-    let status;
-    if ((record.resolved ?? 0) === 0) {
-      status = record.firstResult
-        ? `first result ${fmtDate(record.firstResult)}`
-        : `${fmtInt(record.recorded ?? 0)} recorded · ${fmtInt(record.skipped ?? 0)} skipped at roll${record.lateCommit ? ` · ${fmtInt(record.lateCommit)} not sealed in time` : ""}`;
-    } else {
-      status = paired.n > 0 && paired.record != null && paired.challenger != null
-        ? `QLIKE ${fmtNum(paired.record, 3)} record vs ${fmtNum(paired.challenger, 3)} challenger, same ${fmtInt(paired.n)}${NBSP}wk`
-        : `${fmtInt(record.independent)} independent · no week with both forecasts yet`;
-    }
-    liveFoot = promotion ? `${status} · promotion ${promotion}` : status;
-  }
+  const liveFoot = liveTileFoot(record);
 
   return (
     <section className="verdict" aria-labelledby="verdict-title">

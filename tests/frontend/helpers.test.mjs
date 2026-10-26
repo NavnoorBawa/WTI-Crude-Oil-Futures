@@ -268,7 +268,7 @@ const mixedRecord = ({ all = 3, pairedN = 2 } = {}) => ({
   },
 });
 
-test("live record: the two models are compared on the same weeks, the all-weeks QLIKE kept apart", () => {
+test("live record: the two models are compared on the same calls, the all-calls QLIKE kept apart", () => {
   const summary = m.research.liveRecordSummary(mixedRecord());
   const raw = mixedRecord();
   assert.deepEqual(summary.paired, { n: raw.challenger.n, record: raw.challenger.champion_qlike, challenger: raw.challenger.qlike });
@@ -590,7 +590,7 @@ test("STDY carry: the title makes one claim; the halves' p-values, power and q a
   assert.doesNotMatch(carryDetail(carry, null).join(" "), /Benjamini-Hochberg/, "no ledger, no q claim");
 });
 
-test("LIVE counts unscored calls as such, and compares the two models on the same weeks only", () => {
+test("LIVE counts unscored calls as such, and compares the two models on the same calls only", () => {
   const { liveRecordSummary } = m.research;
   const { liveAssertion, liveDetail, promotionText } = m.assertions;
   const record = data.vol_forecast.live_record;
@@ -614,19 +614,26 @@ test("LIVE counts unscored calls as such, and compares the two models on the sam
   assert.equal(mixed.lateCommit, 1);
   assert.deepEqual(liveDetail(mixed), ["3 calls recorded: 1 pending, 1 skipped at a contract roll, 1 not sealed in time (2 never scored)"]);
   assert.doesNotMatch(liveDetail(mixed).join(" "), /sealed after/, "a late commit may be sealed before its window opened");
-  assert.equal(promotionText(mixed.promotion), "accruing 0/52");
-  assert.equal(spaced(promotionText({ status: "keep", p: 0.41 })), "keep the model of record (one-sided p = 0.41)");
-  assert.equal(spaced(promotionText({ status: "promote", p: 0.03 })), "promote the challenger (one-sided p = 0.03)");
+  assert.equal(promotionText(mixed.promotion), "accruing 0/52 weeks");
+  // The state only: the p-value is printed once, with the test's statistics (promotionDetail).
+  assert.equal(promotionText({ status: "keep", p: 0.41 }), "keep the record");
+  assert.equal(promotionText({ status: "promote", p: 0.03 }), "promote the challenger");
   assert.equal(m.research.promotionStatus({ status: "unknown" }), null);
   assert.equal(m.research.promotionStatus(null), null);
 
-  // Resolved weeks without a challenger forecast: the title uses the paired comparator only.
+  // Few independent weeks: the title states the record's progress, never a comparison of losses.
   const raw = mixedRecord();
-  const title = liveAssertion(liveRecordSummary(raw));
-  assert.equal(title, `On the same ${raw.challenger.n} live weeks, QLIKE ${m.format.fmtNum(raw.challenger.champion_qlike, 3)} `
-    + `for the model of record vs ${m.format.fmtNum(raw.challenger.qlike, 3)} for the challenger`);
-  assert.ok(!title.includes(m.format.fmtNum(raw.champion.qlike, 3)), "the all-weeks QLIKE is another sample");
-  assert.equal(liveAssertion(liveRecordSummary(mixedRecord({ all: 2, pairedN: 0 }))), "2 live weeks resolved; none has both forecasts yet");
+  assert.equal(liveAssertion(liveRecordSummary(raw)), "3 independent weeks resolved (3 calls); too few to compare the two models");
+  assert.equal(liveAssertion(liveRecordSummary(mixedRecord({ all: 2, pairedN: 0 }))),
+    "2 independent weeks resolved (2 calls); too few to compare the two models");
+  // Enough of them, with resolved calls lacking a challenger forecast: the paired calls only.
+  const enough = { ...mixedRecord({ all: 30, pairedN: 28 }), n_independent: 11 };
+  const title = liveAssertion(liveRecordSummary(enough));
+  assert.equal(title, `On the 28 resolved calls with both forecasts, QLIKE ${m.format.fmtNum(enough.challenger.champion_qlike, 3)} `
+    + `record vs ${m.format.fmtNum(enough.challenger.qlike, 3)} challenger`);
+  assert.ok(!title.includes(m.format.fmtNum(enough.champion.qlike, 3)), "the all-calls QLIKE is another sample");
+  assert.equal(liveAssertion(liveRecordSummary({ ...mixedRecord({ all: 12, pairedN: 0 }), n_independent: 10 })),
+    "12 calls resolved (10 independent weeks); none has both forecasts yet");
 });
 
 test("ledger statistics print with one precision per unit, and p-values like p-values", () => {

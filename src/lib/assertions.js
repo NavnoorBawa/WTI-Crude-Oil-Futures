@@ -5,7 +5,7 @@
 // *Detail function, so every figure stays computed from the payload. Every figure names its sample
 // when two samples of the same statistic appear on the page.
 import { NBSP, fmtDate, fmtInt, fmtNum, fmtP, fmtPct, fmtPValue, fmtSigned, num, ordinal } from "./format";
-import { asArray, asObject, asText, coverageByYear, ovxOnlyBenchmark, recordVar, shortLabel, vrpSummary, yearsBetter } from "./research";
+import { LIVE_MIN_INDEPENDENT, asArray, asObject, asText, coverageByYear, ovxOnlyBenchmark, recordVar, shortLabel, vrpSummary, yearsBetter } from "./research";
 
 /** The nominal coverage of the contract's interval_80 fields (a design level, not a statistic). */
 export const INTERVAL_LEVEL_PCT = 80;
@@ -267,21 +267,30 @@ export const vrpAssertion = (vrp) => {
   return null;
 };
 
-/** The challenger's promotion status in a few words: "accruing 3/52", "keep the model of record (one-sided p = 0.41)". */
+/**
+ * The promotion test's state in a few words, with no statistic (promotionDetail() carries those):
+ * "accruing 3/52 weeks", "keep the record", "promote the challenger".
+ */
 export const promotionText = (promotion) => {
   if (!promotion) return null;
-  const progress = promotion.paired != null && promotion.required != null
-    ? `${fmtInt(promotion.paired)}/${fmtInt(promotion.required)}`
-    : null;
-  if (promotion.status === "accruing") return `accruing${progress ? ` ${progress}` : ""}`;
-  const p = fmtP(promotion.p);
-  return `${promotion.status === "promote" ? "promote the challenger" : "keep the model of record"}${p ? ` (one-sided ${p})` : ""}`;
+  if (promotion.status === "accruing") {
+    return promotion.paired != null && promotion.required != null
+      ? `accruing ${fmtInt(promotion.paired)}/${fmtInt(promotion.required)} weeks`
+      : "accruing";
+  }
+  return promotion.status === "promote" ? "promote the challenger" : "keep the record";
 };
 
+/** The longest title the page shows (characters); see the header comment. */
+const LIVE_TITLE_MAX = 90;
+
 /**
- * LIVE: forward record status. Once weeks resolve, the two models are compared on the same weeks
- * only (the pinned pair's, liveRecordSummary().paired); the record's QLIKE over all its resolved
- * weeks is a different sample and appears only labelled as such, in the panel.
+ * LIVE: forward record status. The record holds one call per session, and the five-session windows
+ * of consecutive calls overlap, so calls are counted as calls and only non-overlapping windows as
+ * (independent) weeks. Below LIVE_MIN_INDEPENDENT independent weeks the title states the record's
+ * progress instead of a loss comparison; once the promotion test has decided, it states the verdict.
+ * The comparison itself uses the same calls for both models (liveRecordSummary().paired); the
+ * record's QLIKE over all its resolved calls is a different sample, shown only labelled as such.
  */
 export const liveAssertion = (summary) => {
   if (!summary) return null;
@@ -292,11 +301,29 @@ export const liveAssertion = (summary) => {
       ? `No live forecast has resolved yet; the first is due ${fmtDate(summary.firstResult)}`
       : "No live forecast has resolved yet";
   }
+  const promotion = summary.promotion;
+  if (promotion && promotion.status !== "accruing") {
+    const p = fmtP(promotion.p);
+    const sample = promotion.required != null ? plural(promotion.required, "independent week") : "its fixed sample";
+    return `Promotion test on ${sample}: ${promotion.status === "promote" ? "promote the challenger" : "keep the model of record"}`
+      + `${p ? ` (${p})` : ""}`;
+  }
+  const weeks = summary.independent;
+  if (weeks == null) return `${plural(resolved, "call")} resolved; no independent-week count, so the models are not compared`;
+  if (weeks < LIVE_MIN_INDEPENDENT) {
+    return `${plural(weeks, "independent week")} resolved (${plural(resolved, "call")}); too few to compare the two models`;
+  }
   const { n, record, challenger } = summary.paired ?? {};
   if (n > 0 && record != null && challenger != null) {
-    return `On the same ${plural(n, "live week")}, QLIKE ${fmtNum(record, 3)} for the model of record vs ${fmtNum(challenger, 3)} for the challenger`;
+    // The independent-week count covers every resolved call, so it is quoted only when all of them
+    // carry both forecasts.
+    const sample = n === resolved
+      ? `On ${plural(n, "resolved call")} (${plural(weeks, "independent week")})`
+      : `On the ${plural(n, "resolved call")} with both forecasts`;
+    const full = `${sample}, QLIKE ${fmtNum(record, 3)} for the record vs ${fmtNum(challenger, 3)} for the challenger`;
+    return full.length <= LIVE_TITLE_MAX ? full : `${sample}, QLIKE ${fmtNum(record, 3)} record vs ${fmtNum(challenger, 3)} challenger`;
   }
-  return `${plural(resolved, "live week")} resolved; none has both forecasts yet`;
+  return `${plural(resolved, "call")} resolved (${plural(weeks, "independent week")}); none has both forecasts yet`;
 };
 
 /**
@@ -319,6 +346,54 @@ export const liveDetail = (summary) => {
   const unscored = skipped + late + expired;
   const never = unscored > 0 ? ` (${unscored === recorded ? "" : `${fmtInt(unscored)} `}never scored)` : "";
   return [`${plural(recorded, "call")} recorded${breakdown.length ? `: ${breakdown.join(", ")}` : ""}${never}`];
+};
+
+/**
+ * The promotion test's statistics once it has decided, the one place its p-value is printed beside
+ * the verdict: "DM +0.30, one-sided p = 0.38, 52 independent weeks". Null while accruing.
+ */
+export const promotionDetail = (promotion) => {
+  if (!promotion || promotion.status === "accruing") return null;
+  const parts = [
+    promotion.dmStat != null ? `DM ${fmtSigned(promotion.dmStat, 2)}` : null,
+    promotion.p != null ? `one-sided ${fmtP(promotion.p)}` : null,
+    // Identical losses leave nothing to test: the mean difference is the whole result.
+    promotion.dmStat == null && promotion.p == null && promotion.meanDifference != null
+      ? `mean QLIKE difference ${fmtSigned(promotion.meanDifference, 4)}` : null,
+    promotion.paired != null ? plural(promotion.paired, "independent week") : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(", ") : null;
+};
+
+/**
+ * The verdict strip's LIVE tile foot. Before any result: when the first is due and the promotion
+ * test's progress. After: calls resolved and independent weeks, the two models' QLIKE on the same
+ * calls once there are LIVE_MIN_INDEPENDENT independent weeks, and the promotion verdict once decided.
+ */
+export const liveTileFoot = (summary) => {
+  if (!summary) return null;
+  const resolved = summary.resolved ?? 0;
+  const promotion = summary.promotion;
+  if (resolved <= 0) {
+    const status = summary.firstResult
+      ? `first result ${fmtDate(summary.firstResult)}`
+      : `${plural(summary.recorded ?? 0, "call")} recorded, no result due`;
+    const progress = promotion?.paired != null && promotion?.required != null
+      ? `promotion test ${fmtInt(promotion.paired)}/${fmtInt(promotion.required)} weeks`
+      : null;
+    return [status, progress].filter(Boolean).join(" · ");
+  }
+  const weeks = summary.independent;
+  const parts = [`${plural(resolved, "call")} resolved${weeks != null ? ` (${plural(weeks, "independent week")})` : ""}`];
+  const { n, record, challenger } = summary.paired ?? {};
+  if (weeks != null && weeks >= LIVE_MIN_INDEPENDENT && n > 0 && record != null && challenger != null) {
+    parts.push(`QLIKE ${fmtNum(record, 3)} record vs ${fmtNum(challenger, 3)} challenger${n === resolved ? "" : `, same ${plural(n, "call")}`}`);
+  }
+  if (promotion && promotion.status !== "accruing") {
+    const p = fmtP(promotion.p);
+    parts.push(`promotion test: ${promotionText(promotion)}${p ? ` (${p})` : ""}`);
+  }
+  return parts.join(" · ");
 };
 
 /** LEAK: what the leak did to the headline number. */
