@@ -434,6 +434,9 @@ test("a missing challenger, OVX source or economic block says why in one neutral
     implied_vol_ovx_pct: null, ovx_error: "Yahoo ^OVX: timeout; FRED OVXCLS: timeout",
   });
   payload.vol_forecast.economic = { unavailable_reason: "no same-contract returns (HTTPError)" };
+  // The record entry of this same issuance carries the inputs it was computed from: no OVX either.
+  const entry = payload.vol_forecast.live_record.recent.find((row) => row.issued_at === payload.vol_forecast.live.issued_at);
+  if (entry?.inputs) Object.assign(entry.inputs, { ovx: null, ovx_session: null });
   const { html, text, errors } = render(payload, research);
   assert.deepEqual(errors, []);
   assert.ok(text.includes("Challenger — not published this session"), "hero challenger");

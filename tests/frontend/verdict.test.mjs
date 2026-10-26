@@ -108,6 +108,7 @@ test("a later recomputation on the same close is noted, not shown as the call; '
   const live = payload.vol_forecast.live;
   const entry = payload.vol_forecast.live_record.recent[0];
   assert.equal(entry.as_of, live.as_of, "the fixture records the live as-of");
+  delete entry.sealed_at; // the fixture's entry is sealed; start from one recorded before sealing existed
   live.issued_at = "2026-10-21T15:10:59Z";
   live.interval_80.low_pct = round1(live.interval_80.low_pct + 0.1);
   live.interval_80.high_pct = round1(live.interval_80.high_pct + 0.1);
