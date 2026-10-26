@@ -603,17 +603,22 @@ button { font: inherit; color: inherit; }
 .stat-cell { display: inline-flex; align-items: baseline; gap: 6px; }
 .stat-cell.is-stacked { flex-direction: column; align-items: flex-end; gap: 0; }
 .stat-range { font-size: var(--fs-11); color: var(--text-3); }
-.inline-bar { display: flex; align-items: center; gap: var(--sp-2); min-width: 150px; }
-.bar-track { flex: 1; min-width: 60px; height: 6px; background: var(--bg-2); }
-.bar-fill { display: block; height: 100%; background: var(--text-4); }
-tr.is-in-set .bar-fill { background: var(--text-2); }
-tr.is-record .bar-fill { background: var(--s-model); }
-tr.is-challenger .bar-fill { background: var(--s-alt); }
+/* QLIKE strip (MODL): a 7px dot on a 1px rule, on one scale for every row with no zero baseline
+   (lib/comparison.js qlikeScale); a value beyond the scale is a "›" at the track's end. */
+.inline-bar { display: flex; align-items: center; gap: var(--sp-3); min-width: 168px; }
+.bar-track { position: relative; display: flex; align-items: center; justify-content: flex-end; flex: 1; min-width: 96px; height: 9px; }
+.bar-track::before { content: ""; position: absolute; left: 0; right: 0; top: 4px; height: 1px; background: var(--rule-strong); }
+.bar-dot { position: absolute; top: 1px; width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%; background: var(--text-3); }
+.bar-dot.is-member { background: var(--text-1); }
+.bar-dot.is-record { background: var(--s-model); }
+.bar-dot.is-challenger { background: var(--s-alt); }
+.bar-off { position: relative; margin-right: -2px; font-size: var(--fs-14); line-height: 9px; color: var(--text-2); }
 
 .grid-dots { display: inline-flex; align-items: center; gap: 3px; }
 .grid-dots .dot { width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--text-4); }
 .grid-dots .dot.is-on { background: var(--text-2); border-color: var(--text-2); }
 tr.is-record .grid-dots .dot.is-on { background: var(--s-model); border-color: var(--s-model); }
+tr.is-challenger .grid-dots .dot.is-on { background: var(--s-alt); border-color: var(--s-alt); }
 .grid-count { margin-left: 6px; color: var(--text-3); font-size: var(--fs-11); }
 
 .pass-meter { display: inline-flex; align-items: center; gap: 2px; }
