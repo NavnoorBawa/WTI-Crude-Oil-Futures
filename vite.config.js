@@ -63,6 +63,44 @@ const contentSecurityPolicyPlugin = (isDevelopment, env) => {
   }
 }
 
+// The first screen needs data.json and both fonts, but the browser would only discover them after
+// the main script has run (data.json) or the stylesheet has been parsed (fonts). Preload hints let
+// it fetch them in parallel with the script. research.json and price.json are left alone: they are
+// not needed for the first screen and would compete with the main script for bandwidth. The hint
+// matches the app's own request (same URL, CORS mode, same-origin credentials), so it is reused.
+const preloadPlugin = (staticDataMode) => {
+  let base = '/'
+  return {
+    name: 'preload-first-screen',
+    apply: 'build',
+    configResolved(config) {
+      base = config.base
+    },
+    transformIndexHtml: {
+      order: 'post',
+      handler: (_html, ctx) => {
+        const fonts = Object.values(ctx.bundle ?? {})
+          .filter((output) => output.type === 'asset' && output.fileName.endsWith('.woff2'))
+          .map((output) => output.fileName)
+          .sort()
+        const tags = fonts.map((fileName) => ({
+          tag: 'link',
+          attrs: { rel: 'preload', as: 'font', type: 'font/woff2', href: `${base}${fileName}`, crossorigin: '' },
+          injectTo: 'head',
+        }))
+        if (staticDataMode === 'true') {
+          tags.unshift({
+            tag: 'link',
+            attrs: { rel: 'preload', as: 'fetch', href: `${base}data.json`, crossorigin: '' },
+            injectTo: 'head',
+          })
+        }
+        return tags
+      },
+    },
+  }
+}
+
 // A production bundle must never silently point at the local dev API (http://127.0.0.1:9000).
 // Without VITE_API_BASE_URL, a build defaults to static-snapshot mode (the GitHub Pages setup);
 // an explicit VITE_STATIC_DATA=false with no API base is a misconfiguration and fails the build.
@@ -99,7 +137,7 @@ export default defineConfig(({ command, mode }) => {
       'import.meta.env.VITE_STATIC_DATA': JSON.stringify(staticDataMode),
       'import.meta.env.VITE_GIT_SHA': JSON.stringify(gitSha),
     },
-    plugins: [react(), contentSecurityPolicyPlugin(isDevelopment, env)],
+    plugins: [react(), contentSecurityPolicyPlugin(isDevelopment, env), preloadPlugin(staticDataMode)],
     server: {
       port: 3000,
       host: '127.0.0.1'
@@ -112,6 +150,15 @@ export default defineConfig(({ command, mode }) => {
       // Fonts must be served as files: the CSP allows font-src 'self', not data: URIs. Other small
       // assets keep Vite's default inlining.
       assetsInlineLimit: (filePath) => (/\.(woff2?|ttf|otf)$/i.test(filePath) ? false : undefined),
+      rolldownOptions: {
+        output: {
+          // The charting library gets a chunk under its own name, so its size is traceable in the
+          // build output (otherwise it is named after whichever small module shares it).
+          codeSplitting: {
+            groups: [{ name: 'lightweight-charts', test: /[\\/]node_modules[\\/](lightweight-charts|fancy-canvas)[\\/]/ }],
+          },
+        },
+      },
     }
   }
 })
