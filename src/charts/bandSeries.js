@@ -18,6 +18,12 @@ class BandRenderer {
     if (!data || !data.visibleRange || data.bars.length === 0) return;
     target.useMediaCoordinateSpace(({ context }) => {
       const { from, to } = data.visibleRange;
+      // The library computes x only for visible bars; the bar just outside each edge (drawn so the
+      // band reaches the plot's edges) would keep a stale x from an earlier view. Every x is placed
+      // from the first visible bar instead: `time` is the bar's logical index.
+      const anchor = from < to ? data.bars[from] : null;
+      if (!anchor || !Number.isFinite(anchor.x) || !Number.isFinite(data.barSpacing)) return;
+      const xOf = (bar) => anchor.x + (bar.time - anchor.time) * data.barSpacing;
       // Draw each contiguous run of defined bars as its own polygon, so a gap stays a gap.
       let run = [];
       const flush = () => {
@@ -56,7 +62,7 @@ class BandRenderer {
           flush();
           continue;
         }
-        run.push({ x: bar.x, lo: yLo, hi: yHi });
+        run.push({ x: xOf(bar), lo: yLo, hi: yHi });
       }
       flush();
     });

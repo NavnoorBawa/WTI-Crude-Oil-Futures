@@ -28,17 +28,6 @@ const pct = (value) => fmtNum(value * 100, 0);
 const labelledP = (label, p) => (fmtP(p) ? `${label}${NBSP}${fmtP(p)}` : null);
 
 /**
- * Which pipeline produced the band drawn on the forecast chart (see bandCoverage()): the benchmark
- * lab's adaptive conformal band, the production validation's, or the lab's with newer production weeks.
- */
-export const bandSourceLabel = (band) => {
-  if (!band?.n) return null;
-  if (band.lab && !band.live) return "benchmark lab";
-  if (band.live && !band.lab) return "production validation";
-  return `benchmark lab; production validation for the latest ${plural(band.live, "week")}`;
-};
-
-/**
  * FCST: the model against the weakest benchmark (persistence, on out-of-sample R²) and the
  * strongest simple one, the regression on OVX alone (Diebold-Mariano on QLIKE).
  */

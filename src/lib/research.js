@@ -275,8 +275,10 @@ export const recordVar = (rows, level) => {
  * Weekly forecast-vs-realized rows. research.json vol_lab.series (2008-) is the history; data.json
  * recent_oos (the latest ~3 years, from the live pipeline) fills any newer weeks and is the whole
  * series when research.json is unavailable. `date` is the forecast date; `actual` is realized vol
- * over the following 5 sessions. `source` says which pipeline the row (and so its band) came from:
- * "lab" (the benchmark lab's adaptive conformal band) or "live" (the production validation's).
+ * over the following 5 sessions. Realized, forecast, OVX and the challenger come from the lab where
+ * it has the week. The band is the production validation's wherever recent_oos has one, so the band
+ * drawn on the newest weeks is the one the production coverage counts; `source` names the band's
+ * pipeline: "lab" (the benchmark lab's adaptive conformal band) or "live" (the production validation's).
  *
  * @returns {{date:string, source:"lab"|"live", actual:number|null, forecast:number|null, lo:number|null,
  *   hi:number|null, ovx:number|null, challenger:number|null, rv5:number|null}[]}
@@ -303,18 +305,21 @@ export const forecastRows = (lab, recentOos) => {
   const recent = asObject(recentOos);
   if (recent) {
     asArray(recent.date).forEach((date, index) => {
-      if (typeof date !== "string" || rows.has(date)) return;
-      rows.set(date, {
-        date,
-        source: "live",
-        actual: num(recent.actual?.[index]),
-        forecast: num(recent.forecast?.[index]),
-        lo: num(recent.lo80?.[index]),
-        hi: num(recent.hi80?.[index]),
-        ovx: null,
-        challenger: null,
-        rv5: num(recent.rv5?.[index]),
-      });
+      if (typeof date !== "string") return;
+      const lo = num(recent.lo80?.[index]);
+      const hi = num(recent.hi80?.[index]);
+      const actual = num(recent.actual?.[index]);
+      const forecast = num(recent.forecast?.[index]);
+      const rv5 = num(recent.rv5?.[index]);
+      const row = rows.get(date);
+      if (!row) {
+        rows.set(date, { date, source: "live", actual, forecast, lo, hi, ovx: null, challenger: null, rv5 });
+        return;
+      }
+      if (lo != null && hi != null) Object.assign(row, { lo, hi, source: "live" });
+      if (row.actual == null) row.actual = actual;
+      if (row.forecast == null) row.forecast = forecast;
+      if (row.rv5 == null) row.rv5 = rv5;
     });
   }
   return [...rows.values()].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
@@ -322,18 +327,31 @@ export const forecastRows = (lab, recentOos) => {
 
 /**
  * Coverage of the band as drawn: the share of forecastRows() weeks with a realized value and a band
- * whose realized vol fell inside it, with how many of those weeks each pipeline supplied.
- * @returns {{n:number, covered:number, coverage:number|null, lab:number, live:number}}
+ * whose realized vol fell inside it, overall and for each pipeline's band (`lab` and `live` are the
+ * per-pipeline week counts; `bySource` adds how many were covered and the first and last date).
+ * @returns {{n:number, covered:number, coverage:number|null, lab:number, live:number,
+ *   bySource: Record<"lab"|"live", {n:number, covered:number, span:{start:string, end:string}|null}>}}
  */
 export const bandCoverage = (rows) => {
   const scored = asArray(rows).filter((row) => row.actual != null && row.lo != null && row.hi != null);
-  const covered = scored.filter((row) => row.actual >= row.lo && row.actual <= row.hi).length;
+  const inside = (row) => row.actual >= row.lo && row.actual <= row.hi;
+  const covered = scored.filter(inside).length;
+  const part = (source) => {
+    const weeks = scored.filter((row) => row.source === source);
+    return {
+      n: weeks.length,
+      covered: weeks.filter(inside).length,
+      span: weeks.length ? { start: weeks[0].date, end: weeks[weeks.length - 1].date } : null,
+    };
+  };
+  const bySource = { lab: part("lab"), live: part("live") };
   return {
     n: scored.length,
     covered,
     coverage: scored.length ? (covered / scored.length) * 100 : null,
-    lab: scored.filter((row) => row.source === "lab").length,
-    live: scored.filter((row) => row.source === "live").length,
+    lab: bySource.lab.n,
+    live: bySource.live.n,
+    bySource,
   };
 };
 

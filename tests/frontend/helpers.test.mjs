@@ -205,7 +205,12 @@ test("forecastRows merges research history with newer live weeks, sorted and de-
   assert.equal(rows[rows.length - 1].date, "2026-10-14");
   assert.equal(rows[rows.length - 1].source, "live");
   assert.equal(rows[rows.length - 2].forecast, research.vol_lab.series.har_iv.at(-1), "research wins on overlap");
-  assert.equal(rows[rows.length - 2].source, "lab");
+  assert.equal(rows[rows.length - 2].ovx, research.vol_lab.series.ovx.at(-1), "and keeps its OVX");
+  // ... but the band drawn on an overlapping week is the production validation's.
+  assert.deepEqual([rows[rows.length - 2].lo, rows[rows.length - 2].hi, rows[rows.length - 2].source], [0, 9, "live"]);
+  const noBand = m.research.forecastRows(research.vol_lab, { ...recent, lo80: [null, 0], hi80: [null, 9] });
+  assert.equal(noBand[noBand.length - 2].source, "lab", "without a production band the lab's stays");
+  assert.equal(noBand[noBand.length - 2].lo, research.vol_lab.series.lo80.at(-1));
   const onlyLive = m.research.forecastRows(null, data.vol_forecast.recent_oos);
   assert.equal(onlyLive.length, data.vol_forecast.recent_oos.date.length);
   assert.deepEqual(m.research.forecastRows(null, null), []);
@@ -214,19 +219,34 @@ test("forecastRows merges research history with newer live weeks, sorted and de-
 test("band coverage is computed from the rows drawn and names their pipeline", () => {
   const { bandCoverage, forecastRows } = m.research;
   const series = research.vol_lab.series;
-  const expected = series.date.map((_, i) => [series.actual[i], series.lo80[i], series.hi80[i]])
-    .filter(([a, lo, hi]) => a != null && lo != null && hi != null);
-  const inside = expected.filter(([a, lo, hi]) => a >= lo && a <= hi).length;
-  const band = bandCoverage(forecastRows(research.vol_lab, data.vol_forecast.recent_oos));
+  const recent = data.vol_forecast.recent_oos;
+  // Independently: the production band wherever recent_oos has one, else the lab's.
+  const production = new Map(recent.date.map((date, i) => [date, [recent.lo80[i], recent.hi80[i]]])
+    .filter(([, [lo, hi]]) => lo != null && hi != null));
+  const labDates = new Set(series.date);
+  const expected = [
+    ...series.date.map((date, i) => [date, series.actual[i], ...(production.get(date) ?? [series.lo80[i], series.hi80[i]])]),
+    ...recent.date.map((date, i) => [date, recent.actual[i], recent.lo80[i], recent.hi80[i]]).filter(([date]) => !labDates.has(date)),
+  ].filter(([, a, lo, hi]) => a != null && lo != null && hi != null);
+  const inside = expected.filter(([, a, lo, hi]) => a >= lo && a <= hi).length;
+  const band = bandCoverage(forecastRows(research.vol_lab, recent));
   assert.equal(band.n, expected.length);
   assert.equal(band.covered, inside);
-  assert.equal(m.assertions.bandSourceLabel(band), "benchmark lab");
-  const live = bandCoverage(forecastRows(null, data.vol_forecast.recent_oos));
+  const liveWeeks = expected.filter(([date]) => production.has(date));
+  assert.equal(band.bySource.live.n, liveWeeks.length);
+  assert.equal(band.bySource.live.covered, liveWeeks.filter(([, a, lo, hi]) => a >= lo && a <= hi).length);
+  assert.equal(band.bySource.lab.n + band.bySource.live.n, band.n);
+  assert.deepEqual([band.lab, band.live], [band.bySource.lab.n, band.bySource.live.n]);
+  const live = bandCoverage(forecastRows(null, recent));
   assert.equal(live.lab, 0);
-  assert.equal(m.assertions.bandSourceLabel(live), "production validation");
-  const mixed = bandCoverage([{ source: "lab", actual: 1, lo: 0, hi: 2 }, { source: "live", actual: 5, lo: 0, hi: 2 }]);
+  assert.equal(live.bySource.lab.span, null);
+  assert.deepEqual(live.bySource.live.span, { start: recent.date[0], end: recent.date.at(-1) });
+  const mixed = bandCoverage([{ date: "2026-01-02", source: "lab", actual: 1, lo: 0, hi: 2 }, { date: "2026-01-09", source: "live", actual: 5, lo: 0, hi: 2 }]);
   assert.deepEqual([mixed.n, mixed.covered, mixed.coverage], [2, 1, 50]);
-  assert.equal(m.assertions.bandSourceLabel(mixed), "benchmark lab; production validation for the latest 1 week");
+  assert.deepEqual(mixed.bySource, {
+    lab: { n: 1, covered: 1, span: { start: "2026-01-02", end: "2026-01-02" } },
+    live: { n: 1, covered: 0, span: { start: "2026-01-09", end: "2026-01-09" } },
+  });
   assert.equal(bandCoverage([]).coverage, null);
 });
 

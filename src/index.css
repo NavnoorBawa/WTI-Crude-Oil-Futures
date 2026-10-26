@@ -697,10 +697,13 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 
 /* -------------------------------------------------------------------------- canvas charts */
 .lw-figure { position: relative; min-width: 0; }
+/* The legend row: the reading and, at its right end, the tap hint or "Reset view" (on a line of their
+   own once the reading needs the full width, as on a phone). */
 .chart-legend {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 4px var(--sp-4);
   min-height: 20px;
   margin-bottom: var(--sp-2);
@@ -708,6 +711,7 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
   font-size: var(--fs-11);
   color: var(--text-2);
 }
+.legend-readout { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--sp-4); min-width: 0; min-height: 20px; }
 .legend-date { color: var(--text-1); }
 .legend-status.is-var99 { color: var(--neg); }
 .legend-status.is-var95 { color: var(--warn); }

@@ -122,7 +122,8 @@ test("degraded payloads say exactly what is missing", () => {
   const fcst = none.html.match(/<section id="fcst"[\s\S]*?<\/section>/)[0];
   assert.ok(visibleText(fcst).includes(`${recent} weeks drawn`), "FCST meta describes the rows drawn");
   assert.ok(!visibleText(fcst).includes(`${data.vol_forecast.validation.n} weeks drawn`));
-  assert.match(visibleText(fcst), /The band drawn is the production validation 80% interval, which covered /);
+  assert.match(visibleText(fcst), /Bright points are weeks whose realized vol fell outside the 80% band; \d+ of the last \d+ production weeks fell inside\./);
+  assert.doesNotMatch(visibleText(fcst), /lab; production|1 week 80%/, "no pipeline label spliced into a phrase");
 
   const noLive = structuredClone(data);
   delete noLive.vol_forecast.live;
@@ -198,14 +199,23 @@ test("STDY shows both placebo tests and highlights a group only when both reject
 test("canvas charts carry an accessible summary of what they draw", async () => {
   const { createElement: h } = await import("react");
   const rows = m.research.forecastRows(research.vol_lab, data.vol_forecast.recent_oos);
-  const forecast = renderToStaticMarkup(h(m.forecastChart.default, { rows, live: null, modelLabel: "HAR-IV", bandLabel: "benchmark lab" }));
-  assert.match(forecast, new RegExp(`role="img" aria-label="Weekly HAR-IV forecast against realized next-week volatility, ${rows.length} weeks from `));
-  assert.match(forecast, /with the 80% band \(benchmark lab\) and OVX/);
+  // A focusable group with a short name, described by the full summary; the plot host is hidden.
+  const description = (html) => {
+    const id = html.match(/aria-describedby="([^"]+)"/)?.[1];
+    assert.ok(id, "the figure is described by its summary");
+    return html.match(new RegExp(`<p id="${id.replace(/[^\w-]/g, "\\$&")}" class="sr-only">([^<]*)</p>`))?.[1] ?? "";
+  };
+  const forecast = renderToStaticMarkup(h(m.forecastChart.default, { rows, live: null, modelLabel: "HAR-IV" }));
+  assert.match(forecast, /<div class="lw-figure" tabindex="0" role="group" aria-roledescription="chart" aria-label="HAR-IV forecast vs realized weekly volatility, [\d,]+ weeks, /);
+  assert.match(forecast, /class="lw-host lw-host--forecast" aria-hidden="true"/);
+  assert.match(description(forecast), new RegExp(`^Weekly HAR-IV forecast against realized next-week volatility, ${rows.length} weeks from `));
+  assert.match(description(forecast), /with the 80% band \(production for \d+ weeks, benchmark lab for \d+ weeks\) and OVX/);
   const series = m.research.varSeries(research.vol_lab);
   const counts = m.research.countExceedances(series);
   const varChart = renderToStaticMarkup(h(m.varChart.default, { rows: series }));
-  assert.match(varChart, new RegExp(`role="img" aria-label="Weekly 5-session log returns, ${series.length} weeks`));
-  assert.ok(varChart.includes(`${counts.e99} of ${counts.n} weeks fell below the 99% line and ${counts.e95} below the 95% line`));
+  assert.match(varChart, /role="group" aria-roledescription="chart" aria-label="Weekly log returns against the 95% and 99% VaR, /);
+  assert.match(description(varChart), new RegExp(`^Weekly 5-session log returns, ${series.length} weeks`));
+  assert.ok(description(varChart).includes(`${counts.e99} of ${counts.n} weeks fell below the 99% line and ${counts.e95} below the 95% line`));
   assert.match(varChart, /5-session log return/);
 });
 
