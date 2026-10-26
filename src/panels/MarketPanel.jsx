@@ -75,7 +75,8 @@ export default function MarketPanel({ data }) {
         />
       ) : null}
     >
-      <LazyMount minHeight={{ wide: 368, narrow: 288 }} label="price chart">
+      {/* PriceChart's plot plus its legend row, measured at 1440 and 390px. */}
+      <LazyMount minHeight={{ wide: 368, narrow: 312 }} label="price chart">
         <PriceChart actualPayload={actual} snapshotPrice={data?.current_price} range={range} frameKey={frameKey} />
       </LazyMount>
     </Panel>

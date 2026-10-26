@@ -397,7 +397,7 @@ test("MKT keeps its range in the URL's figure controls and shows the closes as a
   assert.match(mkt, /<div class="figure-controls"><div class="segmented" role="group" aria-label="Price chart range">/);
   assert.match(mkt, /aria-pressed="true"[^>]*>ALL<\/button>/, "the default range");
   assert.match(mkt, />Closes<span class="sr-only"> view of Market<\/span><\/button>/);
-  assert.match(mkt, /style="--lazy-h:368px;--lazy-h-narrow:288px"/);
+  assert.match(mkt, /style="--lazy-h:368px;--lazy-h-narrow:312px"/);
   const rows = market.closeRows(data);
   const closes = data.vol_forecast.recent_closes;
   assert.equal(rows.length, closes.date.length);
