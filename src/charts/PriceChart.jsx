@@ -1,7 +1,9 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { AreaSeries, CrosshairMode, TickMarkType, createChart } from "lightweight-charts";
-import { DASH, fmtNum, fmtUsd, num, toMs } from "../lib/format";
-import { SERIES, SURFACE, baseChartOptions, fontsReady, withAlpha } from "../theme/chartTheme";
+import { AreaSeries, CrosshairMode, createChart } from "lightweight-charts";
+import ChartFigure from "./ChartFigure";
+import { DASH, fmtInt, fmtNum, fmtUsd, num, toMs } from "../lib/format";
+import { SCREEN_THEME, SURFACE, baseChartOptions, fontsReady, withAlpha } from "../theme/chartTheme";
+import { formatTick, installTickFormatter, useChartReader } from "./lwUtil";
 
 // The CL=F continuous front-month price (unadjusted; it jumps at each roll). Context only: no model
 // output is drawn on it. Times are US Central (CME wall clock).
@@ -58,7 +60,6 @@ const wallFormat = (options) => new Intl.DateTimeFormat("en-US", { timeZone: "UT
 const WALL_DAY = wallFormat({ month: "short", day: "numeric", year: "numeric" });
 const WALL_TIME = wallFormat({ month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 const WALL_CLOCK = wallFormat({ hour: "numeric", minute: "2-digit" });
-const WALL_MONTH = wallFormat({ month: "short" });
 
 const formatWallTime = (wallSec, cadence) => {
   if (!Number.isFinite(wallSec)) return DASH;
@@ -67,13 +68,10 @@ const formatWallTime = (wallSec, cadence) => {
     : `${WALL_TIME.format(wallSec * 1000)} CT`;
 };
 
-const tickMarkFormatter = (time, tickMarkType) => {
-  const date = new Date(Number(time) * 1000);
-  if (tickMarkType === TickMarkType.Year) return String(date.getUTCFullYear());
-  if (tickMarkType === TickMarkType.Month) return WALL_MONTH.format(date);
-  if (tickMarkType === TickMarkType.DayOfMonth) return String(date.getUTCDate());
-  return WALL_CLOCK.format(date);
-};
+// Wall-clock seconds read as UTC dates, so the shared formatter gives year, month ("Mar ’26" over a
+// long span) and day ticks; clock ticks print the wall time.
+const tickMarkFormatter = (time, tickMarkType, days) =>
+  formatTick(Number(time), tickMarkType, days) ?? WALL_CLOCK.format(new Date(Number(time) * 1000));
 
 const formatCompactVolume = (value) => {
   if (!Number.isFinite(value) || value <= 0) return DASH;
@@ -173,17 +171,23 @@ const buildPriceViews = (points) => {
   };
 };
 
+/** The legend's reading of one price point, as text (spoken after a keyboard move). */
+const describePoint = (point, cadence) => (point
+  ? `${formatWallTime(point.time, cadence)}; price ${fmtUsd(point.value)}; volume ${formatCompactVolume(point.volume)}`
+  : "");
+
 /**
  * @param {object} props
  * @param {object|null} props.actualPayload  data.json unified_data.actual
  * @param {number|null} props.snapshotPrice  data.json current_price (used when there is no history)
  * @param {"1W"|"1M"|"1Y"|"ALL"} props.range
+ * @param {unknown} [props.frameKey]  a new value re-frames the chart on the preset (a click on the
+ *   range button already pressed)
  */
-function PriceChart({ actualPayload = null, snapshotPrice = null, range = "ALL" }) {
+function PriceChart({ actualPayload = null, snapshotPrice = null, range = "ALL", frameKey = 0 }) {
   const hostRef = useRef(null);
   const chartRef = useRef(null);
   const [ready, setReady] = useState(false);
-  const [hovered, setHovered] = useState(null);
   const preset = PRICE_RANGES[range] ?? PRICE_RANGES.ALL;
   const cadence = preset.cadence;
 
@@ -197,12 +201,35 @@ function PriceChart({ actualPayload = null, snapshotPrice = null, range = "ALL" 
     const views = buildPriceViews(resolved);
     const build = (key) => {
       const prices = views[key];
-      return { prices, anchor: prices[prices.length - 1], lookup: new Map(prices.map((point) => [point.time, point])) };
+      return {
+        prices,
+        times: prices.map((point) => point.time),
+        anchor: prices[prices.length - 1],
+        lookup: new Map(prices.map((point) => [point.time, point])),
+      };
     };
     return { daily: build("daily"), intraday: build("intraday") };
   }, [actualPayload, snapshotPrice]);
 
   const hasData = model != null;
+  const view = model ? model[cadence] : null;
+  const reader = useChartReader({
+    times: view?.times ?? [],
+    keyOf: (time) => Number(time),
+    valueAt: (index) => view?.prices[index]?.value ?? null,
+    describe: (index) => describePoint(view?.prices[index], cadence),
+    frame: (chart) => {
+      if (!view) return;
+      if (preset.lookbackSec == null) {
+        chart.timeScale().fitContent();
+        return;
+      }
+      const lastTime = view.anchor.time;
+      chart.timeScale().setVisibleRange({ from: lastTime - preset.lookbackSec, to: lastTime });
+    },
+    paint: (theme) => chartRef.current?.paint(theme),
+  });
+  const { connect, reframe, offFrame } = reader;
 
   // One chart instance for the component's lifetime: range clicks and data refreshes update the
   // series in place instead of tearing the canvas down.
@@ -226,7 +253,6 @@ function PriceChart({ actualPayload = null, snapshotPrice = null, range = "ALL" 
           rightOffset: 4,
           minBarSpacing: 0.05, // lets the full daily history fit a 320px phone
           fixLeftEdge: true,
-          tickMarkFormatter,
         },
         localization: {
           ...baseChartOptions().localization,
@@ -235,38 +261,36 @@ function PriceChart({ actualPayload = null, snapshotPrice = null, range = "ALL" 
         },
       });
       const series = chart.addSeries(AreaSeries, {
-        lineColor: SERIES.truth,
-        topColor: withAlpha(SERIES.truth, 0.08),
-        bottomColor: withAlpha(SERIES.truth, 0.0),
         lineWidth: 1.5,
         // No last-value tag on the price axis: it covers the nearest tick label, and the legend and
         // the panel's meta already give the latest price.
         lastValueVisible: false,
         priceLineVisible: true,
-        priceLineColor: withAlpha(SERIES.truth, 0.4),
         crosshairMarkerRadius: 3,
-        crosshairMarkerBorderColor: SURFACE.bg1,
-        crosshairMarkerBackgroundColor: SERIES.truth,
       });
-      const state = { chart, series, lookup: new Map(), cadence: "daily", viewKey: null, hoverTime: null };
-      const onMove = (param) => {
-        const time = Number(param?.time);
-        const entry = param?.point && Number.isFinite(time) ? state.lookup.get(time) : null;
-        const hoverTime = entry ? time : null;
-        if (hoverTime === state.hoverTime) return;
-        state.hoverTime = hoverTime;
-        setHovered(entry ? { ...entry, cadence: state.cadence } : null);
+      const state = {
+        chart,
+        series,
+        paint: (theme) => {
+          const truth = theme.series.truth;
+          series.applyOptions({
+            lineColor: truth,
+            topColor: withAlpha(truth, 0.08),
+            bottomColor: withAlpha(truth, 0),
+            priceLineColor: withAlpha(truth, 0.4),
+            crosshairMarkerBorderColor: theme.surface.bg1,
+            crosshairMarkerBackgroundColor: truth,
+          });
+        },
       };
-      chart.subscribeCrosshairMove(onMove);
-      const observer = new ResizeObserver(([entry]) => {
-        if (entry) chart.resize(Math.floor(entry.contentRect.width), Math.floor(entry.contentRect.height));
-      });
-      observer.observe(host);
+      state.paint(SCREEN_THEME);
+      const untick = installTickFormatter(chart, tickMarkFormatter);
+      const disconnect = connect(chart, host, series);
       chartRef.current = state;
       setReady(true);
       teardown = () => {
-        chart.unsubscribeCrosshairMove(onMove);
-        observer.disconnect();
+        disconnect();
+        untick();
         chart.remove();
         chartRef.current = null;
       };
@@ -275,33 +299,44 @@ function PriceChart({ actualPayload = null, snapshotPrice = null, range = "ALL" 
       disposed = true;
       teardown?.();
     };
-  }, [hasData]);
+  }, [hasData, connect]);
 
   useEffect(() => {
     const state = chartRef.current;
-    if (!ready || !state || !model) return;
-    const view = model[cadence];
+    if (!ready || !state || !view) return;
     state.series.setData(view.prices.map(({ time, value }) => ({ time, value })));
-    state.lookup = view.lookup;
-    state.cadence = cadence;
-    state.hoverTime = null;
-    setHovered(null);
     state.chart.applyOptions({
       timeScale: { timeVisible: cadence === "intraday" },
       localization: { timeFormatter: (time) => formatWallTime(Number(time), cadence) },
     });
-    // Re-frame only when the reader changes range; a background refresh keeps their pan/zoom.
-    if (state.viewKey === range) return;
-    state.viewKey = range;
-    if (preset.lookbackSec == null) {
-      state.chart.timeScale().fitContent();
-      return;
-    }
-    const lastTime = view.anchor.time;
-    state.chart.timeScale().setVisibleRange({ from: lastTime - preset.lookbackSec, to: lastTime });
-  }, [ready, model, cadence, range, preset]);
+  }, [ready, view, cadence]);
 
-  if (!model) {
+  // Re-frame on a new range or a click on the pressed one (frameKey). A background data refresh
+  // re-frames too, unless the reader has dragged or pinched away from the preset.
+  const framed = useRef(null);
+  useEffect(() => {
+    if (!ready || !view) return;
+    const key = `${range}|${String(frameKey)}`;
+    if (framed.current === key && offFrame) return;
+    framed.current = key;
+    reframe();
+  }, [ready, view, range, frameKey, offFrame, reframe]);
+
+  const { label, summary } = useMemo(() => {
+    if (!view) return { label: "", summary: "" };
+    const from = preset.lookbackSec == null ? null : view.anchor.time - preset.lookbackSec;
+    const shown = from == null ? view.prices : view.prices.filter((point) => point.time >= from);
+    const first = shown[0] ?? view.anchor;
+    const noun = cadence === "daily" ? "sessions" : "prices";
+    return {
+      label: `WTI front-month futures price, ${preset.label}: ${fmtInt(shown.length)} ${noun}, `
+        + `${formatWallTime(first.time, "daily")} to ${formatWallTime(view.anchor.time, "daily")}`,
+      summary: `WTI front-month futures price, ${preset.label}: latest ${fmtNum(view.anchor.value, 2)} dollars on `
+        + `${formatWallTime(view.anchor.time, cadence)}. Arrow keys read the prices one by one.`,
+    };
+  }, [view, preset, cadence]);
+
+  if (!view) {
     return (
       <div className="figure-empty">
         <p className="empty-title">Waiting for market data</p>
@@ -310,20 +345,24 @@ function PriceChart({ actualPayload = null, snapshotPrice = null, range = "ALL" 
     );
   }
 
-  const view = model[cadence];
-  const legend = hovered || { ...view.anchor, cadence };
+  const point = (reader.activeKey != null && view.lookup.get(reader.activeKey)) || view.anchor;
+  const legend = (
+    <>
+      <span className="legend-date">{formatWallTime(point.time, cadence)}</span>
+      <span className="legend-item"><i className="swatch swatch-truth" />Price {fmtUsd(point.value)}</span>
+      <span className="legend-item">Volume {formatCompactVolume(point.volume)}</span>
+    </>
+  );
   return (
-    <div className="lw-figure">
-      <div className="chart-legend" aria-hidden="true">
-        <span className="legend-date">{formatWallTime(legend.time, legend.cadence)}</span>
-        <span className="legend-item"><i className="swatch swatch-truth" />Price {fmtUsd(legend.value)}</span>
-        <span className="legend-item">Volume {formatCompactVolume(legend.volume)}</span>
-      </div>
-      <p className="sr-only">
-        {`WTI front-month futures price, ${preset.label}: latest ${fmtNum(view.anchor.value, 2)} dollars on ${formatWallTime(view.anchor.time, cadence)}.`}
-      </p>
-      <div ref={hostRef} className="lw-host lw-host--price" />
-    </div>
+    <ChartFigure
+      reader={reader}
+      label={label}
+      description={summary}
+      legend={legend}
+      hint="Tap the chart to read a price"
+      hostRef={hostRef}
+      hostClassName="lw-host--price"
+    />
   );
 }
 
