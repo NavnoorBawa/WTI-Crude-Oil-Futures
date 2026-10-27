@@ -41,13 +41,27 @@ export const varAnnotations = (rows, fromDate = null, toDate = null) => {
   return { worst, latestBreach };
 };
 
+/**
+ * The legend's note on the weeks labelled in view (the arrows on the plot carry no text, so no VaR
+ * line can run through a figure): the worst week with its return and the latest 99% breach, said
+ * once when they are the same week; null when there is neither. Pure.
+ * @param {{worst: object|null, latestBreach: object|null}} labelled  varAnnotations() output
+ */
+export const varAnnotationText = ({ worst = null, latestBreach = null } = {}) => {
+  const week = (row) => `${fmtDate(row.date)} (${fmtSigned(row.ret, 1, "%")})`;
+  const parts = [];
+  if (worst) parts.push(`worst week ${week(worst)}${latestBreach?.date === worst.date ? ", also the latest 99% breach" : ""}`);
+  if (latestBreach && latestBreach.date !== worst?.date) parts.push(`latest 99% breach ${week(latestBreach)}`);
+  return parts.length ? `in view: ${parts.join(" · ")}` : null;
+};
+
 const STATUS_TEXT = { var99: "breached 99% VaR", var95: "breached 95% VaR", ok: "within VaR", none: "VaR warming up" };
 
 /**
  * Weekly 5-session log returns (bars) against the model of record's forecast-scaled VaR on the
  * same log-return scale, drawn as negative step lines in the model's colour (95% solid, 99% dashed:
  * one model, two levels); breaches are coloured and the 99% ones marked. On a wide enough plot the
- * worst week in view and the latest 99% breach are labelled.
+ * worst week in view and the latest 99% breach get an arrow and are named in the legend row.
  *
  * @param {{rows: {date:string, ret:number, var95:number|null, var99:number|null}[], range: "3Y"|"10Y"|"ALL",
  *   frameKey?: unknown}} props  a new frameKey re-frames the chart on the preset
@@ -56,6 +70,7 @@ export default function VarChart({ rows, range = "ALL", frameKey = 0 }) {
   const hostRef = useRef(null);
   const stateRef = useRef(null);
   const [ready, setReady] = useState(false);
+  const [note, setNote] = useState(null);
 
   const model = useMemo(() => ({
     lookup: new Map(rows.map((row) => [row.date, { ...row, breach: breachOf(row) }])),
@@ -92,7 +107,8 @@ export default function VarChart({ rows, range = "ALL", frameKey = 0 }) {
         ...baseChartOptions(),
         width: host.clientWidth || 600,
         height: host.clientHeight || 300,
-        rightPriceScale: { borderColor: SURFACE.rule, scaleMargins: { top: 0.06, bottom: 0.1 } },
+        // Headroom over the tallest bar, and no tick label drawn half outside the pane.
+        rightPriceScale: { borderColor: SURFACE.rule, entireTextOnly: true, scaleMargins: { top: 0.1, bottom: 0.1 } },
         timeScale: { borderColor: SURFACE.rule, fixLeftEdge: true, minBarSpacing: 0.2 },
         localization: { ...baseChartOptions().localization, priceFormatter: fmtAxisPercent, timeFormatter: (time) => fmtDate(timeKey(time)) },
       });
@@ -102,26 +118,24 @@ export default function VarChart({ rows, range = "ALL", frameKey = 0 }) {
       const var99 = chart.addSeries(LineSeries, { ...quiet, lineWidth: 1, lineType: LineType.WithSteps, lineStyle: LineStyle.Dashed });
       const state = { chart, bars, var95, var99, rows: [], theme: SCREEN_THEME, annotateTimer: 0, markers: createSeriesMarkers(bars, []) };
       // Every 99% breach gets an arrow; on a wide plot the worst week in view and the latest 99%
-      // breach in view are labelled (at most two labels).
+      // breach in view get one too and are named in the legend row (marker text has no halo, and
+      // the VaR step lines would run through it).
       state.annotate = () => {
         const { theme } = state;
         const visible = chart.timeScale().getVisibleRange();
         const labelled = chart.timeScale().width() >= ANNOTATION_MIN_PX && visible
           ? varAnnotations(state.rows, timeKey(visible.from), timeKey(visible.to))
           : { worst: null, latestBreach: null };
-        const labels = new Map();
-        const add = (row, text) => labels.set(row.date, labels.has(row.date) ? `${labels.get(row.date)} · ${text}` : text);
-        if (labelled.worst) add(labelled.worst, `worst ${fmtDate(labelled.worst.date)}: ${fmtSigned(labelled.worst.ret, 1, "%")}`);
-        if (labelled.latestBreach) add(labelled.latestBreach, "latest 99% breach");
-        const marks = state.rows.filter((row) => breachOf(row) === "var99" || labels.has(row.date)).map((row) => ({
+        const named = new Set([labelled.worst?.date, labelled.latestBreach?.date].filter(Boolean));
+        const marks = state.rows.filter((row) => breachOf(row) === "var99" || named.has(row.date)).map((row) => ({
           time: row.date,
           position: "belowBar",
           shape: "arrowUp",
           color: breachOf(row) === "var99" ? theme.status.neg : theme.text.text2,
           size: 0.8,
-          ...(labels.has(row.date) ? { text: labels.get(row.date) } : {}),
         }));
         state.markers.setMarkers(marks);
+        setNote(varAnnotationText(labelled));
       };
       state.paint = (theme) => {
         state.theme = theme;
@@ -192,6 +206,7 @@ export default function VarChart({ rows, range = "ALL", frameKey = 0 }) {
       <span className="legend-item"><i className="swatch swatch-model" />−VaR 95% {shown?.var95 != null ? `${fmtNum(-shown.var95, 1)}%` : DASH}</span>
       <span className="legend-item"><i className="swatch swatch-model is-dashed" />−VaR 99% {shown?.var99 != null ? `${fmtNum(-shown.var99, 1)}%` : DASH}</span>
       {shown && <span className={`legend-item legend-status is-${shown.breach}`}>{STATUS_TEXT[shown.breach]}</span>}
+      {note && <span className="legend-item legend-annotation"><span className="legend-arrow">↑</span>{note}</span>}
     </>
   );
 

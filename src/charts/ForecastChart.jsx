@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LineSeries, LineStyle, PriceScaleMode, createChart, createSeriesMarkers } from "lightweight-charts";
+import { LineSeries, LineStyle, MismatchDirection, PriceScaleMode, createChart, createSeriesMarkers } from "lightweight-charts";
 import { BandSeries } from "./bandSeries";
 import ChartFigure from "./ChartFigure";
 import { SCREEN_THEME, SURFACE, baseChartOptions, fontsReady, withAlpha } from "../theme/chartTheme";
@@ -15,6 +15,36 @@ const ANNOTATE_DELAY_MS = 150;
 // enough for the last-value labels to carry series names, enough to keep those names off the dot.
 const ROOM_PX = 28;
 const TITLED_ROOM_PX = 64;
+// At the 11px axis font a last-value badge is about 16px tall (plus a pixel of air) and a tick label about 12px.
+const BADGE_PX = 17;
+const TICK_LABEL_PX = 12;
+
+/**
+ * Which price-axis tick labels the last-value badges (OVX, the model) would cover, from the y
+ * coordinates (px, top down) of the ticks and of the values the badges show. Badges that overlap
+ * are stacked by the library, which pushes one off the other in either direction, so a run of n
+ * overlapping badges is taken to cover n badge heights reaching past either end of the run. Pure.
+ * @param {(number|null)[]} ticks
+ * @param {(number|null)[]} badges
+ * @returns {boolean[]} per tick, true when a badge covers its label
+ */
+export const ticksUnderBadges = (ticks, badges, { badgePx = BADGE_PX, tickPx = TICK_LABEL_PX } = {}) => {
+  const runs = [];
+  for (const y of badges.filter(Number.isFinite).sort((a, b) => a - b)) {
+    const run = runs[runs.length - 1];
+    if (run && y - run.first < run.count * badgePx) {
+      run.last = y;
+      run.count += 1;
+    } else {
+      runs.push({ first: y, last: y, count: 1 });
+    }
+  }
+  const spans = runs.map(({ first, last, count }) => {
+    const slack = Math.max(0, (count - 1) * badgePx - (last - first));
+    return [first - badgePx / 2 - slack, last + badgePx / 2 + slack];
+  });
+  return ticks.map((y) => Number.isFinite(y) && spans.some(([top, bottom]) => y + tickPx / 2 > top && y - tickPx / 2 < bottom));
+};
 
 /** A realized week outside its 80% band (a week without a band or a realized value is not). */
 export const isOutsideBand = (row) =>
@@ -123,6 +153,8 @@ export default function ForecastChart({ rows, live, range = "3Y", frameKey = 0, 
     fontsReady().then(() => {
       const host = hostRef.current;
       if (disposed || !host) return;
+      // Tick labels under a last-value badge are left blank once the series exist (see below).
+      let tickLabels = (prices) => prices.map(fmtAxisPercent);
       const chart = createChart(host, {
         ...baseChartOptions(),
         width: host.clientWidth || 600,
@@ -132,7 +164,12 @@ export default function ForecastChart({ rows, live, range = "3Y", frameKey = 0, 
           borderColor: SURFACE.rule, mode: PriceScaleMode.Logarithmic, scaleMargins: { top: 0.06, bottom: 0.04 },
         },
         timeScale: { borderColor: SURFACE.rule, rightOffset: 5, fixLeftEdge: true, minBarSpacing: 0.2 },
-        localization: { ...baseChartOptions().localization, priceFormatter: fmtAxisPercent, timeFormatter: (time) => fmtDate(timeKey(time)) },
+        localization: {
+          ...baseChartOptions().localization,
+          priceFormatter: fmtAxisPercent,
+          tickmarksPriceFormatter: (prices) => tickLabels(prices),
+          timeFormatter: (time) => fmtDate(timeKey(time)),
+        },
       });
       const quiet = { lastValueVisible: false, priceLineVisible: false };
       const points = { ...quiet, lineVisible: false, pointMarkersVisible: true, pointMarkersRadius: 2, crosshairMarkerRadius: 3 };
@@ -148,6 +185,22 @@ export default function ForecastChart({ rows, live, range = "3Y", frameKey = 0, 
         liveMarkers: createSeriesMarkers(forecast, []),
         insideMarkers: createSeriesMarkers(actualInside, []),
         outsideMarkers: createSeriesMarkers(actualOutside, []),
+        badgeKey: "",
+      };
+      // The values the OVX and model badges show: each series' last value at or before the view's
+      // right edge (the library labels the last visible bar).
+      state.badgeValues = () => {
+        const range = chart.timeScale().getVisibleLogicalRange();
+        if (!range) return [];
+        return [ovx, forecast].map((series) => series.dataByIndex(Math.ceil(range.to), MismatchDirection.NearestLeft)?.value ?? null);
+      };
+      // A tick label the badges would cover is left blank: the badges already give those values.
+      tickLabels = (prices) => {
+        const values = state.badgeValues();
+        state.badgeKey = values.join("|");
+        const toY = (price) => forecast.priceToCoordinate(price);
+        const covered = ticksUnderBadges(prices.map(toY), values.filter((value) => value != null).map(toY));
+        return prices.map((price, index) => (covered[index] ? "" : fmtAxisPercent(price)));
       };
       // Series names on the last-value labels, and the largest miss in view, only on a plot wide
       // enough to hold them; the live call's dot always.
@@ -180,6 +233,9 @@ export default function ForecastChart({ rows, live, range = "3Y", frameKey = 0, 
         const outside = miss ? isOutsideBand(miss) : false;
         state.outsideMarkers.setMarkers(outside ? marker : []);
         state.insideMarkers.setMarkers(miss && !outside ? marker : []);
+        // The library re-labels the ticks when the scale moves; a pan that changes the badges'
+        // values but not the scale gets its tick labels re-made here.
+        if (state.badgeValues().join("|") !== state.badgeKey) chart.priceScale("right").applyOptions({});
       };
       state.paint = (theme) => {
         state.theme = theme;
