@@ -176,6 +176,57 @@ test("a snapshot from an older close than the newest recorded call shows that ca
   assert.notEqual(v.forecastOfRecord(live, payload.vol_forecast.live_record).entry, newer);
 });
 
+test("with a snapshot from an older close, CONE and METH show the recorded call the hero shows, never the superseded one", () => {
+  const payload = structuredClone(data);
+  const live = payload.vol_forecast.live;
+  const recent = payload.vol_forecast.live_record.recent;
+  const inputs = { rv5_pct: 49.42, rv22_pct: 38.25, rv66_pct: 46.29, ovx: 60.02, ovx_session: "2026-10-23" };
+  // A median the snapshot's coefficients reproduce from these inputs, and its mean, as the backend prints them.
+  const fit = v.forecastDecomposition(live.coefficients, inputs, live.smearing_factor);
+  const median = round1(fit.median);
+  const forecast = round1(median * Math.sqrt(live.smearing_factor));
+  const newer = {
+    ...structuredClone(recent[0]),
+    as_of: "2026-10-26", issued_at: "2026-10-26T21:00:54Z", recorded_at: "2026-10-26T21:00:58Z", sealed_at: "2026-10-26T21:01:33Z",
+    forecast_pct: forecast, median_pct: median, lo80_pct: 28.3, hi80_pct: 77.6, challenger_pct: 58.9,
+    target_start: "2026-10-28", target_end: "2026-11-03", inputs,
+  };
+  recent.unshift(newer);
+  live.issued_at = "2026-10-26T23:48:37Z";
+  const record = v.liveOfRecord(live, payload.vol_forecast.live_record);
+  assert.equal(record.as_of, "2026-10-26");
+  assert.equal(record.forecast_next_week_vol_annualized_pct, forecast);
+  assert.equal(record.fit_as_of, live.as_of, "the coefficients stay the snapshot's, dated");
+  assert.deepEqual(record.inputs, inputs);
+  assert.equal(v.liveOfRecord(data.vol_forecast.live, data.vol_forecast.live_record), data.vol_forecast.live, "the usual case is the live block itself");
+
+  const f = m.format;
+  const sectionOf = (html, id) => squash(visibleText(html.match(new RegExp(`<section id="${id}"[\\s\\S]*?</section>`))?.[0] ?? ""));
+  const { html, errors } = render(payload, research);
+  assert.deepEqual(errors, []);
+  const cone = sectionOf(html, "cone");
+  assert.ok(cone.includes(`5-day realized vol (${f.fmtPct(inputs.rv5_pct)}, Oct 26)`), cone);
+  assert.ok(cone.includes(`Forecast, 5d ${f.fmtPct(forecast)} as of the Oct 26 close`), cone);
+  assert.ok(cone.includes("marks: data.json, Oct 26, 2026 close"), cone);
+  const lag = Math.round((Date.parse("2026-10-26") - Date.parse(research.vol_lab.vol_cone.as_of)) / 86400000);
+  assert.ok(cone.includes(`cone ${lag} days older than the forecast`), cone);
+  assert.ok(!cone.includes(f.fmtPct(live.forecast_next_week_vol_annualized_pct)), "the superseded forecast is not CONE's");
+  const meth = sectionOf(html, "meth");
+  assert.ok(meth.includes(`${f.fmtNum(median, 1)}% × √${f.fmtNum(live.smearing_factor, 3)} ≈ ${f.fmtNum(forecast, 1)}% for this call`), meth);
+  assert.ok(meth.includes(`The live coefficients reproduce this call's ${f.fmtNum(median, 1)}% median`), meth);
+  assert.ok(meth.includes(`Live fit as of ${f.fmtDate(live.as_of)} on every matured row, with the inputs of the call recorded from the Oct 26 close`), meth);
+  assert.ok(!meth.includes(`${f.fmtNum(live.forecast_median_pct, 1)}% × √`), "the superseded median is not 'this call'");
+
+  // Recorded values the snapshot's fit does not reproduce: METH names the snapshot computation as such.
+  newer.median_pct = round1(median + 3);
+  newer.forecast_pct = round1(newer.median_pct * Math.sqrt(live.smearing_factor) + 1);
+  const off = sectionOf(render(payload, research).html, "meth");
+  const snap = f.fmtDate(live.as_of, { year: false });
+  assert.ok(off.includes(`HAR-IV coefficients: the ${snap} snapshot's fit, not the recorded Oct 26 call`), off);
+  assert.ok(off.includes(`≈ ${f.fmtNum(live.forecast_median_pct * Math.sqrt(live.smearing_factor), 1)}% for the ${snap} snapshot computation, not the call recorded from the Oct 26 close`), off);
+  assert.doesNotMatch(off, /for this call|reproduce this call/);
+});
+
 test("the target window is the recorded entry's", () => {
   const entry = data.vol_forecast.live_record.recent[0];
   const hero = squash(visibleText(heroOf(render(data, research).html)));

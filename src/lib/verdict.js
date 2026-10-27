@@ -309,6 +309,41 @@ export const forecastOfRecord = (live, liveRecord) => {
   };
 };
 
+/**
+ * The live block as the call of record (forecastOfRecord()). When the snapshot was computed from an
+ * older close than the newest recorded call (`olderSnapshot`), a copy carrying that call's close,
+ * values and inputs, so the panels that read the live block (CONE, METH) show the call the hero
+ * shows rather than the superseded computation. The fit (coefficients, smearing factor) stays the
+ * snapshot's unless the entry records its own; `fit_as_of` is the close that fit was made for. In
+ * every other state the live block itself.
+ */
+export const liveOfRecord = (live, liveRecord) => {
+  const block = asObject(live);
+  const call = block ? forecastOfRecord(block, liveRecord) : null;
+  if (!call?.olderSnapshot) return live ?? null;
+  const ownFit = asArray(call.entry?.coefficients).length > 0;
+  const challenger = asObject(block.challenger);
+  return {
+    ...block,
+    as_of: call.asOf,
+    issued_at: call.issuedAt,
+    forecast_next_week_vol_annualized_pct: call.forecast,
+    forecast_median_pct: call.median,
+    interval_80: { ...(asObject(block.interval_80) ?? {}), low_pct: call.lo, high_pct: call.hi },
+    prob_vol_rises_pct: call.prob,
+    direction: null,
+    current_realized_vol_5d_annualized_pct: call.realized.value,
+    implied_vol_ovx_pct: call.ovx.value,
+    inputs: { ...(call.inputs ?? {}) },
+    challenger: challenger
+      ? { ...challenger, as_of: call.asOf, forecast_next_week_vol_annualized_pct: call.challenger, forecast_median_pct: null }
+      : block.challenger,
+    coefficients: ownFit ? call.entry.coefficients : block.coefficients,
+    smearing_factor: num(call.entry?.smearing_factor) ?? block.smearing_factor,
+    fit_as_of: ownFit ? call.asOf : asText(block.as_of),
+  };
+};
+
 /** The recorded calls with a forecast, newest first (by as_of, then issued_at). */
 export const callHistory = (liveRecord) => asArray(asObject(liveRecord)?.recent)
   .filter((row) => asObject(row) && typeof row.as_of === "string" && num(row.forecast_pct) != null)

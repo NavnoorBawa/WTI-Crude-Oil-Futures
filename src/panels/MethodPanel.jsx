@@ -9,8 +9,8 @@ import Panel, { REPRODUCE } from "../components/Panel";
 import { methodAssertion, methodDetail, promotionText } from "../lib/assertions";
 import { DASH, fmtCT, fmtDate, fmtInt, fmtNum, fmtShare, num, tidyProse, toMs } from "../lib/format";
 import {
-  METH_APPENDIX, citationBibtex, citationText, elasticityAssertion, elasticityPath, ledgerAnchor, liveFit, modelCard,
-  parseCitation, retractedRows, timingCorrection, timingCorrectionText, vintageRows,
+  METH_APPENDIX, citationBibtex, citationText, elasticityAssertion, elasticityPath, ledgerAnchor, modelCard,
+  parseCitation, recordFit, retractedRows, timingCorrection, timingCorrectionText, vintageRows,
 } from "../lib/reference";
 import { asArray, asObject, asText, getLab, getVol, ledgerText, liveRecordSummary, modelLabels, researchLedger, supplyStudy } from "../lib/research";
 import { snapshotDate } from "../lib/csv";
@@ -118,7 +118,10 @@ function ModelCard({ data, research }) {
         </CardRow>
         <CardRow label="Mean forecast">
           Median × √smearing (Duan){card.mean
-            ? <>: <span className="num">{fmtNum(card.mean.median, 1)}% × √{fmtNum(card.mean.smearing, 3)} ≈ {fmtNum(card.mean.mean, 1)}%</span> for this call</>
+            ? <>: <span className="num">{fmtNum(card.mean.median, 1)}% × √{fmtNum(card.mean.smearing, 3)} ≈ {fmtNum(card.mean.mean, 1)}%</span>{" "}
+              {card.mean.superseded
+                ? `for the ${fmtDate(card.mean.asOf, { year: false })} snapshot computation, not the call recorded from the ${fmtDate(card.mean.superseded, { year: false })} close`
+                : "for this call"}</>
             : ""}. The median decides the direction call and the interval.
         </CardRow>
         <CardRow label="Inputs and timing">
@@ -160,25 +163,33 @@ function ModelCard({ data, research }) {
 
 /** The live fit beside the lab's full-sample fit, each captioned with its sample. */
 function Coefficients({ data, lab }) {
-  const { live } = getVol(data);
-  const fit = liveFit(live, lab);
+  // The call of record's fit: a snapshot from an older close than the newest recorded call is never "this call".
+  const fit = recordFit(data, lab);
   const full = asObject(lab?.har_iv_coefficients);
   const fullRows = asArray(full?.terms).filter((row) => asText(row?.term));
   if (!fit && !fullRows.length) return null;
-  const reproduced = fit?.median != null && fit.published != null && fmtNum(fit.median, 1) === fmtNum(fit.published, 1);
+  const superseded = fit?.superseded ?? null;
+  const day = (value) => fmtDate(value, { year: false });
+  let title = "HAR-IV coefficients: the live fit and the full sample";
+  if (superseded) title = `HAR-IV coefficients: the ${day(fit.asOf)} snapshot's fit, not the recorded ${day(superseded)} call`;
+  else if (fit?.reproduces) title = `The live coefficients reproduce this call's ${fmtNum(fit.published, 1)}% median`;
+  let caption = null;
+  if (superseded) {
+    caption = `Live fit for the ${fmtDate(fit.asOf)} snapshot computation on every matured row (data.json), not the call recorded from the ${day(superseded)} close`;
+  } else if (fit && fit.fitAsOf !== fit.asOf) {
+    caption = `Live fit as of ${fmtDate(fit.fitAsOf)} on every matured row, with the inputs of the call recorded from the ${day(fit.asOf)} close (data.json)`;
+  } else if (fit) {
+    caption = `Live fit, refit for the call as of ${fmtDate(fit.asOf)} on every matured row (data.json)`;
+  }
   const through = asText(lab?.generated_from?.sessions_through);
   return (
     <div className="method-block method-block--wide">
-      <h3 className="study-title">
-        {reproduced
-          ? `The live coefficients reproduce this call's ${fmtNum(fit.published, 1)}% median`
-          : "HAR-IV coefficients: the live fit and the full sample"}
-      </h3>
+      <h3 className="study-title">{title}</h3>
       <div className="split coef-split">
         {fit && (
           <div className="split-figure">
             <DataTable
-              caption={`Live fit, refit for the call as of ${fmtDate(fit.asOf)} on every matured row (data.json)`}
+              caption={caption}
               rowKey={(row) => row.term}
               dense
               exportName="live-coefficients"
@@ -186,14 +197,14 @@ function Coefficients({ data, lab }) {
                 { key: "term", label: "Term", rowHeader: true, render: (row) => <code>{row.term}</code> },
                 { key: "coef", label: "Coefficient", align: "right", render: (row) => <span className="num">{fmtNum(row.coef, 4)}</span> },
                 {
-                  key: "input", label: "Input x", title: "This call's input: realized vols as decimals, OVX in index points", align: "right",
+                  key: "input", label: "Input x", title: `${superseded ? "The snapshot's" : "This call's"} input: realized vols as decimals, OVX in index points`, align: "right",
                   render: (row) => (row.input == null ? <span className="muted">{DASH}</span>
                     : <span className="num">{fmtNum(row.input, row.inputUnit === "decimal" ? 4 : 2)}</span>),
                 },
               ]}
               rows={fit.rows}
               footnote={fit.median != null
-                ? `exp(b0 + Σ b·ln x) = ${fmtNum(fit.median, 1)}%${fit.published != null ? `; the published median is ${fmtNum(fit.published, 1)}%` : ""}. Realized vols enter as decimals, OVX in points.`
+                ? `exp(b0 + Σ b·ln x) = ${fmtNum(fit.median, 1)}%${fit.published != null ? `; the ${superseded ? "snapshot's " : ""}published median is ${fmtNum(fit.published, 1)}%` : ""}. Realized vols enter as decimals, OVX in points.`
                 : null}
             />
           </div>
