@@ -89,7 +89,7 @@ export function ForecastTable({ rows, modelName }) {
 
   return (
     <DataTable
-      caption={`${showAll ? `All ${fmtInt(rows.length)}` : `Latest ${fmtInt(Math.min(TABLE_WEEKS, rows.length))} of ${fmtInt(rows.length)}`} weeks, newest first (vol in percent, annualized)`}
+      caption={`${showAll ? `All ${fmtInt(rows.length)}` : `Latest ${fmtInt(Math.min(TABLE_WEEKS, rows.length))} of ${fmtInt(rows.length)}`} weeks, newest first (vol in percent, annualized)${!showAll && rows.length > TABLE_WEEKS ? `; the CSV holds all ${fmtInt(rows.length)} weeks` : ""}`}
       rowKey={(row) => row.date}
       dense
       announce="weeks"

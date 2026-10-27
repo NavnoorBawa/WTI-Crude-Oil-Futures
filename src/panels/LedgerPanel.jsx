@@ -349,7 +349,7 @@ export default function LedgerPanel({ research, researchStatus }) {
         </LazyMount>
       )}
       <DataTable
-        caption={`Tested hypotheses: ${shown}`}
+        caption={`Tested hypotheses: ${shown}${visible.length < filtered.length ? `; the CSV holds all ${fmtInt(filtered.length)}${filtered.length < total ? " matches" : ""}` : ""}`}
         rowKey={(row) => String(row.id ?? row.hypothesis)}
         rowId={(row) => (asText(row.id) ? ledgerAnchor(row.id) : undefined)}
         rowClass={(row) => [row.status === "retracted" ? "is-flagged" : null, target && row.id === target.id ? "is-target" : null]

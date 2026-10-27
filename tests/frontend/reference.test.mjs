@@ -70,6 +70,8 @@ test("the default ledger order puts supported rows first, BH survivors leading, 
   const shownIds = [...ledg.matchAll(/<tr id="ledg-([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(shownIds, ordered.slice(0, reference.LEDGER_PAGE).map((row) => row.id));
   assert.match(ledg, new RegExp(`>Show all ${ledgerRows().length} hypotheses</button>`));
+  assert.ok(visibleText(ledg).includes(`Tested hypotheses: ${reference.LEDGER_PAGE} of ${ledgerRows().length} shown; the CSV holds all ${ledgerRows().length}`),
+    "the caption says the CSV holds every row, not only those shown");
   assert.doesNotMatch(ledg, /class="table-scroll is-tall/, "no nested scroller");
   assert.match(ledg, /<table class="data-table is-dense is-cards"/, "stacked cards on a phone");
 });
