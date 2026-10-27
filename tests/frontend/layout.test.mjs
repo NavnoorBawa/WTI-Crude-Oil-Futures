@@ -90,6 +90,12 @@ test("on a phone the ledger's two filters share one row in equal halves under th
   assert.match(reference, /@media \(max-width: 640px\) \{[^}]*\.search-input \{ flex: 1 1 100%; width: auto; \}[\s\S]*?#ledg \.select \{ flex: 1 1 0; min-width: 0; \}/);
 });
 
+test("at 320px nothing widens the page: the 52-cell progress track shrinks, and a select never outgrows its row", () => {
+  const tiles = readSource("src/styles/verdict-tiles.css");
+  assert.match(tiles, /\.kg-progress \.kg-cell \{ flex: 1 1 0; min-width: 0;/, "52 cells x 2px plus gaps would need 155px");
+  assert.match(index, /^\.select \{[^}]*max-width: 100%;/m);
+});
+
 test("the KPI tiles and their key start on the hero's and the panels' left edge", () => {
   const tiles = readSource("src/styles/verdict-tiles.css");
   assert.match(index, /\.verdict-hero \{[^}]*padding: [^;]*var\(--sp-6\)/);

@@ -61,7 +61,7 @@
 .kg-cell.is-filled { background: var(--kg, var(--text-2)); }
 .kg-cell.kg-text:not(.is-filled) { border-color: var(--text-4); }
 .kg-progress { gap: 1px; }
-.kg-progress .kg-cell { flex: 1 1 0; height: 8px; border: 0; background: var(--rule-strong); }
+.kg-progress .kg-cell { flex: 1 1 0; min-width: 0; height: 8px; border: 0; background: var(--rule-strong); }
 .kg-progress .kg-cell.is-filled { background: var(--kg); }
 
 /* Forced colours drop backgrounds, which are the marks here: keep them, in system colours, so they
