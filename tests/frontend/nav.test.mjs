@@ -117,6 +117,78 @@ test("the snapshot reference names the view, the data's frozen time and the buil
   assert.equal(commands.snapshotReference("https://x.test/", data.frozen_at, null), `https://x.test/ · data frozen ${data.frozen_at}`);
 });
 
+/** A minimal page for jumpTo: one section (#modl, heading #modl-title) and the elements in `rows`. */
+const fakePage = (rows) => {
+  const focused = [];
+  const node = (id, extra = {}) => {
+    const attrs = new Map(Object.entries(extra.attrs ?? {}));
+    const listeners = {};
+    return {
+      id,
+      listeners,
+      matches: (selector) => selector === "section" && Boolean(extra.isSection),
+      closest: (selector) => (selector === "section.panel[id]" ? (extra.isSection ? self() : section) : null),
+      querySelector: (selector) => (selector === "h2[tabindex]" && extra.isSection ? heading : null),
+      hasAttribute: (name) => attrs.has(name),
+      getAttribute: (name) => attrs.get(name) ?? null,
+      setAttribute: (name, value) => attrs.set(name, String(value)),
+      removeAttribute: (name) => attrs.delete(name),
+      addEventListener: (type, listener) => { listeners[type] = listener; },
+      focus: (options) => focused.push([id, options]),
+      scrollIntoView: () => {},
+    };
+    function self() { return nodes.get(id); }
+  };
+  const heading = node("modl-title", { attrs: { tabindex: "-1" } });
+  const section = node("modl", { isSection: true });
+  const nodes = new Map([["modl", section], ["modl-title", heading]]);
+  for (const id of rows) nodes.set(id, node(id));
+  return { nodes, focused, document: { getElementById: (id) => nodes.get(id) ?? null } };
+};
+
+test("a palette jump focuses the row or reference it lands on, not its section's heading far above", async () => {
+  const saved = { window: globalThis.window, document: globalThis.document };
+  const page = fakePage(["modl-har_iv", "modl-late"]);
+  const late = page.nodes.get("modl-late");
+  page.nodes.delete("modl-late"); // not on the page until the reveal shows it
+  globalThis.document = page.document;
+  const win = { location: { hash: "", pathname: "/", search: "" }, dispatchEvent: () => true, setTimeout, history: { state: null, replaceState() {} } };
+  globalThis.window = win;
+  try {
+    assert.equal(commands.jumpTo("modl-har_iv", { fallback: "modl" }), true);
+    assert.equal(win.location.hash, "modl-har_iv");
+    const row = page.nodes.get("modl-har_iv");
+    assert.deepEqual(page.focused, [["modl-har_iv", { preventScroll: true }]], "the row, not #modl-title");
+    assert.equal(row.getAttribute("tabindex"), "-1", "made focusable for the jump");
+    row.listeners.blur();
+    assert.equal(row.hasAttribute("tabindex"), false, "and plain again once focus leaves");
+
+    // Already at that hash: scrolled to again, and focused again.
+    page.focused.length = 0;
+    win.location.hash = "#modl-har_iv";
+    commands.jumpTo("modl-har_iv", { fallback: "modl" });
+    assert.deepEqual(page.focused.map(([id]) => id), ["modl-har_iv"]);
+
+    // A section keeps its heading.
+    page.focused.length = 0;
+    win.location.hash = "#modl";
+    commands.jumpTo("modl");
+    assert.deepEqual(page.focused.map(([id]) => id), ["modl-title"]);
+
+    // A ledger row the reveal shows a moment later is focused itself.
+    page.focused.length = 0;
+    win.location.hash = "";
+    commands.jumpTo("modl-late", { fallback: "modl", reveal: true });
+    page.nodes.set("modl-late", late);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.deepEqual(page.focused.map(([id]) => id), ["modl-late"]);
+  } finally {
+    Object.assign(globalThis, saved);
+    if (saved.window === undefined) delete globalThis.window;
+    if (saved.document === undefined) delete globalThis.document;
+  }
+});
+
 test("the palette's close button is named by its visible text, and its result list is not a Tab stop", async () => {
   const CommandPalette = (await m.load("/src/components/CommandPalette.jsx")).default;
   // readPage reads the open page: an empty one is enough for the markup.

@@ -576,6 +576,12 @@ button { font: inherit; color: inherit; }
 .data-table tr.is-challenger > :first-child { box-shadow: inset 2px 0 0 var(--s-alt); padding-left: var(--sp-2); }
 .data-table tr.is-flagged > :first-child { box-shadow: inset 2px 0 0 var(--warn); padding-left: var(--sp-2); }
 .data-table tr.passes-rule > :first-child { box-shadow: inset 2px 0 0 var(--text-2); padding-left: var(--sp-2); }
+/* A row a jump focused (commands.js): the ring is drawn on its cells, because the sticky first
+   column paints over an outline on the row itself. */
+.data-table:not(.is-cards) tbody tr:focus-visible { outline: none; }
+.data-table:not(.is-cards) tbody tr:focus-visible > * { box-shadow: inset 0 2px 0 var(--s-model), inset 0 -2px 0 var(--s-model); }
+.data-table:not(.is-cards) tbody tr:focus-visible > :first-child { box-shadow: inset 2px 0 0 var(--s-model), inset 0 2px 0 var(--s-model), inset 0 -2px 0 var(--s-model); }
+.data-table:not(.is-cards) tbody tr:focus-visible > :last-child { box-shadow: inset -2px 0 0 var(--s-model), inset 0 2px 0 var(--s-model), inset 0 -2px 0 var(--s-model); }
 /* The whole header cell is the target (at least 28px tall), aligned like its column. */
 .sort-button {
   display: inline-flex;
