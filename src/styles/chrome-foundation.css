@@ -11,6 +11,7 @@
 .chip-link { text-decoration: none; }
 .chip-link:hover { color: var(--text-1); border-color: var(--text-4); }
 .panel-eyebrow .micro { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-eyebrow > .chip { flex: none; }
 @keyframes chip-target-flash {
   from { background: var(--s-model); border-color: var(--s-model); color: var(--bg-0); }
   to { background: var(--bg-2); border-color: var(--rule-strong); color: var(--text-1); }
@@ -60,6 +61,14 @@
      beside the Table toggle) would squeeze the section name, so those take their own row after the
      meta, next to the figure they change; the title still runs straight into its meta. */
   .panel-actions:has(> :nth-child(2)) { grid-row: 4; grid-column: 1 / -1; justify-content: flex-start; }
+}
+@media (max-width: 960px) {
+  /* Form controls (the ledger's search and filters) are too wide to share the eyebrow's row on a
+     tablet: beside it they squeeze the section name to nothing and are drawn over the code chip. */
+  .panel-actions:has(input, select) { grid-row: 4; grid-column: 1 / -1; justify-content: flex-start; }
+}
+@media (min-width: 641px) and (max-width: 960px) {
+  .panel-actions:has(input, select) { margin-top: var(--sp-3); }
 }
 
 /* View controls (range presets) sit right-aligned above the figure they change. */
