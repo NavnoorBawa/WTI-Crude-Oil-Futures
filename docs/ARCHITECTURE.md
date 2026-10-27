@@ -113,7 +113,9 @@ flowchart TB
   entry as pending until the next run.
 - **Cadence.** GitHub runs scheduled workflows on a best-effort basis: the refresh is scheduled
   every 4 hours and the quote every 15 minutes, and either can land late or be skipped. The
-  dashboard shows the age of everything it displays.
+  dashboard dates what it displays rather than assuming a cadence: the top bar gives the snapshot's
+  age and turns amber once a refresh is overdue, the quote carries its exchange time, and each
+  section names its sample.
 
 ## Code map
 
@@ -132,5 +134,23 @@ flowchart TB
 | `backend/research_ledger.py` | Every hypothesis tested, with multiplicity adjustments |
 | `scripts/validate_frozen_payload.py` | Deploy gate (stdlib only) |
 | `scripts/build_research_bundle.py`, `scripts/readme_blocks.py`, `scripts/make_figures.py` | research.json, the generated docs and the figures, from the artifacts |
-| `src/` | Dashboard |
+| `src/` | Dashboard (below) |
 | `docs/DATA_CONTRACT.md` | The data.json / research.json schema |
+
+## Dashboard
+
+A static React app built by Vite. It fetches `data.json` and `research.json` from its own origin in
+parallel, and the quote from both `live-data` and the deploy's own `price.json`, keeping the newest
+usable one. `research.json` is optional: without it the sections that need it say so and a notice
+offers Retry. Every figure is code-split; it mounts when it nears the screen or, once the page has
+settled, in the background one at a time, and printing mounts them all.
+
+| Path | Role |
+|---|---|
+| `src/app/` | Shell (top bar, footer), data hooks, the section registry (`sections.js`), view state in the URL (`viewState.js`), the jump palette's commands and keyboard shortcuts |
+| `src/panels/` | The verdict lede, this week's call, the tiles, the evidence index and the market strip; one panel per section |
+| `src/lib/` | Formatting, the computed headlines and claims (`assertions.js`, `research.js`, `verdict.js`, `tiles.js`), the glossary, CSV export, print |
+| `src/charts/` | Canvas charts on lightweight-charts (forecast, VaR, price) and SVG charts on d3-scale and d3-shape |
+| `src/components/` | Shared pieces: the panel frame (method notes, source and reproduce lines), tables with CSV export, the palette, glossary terms |
+| `src/theme/`, `src/styles/` | Design tokens (mirrored for canvas in `chartTheme.js`; a test keeps the two equal) and stylesheets |
+| `tests/frontend/` | `node --test` suites; `render.test.mjs` server-renders the page against `tests/fixtures/` |
