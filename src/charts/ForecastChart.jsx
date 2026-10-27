@@ -50,6 +50,16 @@ export const ticksUnderBadges = (ticks, badges, { badgePx = BADGE_PX, tickPx = T
 export const isOutsideBand = (row) =>
   row.actual != null && row.lo != null && row.hi != null && (row.actual < row.lo || row.actual > row.hi);
 
+/** The live call's realized vol, in words: pending until scored, or why it never will be (callScoring()). */
+const LIVE_REALIZED = {
+  pending_roll: "never scored (roll)",
+  skipped_roll: "never scored (roll)",
+  late_commit: "never scored (late commit)",
+  expired: "never scored (expired)",
+  resolved: "resolved (see LIVE)",
+};
+export const liveRealizedText = (row) => LIVE_REALIZED[row?.scoring] ?? "pending";
+
 /**
  * Chart data from the weekly rows plus the live forecast, which is appended at its as-of date
  * (the next forecast date) with no realized value yet. Realized vol is split into two point series,
@@ -57,13 +67,18 @@ export const isOutsideBand = (row) =>
  * applies. OVX is drawn only with at least two values: one point is no line.
  *
  * @param {{date:string, actual:number|null, forecast:number|null, lo:number|null, hi:number|null, ovx:number|null}[]} rows
- * @param {{date:string, forecast:number|null, lo:number|null, hi:number|null, ovx:number|null}|null} live
+ * @param {{date:string, forecast:number|null, lo:number|null, hi:number|null, ovx:number|null, scoring?:string|null}|null} live
  */
 export const buildForecastData = (rows, live) => {
   const all = rows.slice();
   const lastDate = all.length ? all[all.length - 1].date : null;
   const hasLive = Boolean(live?.date && live.forecast != null && (!lastDate || live.date > lastDate));
-  if (hasLive) all.push({ date: live.date, actual: null, forecast: live.forecast, lo: live.lo, hi: live.hi, ovx: live.ovx, isLive: true });
+  if (hasLive) {
+    all.push({
+      date: live.date, actual: null, forecast: live.forecast, lo: live.lo, hi: live.hi, ovx: live.ovx, isLive: true,
+      scoring: live.scoring ?? null,
+    });
+  }
   const pick = (key) => all.map((row) => (row[key] != null ? { time: row.date, value: row[key] } : { time: row.date }));
   const realized = (outside) => all.map((row) => (row.actual != null && isOutsideBand(row) === outside
     ? { time: row.date, value: row.actual }
@@ -107,7 +122,7 @@ const describeRow = (row, modelLabel, hasOvx) => {
   if (!row) return "";
   const parts = [
     `${fmtDate(row.date)}${row.isLive ? ", live call" : ""}`,
-    `realized ${row.actual != null ? `${fmtNum(row.actual, 1)}%` : row.isLive ? "pending" : "not available"}`,
+    `realized ${row.actual != null ? `${fmtNum(row.actual, 1)}%` : row.isLive ? liveRealizedText(row) : "not available"}`,
     `${modelLabel} ${fmtNum(row.forecast, 1)}%`,
     row.lo != null ? `80% band ${fmtNum(row.lo, 1)} to ${fmtNum(row.hi, 1)}%${isOutsideBand(row) ? ", realized outside it" : ""}` : "no band",
     hasOvx && row.ovx != null ? `OVX ${fmtNum(row.ovx, 1)}%` : null,
@@ -321,6 +336,7 @@ export default function ForecastChart({ rows, live, range = "3Y", frameKey = 0, 
           ? `live forecast ${fmtNum(model.live.forecast, 1)}% for ${model.liveWindow
             ? `${fmtDate(model.liveWindow.start, { year: false })} – ${fmtDate(model.liveWindow.end)}`
             : `the 5 sessions after ${fmtDate(model.live.date)}`}`
+            + `${model.live.scoring && model.live.scoring !== "pending" ? `, ${liveRealizedText(model.live)}` : ""}`
           : null,
         "Arrow keys read the weeks one by one; the Table button lists every week",
       ].filter(Boolean).join("; ") + ".",
@@ -332,7 +348,7 @@ export default function ForecastChart({ rows, live, range = "3Y", frameKey = 0, 
       <span className="legend-date">{shown ? `${fmtDate(shown.date)}${shown.isLive ? " · live" : ""}` : DASH}</span>
       <span className="legend-item">
         <i className="swatch swatch-truth is-dot" />
-        <span>Realized<span className="legend-note"> (bright = outside band)</span> {shown?.actual != null ? fmtNum(shown.actual, 1) : shown?.isLive ? "pending" : DASH}</span>
+        <span>Realized<span className="legend-note"> (bright = outside band)</span> {shown?.actual != null ? fmtNum(shown.actual, 1) : shown?.isLive ? liveRealizedText(shown) : DASH}</span>
       </span>
       <span className="legend-item"><i className="swatch swatch-model" />{modelLabel} {fmtNum(shown?.forecast, 1)}</span>
       <span className="legend-item">

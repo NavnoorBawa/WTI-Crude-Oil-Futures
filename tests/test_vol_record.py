@@ -337,7 +337,10 @@ class ResolutionTest(unittest.TestCase):
                 # The next result is dated only by a window resolution will score, not skip.
                 self.assertEqual(vr.summarize(record)["next_result_due"],
                                  record["entries"][0]["target_end"] if status == "pending" else None)
+                # The summary says so on the row while it is still pending, and after it is closed.
+                self.assertIs(vr.summarize(record)["recent"][0]["spans_roll"], status == "skipped_roll")
                 self.resolve(record, {}, now)
+                self.assertIs(vr.summarize(record)["recent"][0]["spans_roll"], status == "skipped_roll")
                 self.assertEqual(record["entries"][0]["status"], status)
                 self.assertIsNone(record["entries"][0]["realized_pct"])
 
@@ -479,7 +482,7 @@ class SummaryTest(unittest.TestCase):
                 "mean_forecast_pct", "mean_realized_pct"}
     RECENT = {"as_of", "issued_at", "recorded_at", "sealed_at", "model_version", "base_session", "target_start",
               "target_end", "forecast_pct", "median_pct", "lo80_pct", "hi80_pct", "prob_vol_rises_pct",
-              "challenger_pct", "realized_pct", "inputs", "status"}
+              "challenger_pct", "realized_pct", "inputs", "spans_roll", "status"}
     RECENT_INPUTS = {"ovx", "ovx_session", "rv5_pct", "rv22_pct", "rv66_pct"}
 
     def test_empty_record_has_the_contract_shape_with_null_statistics(self):

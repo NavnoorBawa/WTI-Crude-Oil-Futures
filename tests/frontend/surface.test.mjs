@@ -139,6 +139,26 @@ test("type: reading text is 13px at a measure of 64ch, meta lines are sans, code
   assert.equal(base("code")["font-size"], "max(11px, 0.92em)");
 });
 
+test("days to expiry count from today's New York date to the last trade date, so a stale snapshot's count ages", () => {
+  const { daysToExpiry } = m.marketStrip;
+  const contract = { last_trade_date: "2026-11-20", expiry_date: "2026-11-20", days_to_expiry: 25 };
+  // Oct 26, 7:01 PM CT (the freeze) is Oct 26 in New York: 25 days, the snapshot's own count.
+  assert.equal(daysToExpiry(contract, Date.parse("2026-10-27T00:01:25Z")), 25);
+  // Two days later the strip says 23, not the frozen 25.
+  assert.equal(daysToExpiry(contract, Date.parse("2026-10-29T00:30:00Z")), 23);
+  // New York's date, not UTC's: 11 PM ET on Oct 28 is still Oct 28.
+  assert.equal(daysToExpiry(contract, Date.parse("2026-10-29T03:30:00Z")), 23);
+  assert.equal(daysToExpiry(contract, Date.parse("2026-10-29T04:30:00Z")), 22);
+  assert.equal(daysToExpiry({ expiry_date: "2026-11-20" }, Date.parse("2026-11-20T15:00:00Z")), 0, "on expiry");
+  assert.equal(daysToExpiry(contract, Date.parse("2026-11-23T15:00:00Z")), 0, "never negative");
+  assert.equal(daysToExpiry({ days_to_expiry: 25 }, Date.parse("2026-10-29T00:30:00Z")), 25, "no date: the snapshot's count");
+  assert.equal(daysToExpiry(null, Date.now()), null);
+  // The strip renders the aged count (the tests' clock is fixed).
+  const data = readFixture("dashboard_data_v3.json");
+  const html = renderToStaticMarkup(createElement(m.marketStrip.default, { data, quote: m.quote.resolveQuote(null, data) }));
+  assert.ok(html.includes(`${daysToExpiry(data.contract, Date.now())}d to expiry`), html);
+});
+
 test("the price change is set in the text colour with a direction arrow, and the sparkline label is its title", () => {
   const data = readFixture("dashboard_data_v3.json");
   const quote = m.quote.resolveQuote(null, data);

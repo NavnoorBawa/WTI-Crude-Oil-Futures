@@ -10,7 +10,8 @@ import {
   DASH, ctWallTimeMs, fmtAge, fmtCT, fmtDate, fmtInt, fmtNum, fmtSigned, num, toMs, withCentralTime,
 } from "../lib/format";
 import {
-  asObject, asText, getLab, getRoles, getVol, liveRecordSummary, modelLabels, shortLabel, withModelLabels,
+  LIVE_MIN_INDEPENDENT, asObject, asText, callScoring, getLab, getRoles, getVol, liveRecordSummary, modelLabels, shortLabel,
+  withModelLabels,
 } from "../lib/research";
 import { Facts, Legend } from "./common";
 
@@ -27,6 +28,9 @@ const STATUS_TITLE = {
   expired: "No settlement data arrived in time; never scored",
 };
 const statusLabel = (status) => STATUS_LABEL[status] ?? String(status ?? DASH);
+// A pending call whose window spans a contract roll (callScoring()): resolution will skip it.
+const PENDING_ROLL_NOTE = "spans roll";
+const PENDING_ROLL_TITLE = "The target window spans a contract roll; it will be closed as skipped, never scored";
 
 // The chart's reserved height, at or above 640px and below (LazyMount and LiveCalls both use it).
 const CALLS_HEIGHT = { wide: 200, narrow: 180 };
@@ -167,6 +171,13 @@ export default function LiveRecordPanel({ data, research }) {
   const oneVersion = versions.size === 1 ? [...versions][0] : null;
   const anySealed = recent.some((row) => toMs(row.sealed_at) != null);
   const statuses = [...new Set(recent.map((row) => row.status))].filter((status) => STATUS_TITLE[status]);
+  const spansRoll = (row) => callScoring(row, liveRecord) === "pending_roll";
+  const anyPendingRoll = recent.some(spansRoll);
+  // next_result_due is dated only by pending calls resolution will score: with calls pending and
+  // none due, every pending window spans a contract roll.
+  const pendingCount = summary.pending ?? 0;
+  const noneDue = !summary.firstResult && pendingCount > 0;
+  const comparable = summary.independent != null && summary.independent >= LIVE_MIN_INDEPENDENT;
   const coverage = coverageFact(summary);
   const changes = inputChanges(recent);
   const legend = [
@@ -190,9 +201,15 @@ export default function LiveRecordPanel({ data, research }) {
       ),
     },
     {
-      key: "status", label: "Status", csv: (row) => statusLabel(row.status),
+      key: "status", label: "Status",
+      csv: (row) => `${statusLabel(row.status)}${spansRoll(row) ? ` (${PENDING_ROLL_NOTE})` : ""}`,
       render: (row) => (
-        <Chip tone={`status-${row.status ?? "unknown"}`} title={STATUS_TITLE[row.status]}>{statusLabel(row.status)}</Chip>
+        <>
+          <Chip tone={`status-${row.status ?? "unknown"}`} title={spansRoll(row) ? PENDING_ROLL_TITLE : STATUS_TITLE[row.status]}>
+            {statusLabel(row.status)}
+          </Chip>
+          {spansRoll(row) && <span className="cell-note">{PENDING_ROLL_NOTE}</span>}
+        </>
       ),
     },
     {
@@ -335,10 +352,15 @@ export default function LiveRecordPanel({ data, research }) {
         )}
         {resolved > 0 ? (
           <Facts className="facts--row" items={[
-            {
+            // The two models are compared only from LIVE_MIN_INDEPENDENT independent weeks, as the title and the tile do.
+            comparable ? {
               label: "QLIKE, same calls",
               value: paired.record != null || paired.challenger != null ? `${fmtNum(paired.record, 3)} / ${fmtNum(paired.challenger, 3)}` : DASH,
               note: `record / ${challengerLabel ?? "challenger"}${paired.n != null ? `, n ${fmtInt(paired.n)}` : ""}`,
+            } : {
+              label: "QLIKE, same calls",
+              value: DASH,
+              note: `needs ${fmtInt(LIVE_MIN_INDEPENDENT)} independent weeks${summary.independent != null ? ` (${fmtInt(summary.independent)} so far)` : ""}`,
             },
             {
               label: "QLIKE, record, all calls",
@@ -358,7 +380,11 @@ export default function LiveRecordPanel({ data, research }) {
           <p className="live-empty">
             {summary.firstResult
               ? `Scores appear after the ${fmtDate(summary.firstResult)} settlement.`
-              : "Scores appear once the first target window closes."}
+              : noneDue
+                ? (pendingCount === 1
+                  ? "No result is due: the pending call's window spans a contract roll, so it will not be scored."
+                  : `No result is due: the ${fmtInt(pendingCount)} pending calls' windows span a contract roll, so they will not be scored.`)
+                : "Scores appear once the first target window closes."}
           </p>
         )}
       </div>
@@ -393,8 +419,9 @@ export default function LiveRecordPanel({ data, research }) {
               exportName="live-record"
               columns={columns}
               rows={recent}
-              footnote={statuses.length > 0 && (
+              footnote={(statuses.length > 0 || anyPendingRoll) && (
                 <ul className="footnotes">
+                  {anyPendingRoll && <li key="pending-roll"><b>{`${statusLabel("pending")}, ${PENDING_ROLL_NOTE}`}</b>: {PENDING_ROLL_TITLE}.</li>}
                   {statuses.map((status) => <li key={status}><b>{statusLabel(status)}</b>: {STATUS_TITLE[status]}.</li>)}
                 </ul>
               )}

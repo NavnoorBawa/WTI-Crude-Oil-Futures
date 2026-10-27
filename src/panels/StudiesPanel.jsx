@@ -6,7 +6,7 @@ import {
 } from "../lib/assertions";
 import { DASH, NBSP, fmtInt, fmtNum, fmtP, fmtPValue, fmtPct, fmtSigned, fmtSignedPct, num, tidyProse } from "../lib/format";
 import { asObject, asText, eventName, researchLedger, supplyStudy } from "../lib/research";
-import { StudyHead } from "./common";
+import { ResearchUnavailable, StudyHead } from "./common";
 
 // Fallback labels for data.json playbook groups that carry no `label` of their own.
 const SUPPLY_LABELS = {
@@ -248,7 +248,7 @@ export const methodSentences = (method) => {
 };
 
 /** STDY: two side studies. Neither is a forecast; both are reported with their limits. */
-export default function StudiesPanel({ data, research }) {
+export default function StudiesPanel({ data, research, researchStatus }) {
   const carry = asObject(research?.carry);
   const playbook = asObject(data?.supply_shock_playbook);
   const study = supplyStudy(research);
@@ -264,8 +264,11 @@ export default function StudiesPanel({ data, research }) {
     .filter((sample) => sample.stats) : [];
   const signSplit = asObject(carry?.sign_split?.full_sample);
   const hasStudy = Boolean(study?.groups.length);
+  // The carry study and the placebo-controlled supply study are in research.json: while it loads, or
+  // when it did not load, the panel says so where they go and claims no absence of either.
+  const researchMissing = !research && (researchStatus === "loading" || researchStatus === "unavailable");
 
-  if (!carryRows.length && !rows.length && !hasStudy) return null;
+  if (!carryRows.length && !rows.length && !hasStudy && !researchMissing) return null;
 
   return (
     <Panel
@@ -291,6 +294,11 @@ export default function StudiesPanel({ data, research }) {
       resetKey={data}
     >
       <div className="studies">
+        {researchMissing && (
+          <div className="study">
+            <ResearchUnavailable status={researchStatus} what="the carry and placebo-controlled supply studies" />
+          </div>
+        )}
         {carryRows.length > 0 && (
           <div className="study">
             <StudyHead title={carryAssertion(carry) ?? "Carry"} detail={carryDetail(carry, ledger)} />
@@ -339,7 +347,8 @@ export default function StudiesPanel({ data, research }) {
         {(hasStudy || rows.length > 0) && (
           <div className="study">
             <StudyHead
-              title={(hasStudy ? supplyStudyAssertion(study) : null) ?? supplyPlaybookAssertion(playbook) ?? "Supply shocks"}
+              title={(hasStudy ? supplyStudyAssertion(study) : null)
+                ?? supplyPlaybookAssertion(playbook, { researchLoaded: Boolean(research) }) ?? "Supply shocks"}
               detail={hasStudy ? supplyStudyDetail(study) : []}
             />
             {hasStudy ? <SupplyStudyTable study={study} /> : (

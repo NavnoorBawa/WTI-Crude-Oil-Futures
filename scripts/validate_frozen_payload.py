@@ -337,8 +337,8 @@ def _validate_recent_audit_fields(recent: list[dict]) -> list[str]:
 
     Summaries written before these fields existed omit them; a row may also carry null for any of
     them (an entry not sealed yet, or recorded before inputs were stored). When present, each must
-    be what the dashboard reads: timestamps with a UTC offset, an ISO date, a percentage, and an
-    inputs object of finite vol points with an ISO-dated OVX session.
+    be what the dashboard reads: timestamps with a UTC offset, an ISO date, a percentage, an inputs
+    object of finite vol points with an ISO-dated OVX session, and a boolean spans_roll.
     """
     where = "vol_forecast.live_record.recent"
     errors: list[str] = []
@@ -349,6 +349,8 @@ def _validate_recent_audit_fields(recent: list[dict]) -> list[str]:
         errors.append(f"{where} base_session must be an ISO date (YYYY-MM-DD), or null")
     if any(row.get("prob_vol_rises_pct") is not None and not _percentage(row["prob_vol_rises_pct"]) for row in recent):
         errors.append(f"{where} prob_vol_rises_pct must be a percentage, or null")
+    if any(row.get("spans_roll") is not None and not isinstance(row["spans_roll"], bool) for row in recent):
+        errors.append(f"{where} spans_roll must be true or false, or null")
     for row in recent:
         inputs = row.get("inputs")
         if inputs is None:

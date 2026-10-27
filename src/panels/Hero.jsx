@@ -1,9 +1,9 @@
 import { Fragment } from "react";
 import Disclosure from "../components/Disclosure";
 import keepHyphenated from "../components/keepHyphenated";
-import { INTERVAL_LEVEL_PCT, promotionText, shortModelName } from "../lib/assertions";
+import { INTERVAL_LEVEL_PCT, shortModelName } from "../lib/assertions";
 import { DASH, NBSP, fmtCT, fmtDate, fmtInt, fmtNum, fmtPct, fmtSigned, fmtSpan, num, toMs } from "../lib/format";
-import { asArray, asObject, asText, getLab, liveRecordSummary } from "../lib/research";
+import { asArray, asObject, asText, callScoring, getLab, liveRecordSummary } from "../lib/research";
 import {
   bandTrackRecord, callHistory, challengerStanding, changeSincePrevious, coneScale, elasticities, forecastDecomposition,
   forecastOfRecord, plainNumber, reproduces, TOLERANCE, typicalMiss,
@@ -11,6 +11,14 @@ import {
 
 /** How many recorded calls the hero lists (the full record is in LIVE). */
 const MAX_CALLS = 5;
+
+/** The target window's clause for a recorded call that is never scored (callScoring()); else it is scored. */
+const WINDOW_SCORING = {
+  pending_roll: " spans a contract roll: recorded, never scored",
+  skipped_roll: " spans a contract roll: recorded, never scored",
+  late_commit: ", never scored: not sealed before the settlement that opens it",
+  expired: ", never scored: its settlements did not arrive in time",
+};
 
 /**
  * Where the forecast sits: the 80% interval as a band with the region outside it drawn as possible
@@ -69,34 +77,54 @@ const wholePercent = (value) => {
   return `${rounded}%`;
 };
 
-/** The challenger's note: why a model with the lower lab loss is not the model of record. */
-function ChallengerNote({ standing, label, promotion, pending = false }) {
+/**
+ * The challenger's note: why a model with the lower lab loss is not the model of record. While the
+ * live promotion test accrues it is the only route left; once it has decided, the note says what it
+ * decided: kept the model of record, or favours the challenger, a swap a maintainer applies (not yet
+ * applied while this call is still the pinned record version's).
+ */
+function ChallengerNote({ standing, label, promotion, version = null, pending = false }) {
   const name = standing.name ?? label;
   const lead = [standing.comparison, standing.search].filter(Boolean);
   const head = lead.length === 2 ? `${lead[0]}, but ${lead[1]}` : lead[0] ?? null;
   const spa = standing.spa;
   const test = standing.test;
   if (!head && !spa && !test) return null;
-  const decided = test && test.status && test.status !== "accruing";
-  const progress = test ? (decided ? promotionText(promotion) : test.paired != null ? `${fmtInt(test.paired)}/${fmtInt(test.required)}` : null) : null;
-  let joiner = "";
-  if (test) {
+  const status = test?.status === "keep" || test?.status === "promote" ? test.status : null;
+  const sentence = [head, spa?.text].filter(Boolean).join("; ");
+  const liveTest = test ? <a href="#live">the {fmtInt(test.required)}-week live test</a> : null;
+  let clause = null;
+  if (test && status) {
+    const opening = sentence ? (spa?.keepsRecord ? ", and " : "; ") : "";
+    const outcome = status === "keep"
+      ? " kept the model of record"
+      : ` favours it; the swap is a maintainer's change${promotion?.modelVersion && promotion.modelVersion === version ? ", not yet applied" : ""}`;
+    clause = (
+      <>
+        {opening}
+        {sentence ? liveTest : <>The <a href="#live">{fmtInt(test.required)}-week live test</a></>}
+        {outcome}
+      </>
+    );
+  } else if (test) {
+    let joiner;
     if (spa) joiner = spa.keepsRecord ? ", so it" : "; it still";
     else joiner = head ? "; it" : "It";
+    const progress = test.paired != null ? `${fmtInt(test.paired)}/${fmtInt(test.required)}` : null;
+    clause = (
+      <>
+        {joiner} replaces the model of record only through{" "}
+        {liveTest}
+        {progress ? ` (${progress})` : ""}
+      </>
+    );
   }
-  const sentence = [head, spa?.text].filter(Boolean).join("; ");
   return (
     // While research.json loads, the note keeps the height its lab comparison will need.
     <li className={pending ? "is-pending" : undefined}>
       <span className="hero-note-label">Challenger{name ? ` ${name}` : ""}:</span>{" "}
       {keepHyphenated(sentence)}
-      {test && (
-        <>
-          {joiner} replaces the model of record only through{" "}
-          <a href="#live">the {fmtInt(test.required)}-week live test</a>
-          {progress ? ` (${progress})` : ""}
-        </>
-      )}
+      {clause}
       .
     </li>
   );
@@ -227,7 +255,8 @@ export default function Hero({ live, liveRecord, recentOos, research, researchSt
         </div>
         {call.source === "record" && call.targetStart && call.targetEnd && (
           <p className="hero-window">
-            Target window <b>{fmtDate(call.targetStart, { year: false })} – {fmtDate(call.targetEnd)}</b>, scored on its settlements
+            Target window <b>{fmtDate(call.targetStart, { year: false })} – {fmtDate(call.targetEnd)}</b>
+            {WINDOW_SCORING[callScoring(call.entry, liveRecord)] ?? ", scored on its settlements"}
           </p>
         )}
         {call.source === "live" && <p className="hero-window">Not in the live record yet</p>}
@@ -302,7 +331,7 @@ export default function Hero({ live, liveRecord, recentOos, research, researchSt
           )}
         </dl>
         <ul className="hero-notes">
-          <ChallengerNote standing={standing} label={challengerLabel} promotion={summary?.promotion} pending={pending} />
+          <ChallengerNote standing={standing} label={challengerLabel} promotion={summary?.promotion} version={version} pending={pending} />
           {call.prob != null && realized != null && call.median != null && (
             // Direction carries no demonstrated skill (LIVE, MODL: accuracy sits at its noise floor), so the
             // probability is one plain sentence: whole percent, its model stated, never as a frequency.
