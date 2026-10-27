@@ -86,6 +86,10 @@ test("each reproduce command and its copy button are one unit, and a flag never 
   assert.match(index, /\.panel-source \.source-command \{ display: inline-flex; align-items: last baseline;[^}]*max-width: 100%; \}/);
 });
 
+test("on a phone the ledger's two filters share one row in equal halves under the search box", () => {
+  assert.match(reference, /@media \(max-width: 640px\) \{[^}]*\.search-input \{ flex: 1 1 100%; width: auto; \}[\s\S]*?#ledg \.select \{ flex: 1 1 0; min-width: 0; \}/);
+});
+
 test("the KPI tiles and their key start on the hero's and the panels' left edge", () => {
   const tiles = readSource("src/styles/verdict-tiles.css");
   assert.match(index, /\.verdict-hero \{[^}]*padding: [^;]*var\(--sp-6\)/);

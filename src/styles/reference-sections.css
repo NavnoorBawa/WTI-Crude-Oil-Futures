@@ -16,6 +16,8 @@
 .search-input:focus-visible { outline: 2px solid var(--s-model); outline-offset: 1px; }
 @media (max-width: 640px) {
   .search-input { flex: 1 1 100%; width: auto; }
+  /* Under the full-width search box the two filters share one row, in equal halves. */
+  #ledg .select { flex: 1 1 0; min-width: 0; }
 }
 
 /* --------------------------------------------------------------------- LEDG: status strip */
