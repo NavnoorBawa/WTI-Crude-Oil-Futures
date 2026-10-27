@@ -229,7 +229,9 @@ test("the key names both samples and, computed, whether the two pipelines' forec
   assert.equal(agreement.bands.d, Math.max(...bandDiffs));
   const text = key(renderVerdict(data, research).html);
   assert.ok(text.startsWith(`Tiles (except the live record): benchmark lab, every out-of-sample day (${f().fmtInt(lab.leaderboard.n_days)} days, `
-    + `${f().fmtSpan(lab.sample.first, lab.sample.last)}; inputs pinned by SHA-256). Footnotes: weekly production validation (${f().fmtInt(v.n)} weeks).`), text);
+    + `${f().fmtSpan(lab.sample.first, lab.sample.last)}; inputs pinned by SHA-256), except coverage on the `
+    + `${f().fmtInt(lab.conformal[lab.config.champion].n_days)} days with a band and VaR on weekly grid 0 `
+    + `(${f().fmtInt(lab.var_backtest.grid0.evaluation_weeks)} weeks). Footnotes: weekly production validation (${f().fmtInt(v.n)} weeks).`), text);
   // The forecasts agree but the fixtures' bands do not: the key says the gaps come from the days
   // scored only for loss and slope, and that each pipeline sets its own band.
   assert.ok(Math.max(...bandDiffs) > 0.05);

@@ -166,7 +166,9 @@ export const spaAssertion = (spa, { recordName = "the model of record", mcsLevel
   if (p < ALPHA) reading = `some alternative beats ${recordName} at the ${pct(ALPHA)}% level`;
   else if (p < ALPHA_LOOSE) reading = `inconclusive: not significant at ${pct(ALPHA)}%, but it would reject at the ${loose}`;
   else reading = `no alternative beats ${recordName} even at the ${pct(ALPHA_LOOSE)}% level`;
-  return `Hansen SPA test of ${recordName} against ${count ? plural(count, "alternative") : "the alternatives"}: consistent ${fmtP(p)}${bounds}; ${reading}.`;
+  // Three decimals, as the hero prints it: the reading turns on thresholds this value sits near (0.072, not 0.07).
+  const consistent = p < 0.001 ? fmtP(p) : `p${NBSP}=${NBSP}${fmtPValue(p, { digits: 3 })}`;
+  return `Hansen SPA test of ${recordName} against ${count ? plural(count, "alternative") : "the alternatives"}: consistent ${consistent}${bounds}; ${reading}.`;
 };
 
 /**
@@ -234,9 +236,11 @@ export const riskAssertion = (rows, labels = new Map(), champion = null) => {
   const record99 = recordVar(rows, 0.01);
   if (record99?.kupiecPass == null || !record99.gridCount) return null;
   const name = shortLabel(labels.get(champion) ?? record99.label);
-  const head = `${name} 99% VaR passes Kupiec on ${record99.kupiecPass}/${record99.gridCount} grids`;
+  // The method is named: the normal-quantile VaR of the same model fails where filtered HS passes.
+  const method = record99.quantile === "fhs" ? "filtered HS" : record99.quantile === "normal" ? "normal quantile" : null;
+  const head = `${name} 99% VaR${method ? ` (${method})` : ""} passes Kupiec on ${record99.kupiecPass}/${record99.gridCount} grids`;
   const over = record99.exceedMin != null && record99.expected != null && record99.exceedMin > record99.expected;
-  return over ? `${head}, each with more breaches than expected` : head;
+  return over ? `${head}, each above the expected count` : head;
 };
 
 /**

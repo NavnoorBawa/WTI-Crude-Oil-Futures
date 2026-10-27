@@ -44,17 +44,19 @@ export const filterLedger = (rows, family, status, query = "") => filterLedgerRo
 const countBy = (rows, key) => rows.reduce((acc, row) => ({ ...acc, [row[key]]: (acc[row[key]] ?? 0) + 1 }), {});
 
 /**
- * A ledger statistic as text: a statistic that is itself a p-value is printed like one (never
- * "0.00"), a percentage to one decimal (as the studies print it), anything else to two decimals
- * (one at 10 or more).
+ * A ledger statistic as text, at the precision its own section prints it: a p-value like one (never
+ * "0.00"), a count as a whole number, a monthly return spread (%/month) to two decimals as the
+ * carry study does, any other percentage to one decimal, and anything else (t, DM, slopes) to two.
  */
 export const fmtLedgerStatistic = (row) => {
   const value = num(row?.statistic);
   if (value == null) return DASH;
   const name = asText(row.statistic_name) ?? "";
   if (/p-value/i.test(name)) return fmtPValue(value);
+  if (Number.isInteger(value)) return fmtInt(value);
+  if (/\/\s*month/i.test(name)) return fmtNum(value, 2);
   if (/%/.test(name)) return fmtNum(value, 1);
-  return fmtNum(value, Math.abs(value) >= 10 ? 1 : 2);
+  return fmtNum(value, 2);
 };
 
 /** A multiplicity flag cell: yes / no, or why the row has none (see ledgerFlagText). */

@@ -104,8 +104,8 @@ function ModelCard({ data, research }) {
         </CardRow>
         <CardRow label="Not intended for">
           Price direction: {card.direction
-            ? <>direction accuracy {fmtNum(card.direction.accuracy, 1)}% against a {fmtNum(card.direction.floor, 1)}% noise floor on simulated returns with nothing to forecast</>
-            : "direction accuracy is not evidence of skill"} (see <SectionLink id="live" />)
+            ? <>direction accuracy {fmtNum(card.direction.accuracy, 1)}% on every out-of-sample day (benchmark lab), against a {fmtNum(card.direction.floor, 1)}% noise floor on simulated returns with nothing to forecast</>
+            : "direction accuracy is not evidence of skill"} (see <SectionLink id="modl" />)
         </CardRow>
         <CardRow label="Specification"><code className="model-equation">{card.equation}</code>, OLS</CardRow>
         <CardRow label="Estimation">

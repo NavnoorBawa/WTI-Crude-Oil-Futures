@@ -67,6 +67,30 @@ export const lastWindowBreaches = (lab, rows) => {
  * record's VaR at 99% and 95%), so the caption and the table can never disagree. Null when either
  * level is missing. Pure.
  */
+/**
+ * Breaches as the chart draws them: the weekly series is stored rounded to 0.1 pt, so a week whose
+ * rounded return equals its rounded VaR is not coloured, while the Kupiec counts use unrounded
+ * values. Same rule as VarChart's breachOf (kept here so this panel does not load the chart chunk).
+ */
+export const drawnBreachCounts = (series) => {
+  const scored = (series ?? []).filter((row) => row?.ret != null && row.var95 != null && row.var99 != null);
+  return {
+    n: scored.length,
+    e99: scored.filter((row) => row.ret < -row.var99).length,
+    e95: scored.filter((row) => row.ret < -row.var95).length,
+  };
+};
+
+/** RISK's caption: the Kupiec counts, and the drawn series' counts too when rounding makes them differ. */
+export const riskCaption = (counts, drawn, recordName) => {
+  if (!counts) return null;
+  const head = `On grid 0, ${fmtInt(counts.e99)} of ${fmtInt(counts.n)} weeks breached the 99% VaR and ${fmtInt(counts.e95)} the 95% `
+    + `(Kupiec counts, ${recordName} ${counts.quantileLabel.toLowerCase()}).`;
+  if (!drawn?.n || (drawn.e99 === counts.e99 && drawn.e95 === counts.e95)) return head;
+  return `${head} The chart's series is rounded to 0.1 pt, so it colours ${fmtInt(drawn.e99)} and ${fmtInt(drawn.e95)}: `
+    + "a week whose rounded return equals its rounded VaR is not coloured.";
+};
+
 export const riskCaptionCounts = (rows) => {
   const v99 = recordVar(rows, 0.01);
   const v95 = recordVar(rows, 0.05);
@@ -119,10 +143,7 @@ export default function RiskPanel({ data, research, researchStatus }) {
   const hasZones = shown.some((row) => last250.get(row.id)?.zone);
   const expectedLast = shownLevel != null ? LAST_WEEKS * shownLevel : null;
 
-  const caption = counts
-    ? `On grid 0, ${fmtInt(counts.e99)} of ${fmtInt(counts.n)} weeks breached the 99% VaR and ${fmtInt(counts.e95)} the 95% `
-      + `(Kupiec counts, ${recordName} ${counts.quantileLabel.toLowerCase()}).`
-    : null;
+  const caption = riskCaption(counts, drawnBreachCounts(series), recordName);
   const notes = [
     `Bars: weekly 5-session log returns, in percent. Lines: −VaR on the same log-return scale, from ${recordName} scaled by `
       + "filtered historical simulation (95% solid, 99% dashed); a coloured bar breached its line. "

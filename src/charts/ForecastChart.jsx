@@ -49,6 +49,7 @@ export const buildForecastData = (rows, live) => {
     band: all.map((row) => (row.lo != null && row.hi != null ? { time: row.date, lo: row.lo, hi: row.hi } : { time: row.date })),
     hasOvx,
     live: hasLive ? all[all.length - 1] : null,
+    liveWindow: hasLive && live.targetStart && live.targetEnd ? { start: live.targetStart, end: live.targetEnd } : null,
   };
 };
 
@@ -260,7 +261,11 @@ export default function ForecastChart({ rows, live, range = "3Y", frameKey = 0, 
         `with the 80% band${sources.length ? ` (${sources.join(", ")})` : ""}${model.hasOvx ? " and OVX" : ""}, on a log scale`,
         banded.length ? `realized fell outside the band in ${fmtInt(outside)} of ${fmtInt(banded.length)} weeks` : null,
         last ? `latest realized week ${fmtDate(last.date)}: realized ${fmtNum(last.actual, 1)}%, forecast ${fmtNum(last.forecast, 1)}%` : null,
-        model.live ? `live forecast ${fmtNum(model.live.forecast, 1)}% for the week after ${fmtDate(model.live.date)}` : null,
+        model.live
+          ? `live forecast ${fmtNum(model.live.forecast, 1)}% for ${model.liveWindow
+            ? `${fmtDate(model.liveWindow.start, { year: false })} – ${fmtDate(model.liveWindow.end)}`
+            : `the 5 sessions after ${fmtDate(model.live.date)}`}`
+          : null,
         "Arrow keys read the weeks one by one; the Table button lists every week",
       ].filter(Boolean).join("; ") + ".",
     };
