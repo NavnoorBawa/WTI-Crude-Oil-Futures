@@ -57,6 +57,24 @@ export const sparklineLabel = (data, count) => {
   };
 };
 
+const NEW_YORK_DATE = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}/;
+
+/**
+ * Calendar days from today's New York date to the contract's last trade date, as backend/oil.py
+ * counts days_to_expiry at freeze time (never below 0), so the count ages with the clock when the
+ * snapshot is old. The snapshot's own days_to_expiry only when the contract carries no date. Pure.
+ */
+export const daysToExpiry = (contract, nowMs) => {
+  const last = asText(contract?.last_trade_date) ?? asText(contract?.expiry_date);
+  if (last && ISO_DAY.test(last) && Number.isFinite(nowMs)) {
+    const parts = Object.fromEntries(NEW_YORK_DATE.formatToParts(nowMs).map((part) => [part.type, part.value]));
+    const days = Math.round((Date.parse(last.slice(0, 10)) - Date.parse(`${parts.year}-${parts.month}-${parts.day}`)) / 86400000);
+    if (Number.isFinite(days)) return Math.max(0, days);
+  }
+  return num(contract?.days_to_expiry);
+};
+
 /**
  * The market in one line: contract, price, change, quote time (CT) and days to expiry. The quote
  * is the snapshot's own unless a newer price.json quote for the same contract is usable. The change
@@ -64,8 +82,9 @@ export const sparklineLabel = (data, count) => {
  * the red and green that would outweigh the forecast above it.
  */
 export default function MarketStrip({ data, quote }) {
+  const now = useNow(60 * 1000);
   const symbol = asText(data?.contract?.symbol);
-  const days = num(data?.contract?.days_to_expiry);
+  const days = daysToExpiry(data?.contract, now);
   const volume = asText(data?.volume_display);
   const hasPrice = num(quote.price) > 0;
   const closes = Array.isArray(data?.vol_forecast?.recent_closes?.close) ? data.vol_forecast.recent_closes.close : [];
