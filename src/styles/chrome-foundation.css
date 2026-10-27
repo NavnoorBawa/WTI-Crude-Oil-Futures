@@ -183,7 +183,7 @@
 }
 
 /* Column groups: a header row over the groups and a rule before each group after the first. */
-.data-table .group-row th { padding-bottom: 2px; border-bottom: 1px solid var(--rule); vertical-align: bottom; }
+.data-table .group-row > * { padding-bottom: 2px; border-bottom: 1px solid var(--rule); vertical-align: bottom; }
 .data-table .group-start:not(:first-child) { border-left: 1px solid var(--rule); padding-left: var(--sp-3); }
 
 @media (max-width: 640px) {

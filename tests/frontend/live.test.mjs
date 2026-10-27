@@ -207,7 +207,7 @@ test("the record's sealing can be checked from the page", () => {
   assert.match(config.RECORD_HISTORY_URL, /\/commits\/live-data\/runtime-state\/vol_track_record\.json$/);
   // The fixture's call was sealed 12:20:31Z; its window opens at the Oct 20 settlement, 18:30Z.
   const head = view.live.match(/<thead[\s\S]*?<\/thead>/)[0];
-  assert.match(head, /title="Sealed before the git commit[^"]*">Sealed</);
+  assert.match(head, /title="Sealed before the git commit[^"]*"><span class="th-label">Sealed</);
   assert.ok(view.text.includes("Oct 20, 7:20 AM CT 6h 09m before its window"), view.text);
   const row = data.vol_forecast.live_record.recent[0];
   assert.equal(panel.sealLead(row), Date.parse("2026-10-20T18:30:00Z") - Date.parse(row.sealed_at));

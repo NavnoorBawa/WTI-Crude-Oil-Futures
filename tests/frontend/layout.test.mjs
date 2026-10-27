@@ -8,6 +8,7 @@ import { readSource } from "./load.mjs";
 const chrome = readSource("src/styles/chrome-foundation.css");
 const reference = readSource("src/styles/reference-sections.css");
 const surface = readSource("src/styles/reading-surface.css");
+const index = readSource("src/index.css");
 
 test("on a tablet a header's form controls take their own row, and the code chip never shrinks", () => {
   assert.match(chrome, /@media \(max-width: 960px\) \{[^}]*?\.panel-actions:has\(input, select\) \{ grid-row: 4; grid-column: 1 \/ -1;/);
@@ -21,4 +22,9 @@ test("a phone drops STDY's interval glyph and its note, so the peak p-value colu
 test("the retraction line and the market strip each keep a full-width row on a wide screen", () => {
   assert.match(surface, /^\.strip-row > \* \{ flex-basis: 100%; \}$/m);
   assert.doesNotMatch(surface, /\.strip-row \{ display: grid;/, "no half-width columns that wrap each line");
+});
+
+test("a header label that does not sort is padded to the sort button's 28px line box", () => {
+  assert.match(index, /\.sort-button \{[^}]*min-height: 28px;/);
+  assert.match(index, /\.data-table thead th > \.th-label \{ display: inline-block; padding-block: calc\(\(28px - 1lh\) \/ 2\); \}/);
 });

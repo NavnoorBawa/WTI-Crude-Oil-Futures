@@ -178,8 +178,8 @@ test("the ledger's CSV exports what each flag cell shows, with the id, test and 
   const ledg = section(renderPage().html, "ledg");
   assert.match(ledg, /<button type="button" class="csv-button"[^>]*><span class="sr-only">Download <\/span>CSV<\/button>/);
   // Export-only columns are in the markup (hidden by CSS) so the CSV carries them.
-  assert.match(ledg, /<th scope="col" class="align-left csv-only"[^>]*>ID<\/th>/);
-  assert.match(ledg, /<th scope="col" class="align-left csv-only"[^>]*>Test<\/th>/);
+  assert.match(ledg, /<th scope="col" class="align-left csv-only"[^>]*><span class="th-label">ID<\/span><\/th>/);
+  assert.match(ledg, /<th scope="col" class="align-left csv-only"[^>]*><span class="th-label">Test<\/span><\/th>/);
   assert.match(ledg, /<th scope="col" class="align-left muted-cell"[^>]*title="The date of the artifact that holds the test"[^>]*><button type="button" class="sort-button"><span>Recorded<\/span>/);
   // Status (the default sort) comes right after the hypothesis, so a tablet that scrolls the table
   // sideways starts on each row's verdict; the descriptive columns follow.
@@ -363,7 +363,7 @@ test("LEAK states its P&L basis and draws the purged run in ink", () => {
   const leak = section(renderPage().html, "leak");
   const text = visibleText(leak);
   assert.ok(text.includes("P&L per trade on one CL contract (1,000 barrels)"), "meta");
-  assert.match(leak, /<th scope="col" class="align-right wrap-head" title="Total P&amp;L after costs, trading one CL contract[^"]*"[^>]*>P&amp;L, USD \(1 contract\)<\/th>/);
+  assert.match(leak, /<th scope="col" class="align-right wrap-head" title="Total P&amp;L after costs, trading one CL contract[^"]*"[^>]*><span class="th-label">P&amp;L, USD \(1 contract\)<\/span><\/th>/);
   assert.match(leak, /<div class="panel-figure"><div class="figure-controls"><div class="segmented" role="group" aria-label="Walk-forward window">/, "the window is a figure control");
   assert.doesNotMatch(leak.match(/<div class="panel-actions">[\s\S]*?<\/div>/)?.[0] ?? "", /segmented/);
   assert.match(leak, /swatch-ink is-line/);
@@ -379,7 +379,7 @@ test("LEAK states its P&L basis and draws the purged run in ink", () => {
 test("STDY's supply table has a column-group header row and an interval glyph on one shared domain", () => {
   const stdy = section(renderPage().html, "stdy");
   assert.match(stdy, /<colgroup span="2"><\/colgroup><colgroup span="3"><\/colgroup><colgroup span="3"><\/colgroup>/);
-  assert.match(stdy, /<tr class="group-row"><th scope="colgroup" colSpan="2" class="group-start"><\/th><th scope="colgroup" colSpan="3" class="group-start">Peak, sessions 0–19<\/th><th scope="colgroup" colSpan="3" class="group-start">Settle, session 10<\/th><\/tr>/i);
+  assert.match(stdy, /<tr class="group-row"><td colSpan="2" class="group-start" aria-hidden="true"><\/td><th scope="colgroup" colSpan="3" class="group-start">Peak, sessions 0–19<\/th><th scope="colgroup" colSpan="3" class="group-start">Settle, session 10<\/th><\/tr>/i);
   const study = m.research.supplyStudy(research);
   const lost = study.groups.find((group) => group.key === "supply_lost");
   const f = m.format;

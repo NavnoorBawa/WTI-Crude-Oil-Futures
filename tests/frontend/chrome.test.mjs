@@ -208,7 +208,7 @@ test("DataTable options: CSV button, column groups, row ids, narrow-screen colum
   }));
   assert.match(html, /<div class="table-caption-row"><p class="table-caption" aria-hidden="true">Test table<\/p><button type="button" class="csv-button" aria-describedby="[^"]+"><span class="sr-only">Download <\/span>CSV<\/button><\/div>/);
   assert.match(html, /<colgroup span="1"><\/colgroup><colgroup span="2"><\/colgroup>/);
-  assert.match(html, /<tr class="group-row" role="row"><th scope="colgroup" colspan="1" class="group-start" role="columnheader"><\/th><th scope="colgroup" colspan="2" class="group-start" role="columnheader">Measures<\/th><\/tr>/i);
+  assert.match(html, /<tr class="group-row" role="row"><td colspan="1" class="group-start" role="cell" aria-hidden="true"><\/td><th scope="colgroup" colspan="2" class="group-start" role="columnheader">Measures<\/th><\/tr>/i);
   assert.match(html, /<tr id="test-a" role="row">/);
   assert.match(html, /<td class="align-right col-wide group-start" data-label="Value" role="cell">1<\/td>/);
   assert.match(html, /<table class="data-table has-sticky is-cards has-groups" role="table">/);
@@ -217,6 +217,8 @@ test("DataTable options: CSV button, column groups, row ids, narrow-screen colum
   assert.match(hidden, /<div class="table-caption-row"><button type="button" class="csv-button"/, "the button keeps its row when the caption is hidden");
   assert.doesNotMatch(renderToStaticMarkup(Table({})), /table-caption-row|csv-button|role="(table|row|cell)"/, "defaults unchanged");
   assert.match(renderToStaticMarkup(Table({})), /<th scope="col" class="align-left" aria-sort="none"><button type="button" class="sort-button">/);
+  // A label that does not sort sits in the sort button's 28px line box, so the header row keeps one baseline.
+  assert.match(renderToStaticMarkup(Table({})), /<th scope="col" class="align-left"><span class="th-label">Note<\/span><\/th>/);
 });
 
 test("CSV export: RFC 4180 quoting, a BOM, CRLF lines and raw values in the table's order", () => {

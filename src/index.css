@@ -595,6 +595,9 @@ button { font: inherit; color: inherit; }
   cursor: pointer;
 }
 .sort-button:hover { color: var(--text-1); }
+/* A label that does not sort is padded to the sort button's 28px line box, so the header row keeps
+   one baseline; a label that wraps keeps the same space under its last line. */
+.data-table thead th > .th-label { display: inline-block; padding-block: calc((28px - 1lh) / 2); }
 .align-right .sort-button { flex-direction: row-reverse; }
 .sort-glyph { color: var(--text-4); font-size: var(--fs-11); }
 .sort-glyph.is-active { color: var(--text-1); }

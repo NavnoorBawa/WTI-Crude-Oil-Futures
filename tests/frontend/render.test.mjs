@@ -176,8 +176,8 @@ test("STDY shows both placebo tests and highlights a group only when both reject
   const { html } = render(data, research);
   const stdy = html.match(/<section id="stdy"[\s\S]*?<\/section>/)[0];
   const text = visibleText(stdy);
-  assert.equal((stdy.match(/<th scope="col" class="align-right wrap-head" title="(Peak|Settle) p: [^"]*">vs placebo</g) ?? []).length, 2, "peak and settle, unmatched placebo");
-  assert.equal((stdy.match(/<th scope="col" class="align-right wrap-head" title="(Peak|Settle) p: [^"]*">year-matched</g) ?? []).length, 2, "peak and settle, year-matched placebo");
+  assert.equal((stdy.match(/<th scope="col" class="align-right wrap-head" title="(Peak|Settle) p: [^"]*"><span class="th-label">vs placebo</g) ?? []).length, 2, "peak and settle, unmatched placebo");
+  assert.equal((stdy.match(/<th scope="col" class="align-right wrap-head" title="(Peak|Settle) p: [^"]*"><span class="th-label">year-matched</g) ?? []).length, 2, "peak and settle, year-matched placebo");
   const study = m.research.supplyStudy(research);
   const passing = study.groups.filter((group) => m.assertions.placeboVerdict(group.peakP, group.peakPYear) === "both"
     || m.assertions.placeboVerdict(group.settleP, group.settlePYear) === "both");
