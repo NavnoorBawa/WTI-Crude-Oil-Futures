@@ -167,8 +167,11 @@ function SupplyStudyTable({ study }) {
       ? `† Contains events whose windows share sessions${overlapping?.definition ? ` (${overlapping.definition})` : ""}; the tests treat them as independent draws, which they are not.`
       : null,
     "p-values are not adjusted for the number of groups (see LEDG).",
-    domain ? "Beside each median peak, the line is its 95% bootstrap interval, the dot the median (solid where the group passes the rule) and the dashed rule the ordinary-date median, on one scale for every row." : null,
   ].filter(Boolean).join(" ");
+  // A phone hides the glyph (the [CI] brackets carry the interval), and with it the sentence that reads it.
+  const glyphNote = domain
+    ? "Beside each median peak, the line is its 95% bootstrap interval, the dot the median (solid where the group passes the rule) and the dashed rule the ordinary-date median, on one scale for every row."
+    : null;
   return (
     <DataTable
       caption="Median 20-session peak and session-10 settle vs an ordinary date, tested against random and year-matched placebo dates"
@@ -213,7 +216,7 @@ function SupplyStudyTable({ study }) {
         { key: "settlePYear", label: "year-matched", csvLabel: "Settle p year-matched", title: `Settle p: ${YEAR_MATCHED_TITLE}`, align: "right", className: "wrap-head", render: pCell("settlePYear") },
       ]}
       rows={rows}
-      footnote={footnote}
+      footnote={<>{footnote}{glyphNote && <span className="glyph-note">{` ${glyphNote}`}</span>}</>}
     />
   );
 }

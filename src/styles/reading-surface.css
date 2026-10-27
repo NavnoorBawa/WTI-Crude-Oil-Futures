@@ -42,13 +42,10 @@
   .split--3 > :nth-child(3) { grid-column: auto; }
 }
 
-/* The retraction line and the market strip share one row on a wide screen. The columns are fixed
-   halves, not sized to content: the retraction line grows when research.json arrives, and a
-   content-sized column would then push the market strip sideways (a layout shift). */
-@media (min-width: 1280px) {
-  .strip-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .strip-row > :only-child { grid-column: 1 / -1; }
-}
+/* The retraction line and the market strip each take a full-width row at every width: a half row
+   is too narrow for either on one line, and neither row's width then depends on the other's text
+   (the retraction line grows when research.json arrives). */
+.strip-row > * { flex-basis: 100%; }
 
 /* Lazy figures reserve their mounted height (LazyMount sets both variables). */
 .lazy-mount > .figure-placeholder { min-height: var(--lazy-h, 240px); }
@@ -133,8 +130,11 @@
   /* Columns wrap instead of running off the page edge. */
   .data-table th, .data-table td { white-space: normal; }
 
-  .panel { break-inside: avoid-page; }
-  .panel:has(tbody tr:nth-child(21)) { break-inside: auto; }
+  /* A panel may break between its blocks: kept whole, a panel taller than a page broke anyway and
+     stranded its footer on a near-empty page, and pushed the next panel to a fresh one. Headers,
+     figures and fact rows stay whole, and the source footer stays with the notes above it. */
+  .panel-head, .lw-figure, .lazy-mount, svg.svg-chart, img.print-shot, .facts { break-inside: avoid; }
+  .panel-source { break-before: avoid; }
   .panel-title, .figure-title, .study-title { break-after: avoid; }
   tr { break-inside: avoid; }
 

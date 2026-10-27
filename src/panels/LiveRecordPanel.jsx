@@ -190,6 +190,12 @@ export default function LiveRecordPanel({ data, research }) {
       ),
     },
     {
+      key: "status", label: "Status", csv: (row) => statusLabel(row.status),
+      render: (row) => (
+        <Chip tone={`status-${row.status ?? "unknown"}`} title={STATUS_TITLE[row.status]}>{statusLabel(row.status)}</Chip>
+      ),
+    },
+    {
       key: "window", label: "Target window", hideBelow: 640, csvLabel: "Target window (start/end)",
       csv: (row) => (row.target_start ? `${row.target_start}/${row.target_end}` : null),
       render: (row) => (row.target_start ? `${fmtDate(row.target_start, { year: false })} – ${fmtDate(row.target_end)}` : DASH),
@@ -253,12 +259,6 @@ export default function LiveRecordPanel({ data, research }) {
           </>
         );
       },
-    },
-    {
-      key: "status", label: "Status", csv: (row) => statusLabel(row.status),
-      render: (row) => (
-        <Chip tone={`status-${row.status ?? "unknown"}`} title={STATUS_TITLE[row.status]}>{statusLabel(row.status)}</Chip>
-      ),
     },
   ].filter(Boolean);
 

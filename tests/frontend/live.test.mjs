@@ -207,7 +207,7 @@ test("the record's sealing can be checked from the page", () => {
   assert.match(config.RECORD_HISTORY_URL, /\/commits\/live-data\/runtime-state\/vol_track_record\.json$/);
   // The fixture's call was sealed 12:20:31Z; its window opens at the Oct 20 settlement, 18:30Z.
   const head = view.live.match(/<thead[\s\S]*?<\/thead>/)[0];
-  assert.match(head, /title="Sealed before the git commit[^"]*">Sealed</);
+  assert.match(head, /title="Sealed before the git commit[^"]*"><span class="th-label">Sealed</);
   assert.ok(view.text.includes("Oct 20, 7:20 AM CT 6h 09m before its window"), view.text);
   const row = data.vol_forecast.live_record.recent[0];
   assert.equal(panel.sealLead(row), Date.parse("2026-10-20T18:30:00Z") - Date.parse(row.sealed_at));
@@ -234,6 +234,13 @@ test("the phone table keeps As of, Forecast with its band, Realized with its ver
   const css = readSource("src/styles/live-record.css");
   assert.match(css, /\.live-band-note, \.live-inband-note, \.live-date-short \{ display: none; \}/);
   assert.match(css, /@media \(max-width: 640px\) \{\s*\.live-band-note, \.live-inband-note \{ display: block; \}/);
+});
+
+test("Status follows As of, so a tablet that scrolls the table sideways starts on each call's state", () => {
+  const { live } = render(data);
+  const head = live.match(/<thead[\s\S]*?<\/thead>/)[0];
+  const labels = [...head.matchAll(/<th scope="col"[^>]*>([\s\S]*?)<\/th>/g)].map((match) => visibleText(match[1]).trim());
+  assert.deepEqual(labels.slice(0, 2), ["As of", "Status"]);
 });
 
 test("the promotion rule is prose: no stylesheet makes .rule-note a flex container", () => {

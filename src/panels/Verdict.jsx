@@ -19,6 +19,8 @@ export default function Verdict({ data, research, researchStatus }) {
   const tiles = evidenceTiles(data, research, researchStatus);
   const record = liveRecordSummary(liveRecord);
   const liveFoot = liveTileFoot(record);
+  // While research.json loads, the tiles and their key keep the height their lab text will need.
+  const pending = researchStatus === "loading" && !research ? " is-pending" : "";
 
   return (
     <section className="verdict" aria-labelledby="verdict-title">
@@ -27,7 +29,7 @@ export default function Verdict({ data, research, researchStatus }) {
         live={live} liveRecord={liveRecord} recentOos={getVol(data).recentOos}
         research={research} researchStatus={researchStatus}
       />
-      <dl className="kpi-grid">
+      <dl className={`kpi-grid${pending}`}>
         {tiles.map(({ id, ...tile }) => <Kpi key={id} {...tile} />)}
         <Kpi
           label="Live forward record"
@@ -39,7 +41,7 @@ export default function Verdict({ data, research, researchStatus }) {
           foot={liveFoot}
         />
       </dl>
-      <p className="kpi-key">{keepHyphenated(tilesKey(data, research, researchStatus))}</p>
+      <p className={`kpi-key${pending}`}>{keepHyphenated(tilesKey(data, research, researchStatus))}</p>
       <EvidenceList data={data} research={research} />
     </section>
   );
