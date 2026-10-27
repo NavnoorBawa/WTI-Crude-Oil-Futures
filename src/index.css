@@ -512,6 +512,13 @@ button { font: inherit; color: inherit; }
 .facts--row .fact { display: grid; grid-row: span 2; grid-template-rows: subgrid; row-gap: 2px; }
 .facts--row .fact dt { align-self: end; }
 .facts--row .fact dd { margin-top: 0; }
+/* Three, four or six facts (Facts sets the count) take a column count that divides them, so no row
+   ends with an orphan at any width; a phone lays four or six out in two columns. */
+.facts--3:not(.facts--stack), .facts--6:not(.facts--stack) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.facts--4:not(.facts--stack) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 600px) {
+  .facts--4:not(.facts--stack), .facts--6:not(.facts--stack) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .facts--stack { grid-template-columns: minmax(0, 1fr); gap: 0; }
 .facts--stack .fact { display: grid; grid-template-columns: minmax(120px, 34%) minmax(0, 1fr); gap: var(--sp-3); padding: 6px 0; border-bottom: 1px solid var(--rule); }
 .facts--stack .fact dt { white-space: normal; padding-top: 2px; }

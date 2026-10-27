@@ -45,12 +45,16 @@ export function Legend({ items }) {
   );
 }
 
+/** Item counts that get a column count dividing them (facts--3, --4, --6), so no row ends with an orphan. */
+const COUNTED_FACTS = new Set([3, 4, 6]);
+
 /** A compact definition list of label/value facts. */
 export function Facts({ items, className = "" }) {
   const shown = items.filter((item) => item && item.value != null);
   if (!shown.length) return null;
+  const count = COUNTED_FACTS.has(shown.length) ? ` facts--${shown.length}` : "";
   return (
-    <dl className={`facts ${className}`}>
+    <dl className={`facts${count} ${className}`}>
       {shown.map((item) => (
         <div key={item.label} className="fact">
           <dt>{item.label}</dt>

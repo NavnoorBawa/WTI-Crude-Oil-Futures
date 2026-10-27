@@ -140,7 +140,8 @@ export default function StabilityPanel({ research, researchStatus }) {
           <h3 className="figure-title">Recent windows: weekly series (grid 0), not the every-day sample</h3>
           <Facts className="facts--row recent-windows" items={recent.map((span) => ({
             label: `Last ${span.weeks} weeks`,
-            value: `${fmtNum(span.record, 3)} vs ${fmtNum(span.challenger, 3)}`,
+            // "vs" keeps to the second mean, so a narrow column breaks the pair before it.
+            value: `${fmtNum(span.record, 3)} vs\u00a0${fmtNum(span.challenger, 3)}`,
             note: `QLIKE, ${recordName} vs challenger`,
           }))} />
         </>
