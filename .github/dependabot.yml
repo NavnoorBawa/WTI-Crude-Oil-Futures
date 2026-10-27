@@ -17,6 +17,10 @@ updates:
       time: "03:17"
       timezone: Asia/Kolkata
     open-pull-requests-limit: 5
+    # requirements-dev.txt pins only releases at least two weeks old; the cooldown makes
+    # Dependabot wait as long, so it never proposes a version the policy would hold back.
+    cooldown:
+      default-days: 14
     groups:
       actions:
         update-types:
@@ -33,6 +37,10 @@ updates:
       time: "03:27"
       timezone: Asia/Kolkata
     open-pull-requests-limit: 5
+    # requirements-dev.txt pins only releases at least two weeks old; the cooldown makes
+    # Dependabot wait as long, so it never proposes a version the policy would hold back.
+    cooldown:
+      default-days: 14
     groups:
       react:
         patterns:
@@ -55,6 +63,10 @@ updates:
       time: "03:37"
       timezone: Asia/Kolkata
     open-pull-requests-limit: 5
+    # requirements-dev.txt pins only releases at least two weeks old; the cooldown makes
+    # Dependabot wait as long, so it never proposes a version the policy would hold back.
+    cooldown:
+      default-days: 14
     groups:
       python:
         update-types:

@@ -472,6 +472,18 @@ class WorkflowGuardTest(unittest.TestCase):
                 self.assertIsNotNone(types, f"group {name} must restrict update-types")
                 self.assertEqual(sorted(re.findall(r"- (\w+)", types.group(1))), ["minor", "patch"])
 
+    def test_dependabot_waits_out_the_two_week_pinning_policy(self):
+        # requirements-dev.txt pins only releases at least two weeks old; each ecosystem's cooldown
+        # keeps Dependabot from opening PRs for versions that policy would have to hold back.
+        source = (REPOSITORY_ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
+        entries = re.split(r"^  - package-ecosystem: ", source, flags=re.M)[1:]
+        self.assertEqual(sorted(entry.split("\n", 1)[0].strip() for entry in entries), ["github-actions", "npm", "pip"])
+        for entry in entries:
+            with self.subTest(ecosystem=entry.split("\n", 1)[0].strip()):
+                days = re.search(r"^    cooldown:\n      default-days: (\d+)$", entry, re.M)
+                self.assertIsNotNone(days, "each ecosystem sets a cooldown")
+                self.assertGreaterEqual(int(days.group(1)), 14)
+
     def test_npm_installs_never_run_lifecycle_scripts(self):
         for workflow in _workflow_files():
             for command in _shell_run_blocks(workflow.read_text(encoding="utf-8")):
