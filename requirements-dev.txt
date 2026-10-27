@@ -9,7 +9,7 @@ scipy-stubs==1.18.1.1
 types-requests==2.33.0.20260906
 
 # Property-based tests (tests/test_properties.py) and coverage
-hypothesis==6.168.3
+hypothesis==6.169.0
 coverage==7.16.2
 
 # Generated documentation: README/model-card/datasheet numbers (cog) and figures (matplotlib)
@@ -17,6 +17,6 @@ cogapp==3.6.0
 matplotlib==3.11.2
 
 # Lint, security scan and dependency audit (the same versions the Tests workflow gates on)
-ruff==0.15.18
+ruff==0.17.0
 bandit==1.9.4
 pip-audit==2.10.1
