@@ -61,11 +61,15 @@ const renderNotes = (notes, seen) => {
     : <Fragment key={index}>{note}</Fragment>));
 };
 
-/** A reproduce command: the command (linked to its module on GitHub) and a copy button. No <span>s. */
+/**
+ * A reproduce command: the command (linked to its module on GitHub) and its copy button, in one
+ * unit so a wrapping footer never leaves the button at the start of the next command's line. A
+ * long command breaks at its spaces, never inside a flag such as --no-purge.
+ */
 function ReproduceCommand({ command }) {
   const path = commandPath(command);
   return (
-    <>
+    <span className="source-command">
       {path ? (
         <a
           className="source-item"
@@ -74,11 +78,11 @@ function ReproduceCommand({ command }) {
           rel="noopener noreferrer"
           aria-label={`${command} (code on GitHub, opens in a new tab)`}
         >
-          <code>{command}</code>
+          <code>{keepHyphenated(command)}</code>
         </a>
-      ) : <code className="source-item">{command}</code>}
+      ) : <code className="source-item">{keepHyphenated(command)}</code>}
       <CopyButton className="copy-command" label={`Copy command: ${command}`} text={command} done="Command copied" />
-    </>
+    </span>
   );
 }
 

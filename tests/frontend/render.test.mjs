@@ -58,7 +58,7 @@ test("the full dashboard renders every section with its computed title", () => {
   assert.equal((html.match(/class="chip chip--code[ "]/g) ?? []).length >= 13, true);
   assert.ok((html.match(/aria-pressed="false"[^>]*>(?:Table|By grid)<span class="sr-only"> view of [^<]+<\/span><\/button>/g) ?? []).length >= 8, "table toggles");
   // Each panel names the command that rebuilds what it shows, not the lab's by default.
-  const reproduce = (id) => html.match(new RegExp(`<section id="${id}"[\\s\\S]*?</section>`))?.[0].match(/<span class="micro">Reproduce<\/span>(.*?)<\/span>/s)?.[1] ?? "";
+  const reproduce = (id) => html.match(new RegExp(`<section id="${id}"[\\s\\S]*?</section>`))?.[0].match(/<span class="micro">Reproduce<\/span>(.*?)<\/footer>/s)?.[1] ?? "";
   for (const [id, commands] of Object.entries({
     fcst: ["backend.vol_lab", "backend.vol_forecast"],
     modl: ["backend.vol_lab"],

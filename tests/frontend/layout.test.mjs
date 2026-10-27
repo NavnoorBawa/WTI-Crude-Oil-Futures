@@ -73,3 +73,15 @@ test("Facts names a count of three, four or six, and those grids take a column c
   assert.match(index, /\.facts--4:not\(\.facts--stack\) \{ grid-template-columns: repeat\(4, minmax\(0, 1fr\)\); \}/);
   assert.match(index, /@media \(max-width: 600px\) \{\s*\.facts--4:not\(\.facts--stack\), \.facts--6:not\(\.facts--stack\) \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
 });
+
+test("each reproduce command and its copy button are one unit, and a flag never breaks at its hyphens", () => {
+  const html = renderToStaticMarkup(createElement(m.panel.default, {
+    id: "test", code: "TEST", name: "Test panel", title: "A claim",
+    source: { artifact: "data.json → x", reproduce: ["python -m backend.backtest_walk_forward [--no-purge]", "python -m backend.leak_anatomy"] },
+  }, createElement("p", null, "figure")));
+  const units = [...html.matchAll(/<span class="source-command">([\s\S]*?)<\/output><\/span>/g)].map((match) => match[1]);
+  assert.equal(units.length, 2);
+  for (const unit of units) assert.match(unit, /<\/code><\/a><button type="button" class="copy-button copy-command" aria-label="Copy command: /);
+  assert.match(units[0], /<code>python -m backend\.backtest_walk_forward <span class="nowrap">\[--no-purge\]<\/span><\/code>/);
+  assert.match(index, /\.panel-source \.source-command \{ display: inline-flex; align-items: last baseline;[^}]*max-width: 100%; \}/);
+});

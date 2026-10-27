@@ -415,6 +415,10 @@ button { font: inherit; color: inherit; }
   color: var(--text-3);
 }
 .panel-source > span { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px var(--sp-2); }
+/* A command and its copy button wrap as one unit, so the button never starts the next command's
+   line; only the command's own text may break, and the button sits level with its last line. */
+.panel-source .source-command { display: inline-flex; align-items: last baseline; gap: var(--sp-2); min-width: 0; max-width: 100%; }
+.panel-source .source-command > .source-item { min-width: 0; overflow-wrap: anywhere; }
 .panel-source code { color: var(--text-2); }
 /* Source entries are links to the payload files, separated by a dot that trails each entry (so a
    wrapped line never starts with one; an inline-block pseudo-element is not underlined with its
