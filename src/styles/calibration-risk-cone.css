@@ -41,6 +41,12 @@
   }
   .data-table .label-short { display: inline; }
 }
+/* At 360px those four columns are 14px too wide ("GJR-GARCH(1,1)-t" cannot wrap): the data columns
+   give up half their side padding. */
+@media (max-width: 360px) {
+  #risk .data-table.is-dense th:not(:first-child),
+  #risk .data-table.is-dense td:not(:first-child) { padding-left: var(--sp-1); padding-right: var(--sp-1); }
+}
 
 /* The vol-targeting sub-study: its claim and the tests that qualify it are the disclosure's summary. */
 .study-disclosure > .disclosure-summary {

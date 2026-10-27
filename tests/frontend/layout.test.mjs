@@ -35,3 +35,8 @@ test("a phone's card table un-sticks its hidden first header, so no 112px rule f
   assert.match(chrome, /\.data-table\.is-cards\.has-sticky thead tr:not\(\.group-row\) th:first-child \{ position: static; min-width: 0; max-width: none; \}/);
   assert.match(chrome, /\.data-table\.is-cards\.has-sticky thead tr:not\(\.group-row\) th:first-child:not\(\[aria-sort\]\) \{ position: absolute; \}/);
 });
+
+test("at 360px RISK's data columns give up half their side padding, so its four phone columns fit", () => {
+  const risk = readSource("src/styles/calibration-risk-cone.css");
+  assert.match(risk, /@media \(max-width: 360px\) \{\s*#risk \.data-table\.is-dense th:not\(:first-child\),\s*#risk \.data-table\.is-dense td:not\(:first-child\) \{ padding-left: var\(--sp-1\); padding-right: var\(--sp-1\); \}/);
+});
