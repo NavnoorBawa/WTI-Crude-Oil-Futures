@@ -251,6 +251,30 @@ test("the elasticity title's min and max are the series' own", () => {
   assert.equal(reference.elasticityPath({ series: { date: ["2020-01-01"], ovx_elasticity: [1] } }), null);
 });
 
+test("an OVX extreme's label moves to the end column when a line would run through it", () => {
+  const { boxMeetsPolyline } = charts;
+  const box = { x0: 10, x1: 50, y0: 10, y1: 24 };
+  assert.equal(boxMeetsPolyline(box, [{ px: 0, py: 30 }, { px: 60, py: 30 }]), false, "a line under the box");
+  assert.equal(boxMeetsPolyline(box, [{ px: 0, py: 18 }, { px: 60, py: 18 }]), true, "a line through it");
+  assert.equal(boxMeetsPolyline(box, [{ px: 0, py: 18 }, null, { px: 60, py: 18 }]), false, "a gap is no line");
+  // A V-shaped OVX path; the summed RV runs 0.1 under it (as in 2014), or far below.
+  const dates = Array.from({ length: 121 }, (_, i) => new Date(Date.UTC(2010, 0, 1 + 30 * i)).toISOString().slice(0, 10));
+  const ovx = dates.map((_, i) => 0.55 + Math.abs(i - 60) * 0.0075);
+  const build = (offset) => reference.elasticityPath({
+    series: { date: dates, ovx_elasticity: ovx, rv_elasticity: ovx.map((value) => (offset == null ? 0.05 : value - offset)) },
+  });
+  const minYear = build(null).ovx.minDate.slice(0, 4);
+  for (const width of [900, 390]) {
+    const near = spaced(renderToStaticMarkup(createElement(charts.ElasticityPathSvg, { path: build(0.1), width })));
+    assert.ok(near.includes(`>min 0.55, ${minYear}</text>`), `${width}: in the end column, with its year`);
+    assert.doesNotMatch(near, /class="axis-note halo"[^>]*>min /, `${width}: not on the RV line`);
+    assert.match(near, /class="axis-note halo"[^>]*>max 1\.00</, `${width}: the max label stays by its dot`);
+    const far = spaced(renderToStaticMarkup(createElement(charts.ElasticityPathSvg, { path: build(null), width })));
+    assert.match(far, /class="axis-note halo"[^>]*>min 0\.55</, `${width}: a clear spot keeps the label by its dot`);
+    assert.ok(!far.includes(`min 0.55, ${minYear}`));
+  }
+});
+
 test("the data-vintage rows are the payloads' own dates", () => {
   const rows = Object.fromEntries(reference.vintageRows(data, research).map((row) => [row.key, row]));
   const vol = data.vol_forecast;
