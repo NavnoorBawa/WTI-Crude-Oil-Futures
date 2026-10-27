@@ -98,6 +98,13 @@ test("STAB's model headers wrap at spaces and after a long name's first part, ne
   assert.match(index, /\.data-table thead th\.wrap-head > \.sort-button \{ min-height: 0; padding-block: calc\(\(28px - 1lh\) \/ 2\); \}/);
 });
 
+test("in print a long panel breaks between its blocks, its figures stay whole and its footer stays with its notes", () => {
+  const print = surface.slice(surface.indexOf("@media print"));
+  assert.doesNotMatch(print, /\.panel \{ break-inside: avoid-page; \}/, "a whole-panel avoid stranded footers on near-empty pages");
+  assert.match(print, /\.panel-head, \.lw-figure, \.lazy-mount, svg\.svg-chart, img\.print-shot, \.facts \{ break-inside: avoid; \}/);
+  assert.match(print, /\.panel-source \{ break-before: avoid; \}/);
+});
+
 test("on a phone the ledger's two filters share one row in equal halves under the search box", () => {
   assert.match(reference, /@media \(max-width: 640px\) \{[^}]*\.search-input \{ flex: 1 1 100%; width: auto; \}[\s\S]*?#ledg \.select \{ flex: 1 1 0; min-width: 0; \}/);
 });

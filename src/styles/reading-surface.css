@@ -130,8 +130,11 @@
   /* Columns wrap instead of running off the page edge. */
   .data-table th, .data-table td { white-space: normal; }
 
-  .panel { break-inside: avoid-page; }
-  .panel:has(tbody tr:nth-child(21)) { break-inside: auto; }
+  /* A panel may break between its blocks: kept whole, a panel taller than a page broke anyway and
+     stranded its footer on a near-empty page, and pushed the next panel to a fresh one. Headers,
+     figures and fact rows stay whole, and the source footer stays with the notes above it. */
+  .panel-head, .lw-figure, .lazy-mount, svg.svg-chart, img.print-shot, .facts { break-inside: avoid; }
+  .panel-source { break-before: avoid; }
   .panel-title, .figure-title, .study-title { break-after: avoid; }
   tr { break-inside: avoid; }
 
