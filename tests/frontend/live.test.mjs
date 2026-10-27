@@ -91,6 +91,10 @@ test("below ten independent weeks the title states progress, not a comparison", 
   const view = render(scored({ resolved: 12, independent: 3 }));
   assert.equal(view.title, "3 independent weeks resolved (12 calls); too few to compare the two models");
   assert.equal(view.foot, "12 calls resolved (3 independent weeks)", "no QLIKE pair on the tile either");
+  // Nor in the facts under the title: the pair waits for the same ten independent weeks.
+  assert.ok(view.text.includes("QLIKE, same calls — needs 10 independent weeks (3 so far)"), view.text);
+  assert.doesNotMatch(view.text, /0\.154 \/ 0\.158/);
+  assert.ok(view.text.includes("QLIKE, record, all calls 0.164 har-iv/2, n 12"), "the record's own QLIKE stays");
   assert.equal(m.research.LIVE_MIN_INDEPENDENT, 10);
   const nine = render(scored({ resolved: 40, independent: 9 }));
   assert.match(nine.title, /too few to compare/);

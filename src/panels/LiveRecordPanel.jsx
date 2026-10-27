@@ -10,7 +10,8 @@ import {
   DASH, ctWallTimeMs, fmtAge, fmtCT, fmtDate, fmtInt, fmtNum, fmtSigned, num, toMs, withCentralTime,
 } from "../lib/format";
 import {
-  asObject, asText, callScoring, getLab, getRoles, getVol, liveRecordSummary, modelLabels, shortLabel, withModelLabels,
+  LIVE_MIN_INDEPENDENT, asObject, asText, callScoring, getLab, getRoles, getVol, liveRecordSummary, modelLabels, shortLabel,
+  withModelLabels,
 } from "../lib/research";
 import { Facts, Legend } from "./common";
 
@@ -176,6 +177,7 @@ export default function LiveRecordPanel({ data, research }) {
   // none due, every pending window spans a contract roll.
   const pendingCount = summary.pending ?? 0;
   const noneDue = !summary.firstResult && pendingCount > 0;
+  const comparable = summary.independent != null && summary.independent >= LIVE_MIN_INDEPENDENT;
   const coverage = coverageFact(summary);
   const changes = inputChanges(recent);
   const legend = [
@@ -350,10 +352,15 @@ export default function LiveRecordPanel({ data, research }) {
         )}
         {resolved > 0 ? (
           <Facts className="facts--row" items={[
-            {
+            // The two models are compared only from LIVE_MIN_INDEPENDENT independent weeks, as the title and the tile do.
+            comparable ? {
               label: "QLIKE, same calls",
               value: paired.record != null || paired.challenger != null ? `${fmtNum(paired.record, 3)} / ${fmtNum(paired.challenger, 3)}` : DASH,
               note: `record / ${challengerLabel ?? "challenger"}${paired.n != null ? `, n ${fmtInt(paired.n)}` : ""}`,
+            } : {
+              label: "QLIKE, same calls",
+              value: DASH,
+              note: `needs ${fmtInt(LIVE_MIN_INDEPENDENT)} independent weeks${summary.independent != null ? ` (${fmtInt(summary.independent)} so far)` : ""}`,
             },
             {
               label: "QLIKE, record, all calls",
