@@ -92,7 +92,8 @@ export default function VarChart({ rows, range = "ALL", frameKey = 0 }) {
         ...baseChartOptions(),
         width: host.clientWidth || 600,
         height: host.clientHeight || 300,
-        rightPriceScale: { borderColor: SURFACE.rule, scaleMargins: { top: 0.06, bottom: 0.1 } },
+        // Headroom over the tallest bar, and no tick label drawn half outside the pane.
+        rightPriceScale: { borderColor: SURFACE.rule, entireTextOnly: true, scaleMargins: { top: 0.1, bottom: 0.1 } },
         timeScale: { borderColor: SURFACE.rule, fixLeftEdge: true, minBarSpacing: 0.2 },
         localization: { ...baseChartOptions().localization, priceFormatter: fmtAxisPercent, timeFormatter: (time) => fmtDate(timeKey(time)) },
       });

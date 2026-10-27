@@ -80,6 +80,13 @@ test("varAnnotations finds the worst week and the latest 99% breach in a window"
   assert.deepEqual([recent.worst.date, recent.latestBreach], ["2025-06-06", null]);
 });
 
+test("the VaR price axis leaves headroom and draws no tick label cut by the pane edge", () => {
+  const source = readSource("src/charts/VarChart.jsx");
+  const scale = source.match(/rightPriceScale: \{[^\n]*\}/)?.[0] ?? "";
+  assert.match(scale, /entireTextOnly: true/, "a tick label half outside the pane is not drawn");
+  assert.ok(Number(scale.match(/top: ([\d.]+)/)?.[1]) >= 0.1, scale);
+});
+
 test("VaR bars before the VaR warms up are solid text-4, at least 3:1 on the panel", () => {
   const { SCREEN_THEME, TEXT, SURFACE } = m.theme;
   const colors = m.varChart.barColors(SCREEN_THEME);
