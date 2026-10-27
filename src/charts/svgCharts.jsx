@@ -111,17 +111,32 @@ export const spreadLabels = (items, gap = 12) => {
 
 // --------------------------------------------------------------------------------------- CONE
 
-// Below this plot width the cone keeps only its key window labels (see ConeChart).
+// Below this plot width the cone keeps only its key window labels (see coneTicks()).
 const CONE_THIN_TICKS_PX = 260;
 const CONE_TICK_HALF = 8;
+
+/**
+ * The windows the cone's x axis labels: every window on a plot at least CONE_THIN_TICKS_PX wide;
+ * below that the first, the last, `keyWindows` and every window that carries a realized mark, so
+ * no mark stands over an unlabelled spot on the axis. Pure.
+ * @param {number[]} windows  the cone's windows, ascending
+ * @param {number} plotWidth
+ * @param {number[]} [keyWindows]
+ * @param {number[]} [markWindows]
+ */
+export const coneTicks = (windows, plotWidth, keyWindows = [], markWindows = []) => {
+  if (plotWidth >= CONE_THIN_TICKS_PX || windows.length < 3) return windows.slice();
+  const keep = new Set([windows[0], windows[windows.length - 1], ...keyWindows, ...markWindows]);
+  return windows.filter((window) => keep.has(window));
+};
 
 /**
  * Realized-volatility cone: the p5–p95 and p25–p75 bands of each window's history (with 3:1 edges)
  * and the median, by window length on a log axis. Marks follow the page-wide rule: a tick is
  * realized vol (solid for the latest date, open for an older one), a diamond is OVX (at its own
  * horizon, on a dashed level) and a dot is the forecast (at its horizon, the first window by
- * default). Every mark has a <title>. Below CONE_THIN_TICKS_PX of plot width only the first, last
- * and `keyWindows` labels stay.
+ * default). Every mark has a <title>. Below CONE_THIN_TICKS_PX of plot width the axis labels only
+ * the first and last windows, `keyWindows` and the windows with a realized mark (coneTicks()).
  *
  * @param {{windows: {window:number,p5:number,p25:number,p50:number,p75:number,p95:number}[],
  *   marks?: {window:number, value:number, open?:boolean, title:string}[],
@@ -148,8 +163,7 @@ export function ConeChart({ windows, marks = [], ovx = null, forecast = null, ke
         const y = scaleLinear().domain([0, top * 1.08]).nice().range([height - m.bottom, m.top]);
         const band = (lo, hi) => area().x((row) => x(row.window)).y0((row) => y(row[lo])).y1((row) => y(row[hi]))(rows);
         const path = (key) => line().x((row) => x(row.window)).y((row) => y(row[key])).defined((row) => Number.isFinite(row[key]))(rows);
-        const keep = new Set([first.window, last.window, ...keyWindows]);
-        const ticks = rows.map((row) => row.window).filter((window) => plotWidth >= CONE_THIN_TICKS_PX || keep.has(window));
+        const ticks = coneTicks(rows.map((row) => row.window), plotWidth, keyWindows, shown.map((mark) => mark.window));
         const span = `${first.window}- to ${last.window}-day`;
         const ovxX = ovx?.horizon != null && ovx.horizon >= first.window && ovx.horizon <= last.window ? x(ovx.horizon) : null;
         // The forecast dot sits at its horizon (the first window by default); its label sits right of

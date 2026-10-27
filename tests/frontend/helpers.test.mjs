@@ -97,6 +97,16 @@ test("SVG label helpers fit labels and keep stacked labels apart", () => {
   assert.equal(m.sparkline.sparkPath([1], 10, 10), null);
 });
 
+test("the cone axis labels every window that carries a realized mark, also on a phone", () => {
+  const { coneTicks } = m.svg;
+  const windows = [5, 10, 22, 66, 126, 252];
+  assert.deepEqual(coneTicks(windows, 600, [5, 22, 66]), windows, "a wide plot labels every window");
+  assert.deepEqual(coneTicks(windows, 200, [5, 22, 66]), [5, 22, 66, 252], "a narrow plot without marks keeps the key windows");
+  // A narrow plot keeps a label under every realized mark (the open older-date ticks included).
+  assert.deepEqual(coneTicks(windows, 200, [5, 22, 66], [5, 10, 22, 66, 126, 252]), windows);
+  assert.deepEqual(coneTicks(windows, 200, [], [126]), [5, 126, 252]);
+});
+
 test("hyphenated tokens in titles are kept on one line", async () => {
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
