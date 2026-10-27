@@ -6,6 +6,19 @@ const EDGE_PX = 8;
 
 const canHover = () => typeof window !== "undefined" && Boolean(window.matchMedia?.("(hover: hover)")?.matches);
 
+/** The part of the page on screen, in getBoundingClientRect coordinates (the visual viewport). */
+const visibleBox = () => {
+  const root = document.documentElement;
+  const vv = window.visualViewport;
+  if (!vv) return { left: 0, top: 0, right: root.clientWidth, bottom: root.clientHeight };
+  return {
+    left: vv.offsetLeft,
+    top: vv.offsetTop,
+    right: Math.min(root.clientWidth, vv.offsetLeft + vv.width),
+    bottom: vv.offsetTop + vv.height,
+  };
+};
+
 /**
  * A glossary toggletip: the term as a button (dotted underline) that opens a one-sentence
  * definition and, where METH lists the method, a link to its reference row. It opens on click, tap,
@@ -54,20 +67,22 @@ export default function Term({ entry, children }) {
   }, [open, close]);
 
   // Keep the definition on screen: shift it left near the right edge, and above the term near the
-  // bottom when there is room there.
+  // bottom when there is room there. The shift moves the box itself (CSS `left`), so it never
+  // widens the page. The edges are the visual viewport's: while the box is measured unshifted it
+  // can overflow, and a phone's layout viewport (innerWidth, innerHeight) then grows to hold it.
   useLayoutEffect(() => {
     const pop = popRef.current;
     if (!open || !pop) return;
     pop.style.setProperty("--term-shift", "0px");
     pop.removeAttribute("data-place");
     const rect = pop.getBoundingClientRect();
-    const width = document.documentElement.clientWidth;
+    const view = visibleBox();
     let shift = 0;
-    if (rect.right > width - EDGE_PX) shift = width - EDGE_PX - rect.right;
-    if (rect.left + shift < EDGE_PX) shift = EDGE_PX - rect.left;
+    if (rect.right > view.right - EDGE_PX) shift = view.right - EDGE_PX - rect.right;
+    if (rect.left + shift < view.left + EDGE_PX) shift = view.left + EDGE_PX - rect.left;
     pop.style.setProperty("--term-shift", `${Math.round(shift)}px`);
     const termRect = buttonRef.current?.getBoundingClientRect();
-    if (termRect && rect.bottom > window.innerHeight - EDGE_PX && termRect.top - rect.height > EDGE_PX * 8) {
+    if (termRect && rect.bottom > view.bottom - EDGE_PX && termRect.top - rect.height > view.top + EDGE_PX * 8) {
       pop.setAttribute("data-place", "above");
     }
   }, [open]);
