@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { loadDashboard, readSource } from "./load.mjs";
+import { loadDashboard, readFixture, readSource } from "./load.mjs";
 
 let m;
 let common;
@@ -125,4 +125,24 @@ test("the KPI tiles and their key start on the hero's and the panels' left edge"
 test("wrapped footer rows are 10px apart, so stacked 16px links clear the 24px target spacing", () => {
   assert.match(index, /\.panel-source \{[^}]*gap: 10px var\(--sp-5\);/);
   assert.match(index, /\.panel-source > span \{[^}]*gap: 10px var\(--sp-2\); \}/);
+});
+
+test("while research.json loads, the tiles and their key are marked pending and keep their loaded height", async () => {
+  const Verdict = (await m.load("/src/panels/Verdict.jsx")).default;
+  const data = readFixture("dashboard_data_v3.json");
+  const research = readFixture("research.json");
+  const html = (payload, status) => renderToStaticMarkup(createElement(Verdict, { data, research: payload, researchStatus: status }));
+  const loading = html(null, "loading");
+  assert.match(loading, /<dl class="kpi-grid is-pending">/);
+  assert.match(loading, /<p class="kpi-key is-pending">/);
+  for (const [payload, status] of [[research, "ready"], [null, "unavailable"]]) {
+    assert.match(html(payload, status), /<dl class="kpi-grid">[\s\S]*<p class="kpi-key">/, status);
+  }
+  const tiles = readSource("src/styles/verdict-tiles.css");
+  assert.match(tiles, /\.kpi-grid\.is-pending > \.kpi:nth-child\(-n\+3\) > \.kpi-foot \{ min-height: calc\(var\(--sp-2\) \+ var\(--foot-1\) \* 1lh\); \}/);
+  assert.match(tiles, /\.kpi-key\.is-pending \{ --key: 3; min-height: calc\(2 \* var\(--sp-3\) \+ var\(--key\) \* 1lh\); \}/);
+  // The challenger note's reservation follows its measured lines: four at 930-1099px and from 1320px.
+  const lede = readSource("src/styles/verdict-lede.css");
+  assert.match(lede, /@media \(min-width: 930px\) and \(max-width: 1099px\) \{ \.hero-notes \.is-pending \{ min-height: 4lh; \} \}/);
+  assert.match(lede, /@media \(min-width: 1320px\) \{ \.hero-notes \.is-pending \{ min-height: 72px; min-height: 4lh; \} \}/);
 });

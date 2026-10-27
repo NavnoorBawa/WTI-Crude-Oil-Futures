@@ -75,15 +75,41 @@
 .hero-scale .swatch { margin-right: 6px; height: 10px; }
 /* research.json still loading: its lines keep the height they will need, so the call does not move. */
 .hero-scale.is-pending { min-height: 36px; min-height: 2lh; }
-.hero-notes .is-pending { min-height: 90px; min-height: 5lh; }
-@media (min-width: 1440px) {
-  .hero-notes .is-pending { min-height: 72px; min-height: 4lh; }
+/* The loaded scale line wraps to three lines below 375px and at 641-767px (live payloads). */
+@media (max-width: 374px), (min-width: 641px) and (max-width: 767px) {
+  .hero-scale.is-pending { min-height: 3lh; }
 }
+/* The lines the loaded challenger note takes in each width band, measured on the live payloads (the
+   hero's layout changes at 641 and 1100px; the other bands are where the note rewraps). A note a
+   line longer or shorter than this moves what follows by that line only. */
+.hero-notes .is-pending { min-height: 90px; min-height: 5lh; }
+@media (max-width: 359px) { .hero-notes .is-pending { min-height: 6lh; } }
+@media (min-width: 430px) and (max-width: 599px) { .hero-notes .is-pending { min-height: 4lh; } }
+@media (min-width: 600px) and (max-width: 640px) { .hero-notes .is-pending { min-height: 3lh; } }
+@media (min-width: 641px) and (max-width: 679px) { .hero-notes .is-pending { min-height: 7lh; } }
+@media (min-width: 680px) and (max-width: 759px) { .hero-notes .is-pending { min-height: 6lh; } }
+@media (min-width: 930px) and (max-width: 1099px) { .hero-notes .is-pending { min-height: 4lh; } }
+@media (min-width: 1320px) { .hero-notes .is-pending { min-height: 72px; min-height: 4lh; } }
 @media (min-width: 641px) and (max-width: 899px) {
   .verdict-lede[aria-busy="true"] .verdict-answer-detail { min-height: 59px; min-height: 3lh; }
 }
-@media (max-width: 360px) {
+@media (max-width: 374px) {
   .verdict-lede[aria-busy="true"] .verdict-answer-detail { min-height: 117px; min-height: 6lh; }
+}
+/* On a phone the loaded answer takes 5 lines at 375-459px, 4 at 460-599 and 3 at 600-640 (live
+   payloads). At 390-429px the loaded title is a line shorter than the pending one, so the answer
+   reserves a line less there and the hero under the lede stays within a few pixels. */
+@media (min-width: 375px) and (max-width: 389px), (min-width: 430px) and (max-width: 459px) {
+  .verdict-lede[aria-busy="true"] .verdict-answer-detail { min-height: 5lh; }
+}
+@media (min-width: 390px) and (max-width: 429px) {
+  .verdict-lede[aria-busy="true"] .verdict-answer-detail { min-height: 4lh; }
+}
+@media (min-width: 460px) and (max-width: 599px) {
+  .verdict-lede[aria-busy="true"] .verdict-answer-detail { min-height: 4lh; }
+}
+@media (min-width: 600px) and (max-width: 640px) {
+  .verdict-lede[aria-busy="true"] .verdict-answer-detail { min-height: 3lh; }
 }
 
 .hero-detail .fact dd { font-size: var(--fs-16); }
