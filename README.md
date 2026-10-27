@@ -278,8 +278,9 @@ For any continuous i.i.d. series, calling 'up' exactly when the current 5-sessio
 The first version of this project reported its direction accuracy, against a base rate near 50%, as
 the headline evidence of skill. It is not evidence of skill, and it is retracted
 ([errata](CHANGELOG.md#errata-published-numbers-that-were-wrong)). The live record reports
-direction accuracy only beside this floor. Among the dashboard's headline figures, the
-model-implied probability that volatility rises is shown last and labelled uncalibrated.
+direction accuracy only beside this floor. On the dashboard, the model-implied probability that
+volatility rises is not a headline figure: it is one sentence after this week's call and its other
+figures, labelled not calibrated and not evidence of skill.
 
 ### 2.7 Robustness
 
@@ -296,7 +297,7 @@ Source: lab, except the bullet marked production run.
 <!-- [[[end]]] -->
 
 Calendar-year results, the volatility cone and the per-grid tables are in `data/vol_lab.json` and
-on the dashboard's research pages.
+on the dashboard, in its STAB, CONE and MODL (by grid) sections.
 
 ## 3. Live record and governance
 
@@ -590,11 +591,36 @@ post-mortem runs.
 
 ## 8. System
 
-![The dashboard](docs/figures/dashboard.png)
+![The first screen of the dashboard: the research question and its computed answer, this week's call as recorded, and the evidence tiles](docs/figures/dashboard.png)
 
-*The dashboard at [navnoorbawa.github.io/WTI-Crude-Oil-Futures](https://navnoorbawa.github.io/WTI-Crude-Oil-Futures/):
-the live forecast and its interval, the benchmark field, risk, the live record, and the research
-pages.*
+*The first screen of the dashboard at [navnoorbawa.github.io/WTI-Crude-Oil-Futures](https://navnoorbawa.github.io/WTI-Crude-Oil-Futures/):
+the research question, with an answer computed from the benchmark lab's Diebold-Mariano tests and
+their sample; this week's call as recorded (its target window and 80% interval, how often past
+weeks landed inside the band, and when the call was recorded and sealed); and tiles that each name
+their sample.*
+
+Every statistic on the page is read or computed from three static files: `data.json` (the live
+forecast, its validation and live record, and the price history), `research.json` (the benchmark
+lab, the post-mortem, the side studies and the ledger) and the price quote. None is typed into the
+copy, and the headlines are computed from the same files. Below the tiles, an index lists the
+headlines of FCST, MODL, STAB, CALB, RISK, VRP and LIVE, each linked to its section, and thirteen
+sections follow in four groups:
+
+| Group | Sections |
+|---|---|
+| Evidence | FCST forecast vs realized · MODL model leaderboard · STAB stability · CALB calibration · RISK VaR backtest |
+| Market context | CONE volatility cone · VRP implied vs realized |
+| Integrity | LIVE live record · LEAK leak post-mortem |
+| Reference | STDY side studies · LEDG research ledger · METH methodology · MKT market |
+
+Each section names its sample beside its headline. Method notes sit in closed disclosures, and a
+source line under each section links the payload fields it reads and, where one exists, the command
+that rebuilds them. The chart sections switch to a table of the same numbers, and most tables
+download as CSV. Terms such as QLIKE, MCS, SPA and the VaR tests open a glossary note. The address
+keeps the view (the section, chart ranges, open tables, ledger filters), so a link reopens it. A
+jump palette (`/` or Ctrl/Cmd+K) finds sections, models, ledger hypotheses and glossary terms, and
+`?` lists the keyboard shortcuts. The page prints, or saves as PDF, with every figure drawn and
+every note open.
 
 The site runs with no server. A scheduled workflow builds a static snapshot and deploys it to GitHub
 Pages ([architecture](docs/ARCHITECTURE.md)):
@@ -606,7 +632,8 @@ Pages ([architecture](docs/ARCHITECTURE.md)):
   the live site or superseded by a newer run, deploys, then seals the live record and pushes it to
   `live-data`. The only secret in use is a free EIA key.
 - **Price, every 15 minutes (best effort).** Updates a quote file on `live-data` that the page reads
-  directly. Each quote carries its own exchange timestamp, and the page shows its age.
+  directly. Each quote carries its own exchange timestamp; the page shows that time and marks the
+  quote live only while it is under 30 minutes old.
 - **Research.** `research.json` is copied from committed artifacts only, never computed at deploy
   time, so the page shows exactly what the repository records; which of those records CI rebuilds
   is set out in section 7.
@@ -634,7 +661,7 @@ Pages ([architecture](docs/ARCHITECTURE.md)):
 | [`backend/carry_signal_test.py`](backend/carry_signal_test.py), [`backend/supply_shock_playbook.py`](backend/supply_shock_playbook.py) | Side studies |
 | [`backend/research_ledger.py`](backend/research_ledger.py) | The ledger of every hypothesis tested |
 | [`freeze.py`](freeze.py), [`scripts/`](scripts) | Payload freeze, validation, research bundle, generated docs and figures |
-| [`src/`](src) | The dashboard (React, lightweight-charts) |
+| [`src/`](src) | The dashboard (React; canvas charts with lightweight-charts, SVG charts with d3-scale and d3-shape) |
 | [`data/`](data) | Committed artifacts and the pinned snapshot |
 
 Run the dashboard locally against a fresh snapshot:
