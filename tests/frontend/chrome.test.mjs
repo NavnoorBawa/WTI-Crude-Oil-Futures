@@ -335,3 +335,32 @@ test("without research.json one notice under the verdict names the sections, and
     assert.doesNotMatch(renderDashboard(status === "ready" ? research : null, status).text, /did not load, so/, `no notice while ${status}`);
   }
 });
+
+test("without research.json STDY is named in the notice, says so in place, and never claims there is no placebo comparison", () => {
+  const stdyOf = (html) => visibleText(html.match(/<section id="stdy"[\s\S]*?<\/section>/)?.[0] ?? "").replace(/\s+/g, " ");
+  const missing = renderDashboard(null, "unavailable");
+  assert.ok(missing.text.includes("STDY"), "the notice names STDY");
+  const stdy = stdyOf(missing.html);
+  assert.ok(stdy.includes("research.json did not load; see the notice under the verdict."), stdy);
+  assert.doesNotMatch(stdy, /no placebo/, "the placebo study exists; it did not load");
+  assert.ok(stdy.includes("after supply removal") && stdy.includes("after threats"), "the playbook medians still show");
+  const loading = stdyOf(renderDashboard(null, "loading").html);
+  assert.ok(loading.includes("Loading research.json"), loading);
+  assert.doesNotMatch(loading, /no placebo/);
+  // Only a research.json that loaded without the supply study has no placebo comparison.
+  const { supply_study: _supply, ...withoutStudy } = research;
+  const without = stdyOf(renderDashboard(withoutStudy, "ready").html);
+  assert.match(without, /after threats; no placebo (comparison|test)/);
+  assert.doesNotMatch(without, /did not load|Loading research/);
+  const playbook = data.supply_shock_playbook;
+  for (const loaded of [true, false]) {
+    const title = m.assertions.supplyPlaybookAssertion(playbook, { researchLoaded: loaded });
+    assert.ok(title.length <= 90, title);
+    assert.equal(/placebo/.test(title), loaded);
+  }
+  // Two two-digit medians keep a shorter clause; a longer head drops it rather than pass 90 characters.
+  const wide = { distributions: { supply_lost: { peak: { median: 12.14 } }, threat_only: { peak: { median: 14.05 } } } };
+  assert.equal(m.assertions.supplyPlaybookAssertion(wide), "Median 20-session peak +12.1% after supply removal, +14.1% after threats; no placebo test");
+  const wider = { distributions: { supply_lost: { peak: { median: 112.14 } }, threat_only: { peak: { median: 104.05 } } } };
+  assert.ok(m.assertions.supplyPlaybookAssertion(wider).length <= 90);
+});
