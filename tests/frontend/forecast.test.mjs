@@ -166,8 +166,9 @@ test("the table view lists the latest weeks newest first, with miss, log error a
   assert.equal(bodyRows[0], m.format.fmtDate(rows.at(-1).date), "newest first");
   assert.ok(html.includes(`Show all ${rows.length.toLocaleString("en-US")} weeks`));
   assert.ok(visibleText(html).includes(`Latest 52 of ${rows.length.toLocaleString("en-US")} weeks, newest first`));
+  assert.ok(visibleText(html).includes(`; the CSV holds all ${rows.length.toLocaleString("en-US")} weeks`), "the caption says the CSV holds more than the rows shown");
   // The CSV gets raw values: the band's two edges (columns hidden on screen) and unrounded errors.
-  assert.match(html.match(/<thead[\s\S]*?<\/thead>/)[0], /class="align-left col-csv-only">80% band low</);
+  assert.match(html.match(/<thead[\s\S]*?<\/thead>/)[0], /class="align-left col-csv-only"><span class="th-label">80% band low</);
   const csv = m.table.csvColumns(panel.forecastTableColumns("HAR-IV"));
   assert.deepEqual(csv.map((column) => column.label), [
     "Forecast date", "Realized", "HAR-IV forecast", "80% band low", "80% band high", "Band from", "Inside",

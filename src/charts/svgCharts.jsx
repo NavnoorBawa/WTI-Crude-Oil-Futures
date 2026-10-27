@@ -111,17 +111,32 @@ export const spreadLabels = (items, gap = 12) => {
 
 // --------------------------------------------------------------------------------------- CONE
 
-// Below this plot width the cone keeps only its key window labels (see ConeChart).
+// Below this plot width the cone keeps only its key window labels (see coneTicks()).
 const CONE_THIN_TICKS_PX = 260;
 const CONE_TICK_HALF = 8;
+
+/**
+ * The windows the cone's x axis labels: every window on a plot at least CONE_THIN_TICKS_PX wide;
+ * below that the first, the last, `keyWindows` and every window that carries a realized mark, so
+ * no mark stands over an unlabelled spot on the axis. Pure.
+ * @param {number[]} windows  the cone's windows, ascending
+ * @param {number} plotWidth
+ * @param {number[]} [keyWindows]
+ * @param {number[]} [markWindows]
+ */
+export const coneTicks = (windows, plotWidth, keyWindows = [], markWindows = []) => {
+  if (plotWidth >= CONE_THIN_TICKS_PX || windows.length < 3) return windows.slice();
+  const keep = new Set([windows[0], windows[windows.length - 1], ...keyWindows, ...markWindows]);
+  return windows.filter((window) => keep.has(window));
+};
 
 /**
  * Realized-volatility cone: the p5–p95 and p25–p75 bands of each window's history (with 3:1 edges)
  * and the median, by window length on a log axis. Marks follow the page-wide rule: a tick is
  * realized vol (solid for the latest date, open for an older one), a diamond is OVX (at its own
  * horizon, on a dashed level) and a dot is the forecast (at its horizon, the first window by
- * default). Every mark has a <title>. Below CONE_THIN_TICKS_PX of plot width only the first, last
- * and `keyWindows` labels stay.
+ * default). Every mark has a <title>. Below CONE_THIN_TICKS_PX of plot width the axis labels only
+ * the first and last windows, `keyWindows` and the windows with a realized mark (coneTicks()).
  *
  * @param {{windows: {window:number,p5:number,p25:number,p50:number,p75:number,p95:number}[],
  *   marks?: {window:number, value:number, open?:boolean, title:string}[],
@@ -148,8 +163,7 @@ export function ConeChart({ windows, marks = [], ovx = null, forecast = null, ke
         const y = scaleLinear().domain([0, top * 1.08]).nice().range([height - m.bottom, m.top]);
         const band = (lo, hi) => area().x((row) => x(row.window)).y0((row) => y(row[lo])).y1((row) => y(row[hi]))(rows);
         const path = (key) => line().x((row) => x(row.window)).y((row) => y(row[key])).defined((row) => Number.isFinite(row[key]))(rows);
-        const keep = new Set([first.window, last.window, ...keyWindows]);
-        const ticks = rows.map((row) => row.window).filter((window) => plotWidth >= CONE_THIN_TICKS_PX || keep.has(window));
+        const ticks = coneTicks(rows.map((row) => row.window), plotWidth, keyWindows, shown.map((mark) => mark.window));
         const span = `${first.window}- to ${last.window}-day`;
         const ovxX = ovx?.horizon != null && ovx.horizon >= first.window && ovx.horizon <= last.window ? x(ovx.horizon) : null;
         // The forecast dot sits at its horizon (the first window by default); its label sits right of
@@ -297,6 +311,55 @@ export function DmGridStrip({ rows, critical = 1.96 }) {
 
 // ---------------------------------------------------------------------- COVERAGE (CALB)
 
+// The target label's box around its baseline at the 11px axis font, its 2px halo included.
+const TARGET_LABEL_ABOVE = 11;
+const TARGET_LABEL_BELOW = 4;
+// Room wanted between that box and the nearest mark; a spot with this much is taken at once.
+const TARGET_LABEL_CLEAR = 3;
+
+/**
+ * Where the coverage chart's "target 80%" label goes. The spots, in order of preference: just
+ * above or below the dashed target line at either end of the plot, a step further off the line at
+ * either end, then the same four heights a quarter, half and three quarters of the way along. The
+ * first spot whose box (halo included) clears every mark, each with its own radius, by
+ * TARGET_LABEL_CLEAR px is taken; failing that, the spot with the most room; and when every spot
+ * overlaps a mark (a phone, where the series cross the line every year), the label goes above the
+ * plot at its right end, where no mark is drawn, as a key (`key: true`: drawn after a stretch of
+ * the dashed line). Pure.
+ *
+ * @param {{marks: {px:number, py:number, r:number}[], targetY:number, textWidth:number,
+ *   left:number, right:number, top:number, bottom:number}} layout  plot edges in px
+ * @returns {{x:number, y:number, anchor:"start"|"end", key?:boolean}}
+ */
+export const placeTargetLabel = ({ marks, targetY, textWidth, left, right, top, bottom }) => {
+  const ends = [{ x0: left + 4, anchor: "start" }, { x0: right - 4 - textWidth, anchor: "end" }];
+  const inner = [0.25, 0.5, 0.75].map((f) => ({ x0: left + 4 + (right - left - 8 - textWidth) * f, anchor: "start" }));
+  const at = (places, offsets) => offsets.flatMap((offset) => places.map((place) => ({ ...place, offset })));
+  const spots = [...at(ends, [-5, 13]), ...at(ends, [-16, 24]), ...at(inner, [-5, 13, -16, 24])];
+  const room = ({ x0, offset }) => {
+    const boxTop = targetY + offset - TARGET_LABEL_ABOVE;
+    const boxBottom = targetY + offset + TARGET_LABEL_BELOW;
+    if (boxTop < top - 4 || boxBottom > bottom) return -Infinity;
+    let least = Infinity;
+    for (const mark of marks) {
+      if (mark.px + mark.r < x0 - 2 || mark.px - mark.r > x0 + textWidth + 2) continue;
+      least = Math.min(least, Math.max(boxTop - (mark.py + mark.r), mark.py - mark.r - boxBottom));
+    }
+    return least;
+  };
+  let best = null;
+  let bestRoom = -Infinity;
+  for (const spot of spots) {
+    const spotRoom = Math.min(room(spot), TARGET_LABEL_CLEAR);
+    if (spotRoom > bestRoom) {
+      best = spot;
+      bestRoom = spotRoom;
+    }
+  }
+  if (!best || bestRoom < 0) return { x: right, y: top - 3, anchor: "end", key: true };
+  return { x: best.anchor === "start" ? best.x0 : best.x0 + textWidth, y: targetY + best.offset, anchor: best.anchor };
+};
+
 /**
  * Conformal interval coverage by year around the target level.
  * @param {{series: {key:string,label:string,tone:string,points:{year:number,coverage:number}[]}[],
@@ -337,33 +400,33 @@ export function CoverageByYear({ series, target }) {
               </g>
             ))}
             {(() => {
-              // Drawn over the series with a halo, at whichever end and side of the target line
-              // leaves the most room between the label and the nearest point or line segment.
+              // Drawn over the series with a halo, at a spot beside the target line whose box clears
+              // every dot, ring and line segment (placeTargetLabel()).
               const text = `target ${target}%`;
-              const textWidth = text.length * MONO_CHAR_PX;
               const marks = series.flatMap((s, index) => s.points.flatMap((p, k) => {
-                const here = { px: x(p.year), py: y(p.coverage) };
+                // The second series' rings are larger than the first's dots (r 5.5 and 3, plus the stroke).
+                const here = { px: x(p.year), py: y(p.coverage), r: index === 0 ? 3.5 : 6 };
                 const next = index === 0 ? s.points[k + 1] : null;   // the first series is also drawn as a line
                 if (!next) return [here];
-                return Array.from({ length: 8 }, (_, step) => ({
-                  px: here.px + ((x(next.year) - here.px) * step) / 8,
-                  py: here.py + ((y(next.coverage) - here.py) * step) / 8,
-                }));
+                // Samples of the line every 3px or closer, so a steep segment cannot pass between two.
+                const steps = Math.max(8, Math.ceil(Math.hypot(x(next.year) - here.px, y(next.coverage) - here.py) / 3));
+                return [here, ...Array.from({ length: steps - 1 }, (_, step) => ({
+                  px: here.px + ((x(next.year) - here.px) * (step + 1)) / steps,
+                  py: here.py + ((y(next.coverage) - here.py) * (step + 1)) / steps,
+                  r: 1,
+                }))];
               }));
-              const ends = [
-                { x0: MARGIN.left + 4, anchor: "start" },
-                { x0: width - MARGIN.right - 4 - textWidth, anchor: "end" },
-              ];
-              const candidates = ends.flatMap((end) => [-5, 13].map((offset) => ({ ...end, offset })));
-              const clearance = ({ x0, offset }) => {
-                const centre = y(target) + offset - 4;
-                const near = marks.filter((m) => m.px >= x0 - 8 && m.px <= x0 + textWidth + 8);
-                return near.length ? Math.min(...near.map((m) => Math.abs(m.py - centre))) : Infinity;
-              };
-              const best = candidates.reduce((a, b) => (clearance(b) > clearance(a) ? b : a));
+              const textWidth = text.length * MONO_CHAR_PX;
+              const spot = placeTargetLabel({
+                marks, targetY: y(target), textWidth,
+                left: MARGIN.left, right: width - MARGIN.right, top: MARGIN.top, bottom: height - MARGIN.bottom,
+              });
+              const keyEnd = spot.x - textWidth - 6;   // a key sits left of the label (anchored at its end)
               return (
-                <text className="label-target has-halo" x={best.anchor === "start" ? best.x0 : best.x0 + textWidth}
-                  y={y(target) + best.offset} textAnchor={best.anchor}>{text}</text>
+                <g>
+                  {spot.key && <line className="stroke-target" x1={keyEnd - 16} x2={keyEnd} y1={spot.y - 4} y2={spot.y - 4} />}
+                  <text className="label-target has-halo" x={spot.x} y={spot.y} textAnchor={spot.anchor}>{text}</text>
+                </g>
               );
             })()}
             <XAxis scale={x} ticks={yearTicks} format={String} y={height - MARGIN.bottom} />

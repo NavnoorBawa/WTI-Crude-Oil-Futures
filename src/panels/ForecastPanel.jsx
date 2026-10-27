@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useViewParam } from "../app/viewState";
 import { getForecastChart } from "../charts/lazy";
 import DataTable from "../components/DataTable";
@@ -8,7 +8,7 @@ import Segmented from "../components/Segmented";
 import { INTERVAL_LEVEL_PCT, forecastAssertion, forecastDetail, shortModelName } from "../lib/assertions";
 import { expectedRatio, lossConcentration, withErrors } from "../lib/forecastErrors";
 import { DASH, fmtDate, fmtInt, fmtNum, fmtPct, fmtSigned, fmtSpan, num } from "../lib/format";
-import { bandCoverage, forecastRows, getLab, getVol, ovxOnlyLabel } from "../lib/research";
+import { bandCoverage, callScoring, forecastRows, getLab, getVol, ovxOnlyLabel } from "../lib/research";
 import { forecastOfRecord } from "../lib/verdict";
 
 // URL values (?fcst=) and the chart's range keys.
@@ -83,13 +83,26 @@ export const forecastTableColumns = (modelName) => [
  */
 export function ForecastTable({ rows, modelName }) {
   const [showAll, setShowAll] = useState(false);
+  // Collapsing back to the latest weeks keeps the button that did it in view (as LEDG's does): once
+  // the rows are gone and before the frame is painted, the page scrolls the button back into view.
+  const toggleRef = useRef(null);
+  const collapsing = useRef(false);
+  useLayoutEffect(() => {
+    if (!collapsing.current || showAll) return;
+    collapsing.current = false;
+    const root = document.documentElement;
+    const behavior = root.style.scrollBehavior;
+    root.style.scrollBehavior = "auto";
+    toggleRef.current?.scrollIntoView({ block: "center" });
+    root.style.scrollBehavior = behavior;
+  }, [showAll]);
   const tableRows = useMemo(() => (showAll ? rows : rows.slice(-TABLE_WEEKS)).slice().reverse(), [rows, showAll]);
   const exportRows = useMemo(() => rows.slice().reverse(), [rows]);
   const columns = useMemo(() => forecastTableColumns(modelName), [modelName]);
 
   return (
     <DataTable
-      caption={`${showAll ? `All ${fmtInt(rows.length)}` : `Latest ${fmtInt(Math.min(TABLE_WEEKS, rows.length))} of ${fmtInt(rows.length)}`} weeks, newest first (vol in percent, annualized)`}
+      caption={`${showAll ? `All ${fmtInt(rows.length)}` : `Latest ${fmtInt(Math.min(TABLE_WEEKS, rows.length))} of ${fmtInt(rows.length)}`} weeks, newest first (vol in percent, annualized)${!showAll && rows.length > TABLE_WEEKS ? `; the CSV holds all ${fmtInt(rows.length)} weeks` : ""}`}
       rowKey={(row) => row.date}
       dense
       announce="weeks"
@@ -99,7 +112,15 @@ export function ForecastTable({ rows, modelName }) {
       columns={columns}
       rows={tableRows}
       footnote={rows.length > TABLE_WEEKS ? (
-        <button type="button" className="table-show-all" onClick={() => setShowAll((value) => !value)}>
+        <button
+          ref={toggleRef}
+          type="button"
+          className="table-show-all"
+          onClick={() => {
+            collapsing.current = showAll;
+            setShowAll(!showAll);
+          }}
+        >
           {showAll ? `Show the latest ${fmtInt(TABLE_WEEKS)} weeks` : `Show all ${fmtInt(rows.length)} weeks`}
         </button>
       ) : null}
@@ -123,10 +144,12 @@ export default function ForecastPanel({ data, research }) {
   const rows = useMemo(() => forecastRows(lab, recentOos), [lab, recentOos]);
   // The live week is drawn as the live record holds it (the recorded call when it has this as-of).
   const liveRow = useMemo(() => {
-    const call = forecastOfRecord(live, getVol(data).liveRecord);
+    const { liveRecord } = getVol(data);
+    const call = forecastOfRecord(live, liveRecord);
     return call ? {
       date: call.asOf, forecast: call.forecast, lo: call.lo, hi: call.hi, ovx: call.ovx.value,
       targetStart: call.targetStart, targetEnd: call.targetEnd,
+      scoring: call.source === "record" ? callScoring(call.entry, liveRecord) : null,
     } : null;
   }, [live, data]);
   const ForecastChart = getForecastChart();

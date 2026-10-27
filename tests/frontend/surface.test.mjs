@@ -4,7 +4,7 @@
 // in the order main.jsx imports them), so the checks hold whichever file a rule lives in.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { createElement } from "react";
+import { createElement, Suspense } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadDashboard, readFixture, readSource } from "./load.mjs";
 
@@ -139,6 +139,26 @@ test("type: reading text is 13px at a measure of 64ch, meta lines are sans, code
   assert.equal(base("code")["font-size"], "max(11px, 0.92em)");
 });
 
+test("days to expiry count from today's New York date to the last trade date, so a stale snapshot's count ages", () => {
+  const { daysToExpiry } = m.marketStrip;
+  const contract = { last_trade_date: "2026-11-20", expiry_date: "2026-11-20", days_to_expiry: 25 };
+  // Oct 26, 7:01 PM CT (the freeze) is Oct 26 in New York: 25 days, the snapshot's own count.
+  assert.equal(daysToExpiry(contract, Date.parse("2026-10-27T00:01:25Z")), 25);
+  // Two days later the strip says 23, not the frozen 25.
+  assert.equal(daysToExpiry(contract, Date.parse("2026-10-29T00:30:00Z")), 23);
+  // New York's date, not UTC's: 11 PM ET on Oct 28 is still Oct 28.
+  assert.equal(daysToExpiry(contract, Date.parse("2026-10-29T03:30:00Z")), 23);
+  assert.equal(daysToExpiry(contract, Date.parse("2026-10-29T04:30:00Z")), 22);
+  assert.equal(daysToExpiry({ expiry_date: "2026-11-20" }, Date.parse("2026-11-20T15:00:00Z")), 0, "on expiry");
+  assert.equal(daysToExpiry(contract, Date.parse("2026-11-23T15:00:00Z")), 0, "never negative");
+  assert.equal(daysToExpiry({ days_to_expiry: 25 }, Date.parse("2026-10-29T00:30:00Z")), 25, "no date: the snapshot's count");
+  assert.equal(daysToExpiry(null, Date.now()), null);
+  // The strip renders the aged count (the tests' clock is fixed).
+  const data = readFixture("dashboard_data_v3.json");
+  const html = renderToStaticMarkup(createElement(m.marketStrip.default, { data, quote: m.quote.resolveQuote(null, data) }));
+  assert.ok(html.includes(`${daysToExpiry(data.contract, Date.now())}d to expiry`), html);
+});
+
 test("the price change is set in the text colour with a direction arrow, and the sparkline label is its title", () => {
   const data = readFixture("dashboard_data_v3.json");
   const quote = m.quote.resolveQuote(null, data);
@@ -181,6 +201,26 @@ test("a lazy figure reserves its height per breakpoint and is busy, not a live r
   assert.ok(placeholders.length >= 5);
   assert.equal((dashboard.match(/class="lazy-mount" aria-busy="true"/g) ?? []).length, placeholders.length);
   assert.ok(!/class="figure-placeholder"[^>]*role="status"/.test(dashboard));
+});
+
+test("a preloaded chart chunk renders on its first render, so a plain Ctrl+P's beforeprint prints the figure", async () => {
+  const { retryingLazy } = await m.load("/src/app/lazyChunk.js");
+  const Chart = () => createElement("b", null, "chart");
+  const load = async () => ({ Chart });
+  const render = (getter) => renderToStaticMarkup(createElement(Suspense, { fallback: "Loading chart…" }, createElement(getter())));
+  // Not fetched before its first render: React suspends on it and the placeholder shows.
+  assert.equal(render(retryingLazy(load, "Chart")), "Loading chart…");
+  // Fetched ahead (LazyMount preloads every chunk at the load event): no suspense at all.
+  const preloaded = retryingLazy(load, "Chart");
+  await preloaded.preload();
+  assert.equal(render(preloaded), "<b>chart</b>");
+  assert.equal(preloaded(), preloaded(), "the same component every render, so a mounted chart never remounts");
+  // A failed preload leaves the chunk to the render.
+  const failing = retryingLazy(() => Promise.reject(new Error("offline")), "Chart");
+  assert.equal(await failing.preload(), undefined);
+  // In print, a placeholder that is still there says how to print every figure.
+  const print = rules().filter((rule) => rule.context.some((at) => /print/.test(at)) && rule.selectors.includes(".figure-placeholder::after"));
+  assert.match(print[0]?.decls.content ?? "", /Print or save as PDF/);
 });
 
 // A stand-in browser for printPage(): records events, frames and the print call in order. The page

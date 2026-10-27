@@ -816,7 +816,8 @@ def _recent_inputs(raw: object) -> dict[str, Any] | None:
 
 def _recent(entry: Entry) -> dict[str, Any]:
     """One `recent` row: what the entry already stores, for the dashboard. Entries recorded before a
-    field existed (no `inputs`, no seal yet) give null for it."""
+    field existed (no `inputs`, no seal yet) give null for it. `spans_roll` is the test resolution
+    skips a window with, so a pending call that will never be scored can say so before it is closed."""
     challenger = entry.get("challenger") or {}
     return {
         "as_of": entry["as_of"], "issued_at": entry["issued_at"], "recorded_at": entry["recorded_at"],
@@ -828,6 +829,7 @@ def _recent(entry: Entry) -> dict[str, Any]:
         "challenger_pct": challenger.get("forecast_pct"),
         "realized_pct": entry.get("realized_pct") if entry["status"] == "resolved" else None,
         "inputs": _recent_inputs(entry.get("inputs")),
+        "spans_roll": spans_roll(_iso_date(entry["base_session"]), _iso_date(entry["target_end"])),
         "status": entry["status"],
     }
 

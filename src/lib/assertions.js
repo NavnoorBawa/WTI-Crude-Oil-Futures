@@ -603,16 +603,23 @@ export const volTargetDetail = (risk) => {
 /**
  * STDY supply shocks without the placebo study (data.json playbook only): descriptive medians,
  * no comparison claimed. A 20-session maximum is positive on most ordinary dates, so a median
- * peak means little on its own; the placebo study is what supports a comparison.
+ * peak means little on its own; the placebo study is what supports a comparison. Only a
+ * research.json that loaded without one (`researchLoaded`) has no placebo comparison; while it is
+ * loading or when it did not load, the study exists and is not shown, so nothing is said about it.
  */
-export const supplyPlaybookAssertion = (playbook) => {
+export const supplyPlaybookAssertion = (playbook, { researchLoaded = true } = {}) => {
   const dist = asObject(playbook?.distributions) ?? {};
   const lost = asObject(dist.supply_lost);
   const threat = asObject(dist.threat_only);
   const lostPeak = num(lost?.peak?.median);
   const threatPeak = num(threat?.peak?.median);
   if (lostPeak == null || threatPeak == null) return null;
-  return `Median 20-session peak ${fmtSigned(lostPeak, 1, "%")} after supply removal, ${fmtSigned(threatPeak, 1, "%")} after threats; no placebo comparison`;
+  const head = `Median 20-session peak ${fmtSigned(lostPeak, 1, "%")} after supply removal, ${fmtSigned(threatPeak, 1, "%")} after threats`;
+  if (!researchLoaded) return head;
+  const full = `${head}; no placebo comparison`;
+  const short = `${head}; no placebo test`;
+  if (full.length <= TITLE_MAX) return full;
+  return short.length <= TITLE_MAX ? short : head;
 };
 
 /** STDY: the two side studies, one short clause each. */

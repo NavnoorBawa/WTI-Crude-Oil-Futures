@@ -158,6 +158,8 @@ test("a snapshot from an older close than the newest recorded call shows that ca
     inputs: { ...(recent[0].inputs ?? {}), rv5_pct: 50.61, ovx: 57.1, ovx_session: "2026-10-23" },
   };
   recent.unshift(newer);
+  // The newer window (Oct 28 – Nov 3) spans no roll, so it is the result due; the fixture's own spans one.
+  Object.assign(payload.vol_forecast.live_record, { next_result_due: newer.target_end, n_pending: 2, n_recorded: 2 });
   live.issued_at = "2026-10-26T23:48:37Z";
   const call = v.forecastOfRecord(live, payload.vol_forecast.live_record);
   assert.equal(call.entry, newer);
@@ -176,14 +178,134 @@ test("a snapshot from an older close than the newest recorded call shows that ca
   assert.notEqual(v.forecastOfRecord(live, payload.vol_forecast.live_record).entry, newer);
 });
 
+test("with a snapshot from an older close, CONE and METH show the recorded call the hero shows, never the superseded one", () => {
+  const payload = structuredClone(data);
+  const live = payload.vol_forecast.live;
+  const recent = payload.vol_forecast.live_record.recent;
+  const inputs = { rv5_pct: 49.42, rv22_pct: 38.25, rv66_pct: 46.29, ovx: 60.02, ovx_session: "2026-10-23" };
+  // A median the snapshot's coefficients reproduce from these inputs, and its mean, as the backend prints them.
+  const fit = v.forecastDecomposition(live.coefficients, inputs, live.smearing_factor);
+  const median = round1(fit.median);
+  const forecast = round1(median * Math.sqrt(live.smearing_factor));
+  const newer = {
+    ...structuredClone(recent[0]),
+    as_of: "2026-10-26", issued_at: "2026-10-26T21:00:54Z", recorded_at: "2026-10-26T21:00:58Z", sealed_at: "2026-10-26T21:01:33Z",
+    forecast_pct: forecast, median_pct: median, lo80_pct: 28.3, hi80_pct: 77.6, challenger_pct: 58.9,
+    target_start: "2026-10-28", target_end: "2026-11-03", inputs,
+  };
+  recent.unshift(newer);
+  live.issued_at = "2026-10-26T23:48:37Z";
+  const record = v.liveOfRecord(live, payload.vol_forecast.live_record);
+  assert.equal(record.as_of, "2026-10-26");
+  assert.equal(record.forecast_next_week_vol_annualized_pct, forecast);
+  assert.equal(record.fit_as_of, live.as_of, "the coefficients stay the snapshot's, dated");
+  assert.deepEqual(record.inputs, inputs);
+  assert.equal(v.liveOfRecord(data.vol_forecast.live, data.vol_forecast.live_record), data.vol_forecast.live, "the usual case is the live block itself");
+
+  const f = m.format;
+  const sectionOf = (html, id) => squash(visibleText(html.match(new RegExp(`<section id="${id}"[\\s\\S]*?</section>`))?.[0] ?? ""));
+  const { html, errors } = render(payload, research);
+  assert.deepEqual(errors, []);
+  const cone = sectionOf(html, "cone");
+  assert.ok(cone.includes(`5-day realized vol (${f.fmtPct(inputs.rv5_pct)}, Oct 26)`), cone);
+  assert.ok(cone.includes(`Forecast, 5d ${f.fmtPct(forecast)} as of the Oct 26 close`), cone);
+  assert.ok(cone.includes("marks: data.json, Oct 26, 2026 close"), cone);
+  const lag = Math.round((Date.parse("2026-10-26") - Date.parse(research.vol_lab.vol_cone.as_of)) / 86400000);
+  assert.ok(cone.includes(`cone ${lag} days older than the forecast`), cone);
+  assert.ok(!cone.includes(f.fmtPct(live.forecast_next_week_vol_annualized_pct)), "the superseded forecast is not CONE's");
+  const meth = sectionOf(html, "meth");
+  assert.ok(meth.includes(`${f.fmtNum(median, 1)}% × √${f.fmtNum(live.smearing_factor, 3)} ≈ ${f.fmtNum(forecast, 1)}% for this call`), meth);
+  assert.ok(meth.includes(`The live coefficients reproduce this call's ${f.fmtNum(median, 1)}% median`), meth);
+  assert.ok(meth.includes(`Live fit as of ${f.fmtDate(live.as_of)} on every matured row, with the inputs of the call recorded from the Oct 26 close`), meth);
+  assert.ok(!meth.includes(`${f.fmtNum(live.forecast_median_pct, 1)}% × √`), "the superseded median is not 'this call'");
+
+  // Recorded values the snapshot's fit does not reproduce: METH names the snapshot computation as such.
+  newer.median_pct = round1(median + 3);
+  newer.forecast_pct = round1(newer.median_pct * Math.sqrt(live.smearing_factor) + 1);
+  const off = sectionOf(render(payload, research).html, "meth");
+  const snap = f.fmtDate(live.as_of, { year: false });
+  assert.ok(off.includes(`HAR-IV coefficients: the ${snap} snapshot's fit, not the recorded Oct 26 call`), off);
+  assert.ok(off.includes(`≈ ${f.fmtNum(live.forecast_median_pct * Math.sqrt(live.smearing_factor), 1)}% for the ${snap} snapshot computation, not the call recorded from the Oct 26 close`), off);
+  assert.doesNotMatch(off, /for this call|reproduce this call/);
+});
+
 test("the target window is the recorded entry's", () => {
-  const entry = data.vol_forecast.live_record.recent[0];
-  const hero = squash(visibleText(heroOf(render(data, research).html)));
+  const scorable = structuredClone(data);
+  const entry = scorable.vol_forecast.live_record.recent[0];
+  scorable.vol_forecast.live_record.next_result_due = entry.target_end;
+  const hero = squash(visibleText(heroOf(render(scorable, research).html)));
   const f = m.format;
   assert.ok(hero.includes(`Target window ${f.fmtDate(entry.target_start, { year: false })} – ${f.fmtDate(entry.target_end)}, scored on its settlements`), hero);
-  const moved = structuredClone(data);
+  const moved = structuredClone(scorable);
   Object.assign(moved.vol_forecast.live_record.recent[0], { target_start: "2026-10-22", target_end: "2026-10-28" });
   assert.ok(squash(visibleText(heroOf(render(moved, research).html))).includes("Target window Oct 22 – Oct 28, 2026"));
+});
+
+test("a recorded call that will never be scored says why, in the hero and on the forecast chart, never 'scored' or 'pending'", () => {
+  const f = m.format;
+  const entry = data.vol_forecast.live_record.recent[0];
+  const window = `Target window ${f.fmtDate(entry.target_start, { year: false })} – ${f.fmtDate(entry.target_end)}`;
+  const heroWith = (change, record = {}) => {
+    const payload = structuredClone(data);
+    Object.assign(payload.vol_forecast.live_record.recent[0], change);
+    Object.assign(payload.vol_forecast.live_record, record);
+    return squash(visibleText(heroOf(render(payload, research).html)));
+  };
+  // The fixture's only call spans the CLX26 -> CLZ26 roll: no result is due for it.
+  const cases = [
+    [{}, {}, " spans a contract roll: recorded, never scored"],
+    [{ spans_roll: true }, { next_result_due: "2026-12-01" }, " spans a contract roll: recorded, never scored"],
+    [{ status: "skipped_roll", spans_roll: true }, { n_pending: 0, n_skipped_roll: 1 }, " spans a contract roll: recorded, never scored"],
+    [{ status: "late_commit" }, { n_pending: 0, n_late_commit: 1 }, ", never scored: not sealed before the settlement that opens it"],
+    [{ status: "expired" }, { n_pending: 0, n_expired: 1 }, ", never scored: its settlements did not arrive in time"],
+    [{ spans_roll: false }, { next_result_due: entry.target_end }, ", scored on its settlements"],
+  ];
+  for (const [change, record, clause] of cases) {
+    const hero = heroWith(change, record);
+    assert.ok(hero.includes(`${window}${clause}`), `${JSON.stringify(change)}: ${hero}`);
+    if (clause !== ", scored on its settlements") assert.doesNotMatch(hero, /scored on its settlements/);
+  }
+  // FCST's live point reads the same call: never scored, not pending.
+  const fc = m.forecastChart;
+  const rows = [{ date: "2026-10-12", actual: 40, forecast: 42, lo: 30, hi: 55, ovx: 50 }];
+  const live = { date: entry.as_of, forecast: entry.forecast_pct, lo: entry.lo80_pct, hi: entry.hi80_pct, ovx: null };
+  assert.equal(fc.liveRealizedText(fc.buildForecastData(rows, { ...live, scoring: "pending_roll" }).live), "never scored (roll)");
+  assert.equal(fc.liveRealizedText(fc.buildForecastData(rows, { ...live, scoring: "late_commit" }).live), "never scored (late commit)");
+  assert.equal(fc.liveRealizedText(fc.buildForecastData(rows, { ...live, scoring: "pending" }).live), "pending");
+  assert.equal(fc.liveRealizedText(fc.buildForecastData(rows, live).live), "pending", "a call not in the record yet");
+});
+
+test("the challenger note says what the decided promotion test decided, and METH's card names it with a colon", () => {
+  const noteOf = (payload) => {
+    const html = render(payload, research).html;
+    const item = heroOf(html).match(/<li[^>]*><span class="hero-note-label">Challenger[\s\S]*?<\/li>/)?.[0] ?? "";
+    return squash(visibleText(item));
+  };
+  const meth = (payload) => squash(visibleText(render(payload, research).html.match(/<section id="meth"[\s\S]*?<\/section>/)[0]));
+  const accruing = noteOf(data);
+  assert.match(accruing, /replaces the model of record only through the 52-week live test \(0\/52\)\.$/, accruing);
+  assert.ok(meth(data).includes("promotion test: accruing 0/52 weeks"));
+  const decided = (status, extra) => {
+    const payload = structuredClone(data);
+    Object.assign(payload.vol_forecast.live_record.promotion, {
+      status, n_independent_paired: 52, required: 52, ...extra,
+    });
+    return payload;
+  };
+  const keep = decided("keep", { dm_stat: 0.97, p_value: 0.168753, mean_qlike_difference: 0.004 });
+  const kept = noteOf(keep);
+  assert.match(kept, /the 52-week live test kept the model of record\.$/, kept);
+  assert.doesNotMatch(kept, /replaces the model of record only through|keep the record/);
+  assert.ok(meth(keep).includes("promotion test: keep the record"));
+  const promote = decided("promote", { dm_stat: 2.86, p_value: 0.003041, mean_qlike_difference: 0.03 });
+  const favoured = noteOf(promote);
+  assert.match(favoured, /the 52-week live test favours it; the swap is a maintainer's change, not yet applied\.$/, favoured);
+  assert.doesNotMatch(favoured, /replaces the model of record only through|promote the challenger/);
+  // A call from another version than the pinned record's does not claim the swap is unapplied.
+  promote.vol_forecast.live.model_version = "har-iv-range/1";
+  promote.vol_forecast.live_record.recent[0].model_version = "har-iv-range/1";
+  const other = noteOf(promote);
+  assert.match(other, /favours it; the swap is a maintainer's change\.$/, other);
 });
 
 test("the change since the previous call is computed from the record, newest first", () => {

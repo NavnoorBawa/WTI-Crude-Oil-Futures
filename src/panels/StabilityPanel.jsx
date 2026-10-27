@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { getDmGridStrip, getRollingGap, getYearlyGapRows } from "../charts/lazy";
 import DataTable from "../components/DataTable";
+import keepHyphenated from "../components/keepHyphenated";
 import LazyMount from "../components/LazyMount";
 import Panel from "../components/Panel";
 import { stabilityAssertion } from "../lib/assertions";
@@ -18,6 +19,15 @@ const COMPARISON_KEYS = [OVX_ONLY_KEY, "raw_ovx", "gjr"];
 /** Trailing windows of the weekly series compared in the recent-windows row, and the rolling window. */
 const RECENT_WEEKS = [26, 52, 156];
 const ROLLING_WEEKS = 52;
+
+/**
+ * A model name as a wrapping column header: it breaks at its spaces, and a long hyphenated name only
+ * after its first part ("GJR-" / "GARCH(1,1)-t"); a short one ("HAR-IV") is never split.
+ */
+export const modelHeader = (label) => {
+  const parts = /^(\w+-)(\S{9,})$/.exec(label);
+  return parts ? <>{parts[1]}<wbr /><span className="nowrap">{parts[2]}</span></> : keepHyphenated(label);
+};
 
 /** STAB: does the ranking hold across years, recent weeks and the 5-session sampling grids? */
 export default function StabilityPanel({ research, researchStatus }) {
@@ -117,8 +127,10 @@ export default function StabilityPanel({ research, researchStatus }) {
           columns={[
             { key: "year", label: "Year", rowHeader: true, sortable: true },
             { key: "nDays", label: "Days", align: "right", sortable: true, render: (row) => fmtInt(row.nDays) },
+            // The model headers wrap (see modelHeader), so the seven columns fit the half-width panel
+            // from 1280px without a sideways scroll.
             ...models.map((model) => ({
-              key: model.key, label: model.label, align: "right", sortable: true,
+              key: model.key, label: modelHeader(model.label), csvLabel: model.label, align: "right", sortable: true, className: "wrap-head",
               sortValue: (row) => row.values[model.key], render: (row) => fmtNum(row.values[model.key], 3),
             })),
           ]}
@@ -140,7 +152,8 @@ export default function StabilityPanel({ research, researchStatus }) {
           <h3 className="figure-title">Recent windows: weekly series (grid 0), not the every-day sample</h3>
           <Facts className="facts--row recent-windows" items={recent.map((span) => ({
             label: `Last ${span.weeks} weeks`,
-            value: `${fmtNum(span.record, 3)} vs ${fmtNum(span.challenger, 3)}`,
+            // "vs" keeps to the second mean, so a narrow column breaks the pair before it.
+            value: `${fmtNum(span.record, 3)} vs\u00a0${fmtNum(span.challenger, 3)}`,
             note: `QLIKE, ${recordName} vs challenger`,
           }))} />
         </>

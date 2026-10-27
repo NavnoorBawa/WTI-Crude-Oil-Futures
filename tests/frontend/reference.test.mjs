@@ -70,6 +70,8 @@ test("the default ledger order puts supported rows first, BH survivors leading, 
   const shownIds = [...ledg.matchAll(/<tr id="ledg-([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(shownIds, ordered.slice(0, reference.LEDGER_PAGE).map((row) => row.id));
   assert.match(ledg, new RegExp(`>Show all ${ledgerRows().length} hypotheses</button>`));
+  assert.ok(visibleText(ledg).includes(`Tested hypotheses: ${reference.LEDGER_PAGE} of ${ledgerRows().length} shown; the CSV holds all ${ledgerRows().length}`),
+    "the caption says the CSV holds every row, not only those shown");
   assert.doesNotMatch(ledg, /class="table-scroll is-tall/, "no nested scroller");
   assert.match(ledg, /<table class="data-table is-dense is-cards"/, "stacked cards on a phone");
 });
@@ -178,9 +180,14 @@ test("the ledger's CSV exports what each flag cell shows, with the id, test and 
   const ledg = section(renderPage().html, "ledg");
   assert.match(ledg, /<button type="button" class="csv-button"[^>]*><span class="sr-only">Download <\/span>CSV<\/button>/);
   // Export-only columns are in the markup (hidden by CSS) so the CSV carries them.
-  assert.match(ledg, /<th scope="col" class="align-left csv-only"[^>]*>ID<\/th>/);
-  assert.match(ledg, /<th scope="col" class="align-left csv-only"[^>]*>Test<\/th>/);
+  assert.match(ledg, /<th scope="col" class="align-left csv-only"[^>]*><span class="th-label">ID<\/span><\/th>/);
+  assert.match(ledg, /<th scope="col" class="align-left csv-only"[^>]*><span class="th-label">Test<\/span><\/th>/);
   assert.match(ledg, /<th scope="col" class="align-left muted-cell"[^>]*title="The date of the artifact that holds the test"[^>]*><button type="button" class="sort-button"><span>Recorded<\/span>/);
+  // Status (the default sort) comes right after the hypothesis, so a tablet that scrolls the table
+  // sideways starts on each row's verdict; the descriptive columns follow.
+  const labels = [...(ledg.match(/<thead[\s\S]*?<\/thead>/)?.[0] ?? "").matchAll(/<th scope="col"[^>]*>([\s\S]*?)<\/th>/g)]
+    .map((match) => visibleText(match[1]).trim().replace(/\s*[↕↑↓]$/, ""));
+  assert.deepEqual(labels.slice(0, 3), ["Hypothesis", "Status", "Family"]);
   const preSpecified = rows.filter((row) => row.pre_specified === true);
   const shown = defaultOrder(rows).slice(0, reference.LEDGER_PAGE).filter((row) => row.pre_specified === true);
   assert.ok(preSpecified.length > 0);
@@ -212,7 +219,7 @@ test("METH opens with a model card whose values come from the payloads", () => {
   assert.ok(text.includes(`DM ${m.format.fmtSigned(persistence.dm_qlike_vs_har_iv.stat, 2)}`));
   assert.ok(text.includes("not distinguishable from the OVX-only regression"));
   assert.ok(/inside on \d+ of \d+ sampling grids/.test(text));
-  assert.ok(text.includes(`promotion test accruing`));
+  assert.ok(text.includes(`promotion test: accruing`));
   assert.match(meth, /<a href="https:\/\/github\.com\/[^"]+\/MODEL_CARD\.md"[^>]*>Model card<span class="sr-only">/);
   assert.match(meth, /<a href="https:\/\/github\.com\/[^"]+\/METHODOLOGY\.md"[^>]*>Methodology<span class="sr-only">/);
   assert.ok(text.includes("the live record is short"), "the limitations sentence stays visible");
@@ -249,6 +256,30 @@ test("the elasticity title's min and max are the series' own", () => {
   assert.ok(svg.includes("stroke-implied") && svg.includes("stroke-ink") && !svg.includes("stroke-truth"), "OVX in its colour, RV in ink");
   assert.ok(spaced(svg).includes(`max ${Math.max(...values).toFixed(2)}`) && spaced(svg).includes(`min ${Math.min(...values).toFixed(2)}`));
   assert.equal(reference.elasticityPath({ series: { date: ["2020-01-01"], ovx_elasticity: [1] } }), null);
+});
+
+test("an OVX extreme's label moves to the end column when a line would run through it", () => {
+  const { boxMeetsPolyline } = charts;
+  const box = { x0: 10, x1: 50, y0: 10, y1: 24 };
+  assert.equal(boxMeetsPolyline(box, [{ px: 0, py: 30 }, { px: 60, py: 30 }]), false, "a line under the box");
+  assert.equal(boxMeetsPolyline(box, [{ px: 0, py: 18 }, { px: 60, py: 18 }]), true, "a line through it");
+  assert.equal(boxMeetsPolyline(box, [{ px: 0, py: 18 }, null, { px: 60, py: 18 }]), false, "a gap is no line");
+  // A V-shaped OVX path; the summed RV runs 0.1 under it (as in 2014), or far below.
+  const dates = Array.from({ length: 121 }, (_, i) => new Date(Date.UTC(2010, 0, 1 + 30 * i)).toISOString().slice(0, 10));
+  const ovx = dates.map((_, i) => 0.55 + Math.abs(i - 60) * 0.0075);
+  const build = (offset) => reference.elasticityPath({
+    series: { date: dates, ovx_elasticity: ovx, rv_elasticity: ovx.map((value) => (offset == null ? 0.05 : value - offset)) },
+  });
+  const minYear = build(null).ovx.minDate.slice(0, 4);
+  for (const width of [900, 390]) {
+    const near = spaced(renderToStaticMarkup(createElement(charts.ElasticityPathSvg, { path: build(0.1), width })));
+    assert.ok(near.includes(`>min 0.55, ${minYear}</text>`), `${width}: in the end column, with its year`);
+    assert.doesNotMatch(near, /class="axis-note halo"[^>]*>min /, `${width}: not on the RV line`);
+    assert.match(near, /class="axis-note halo"[^>]*>max 1\.00</, `${width}: the max label stays by its dot`);
+    const far = spaced(renderToStaticMarkup(createElement(charts.ElasticityPathSvg, { path: build(null), width })));
+    assert.match(far, /class="axis-note halo"[^>]*>min 0\.55</, `${width}: a clear spot keeps the label by its dot`);
+    assert.ok(!far.includes(`min 0.55, ${minYear}`));
+  }
 });
 
 test("the data-vintage rows are the payloads' own dates", () => {
@@ -358,7 +389,7 @@ test("LEAK states its P&L basis and draws the purged run in ink", () => {
   const leak = section(renderPage().html, "leak");
   const text = visibleText(leak);
   assert.ok(text.includes("P&L per trade on one CL contract (1,000 barrels)"), "meta");
-  assert.match(leak, /<th scope="col" class="align-right wrap-head" title="Total P&amp;L after costs, trading one CL contract[^"]*"[^>]*>P&amp;L, USD \(1 contract\)<\/th>/);
+  assert.match(leak, /<th scope="col" class="align-right wrap-head" title="Total P&amp;L after costs, trading one CL contract[^"]*"[^>]*><span class="th-label">P&amp;L, USD \(1 contract\)<\/span><\/th>/);
   assert.match(leak, /<div class="panel-figure"><div class="figure-controls"><div class="segmented" role="group" aria-label="Walk-forward window">/, "the window is a figure control");
   assert.doesNotMatch(leak.match(/<div class="panel-actions">[\s\S]*?<\/div>/)?.[0] ?? "", /segmented/);
   assert.match(leak, /swatch-ink is-line/);
@@ -374,7 +405,7 @@ test("LEAK states its P&L basis and draws the purged run in ink", () => {
 test("STDY's supply table has a column-group header row and an interval glyph on one shared domain", () => {
   const stdy = section(renderPage().html, "stdy");
   assert.match(stdy, /<colgroup span="2"><\/colgroup><colgroup span="3"><\/colgroup><colgroup span="3"><\/colgroup>/);
-  assert.match(stdy, /<tr class="group-row"><th scope="colgroup" colSpan="2" class="group-start"><\/th><th scope="colgroup" colSpan="3" class="group-start">Peak, sessions 0–19<\/th><th scope="colgroup" colSpan="3" class="group-start">Settle, session 10<\/th><\/tr>/i);
+  assert.match(stdy, /<tr class="group-row"><td colSpan="2" class="group-start" aria-hidden="true"><\/td><th scope="colgroup" colSpan="3" class="group-start">Peak, sessions 0–19<\/th><th scope="colgroup" colSpan="3" class="group-start">Settle, session 10<\/th><\/tr>/i);
   const study = m.research.supplyStudy(research);
   const lost = study.groups.find((group) => group.key === "supply_lost");
   const f = m.format;
@@ -382,6 +413,7 @@ test("STDY's supply table has a column-group header row and an interval glyph on
   assert.doesNotMatch(stdy, /stat-cell is-stacked/);
   const glyphs = stdy.match(/<span class="interval-glyph" aria-hidden="true">/g) ?? [];
   assert.equal(glyphs.length, study.groups.length + 1, "one per group and the placebo row");
+  assert.match(stdy, /<span class="glyph-note"> Beside each median peak, the line is its 95% bootstrap interval/, "the sentence that reads the glyph hides with it");
   const domain = studies.peakGlyphDomain(study);
   const ci = study.groups.flatMap((group) => group.ciPeak);
   assert.ok(domain[0] < Math.min(...ci) && domain[1] > Math.max(...ci), "every interval fits the shared domain");
@@ -390,6 +422,28 @@ test("STDY's supply table has a column-group header row and an interval glyph on
   assert.match(stdy, /<p class="prose-note is-wide">Months with carry/);
   assert.match(stdy, /<details class="disclosure panel-notes">[\s\S]*Carry: Second-nearby/);
   assert.doesNotMatch(visibleText(stdy), /p_value_vs_placebo|mann_whitney|overlapping_events/, "no payload keys in the notes");
+});
+
+test("STDY's supply CSV holds the 95% interval and the shared-window pairs the table shows", () => {
+  const study = m.research.supplyStudy(research);
+  const csv = m.table.csvColumns(studies.SUPPLY_CSV_COLUMNS);
+  assert.deepEqual(csv.map((column) => column.label),
+    ["Median peak 95% CI low %", "Median peak 95% CI high %", "Events whose windows share sessions (†)"]);
+  for (const group of study.groups) {
+    assert.deepEqual([csv[0].value(group), csv[1].value(group)], group.ciPeak, group.key);
+  }
+  const overlapped = study.groups.filter((group) => group.overlaps.length > 0);
+  assert.ok(overlapped.length > 0, "the fixture has a group with a †");
+  for (const group of overlapped) assert.match(csv[2].value(group), / and .*, \d+ sessions apart/, group.key);
+  for (const group of study.groups.filter((entry) => !entry.overlaps.length)) assert.equal(csv[2].value(group), null, group.key);
+  assert.deepEqual(csv.map((column) => column.value({ key: "placebo", isPlacebo: true })), [null, null, null], "the placebo row has neither");
+  // In the table's header (hidden on screen), after the eight columns the groups span.
+  const stdy = section(renderPage().html, "stdy");
+  const supplyHead = stdy.slice(stdy.indexOf('<tr class="group-row">')).match(/<\/tr><tr>([\s\S]*?)<\/tr>/)[1];
+  const headers = [...supplyHead.matchAll(/<th scope="col"([^>]*)>/g)].map((match) => match[1]);
+  assert.equal(headers.length, 11);
+  assert.ok(headers.slice(8).every((attrs) => /class="[^"]*\bcsv-only\b/.test(attrs)), "the last three");
+  assert.ok(headers.slice(0, 8).every((attrs) => !/csv-only/.test(attrs)), "and only those");
 });
 
 test("MKT keeps its range in the URL's figure controls and shows the closes as a table", () => {

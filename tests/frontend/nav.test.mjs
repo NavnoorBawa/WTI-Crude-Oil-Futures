@@ -5,7 +5,7 @@ import { after, before, test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SECTION_GROUPS, SECTIONS, startsGroup } from "../../src/app/sections.js";
-import { loadDashboard, readFixture } from "./load.mjs";
+import { loadDashboard, readFixture, readSource } from "./load.mjs";
 
 const FIXED_NOW = Date.parse("2026-10-21T12:00:00Z");
 Date.now = () => FIXED_NOW;
@@ -115,6 +115,108 @@ test("the snapshot reference names the view, the data's frozen time and the buil
   assert.equal(commands.snapshotReference("https://x.test/?fcst=all#modl", data.frozen_at, "abc1234"),
     `https://x.test/?fcst=all#modl · data frozen ${data.frozen_at} · build abc1234`);
   assert.equal(commands.snapshotReference("https://x.test/", data.frozen_at, null), `https://x.test/ · data frozen ${data.frozen_at}`);
+});
+
+/** A minimal page for jumpTo: one section (#modl, heading #modl-title) and the elements in `rows`. */
+const fakePage = (rows) => {
+  const focused = [];
+  const node = (id, extra = {}) => {
+    const attrs = new Map(Object.entries(extra.attrs ?? {}));
+    const listeners = {};
+    return {
+      id,
+      listeners,
+      matches: (selector) => selector === "section" && Boolean(extra.isSection),
+      closest: (selector) => (selector === "section.panel[id]" ? (extra.isSection ? self() : section) : null),
+      querySelector: (selector) => (selector === "h2[tabindex]" && extra.isSection ? heading : null),
+      hasAttribute: (name) => attrs.has(name),
+      getAttribute: (name) => attrs.get(name) ?? null,
+      setAttribute: (name, value) => attrs.set(name, String(value)),
+      removeAttribute: (name) => attrs.delete(name),
+      addEventListener: (type, listener) => { listeners[type] = listener; },
+      focus: (options) => focused.push([id, options]),
+      scrollIntoView: () => {},
+    };
+    function self() { return nodes.get(id); }
+  };
+  const heading = node("modl-title", { attrs: { tabindex: "-1" } });
+  const section = node("modl", { isSection: true });
+  const nodes = new Map([["modl", section], ["modl-title", heading]]);
+  for (const id of rows) nodes.set(id, node(id));
+  return { nodes, focused, document: { getElementById: (id) => nodes.get(id) ?? null } };
+};
+
+test("a palette jump focuses the row or reference it lands on, not its section's heading far above", async () => {
+  const saved = { window: globalThis.window, document: globalThis.document };
+  const page = fakePage(["modl-har_iv", "modl-late"]);
+  const late = page.nodes.get("modl-late");
+  page.nodes.delete("modl-late"); // not on the page until the reveal shows it
+  globalThis.document = page.document;
+  const win = { location: { hash: "", pathname: "/", search: "" }, dispatchEvent: () => true, setTimeout, history: { state: null, replaceState() {} } };
+  globalThis.window = win;
+  try {
+    assert.equal(commands.jumpTo("modl-har_iv", { fallback: "modl" }), true);
+    assert.equal(win.location.hash, "modl-har_iv");
+    const row = page.nodes.get("modl-har_iv");
+    assert.deepEqual(page.focused, [["modl-har_iv", { preventScroll: true }]], "the row, not #modl-title");
+    assert.equal(row.getAttribute("tabindex"), "-1", "made focusable for the jump");
+    row.listeners.blur();
+    assert.equal(row.hasAttribute("tabindex"), false, "and plain again once focus leaves");
+
+    // Already at that hash: scrolled to again, and focused again.
+    page.focused.length = 0;
+    win.location.hash = "#modl-har_iv";
+    commands.jumpTo("modl-har_iv", { fallback: "modl" });
+    assert.deepEqual(page.focused.map(([id]) => id), ["modl-har_iv"]);
+
+    // A section keeps its heading.
+    page.focused.length = 0;
+    win.location.hash = "#modl";
+    commands.jumpTo("modl");
+    assert.deepEqual(page.focused.map(([id]) => id), ["modl-title"]);
+
+    // A ledger row the reveal shows a moment later is focused itself.
+    page.focused.length = 0;
+    win.location.hash = "";
+    commands.jumpTo("modl-late", { fallback: "modl", reveal: true });
+    page.nodes.set("modl-late", late);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.deepEqual(page.focused.map(([id]) => id), ["modl-late"]);
+  } finally {
+    Object.assign(globalThis, saved);
+    if (saved.window === undefined) delete globalThis.window;
+    if (saved.document === undefined) delete globalThis.document;
+  }
+});
+
+test("the palette's close button is named by its visible text, and its result list is not a Tab stop", async () => {
+  const CommandPalette = (await m.load("/src/components/CommandPalette.jsx")).default;
+  // readPage reads the open page: an empty one is enough for the markup.
+  const saved = { window: globalThis.window, document: globalThis.document };
+  globalThis.window = { location: { search: "", hash: "", pathname: "/", origin: "https://x.test" } };
+  globalThis.document = { getElementById: () => null };
+  let html;
+  try {
+    html = renderToStaticMarkup(createElement(CommandPalette, { data, research: researchJson, onClose: () => {}, notify: () => {} }));
+  } finally {
+    Object.assign(globalThis, saved);
+    if (saved.window === undefined) delete globalThis.window;
+    if (saved.document === undefined) delete globalThis.document;
+  }
+  const close = html.match(/<button[^>]*class="palette-close"[^>]*>[\s\S]*?<\/button>/)[0];
+  // Words of the name as a label-in-name check reads them: a parenthetical does not count.
+  const words = (text) => text.replace(/\([^()]*\)/g, " ").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const name = words(close.match(/aria-label="([^"]+)"/)[1]).join(" ");
+  for (const shown of [...close.matchAll(/<span class="palette-close-(?:key|word)"[^>]*>([^<]+)<\/span>/g)].map((match) => match[1])) {
+    assert.ok(` ${name} `.includes(` ${words(shown).join(" ")} `), `"${name}" contains the visible "${shown}" (WCAG 2.5.3)`);
+  }
+  assert.match(html, /<div[^>]*role="listbox"[^>]*tabindex="-1"/, "the combobox owns the list; Tab skips it");
+});
+
+test("both palette copy actions link the section on screen, as the c shortcut does, not a stale #hash", () => {
+  const source = readSource("src/components/CommandPalette.jsx");
+  assert.doesNotMatch(source, /window\.location\.href/);
+  assert.match(source, /sectionUrl\(getPrimarySection\(\)\)/);
 });
 
 test("shortcuts never fire while typing or with a modifier, and can be turned off", () => {

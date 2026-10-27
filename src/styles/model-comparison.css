@@ -5,6 +5,11 @@
    so the ten columns fit from 1280px and need less sideways room below it. */
 .leaderboard .data-table :is(.leader-model, .muted-cell) { white-space: normal; }
 .leaderboard .leader-model .model-cell { flex-wrap: wrap; row-gap: 2px; }
+/* From 1280px the Model column has room to spare, so the inputs and family stay on one line
+   (wrapping them there nearly doubled eight row heights); below it they still wrap to fit. */
+@media (min-width: 1280px) {
+  .leaderboard .data-table .muted-cell { white-space: nowrap; }
+}
 /* MCS p reads strong for a member of the set and muted otherwise; "In set" says it in words. */
 .mcs-p { color: var(--text-3); }
 .mcs-p.is-member { color: var(--text-1); font-weight: 500; }

@@ -240,7 +240,8 @@ export default function DataTable({
           <thead role={role("rowgroup")}>
             {groups && (
               <tr className="group-row" role={role("row")}>
-                {groups.map((group, index) => (
+                {/* A group without a label is a blank cell, not an unnamed column-group header. */}
+                {groups.map((group, index) => (group.label ? (
                   <th
                     key={index}
                     scope="colgroup"
@@ -250,7 +251,9 @@ export default function DataTable({
                   >
                     {group.label}
                   </th>
-                ))}
+                ) : (
+                  <td key={index} colSpan={Number(group.span) || 1} className="group-start" role={role("cell")} aria-hidden="true" />
+                )))}
               </tr>
             )}
             <tr role={role("row")}>
@@ -272,7 +275,7 @@ export default function DataTable({
                           {active ? (sort.direction === "asc" ? "↑" : "↓") : "↕"}
                         </span>
                       </button>
-                    ) : column.label}
+                    ) : <span className="th-label">{column.label}</span>}
                   </th>
                 );
               })}

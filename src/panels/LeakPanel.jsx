@@ -78,6 +78,9 @@ const SOURCE = {
   reproduce: [REPRODUCE.walkForward, REPRODUCE.leakAnatomy],
 };
 
+// The P&L table lists the latest points; its CSV holds every one.
+const PNL_TABLE_POINTS = 26;
+
 /** Cumulative P&L of both runs by date, from the purged run's dates (the leaked run's on the same date). */
 const equityRows = (leaked, purged) => {
   const leakedByDate = new Map(leaked.equity.map((point) => [point.date, point.pnl]));
@@ -115,6 +118,7 @@ export default function LeakPanel({ data, research, researchStatus }) {
     { key: "purged", label: "Purged (correct)", tone: "ink", ...purged },
   ];
   const label = WINDOWS.find((option) => option.value === windowKey)?.title ?? "";
+  const pnlRows = equityRows(leaked, purged);
   return (
     <Panel
       id="leak"
@@ -149,17 +153,17 @@ export default function LeakPanel({ data, research, researchStatus }) {
       resetKey={research}
       table={() => (<>
         <DataTable
-          caption={`Cumulative P&L, ${label.toLowerCase()} (last 26 weekly points; USD, 1 contract)`}
+          caption={`Cumulative P&L, ${label.toLowerCase()} (last ${fmtInt(Math.min(PNL_TABLE_POINTS, pnlRows.length))} weekly points; USD, 1 contract${pnlRows.length > PNL_TABLE_POINTS ? `; the CSV holds all ${fmtInt(pnlRows.length)} points` : ""})`}
           rowKey={(row) => row.date}
           dense
           exportName={`leak-pnl-${chosen.param}`}
-          exportRows={equityRows(leaked, purged)}
+          exportRows={pnlRows}
           columns={[
             { key: "date", label: "Date", rowHeader: true, render: (row) => fmtDate(row.date) },
             { key: "leaked", label: "Leaked, USD", csvLabel: "Leaked cumulative P&L, USD (1 contract)", align: "right", render: (row) => fmtSignedUsd(row.leaked) },
             { key: "purged", label: "Purged, USD", csvLabel: "Purged cumulative P&L, USD (1 contract)", align: "right", render: (row) => fmtSignedUsd(row.purged) },
           ]}
-          rows={equityRows(leaked, purged).slice(-26).reverse()}
+          rows={pnlRows.slice(-PNL_TABLE_POINTS).reverse()}
         />
         {anatomy?.experiments.length > 0 && (
         <DataTable

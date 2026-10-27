@@ -97,6 +97,44 @@ test("SVG label helpers fit labels and keep stacked labels apart", () => {
   assert.equal(m.sparkline.sparkPath([1], 10, 10), null);
 });
 
+test("the cone axis labels every window that carries a realized mark, also on a phone", () => {
+  const { coneTicks } = m.svg;
+  const windows = [5, 10, 22, 66, 126, 252];
+  assert.deepEqual(coneTicks(windows, 600, [5, 22, 66]), windows, "a wide plot labels every window");
+  assert.deepEqual(coneTicks(windows, 200, [5, 22, 66]), [5, 22, 66, 252], "a narrow plot without marks keeps the key windows");
+  // A narrow plot keeps a label under every realized mark (the open older-date ticks included).
+  assert.deepEqual(coneTicks(windows, 200, [5, 22, 66], [5, 10, 22, 66, 126, 252]), windows);
+  assert.deepEqual(coneTicks(windows, 200, [], [126]), [5, 126, 252]);
+});
+
+test("the coverage target label clears every marker, radius included, or leaves the plot", () => {
+  const { placeTargetLabel } = m.svg;
+  const plot = { left: 44, right: 374, top: 12, bottom: 194, targetY: 100, textWidth: 66 };
+  const box = ({ x, y, anchor }) => {
+    const x0 = anchor === "end" ? x - plot.textWidth : x;
+    return { x0, x1: x0 + plot.textWidth, top: y - 11, bottom: y + 4 };
+  };
+  const clears = (spot, marks) => {
+    const b = box(spot);
+    return marks.every((mark) => mark.px + mark.r < b.x0 || mark.px - mark.r > b.x1
+      || mark.py - mark.r >= b.bottom || mark.py + mark.r <= b.top);
+  };
+  // Nothing near the line: the first spot, just above it at the left end.
+  assert.deepEqual(placeTargetLabel({ ...plot, marks: [] }), { x: 48, y: 95, anchor: "start" });
+  // The phone case: a ring (r 6) whose centre is 1px above the line at the right end, where the left
+  // end is taken by a dot just under the line. Centre-only distances once put the label on the ring.
+  const phone = [
+    { px: 352, py: 99, r: 6 }, { px: 60, py: 104, r: 3.5 }, { px: 60, py: 92, r: 3.5 },
+    ...Array.from({ length: 40 }, (_, i) => ({ px: 44 + i * 8, py: 112, r: 1 })),
+  ];
+  const spot = placeTargetLabel({ ...plot, marks: phone });
+  assert.ok(clears(spot, phone), JSON.stringify(spot));
+  // Marks everywhere near the line: the label goes above the plot as a key, where no mark is drawn.
+  const crowded = [];
+  for (let px = 40; px <= 380; px += 4) for (let py = 60; py <= 140; py += 4) crowded.push({ px, py, r: 1 });
+  assert.deepEqual(placeTargetLabel({ ...plot, marks: crowded }), { x: 374, y: 9, anchor: "end", key: true });
+});
+
 test("hyphenated tokens in titles are kept on one line", async () => {
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");

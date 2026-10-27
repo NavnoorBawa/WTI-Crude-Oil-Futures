@@ -5,6 +5,7 @@
 import { ALPHA, shortModelName } from "./assertions";
 import { NBSP, fmtNum, fmtP, fmtPValue, fmtSigned, num } from "./format";
 import { asArray, asObject, asText, getLab, getRoles, getVol, leaderboardRows, mcsLevel, mcsSummary, postmortemWindow, varSeries } from "./research";
+import { TOLERANCE, liveOfRecord } from "./verdict";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}/;
 const isoDate = (value) => (typeof value === "string" && ISO_DATE.test(value) ? value.slice(0, 10) : null);
@@ -185,7 +186,9 @@ const INPUT_KEYS = { "log RV5": "rv5_pct", "log RV22": "rv22_pct", "log RV66": "
 
 /**
  * The live fit (data.json live.coefficients) with each term's input for this call, and the median
- * those reproduce, exp(b0 + Σ b·ln x), next to the published median. Null without coefficients.
+ * those reproduce, exp(b0 + Σ b·ln x), next to the published median. `fitAsOf` is the close the
+ * coefficients were fitted for (live.fit_as_of, set by liveOfRecord(), else the call's own as_of);
+ * `reproduces` says whether the median prints as the published one. Null without coefficients.
  */
 export const liveFit = (live, lab = null) => {
   const coefficients = asArray(live?.coefficients).map(num);
@@ -205,7 +208,27 @@ export const liveFit = (live, lab = null) => {
   const median = complete
     ? Math.exp(rows.reduce((sum, row) => sum + (row.term === "const" ? row.coef : row.coef * Math.log(row.input)), 0)) * 100
     : null;
-  return { rows, median, published: num(live?.forecast_median_pct), asOf: isoDate(live?.as_of) };
+  const published = num(live?.forecast_median_pct);
+  const asOf = isoDate(live?.as_of);
+  return {
+    rows, median, published, asOf, fitAsOf: isoDate(live?.fit_as_of) ?? asOf,
+    reproduces: median != null && published != null && fmtNum(median, 1) === fmtNum(published, 1),
+  };
+};
+
+/**
+ * METH's live fit for the call of record (liveOfRecord()). For a snapshot computed from an older
+ * close than the newest recorded call, that call's inputs under the snapshot's coefficients when
+ * they reproduce its median; when they do not, the snapshot's own computation, with `superseded`
+ * set to the recorded call's close so it is never labelled as the call.
+ */
+export const recordFit = (data, lab = null) => {
+  const { live, liveRecord } = getVol(data);
+  const block = liveOfRecord(live, liveRecord);
+  const fit = liveFit(block, lab);
+  if (block === live || fit?.reproduces) return fit;
+  const own = liveFit(live, lab);
+  return own ? { ...own, superseded: isoDate(block?.as_of) } : null;
 };
 
 const dmClause = (stat, p) => {
@@ -292,8 +315,22 @@ export const modelCard = (data, research) => {
   const terms = coefficientTerms(lab) ?? DEFAULT_TERMS;
   const record = leaderboardRows(lab).find((row) => row.key === getRoles(lab, live).champion);
   const floor = num(lab?.noise_floor?.har_direction_acc_pct_mean);
-  const smearing = num(live?.smearing_factor);
-  const median = num(live?.forecast_median_pct);
+  // Median × √smearing for the call of record; for a snapshot from an older close whose fit does
+  // not give the recorded call's mean, the snapshot's own, with `superseded` naming the call it is not.
+  const call = liveOfRecord(live, liveRecord);
+  const meanOf = (block) => {
+    const smearing = num(block?.smearing_factor);
+    const median = num(block?.forecast_median_pct);
+    return smearing != null && median != null ? { median, smearing, mean: median * Math.sqrt(smearing), asOf: isoDate(block?.as_of) } : null;
+  };
+  let mean = meanOf(call);
+  if (call !== live && mean) {
+    const forecast = num(call?.forecast_next_week_vol_annualized_pct);
+    if (forecast == null || Math.abs(mean.mean - forecast) >= TOLERANCE) {
+      const own = meanOf(live);
+      mean = own ? { ...own, superseded: mean.asOf } : null;
+    }
+  }
   const sample = asObject(lab?.sample);
   return {
     name: shortModelName(asText(live?.model) ?? asText(validation?.model)) ?? "HAR-IV",
@@ -305,7 +342,7 @@ export const modelCard = (data, research) => {
     purge,
     equation: harEquation(terms.slice(1), horizon, lag),
     direction: record?.directionAcc != null && floor != null ? { accuracy: record.directionAcc, floor } : null,
-    mean: smearing != null && median != null ? { median, smearing, mean: median * Math.sqrt(smearing) } : null,
+    mean,
     ovxSource: asText(live?.inputs?.ovx_source),
     challenger: asText(live?.challenger?.label) ?? asText(liveRecord?.promotion?.challenger_key),
     evaluation: modelCardEvaluation(lab),

@@ -35,7 +35,7 @@ const PANELS = [
 ];
 
 /** The sections whose figures come from research.json (the rest read data.json alone). */
-export const RESEARCH_SECTIONS = ["modl", "stab", "calb", "risk", "cone", "vrp", "leak", "ledg", "meth"];
+export const RESEARCH_SECTIONS = ["modl", "stab", "calb", "risk", "cone", "vrp", "leak", "stdy", "ledg", "meth"];
 
 /**
  * The one page-level note for a missing research.json, under the verdict: which sections it

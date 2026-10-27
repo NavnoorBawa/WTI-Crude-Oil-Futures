@@ -277,20 +277,38 @@ const sectionOf = (element) => element?.closest("section.panel[id]") ?? null;
 const headingIn = (element) => element?.querySelector("h2[tabindex]") ?? null;
 
 /**
+ * Focuses where a jump landed, without moving the view: a section's heading, or else the element
+ * itself (a model or ledger row, a reference item), so a screen reader announces it and the next
+ * Tab continues from there instead of from the section's top. An element that cannot take focus
+ * gets tabindex -1 for as long as it has it.
+ */
+const focusTarget = (node) => {
+  if (!node) return;
+  if (node.matches("section")) {
+    headingIn(node)?.focus({ preventScroll: true });
+    return;
+  }
+  if (!node.hasAttribute("tabindex")) {
+    node.setAttribute("tabindex", "-1");
+    node.addEventListener("blur", () => node.removeAttribute("tabindex"), { once: true });
+  }
+  node.focus({ preventScroll: true });
+};
+
+/**
  * Scrolls a section (or an element in one) to the top of the view, under the bar, and focuses
- * its section's heading. Smooth through the page's CSS, instant under reduced motion.
+ * the section's heading (or the element). Smooth through the page's CSS, instant under reduced motion.
  */
 export function focusSection(element, { block = "start" } = {}) {
   if (!element) return;
   element.scrollIntoView({ block });
-  const section = sectionOf(element) ?? element;
-  pinSection(section.id);
-  headingIn(section)?.focus({ preventScroll: true });
+  pinSection((sectionOf(element) ?? element).id);
+  focusTarget(element);
 }
 
 /**
  * Goes to an element by id, through the URL's #hash (so the browser, the hash landing, the method
- * notes and the ledger all react as they do to a link), then focuses its section's heading. When
+ * notes and the ledger all react as they do to a link), then focuses it (a section, its heading). When
  * the element is missing or hidden it goes to `fallback` instead; with `reveal`, the hash is set
  * first and the fallback is used only if nothing showed the element within a moment (the ledger
  * shows a filtered-out row when the hash names it).
@@ -307,8 +325,8 @@ export function jumpTo(target, { fallback = null, reveal = false } = {}) {
     } else {
       pinSection(sectionOf(node)?.id ?? id);
       window.location.hash = id;
-      // A row has no heading of its own: focus its section's, without moving the view.
-      if (!node.matches("section")) headingIn(sectionOf(node))?.focus({ preventScroll: true });
+      // The browser scrolls to it. A section's heading takes focus on the hashchange (useHashLanding).
+      if (!node.matches("section")) focusTarget(node);
     }
     return true;
   };
@@ -317,8 +335,9 @@ export function jumpTo(target, { fallback = null, reveal = false } = {}) {
     pinSection(fallback);
     window.location.hash = target;
     window.setTimeout(() => {
-      if (isShown(document.getElementById(target))) {
-        headingIn(document.getElementById(fallback))?.focus({ preventScroll: true });
+      const shown = document.getElementById(target);
+      if (isShown(shown)) {
+        focusTarget(shown);
         return;
       }
       const url = `${window.location.pathname}${window.location.search}#${fallback}`;

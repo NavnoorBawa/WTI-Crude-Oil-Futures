@@ -6,7 +6,7 @@ import {
 } from "../lib/assertions";
 import { DASH, NBSP, fmtInt, fmtNum, fmtP, fmtPValue, fmtPct, fmtSigned, fmtSignedPct, num, tidyProse } from "../lib/format";
 import { asObject, asText, eventName, researchLedger, supplyStudy } from "../lib/research";
-import { StudyHead } from "./common";
+import { ResearchUnavailable, StudyHead } from "./common";
 
 // Fallback labels for data.json playbook groups that carry no `label` of their own.
 const SUPPLY_LABELS = {
@@ -144,6 +144,22 @@ function IntervalGlyph({ domain, lo = null, hi = null, median = null, placebo = 
   );
 }
 
+/** A group's 95% bootstrap interval of the median peak, or null when an edge is missing. */
+const peakInterval = (row) => (row.ciPeak?.length === 2 && row.ciPeak.every((v) => v != null) ? row.ciPeak : null);
+
+/**
+ * Columns for the CSV only (hidden on screen): the interval the peak cell draws beside the median,
+ * and the event pairs behind the n cell's †, so the export holds what the table shows.
+ */
+export const SUPPLY_CSV_COLUMNS = [
+  { key: "peakLo", label: "Median peak 95% CI low %", className: "csv-only", render: () => null, csv: (row) => peakInterval(row)?.[0] ?? null },
+  { key: "peakHi", label: "Median peak 95% CI high %", className: "csv-only", render: () => null, csv: (row) => peakInterval(row)?.[1] ?? null },
+  {
+    key: "overlaps", label: "Events whose windows share sessions (†)", className: "csv-only", render: () => null,
+    csv: (row) => (row.overlaps?.length ? row.overlaps.map(pairText).join("; ") : null),
+  },
+];
+
 /** The placebo-controlled event study (research.json supply_study). */
 function SupplyStudyTable({ study }) {
   const rows = [
@@ -167,8 +183,11 @@ function SupplyStudyTable({ study }) {
       ? `† Contains events whose windows share sessions${overlapping?.definition ? ` (${overlapping.definition})` : ""}; the tests treat them as independent draws, which they are not.`
       : null,
     "p-values are not adjusted for the number of groups (see LEDG).",
-    domain ? "Beside each median peak, the line is its 95% bootstrap interval, the dot the median (solid where the group passes the rule) and the dashed rule the ordinary-date median, on one scale for every row." : null,
   ].filter(Boolean).join(" ");
+  // A phone hides the glyph (the [CI] brackets carry the interval), and with it the sentence that reads it.
+  const glyphNote = domain
+    ? "Beside each median peak, the line is its 95% bootstrap interval, the dot the median (solid where the group passes the rule) and the dashed rule the ordinary-date median, on one scale for every row."
+    : null;
   return (
     <DataTable
       caption="Median 20-session peak and session-10 settle vs an ordinary date, tested against random and year-matched placebo dates"
@@ -195,7 +214,7 @@ function SupplyStudyTable({ study }) {
           key: "peak", label: "Median [95% CI]", title: "Median 20-session peak, with its 95% bootstrap interval", align: "right",
           csvLabel: "Median peak %",
           render: (row) => {
-            const ci = row.ciPeak?.length === 2 && row.ciPeak.every((v) => v != null) ? row.ciPeak : null;
+            const ci = peakInterval(row);
             return (
               <span className="peak-cell">
                 <span className="num">{fmtSignedPct(row.peak)}</span>
@@ -211,9 +230,10 @@ function SupplyStudyTable({ study }) {
         { key: "settle", label: "Median", csvLabel: "Median settle %", title: "Median move to the session-10 close", align: "right", render: (row) => <span className="num">{fmtSignedPct(row.settle)}</span> },
         { key: "settleP", label: "vs placebo", csvLabel: "Settle p vs placebo", title: `Settle p: ${UNMATCHED_TITLE}`, align: "right", className: "wrap-head", render: pCell("settleP") },
         { key: "settlePYear", label: "year-matched", csvLabel: "Settle p year-matched", title: `Settle p: ${YEAR_MATCHED_TITLE}`, align: "right", className: "wrap-head", render: pCell("settlePYear") },
+        ...SUPPLY_CSV_COLUMNS,
       ]}
       rows={rows}
-      footnote={footnote}
+      footnote={<>{footnote}{glyphNote && <span className="glyph-note">{` ${glyphNote}`}</span>}</>}
     />
   );
 }
@@ -228,7 +248,7 @@ export const methodSentences = (method) => {
 };
 
 /** STDY: two side studies. Neither is a forecast; both are reported with their limits. */
-export default function StudiesPanel({ data, research }) {
+export default function StudiesPanel({ data, research, researchStatus }) {
   const carry = asObject(research?.carry);
   const playbook = asObject(data?.supply_shock_playbook);
   const study = supplyStudy(research);
@@ -244,8 +264,11 @@ export default function StudiesPanel({ data, research }) {
     .filter((sample) => sample.stats) : [];
   const signSplit = asObject(carry?.sign_split?.full_sample);
   const hasStudy = Boolean(study?.groups.length);
+  // The carry study and the placebo-controlled supply study are in research.json: while it loads, or
+  // when it did not load, the panel says so where they go and claims no absence of either.
+  const researchMissing = !research && (researchStatus === "loading" || researchStatus === "unavailable");
 
-  if (!carryRows.length && !rows.length && !hasStudy) return null;
+  if (!carryRows.length && !rows.length && !hasStudy && !researchMissing) return null;
 
   return (
     <Panel
@@ -271,6 +294,11 @@ export default function StudiesPanel({ data, research }) {
       resetKey={data}
     >
       <div className="studies">
+        {researchMissing && (
+          <div className="study">
+            <ResearchUnavailable status={researchStatus} what="the carry and placebo-controlled supply studies" />
+          </div>
+        )}
         {carryRows.length > 0 && (
           <div className="study">
             <StudyHead title={carryAssertion(carry) ?? "Carry"} detail={carryDetail(carry, ledger)} />
@@ -319,7 +347,8 @@ export default function StudiesPanel({ data, research }) {
         {(hasStudy || rows.length > 0) && (
           <div className="study">
             <StudyHead
-              title={(hasStudy ? supplyStudyAssertion(study) : null) ?? supplyPlaybookAssertion(playbook) ?? "Supply shocks"}
+              title={(hasStudy ? supplyStudyAssertion(study) : null)
+                ?? supplyPlaybookAssertion(playbook, { researchLoaded: Boolean(research) }) ?? "Supply shocks"}
               detail={hasStudy ? supplyStudyDetail(study) : []}
             />
             {hasStudy ? <SupplyStudyTable study={study} /> : (

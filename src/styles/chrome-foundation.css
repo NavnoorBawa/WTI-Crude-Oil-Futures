@@ -11,6 +11,7 @@
 .chip-link { text-decoration: none; }
 .chip-link:hover { color: var(--text-1); border-color: var(--text-4); }
 .panel-eyebrow .micro { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-eyebrow > .chip { flex: none; }
 @keyframes chip-target-flash {
   from { background: var(--s-model); border-color: var(--s-model); color: var(--bg-0); }
   to { background: var(--bg-2); border-color: var(--rule-strong); color: var(--text-1); }
@@ -60,6 +61,14 @@
      beside the Table toggle) would squeeze the section name, so those take their own row after the
      meta, next to the figure they change; the title still runs straight into its meta. */
   .panel-actions:has(> :nth-child(2)) { grid-row: 4; grid-column: 1 / -1; justify-content: flex-start; }
+}
+@media (max-width: 960px) {
+  /* Form controls (the ledger's search and filters) are too wide to share the eyebrow's row on a
+     tablet: beside it they squeeze the section name to nothing and are drawn over the code chip. */
+  .panel-actions:has(input, select) { grid-row: 4; grid-column: 1 / -1; justify-content: flex-start; }
+}
+@media (min-width: 641px) and (max-width: 960px) {
+  .panel-actions:has(input, select) { margin-top: var(--sp-3); }
 }
 
 /* View controls (range presets) sit right-aligned above the figure they change. */
@@ -111,7 +120,8 @@
 .term-pop {
   position: absolute;
   top: 100%;
-  left: 0;
+  /* Term.jsx shifts the box itself, not a transform of it, so its layout box never widens the page. */
+  left: var(--term-shift, 0px);
   z-index: 20;
   width: max-content;
   max-width: min(320px, 90vw);
@@ -128,7 +138,6 @@
   text-align: left;
   white-space: normal;
   color: var(--text-2);
-  transform: translateX(var(--term-shift, 0px));
 }
 .term-pop[data-place="above"] { top: auto; bottom: 100%; margin: 0 0 4px; }
 .term-pop-name { font-weight: 600; color: var(--text-1); }
@@ -174,7 +183,7 @@
 }
 
 /* Column groups: a header row over the groups and a rule before each group after the first. */
-.data-table .group-row th { padding-bottom: 2px; border-bottom: 1px solid var(--rule); vertical-align: bottom; }
+.data-table .group-row > * { padding-bottom: 2px; border-bottom: 1px solid var(--rule); vertical-align: bottom; }
 .data-table .group-start:not(:first-child) { border-left: 1px solid var(--rule); padding-left: var(--sp-3); }
 
 @media (max-width: 640px) {
@@ -197,6 +206,10 @@
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
   }
+  /* The sticky row-header rule (index.css) out-ranks the two above: without these the hidden first
+     header stays sticky and 112px wide, and its row's rule draws as a stub above the first card. */
+  .data-table.is-cards.has-sticky thead tr:not(.group-row) th:first-child { position: static; min-width: 0; max-width: none; }
+  .data-table.is-cards.has-sticky thead tr:not(.group-row) th:first-child:not([aria-sort]) { position: absolute; }
   .data-table.is-cards thead .sort-button { width: auto; flex-direction: row; }
   .data-table.is-cards tbody tr { padding: var(--sp-3) 0; border-bottom: 1px solid var(--rule); }
   .data-table.is-cards tbody > tr > * {

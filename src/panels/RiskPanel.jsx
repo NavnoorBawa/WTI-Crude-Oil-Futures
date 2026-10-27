@@ -23,9 +23,9 @@ const LEVELS = ["99", "95"];
 const RANGE_OPTIONS = RANGES.map((value) => ({ value, label: value.toUpperCase() }));
 // The breach count of the last LAST_WEEKS weeks, as var_backtest.grid0 reports it.
 const LAST_WEEKS = 250;
-// VarChart's plot plus its legend row, as measured at 1440 and 390px (a 300px plot; on a phone a
-// 240px plot under a legend that wraps).
-const VAR_HEIGHT = { wide: 328, narrow: 308 };
+// VarChart's plot plus its legend row, as measured at 1440 and 390px (a 300px plot under the reading
+// and the line naming the labelled weeks; on a phone a 240px plot under a legend that wraps).
+const VAR_HEIGHT = { wide: 344, narrow: 308 };
 
 /** Which VaR line a week's log return fell below: "99%", "95%" or "no". */
 const breachText = (row) => (row.var99 != null && row.ret < -row.var99 ? "99%" : row.var95 != null && row.ret < -row.var95 ? "95%" : "no");
@@ -243,6 +243,16 @@ export default function RiskPanel({ data, research, researchStatus }) {
             render: (row) => <span className="num">{fmtInt(row.exceedances)} <span className="muted">/ {fmtNum(row.expected, 1)}</span></span>,
             csvLabel: "Breaches (grid 0)",
           },
+          { key: "kupiecPass", label: "Kupiec", title: "Unconditional coverage (Kupiec 1995)", sortable: true, firstDirection: "desc", render: (row) => <PassMeter pass={row.kupiecPass} total={row.gridCount} />, csvLabel: "Kupiec: grids passed" },
+          {
+            key: "independencePass",
+            // A phone shows "Indep." (the full word stays for screen readers), so the key columns fit.
+            label: <><span className="label-full">Independence</span><span className="label-short" aria-hidden="true">Indep.</span></>,
+            title: "No clustering (Christoffersen 1998)", sortable: true, firstDirection: "desc",
+            render: (row) => <PassMeter pass={row.independencePass} total={row.gridCount} />, csvLabel: "Independence: grids passed",
+          },
+          { key: "ccPass", label: "Cond. cov.", title: "Conditional coverage (Christoffersen 1998)", sortable: true, firstDirection: "desc", hideBelow: 640, render: (row) => <PassMeter pass={row.ccPass} total={row.gridCount} />, csvLabel: "Conditional coverage: grids passed" },
+          { key: "dqPass", label: "DQ", title: "Dynamic quantile test (Engle-Manganelli 2004)", sortable: true, firstDirection: "desc", hideBelow: 640, render: (row) => <PassMeter pass={row.dqPass} total={row.gridCount} />, csvLabel: "DQ: grids passed" },
           {
             key: "last250", label: hasZones ? `Last ${LAST_WEEKS} wk, Basel zone` : `Last ${LAST_WEEKS} wk`,
             title: `Grid 0 breaches in the last ${LAST_WEEKS} weeks vs the expected count${hasZones ? ", with the Basel traffic-light zone the backtest assigns" : ""}`,
@@ -270,16 +280,6 @@ export default function RiskPanel({ data, research, researchStatus }) {
             key: "kupiecP", label: "Kupiec p", title: "Kupiec test p-value on grid 0", align: "right", sortable: true, firstDirection: "desc", hideBelow: 640,
             render: (row) => <span className="num">{fmtPValue(row.kupiecP, { digits: 3 })}</span>,
           },
-          { key: "kupiecPass", label: "Kupiec", title: "Unconditional coverage (Kupiec 1995)", sortable: true, firstDirection: "desc", render: (row) => <PassMeter pass={row.kupiecPass} total={row.gridCount} />, csvLabel: "Kupiec: grids passed" },
-          {
-            key: "independencePass",
-            // A phone shows "Indep." (the full word stays for screen readers), so the key columns fit.
-            label: <><span className="label-full">Independence</span><span className="label-short" aria-hidden="true">Indep.</span></>,
-            title: "No clustering (Christoffersen 1998)", sortable: true, firstDirection: "desc",
-            render: (row) => <PassMeter pass={row.independencePass} total={row.gridCount} />, csvLabel: "Independence: grids passed",
-          },
-          { key: "ccPass", label: "Cond. cov.", title: "Conditional coverage (Christoffersen 1998)", sortable: true, firstDirection: "desc", hideBelow: 640, render: (row) => <PassMeter pass={row.ccPass} total={row.gridCount} />, csvLabel: "Conditional coverage: grids passed" },
-          { key: "dqPass", label: "DQ", title: "Dynamic quantile test (Engle-Manganelli 2004)", sortable: true, firstDirection: "desc", hideBelow: 640, render: (row) => <PassMeter pass={row.dqPass} total={row.gridCount} />, csvLabel: "DQ: grids passed" },
         ]}
         rows={shown}
       />

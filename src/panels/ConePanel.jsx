@@ -9,13 +9,14 @@ import { coneAssertion } from "../lib/assertions";
 import { LIVE_WINDOWS, coneView } from "../lib/cone";
 import { DASH, fmtDate, fmtNum, fmtPct, num, ordinal } from "../lib/format";
 import { getLab, getVol } from "../lib/research";
+import { liveOfRecord } from "../lib/verdict";
 import { Facts, Legend, ResearchUnavailable } from "./common";
 
 const IMPLIED_HORIZON_SESSIONS = 21; // OVX is a 30-calendar-day implied vol: about 21 sessions
 const CONE_HEIGHT = 300;             // ConeChart's fixed height, reserved while it loads
 
 const SOURCE = {
-  artifact: ["research.json → vol_lab.vol_cone", "data.json → vol_forecast.live"],
+  artifact: ["research.json → vol_lab.vol_cone", "data.json → vol_forecast.live", "data.json → vol_forecast.live_record"],
   reproduce: [REPRODUCE.lab, REPRODUCE.validation],
 };
 
@@ -35,7 +36,10 @@ const markNote = (mark) => (mark.source === "lab" && mark.percentile != null
  */
 export default function ConePanel({ data, research, researchStatus }) {
   const lab = getLab(research);
-  const { live } = getVol(data);
+  const { live: snapshot, liveRecord } = getVol(data);
+  // The call of record, as the hero shows it: a snapshot from an older close than the newest
+  // recorded call gives way to that call's date, forecast and inputs.
+  const live = useMemo(() => liveOfRecord(snapshot, liveRecord), [snapshot, liveRecord]);
   const view = useMemo(() => coneView(lab?.vol_cone, live), [lab, live]);
   const forecast = num(live?.forecast_next_week_vol_annualized_pct);
   const horizon = num(lab?.config?.horizon_sessions) ?? view.windows[0]?.window ?? null;

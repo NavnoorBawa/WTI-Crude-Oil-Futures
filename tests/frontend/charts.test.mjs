@@ -66,6 +66,21 @@ test("largestMiss picks the largest |log error| inside a date window", () => {
   assert.equal(largestMiss(fixtureRows).date, best.date);
 });
 
+test("forecast axis tick labels under the OVX and model badges are left blank", () => {
+  const { ticksUnderBadges } = m.forecastChart;
+  // One badge (17px tall) at y = 100: a 12px tick label overlapping it is covered, one clear of it is not.
+  assert.deepEqual(ticksUnderBadges([100, 112, 116, 85, 88], [100]), [true, true, false, false, true]);
+  // Two badges 6px apart stack (one is pushed a badge height off the other, either way), so the
+  // pair covers the '50%' tick 13px under the lower value, as at 1440px with OVX 60 and HAR-IV 58.
+  assert.deepEqual(ticksUnderBadges([192, 131, 160], [173, 179]), [true, false, true]);
+  // Apart, each badge covers only its own neighbourhood.
+  assert.deepEqual(ticksUnderBadges([192, 150], [100, 150]), [false, true]);
+  assert.deepEqual(ticksUnderBadges([100, null], [null, Number.NaN]), [false, false], "no badge value, nothing blank");
+  const source = readSource("src/charts/ForecastChart.jsx");
+  assert.match(source, /tickmarksPriceFormatter: \(prices\) => tickLabels\(prices\)/);
+  assert.match(source, /lastValueVisible: true/, "the badges stay");
+});
+
 test("varAnnotations finds the worst week and the latest 99% breach in a window", () => {
   const { varAnnotations } = m.varChart;
   const rows = [
@@ -78,6 +93,21 @@ test("varAnnotations finds the worst week and the latest 99% breach in a window"
   assert.deepEqual([all.worst.date, all.latestBreach.date], ["2020-04-13", "2024-01-05"]);
   const recent = varAnnotations(rows, "2025-01-01");
   assert.deepEqual([recent.worst.date, recent.latestBreach], ["2025-06-06", null]);
+  // The legend names them (marker text on the plot would sit under the VaR step lines).
+  const { varAnnotationText } = m.varChart;
+  assert.equal(varAnnotationText(all), "in view: worst week Apr 13, 2020 (−80.0%) · latest 99% breach Jan 5, 2024 (−35.0%)");
+  assert.equal(varAnnotationText(varAnnotations(rows, "2024-01-01", "2024-12-31")),
+    "in view: worst week Jan 5, 2024 (−35.0%), also the latest 99% breach", "one week said once");
+  assert.equal(varAnnotationText(recent), "in view: worst week Jun 6, 2025 (−25.0%)");
+  assert.equal(varAnnotationText({ worst: null, latestBreach: null }), null);
+  assert.doesNotMatch(readSource("src/charts/VarChart.jsx"), /\btext: /, "no marker carries text");
+});
+
+test("the VaR price axis leaves headroom and draws no tick label cut by the pane edge", () => {
+  const source = readSource("src/charts/VarChart.jsx");
+  const scale = source.match(/rightPriceScale: \{[^\n]*\}/)?.[0] ?? "";
+  assert.match(scale, /entireTextOnly: true/, "a tick label half outside the pane is not drawn");
+  assert.ok(Number(scale.match(/top: ([\d.]+)/)?.[1]) >= 0.1, scale);
 });
 
 test("VaR bars before the VaR warms up are solid text-4, at least 3:1 on the panel", () => {

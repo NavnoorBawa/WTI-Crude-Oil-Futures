@@ -135,8 +135,28 @@ export const elasticityLabel = (path) => {
 };
 
 /**
+ * True when a polyline (points in px; a null breaks it) passes through a box {x0, x1, y0, y1}. A
+ * segment counts by its bounding box, which errs towards a hit (weekly segments are a few px). Pure.
+ * @param {{x0:number, x1:number, y0:number, y1:number}} box
+ * @param {({px:number, py:number}|null)[]} points
+ */
+export const boxMeetsPolyline = (box, points) => {
+  for (let index = 1; index < points.length; index += 1) {
+    const a = points[index - 1];
+    const b = points[index];
+    if (!a || !b) continue;
+    if (Math.max(a.px, b.px) < box.x0 || Math.min(a.px, b.px) > box.x1) continue;
+    if (Math.max(a.py, b.py) < box.y0 || Math.min(a.py, b.py) > box.y1) continue;
+    return true;
+  }
+  return false;
+};
+
+/**
  * The OVX coefficient and the summed realized-vol coefficients of HAR-IV at each walk-forward refit,
- * with the OVX extremes marked and each line labelled at its end.
+ * with the OVX extremes marked and each line labelled at its end. An extreme's label sits beside its
+ * dot (max above, min below) unless a line would run through it there (the summed-RV line passes
+ * just under the OVX trough); then it moves to the end-label column under the OVX value, with its year.
  *
  * @param {{path: {points: {date: string, ovx: number, rv: number|null}[], first: string, last: string,
  *   ovx: {min: number, minDate: string, max: number, maxDate: string, last: number}|null,
@@ -154,36 +174,50 @@ export function ElasticityPathSvg({ path, width }) {
     .defined((point) => point[key] != null)
     .x((point) => x(parseDay(point.date)))
     .y((point) => y(point[key]))(path.points);
-  const ends = [
-    path.ovx && { key: "ovx", name: "OVX", value: path.ovx.last, tone: "implied" },
-    path.rv && { key: "rv", name: "RV, summed", value: path.rv.last, tone: "ink" },
-  ].filter(Boolean).map((item) => ({ ...item, y: y(item.value) })).sort((a, b) => a.y - b.y);
-  for (let index = 1; index < ends.length; index += 1) ends[index].y = Math.max(ends[index].y, ends[index - 1].y + 26);
-  const marks = path.ovx ? [
+  const clampX = (value, text) => Math.min(Math.max(value, m.left + (text.length * CHAR_PX) / 2), right - (text.length * CHAR_PX) / 2);
+  const polyline = (key) => path.points.map((point) => (point[key] != null ? { px: x(parseDay(point.date)), py: y(point[key]) } : null));
+  const lines = [polyline("ovx"), ...(path.rv ? [polyline("rv")] : [])];
+  const marks = (path.ovx ? [
     { key: "max", date: path.ovx.maxDate, value: path.ovx.max, dy: -8 },
     { key: "min", date: path.ovx.minDate, value: path.ovx.min, dy: 16 },
-  ] : [];
-  const clampX = (value, text) => Math.min(Math.max(value, m.left + (text.length * CHAR_PX) / 2), right - (text.length * CHAR_PX) / 2);
+  ] : []).map((mark) => {
+    const label = `${mark.key} ${fmtNum(mark.value, 2)}`;
+    const cx = x(parseDay(mark.date));
+    const lx = clampX(cx, label);
+    const half = (label.length * CHAR_PX) / 2;
+    const baseline = y(mark.value) + mark.dy;
+    // The label's box at the 11px font, its halo and a line's half-width included.
+    const box = { x0: lx - half - 3, x1: lx + half + 3, y0: baseline - 12, y1: baseline + 5 };
+    return { ...mark, label, cx, lx, inPlot: !lines.some((points) => boxMeetsPolyline(box, points)) };
+  });
+  const moved = marks.filter((mark) => !mark.inPlot)
+    .map((mark) => `${mark.label}, ${new Date(parseDay(mark.date)).getUTCFullYear()}`);
+  const ends = [
+    path.ovx && { key: "ovx", name: "OVX", value: path.ovx.last, tone: "implied", notes: moved },
+    path.rv && { key: "rv", name: "RV, summed", value: path.rv.last, tone: "ink", notes: [] },
+  ].filter(Boolean).map((item) => ({ ...item, y: y(item.value) })).sort((a, b) => a.y - b.y);
+  for (let index = 1; index < ends.length; index += 1) {
+    ends[index].y = Math.max(ends[index].y, ends[index - 1].y + 26 + 13 * ends[index - 1].notes.length);
+  }
   return (
     <svg width={width} height={height} className="svg-chart" role="img" aria-label={elasticityLabel(path)}>
       <YAxis scale={y} ticks={y.ticks(4)} format={(tick) => fmtNum(tick, 1)} left={m.left} right={right} />
       <line className="stroke-axis" x1={m.left} x2={right} y1={y(0)} y2={y(0)} />
       {path.rv && <path d={draw("rv")} className="stroke-ink" fill="none" />}
       <path d={draw("ovx")} className="stroke-implied line-2" fill="none" />
-      {marks.map((mark) => {
-        const label = `${mark.key} ${fmtNum(mark.value, 2)}`;
-        const cx = x(parseDay(mark.date));
-        return (
-          <g key={mark.key}>
-            <circle cx={cx} cy={y(mark.value)} r={3} className="fill-implied" />
-            <text className="axis-note halo" x={clampX(cx, label)} y={y(mark.value) + mark.dy} textAnchor="middle">{label}</text>
-          </g>
-        );
-      })}
+      {marks.map((mark) => (
+        <g key={mark.key}>
+          <circle cx={mark.cx} cy={y(mark.value)} r={3} className="fill-implied" />
+          {mark.inPlot && <text className="axis-note halo" x={mark.lx} y={y(mark.value) + mark.dy} textAnchor="middle">{mark.label}</text>}
+        </g>
+      ))}
       {ends.map((item) => (
         <g key={item.key}>
           <text className={`end-label label-${item.tone}`} x={right + 8} y={item.y} dy="0.32em">{item.name}</text>
           <text className="end-value" x={right + 8} y={item.y + 13} dy="0.32em">{fmtNum(item.value, 2)}</text>
+          {item.notes.map((note, index) => (
+            <text key={note} className="axis-note" x={right + 8} y={item.y + 26 + 13 * index} dy="0.32em">{note}</text>
+          ))}
         </g>
       ))}
       <XAxis scale={x} ticks={x.ticks(width < 520 ? 3 : 6)} format={(tick) => String(new Date(tick).getUTCFullYear())} y={height - m.bottom} />

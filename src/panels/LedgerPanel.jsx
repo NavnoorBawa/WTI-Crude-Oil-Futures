@@ -141,6 +141,18 @@ export default function LedgerPanel({ research, researchStatus }) {
       key: "hypothesis", label: "Hypothesis", rowHeader: true, className: "wrap-cell ledger-hypothesis",
       render: (row) => <HypothesisCell row={row} words={words} />,
     },
+    {
+      key: "status", label: "Status", title: "Sorts by status, best evidence first, then by q (the default order)", sortable: true, className: "status-cell",
+      sortValue: ledgerOrderValue, csv: (row) => asText(row.status),
+      render: (row) => (asText(row.status) ? (
+        <span className="chip-stack">
+          <Chip tone={STATUS_TONE[row.status] ?? "muted"} title={STATUS_TITLE[row.status]}>{ledgerStatusLabel(row.status)}</Chip>
+          {row.underpowered && <Chip tone="status-warn" title={UNDERPOWERED_TITLE}>underpowered</Chip>}
+          {row.selectedAfterSearch && <Chip tone="warn" title={AFTER_SEARCH_TITLE}>selected after search</Chip>}
+          {row.pre_specified === true && <Chip tone="status-pending" title={PRE_SPECIFIED_TITLE}>pre-specified</Chip>}
+        </span>
+      ) : DASH),
+    },
     { key: "family", label: "Family", sortable: true, className: "muted-cell", render: (row) => humanizeKey(row.family) },
     {
       key: "statistic", label: "Statistic", align: "right", sortable: true,
@@ -171,18 +183,6 @@ export default function LedgerPanel({ research, researchStatus }) {
       sortValue: (row) => (row.clears_t3 ? 1 : 0), firstDirection: "desc",
       csv: (row) => ledgerFlagText(row, "clears_t3"),
       render: (row) => flagCell(row, "clears_t3"),
-    },
-    {
-      key: "status", label: "Status", title: "Sorts by status, best evidence first, then by q (the default order)", sortable: true, className: "status-cell",
-      sortValue: ledgerOrderValue, csv: (row) => asText(row.status),
-      render: (row) => (asText(row.status) ? (
-        <span className="chip-stack">
-          <Chip tone={STATUS_TONE[row.status] ?? "muted"} title={STATUS_TITLE[row.status]}>{ledgerStatusLabel(row.status)}</Chip>
-          {row.underpowered && <Chip tone="status-warn" title={UNDERPOWERED_TITLE}>underpowered</Chip>}
-          {row.selectedAfterSearch && <Chip tone="warn" title={AFTER_SEARCH_TITLE}>selected after search</Chip>}
-          {row.pre_specified === true && <Chip tone="status-pending" title={PRE_SPECIFIED_TITLE}>pre-specified</Chip>}
-        </span>
-      ) : DASH),
     },
     {
       key: "date", label: "Recorded", title: "The date of the artifact that holds the test", sortable: true, firstDirection: "desc",
@@ -249,6 +249,8 @@ export default function LedgerPanel({ research, researchStatus }) {
   // and before the frame is painted, the page scrolls the button back under the reader's pointer.
   const moreRef = useRef(null);
   const collapsing = useRef(false);
+  // "Clear filters" sits in the empty table and is gone once rows return: focus goes to the search.
+  const searchRef = useRef(null);
   const toggleAll = () => {
     collapsing.current = showAll;
     setRowsParam(showAll ? "" : "all");
@@ -278,7 +280,12 @@ export default function LedgerPanel({ research, researchStatus }) {
   const others = statuses.filter((key) => key !== "supported").map((key) => `${fmtInt(ledger.byStatus?.[key] ?? 0)} ${ledgerStatusLabel(key)}`);
   const total = ledger.rows.length;
   const familySize = num(research?.ledger?.summary?.rows_in_multiplicity_family);
-  const clear = () => { setQuery(""); setFamily("all"); setStatus("all"); };
+  const clear = () => {
+    setQuery("");
+    setFamily("all");
+    setStatus("all");
+    searchRef.current?.focus();
+  };
   let shown = `${fmtInt(visible.length)} of ${fmtInt(total)} shown`;
   if (!filtered.length) shown = `none of ${fmtInt(total)} match`;
   else if (filtered.length < total) {
@@ -305,6 +312,7 @@ export default function LedgerPanel({ research, researchStatus }) {
       actions={(
         <>
           <input
+            ref={searchRef}
             type="search"
             className="search-input"
             aria-label="Filter hypotheses"
@@ -349,7 +357,7 @@ export default function LedgerPanel({ research, researchStatus }) {
         </LazyMount>
       )}
       <DataTable
-        caption={`Tested hypotheses: ${shown}`}
+        caption={`Tested hypotheses: ${shown}${visible.length < filtered.length ? `; the CSV holds all ${fmtInt(filtered.length)}${filtered.length < total ? " matches" : ""}` : ""}`}
         rowKey={(row) => String(row.id ?? row.hypothesis)}
         rowId={(row) => (asText(row.id) ? ledgerAnchor(row.id) : undefined)}
         rowClass={(row) => [row.status === "retracted" ? "is-flagged" : null, target && row.id === target.id ? "is-target" : null]

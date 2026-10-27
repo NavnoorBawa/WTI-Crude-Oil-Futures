@@ -23,6 +23,10 @@
 
 /* ---------------------------------------------------------------------------------------- risk */
 .zone-note { margin-left: 6px; font-size: var(--fs-11); color: var(--text-3); }
+/* The VaR legend's note on the weeks the plot's arrows label: a muted line of its own under the
+   reading (it describes the view, not the week read), free to wrap on a narrow plot. */
+.legend-annotation { flex-basis: 100%; align-items: baseline; color: var(--text-3); white-space: normal; }
+.legend-arrow { flex: none; margin-right: 6px; color: var(--text-2); }
 .label-short { display: none; }
 /* On a phone the key columns (method, breaches and the Kupiec and independence pass meters) fit
    without a sideways scroll: the method name and its quantile stack and wrap at spaces (never at a
@@ -40,6 +44,18 @@
     white-space: nowrap;
   }
   .data-table .label-short { display: inline; }
+}
+/* On a tablet the method name and its quantile stack as well, so the four test meters, which come
+   first after the breach count, fit beside them before any sideways scroll. */
+@media (min-width: 641px) and (max-width: 960px) {
+  .data-table tbody .risk-method { white-space: normal; }
+  .data-table .risk-method .model-cell { flex-direction: column; align-items: flex-start; gap: 0; }
+}
+/* At 360px those four columns are 14px too wide ("GJR-GARCH(1,1)-t" cannot wrap): the data columns
+   give up half their side padding. */
+@media (max-width: 360px) {
+  #risk .data-table.is-dense th:not(:first-child),
+  #risk .data-table.is-dense td:not(:first-child) { padding-left: var(--sp-1); padding-right: var(--sp-1); }
 }
 
 /* The vol-targeting sub-study: its claim and the tests that qualify it are the disclosure's summary. */

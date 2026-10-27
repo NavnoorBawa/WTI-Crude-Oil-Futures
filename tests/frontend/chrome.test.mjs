@@ -6,7 +6,7 @@ import { after, before, test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SECTIONS } from "../../src/app/sections.js";
-import { loadDashboard, readFixture, visibleText } from "./load.mjs";
+import { loadDashboard, readFixture, readSource, visibleText } from "./load.mjs";
 
 const FIXED_NOW = Date.parse("2026-10-21T12:00:00Z");
 Date.now = () => FIXED_NOW;
@@ -144,6 +144,16 @@ test("glossary patterns match whole words only, and definitions state no statist
   assert.equal(term.withTerms(7), 7, "non-text passes through");
 });
 
+test("a definition near the right edge moves its own box, so it never widens a phone's page", () => {
+  const css = readSource("src/styles/chrome-foundation.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  const rule = css.match(/^\.term-pop \{([^}]*)\}/m)?.[1] ?? "";
+  assert.match(rule, /\bleft: var\(--term-shift, 0px\);/, "the shift is applied through left");
+  assert.doesNotMatch(rule, /(^|[\s;])transform\s*:/, "a transform leaves the layout box past the edge (the layout viewport grows)");
+  const source = readSource("src/components/Term.jsx");
+  assert.match(source, /window\.visualViewport/, "the edges are the visual viewport's");
+  assert.doesNotMatch(source, /window\.inner(Width|Height)/, "not the layout viewport's, which grows with an overflow");
+});
+
 // --------------------------------------------------------------------------------- the source
 test("the FCST footer links its artifacts to data.json and research.json, and its commands to their modules", () => {
   const { html } = renderDashboard(research);
@@ -208,7 +218,7 @@ test("DataTable options: CSV button, column groups, row ids, narrow-screen colum
   }));
   assert.match(html, /<div class="table-caption-row"><p class="table-caption" aria-hidden="true">Test table<\/p><button type="button" class="csv-button" aria-describedby="[^"]+"><span class="sr-only">Download <\/span>CSV<\/button><\/div>/);
   assert.match(html, /<colgroup span="1"><\/colgroup><colgroup span="2"><\/colgroup>/);
-  assert.match(html, /<tr class="group-row" role="row"><th scope="colgroup" colspan="1" class="group-start" role="columnheader"><\/th><th scope="colgroup" colspan="2" class="group-start" role="columnheader">Measures<\/th><\/tr>/i);
+  assert.match(html, /<tr class="group-row" role="row"><td colspan="1" class="group-start" role="cell" aria-hidden="true"><\/td><th scope="colgroup" colspan="2" class="group-start" role="columnheader">Measures<\/th><\/tr>/i);
   assert.match(html, /<tr id="test-a" role="row">/);
   assert.match(html, /<td class="align-right col-wide group-start" data-label="Value" role="cell">1<\/td>/);
   assert.match(html, /<table class="data-table has-sticky is-cards has-groups" role="table">/);
@@ -217,6 +227,8 @@ test("DataTable options: CSV button, column groups, row ids, narrow-screen colum
   assert.match(hidden, /<div class="table-caption-row"><button type="button" class="csv-button"/, "the button keeps its row when the caption is hidden");
   assert.doesNotMatch(renderToStaticMarkup(Table({})), /table-caption-row|csv-button|role="(table|row|cell)"/, "defaults unchanged");
   assert.match(renderToStaticMarkup(Table({})), /<th scope="col" class="align-left" aria-sort="none"><button type="button" class="sort-button">/);
+  // A label that does not sort sits in the sort button's 28px line box, so the header row keeps one baseline.
+  assert.match(renderToStaticMarkup(Table({})), /<th scope="col" class="align-left"><span class="th-label">Note<\/span><\/th>/);
 });
 
 test("CSV export: RFC 4180 quoting, a BOM, CRLF lines and raw values in the table's order", () => {
@@ -334,4 +346,33 @@ test("without research.json one notice under the verdict names the sections, and
   for (const status of ["loading", "ready"]) {
     assert.doesNotMatch(renderDashboard(status === "ready" ? research : null, status).text, /did not load, so/, `no notice while ${status}`);
   }
+});
+
+test("without research.json STDY is named in the notice, says so in place, and never claims there is no placebo comparison", () => {
+  const stdyOf = (html) => visibleText(html.match(/<section id="stdy"[\s\S]*?<\/section>/)?.[0] ?? "").replace(/\s+/g, " ");
+  const missing = renderDashboard(null, "unavailable");
+  assert.ok(missing.text.includes("STDY"), "the notice names STDY");
+  const stdy = stdyOf(missing.html);
+  assert.ok(stdy.includes("research.json did not load; see the notice under the verdict."), stdy);
+  assert.doesNotMatch(stdy, /no placebo/, "the placebo study exists; it did not load");
+  assert.ok(stdy.includes("after supply removal") && stdy.includes("after threats"), "the playbook medians still show");
+  const loading = stdyOf(renderDashboard(null, "loading").html);
+  assert.ok(loading.includes("Loading research.json"), loading);
+  assert.doesNotMatch(loading, /no placebo/);
+  // Only a research.json that loaded without the supply study has no placebo comparison.
+  const { supply_study: _supply, ...withoutStudy } = research;
+  const without = stdyOf(renderDashboard(withoutStudy, "ready").html);
+  assert.match(without, /after threats; no placebo (comparison|test)/);
+  assert.doesNotMatch(without, /did not load|Loading research/);
+  const playbook = data.supply_shock_playbook;
+  for (const loaded of [true, false]) {
+    const title = m.assertions.supplyPlaybookAssertion(playbook, { researchLoaded: loaded });
+    assert.ok(title.length <= 90, title);
+    assert.equal(/placebo/.test(title), loaded);
+  }
+  // Two two-digit medians keep a shorter clause; a longer head drops it rather than pass 90 characters.
+  const wide = { distributions: { supply_lost: { peak: { median: 12.14 } }, threat_only: { peak: { median: 14.05 } } } };
+  assert.equal(m.assertions.supplyPlaybookAssertion(wide), "Median 20-session peak +12.1% after supply removal, +14.1% after threats; no placebo test");
+  const wider = { distributions: { supply_lost: { peak: { median: 112.14 } }, threat_only: { peak: { median: 104.05 } } } };
+  assert.ok(m.assertions.supplyPlaybookAssertion(wider).length <= 90);
 });
