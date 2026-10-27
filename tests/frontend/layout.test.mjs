@@ -86,6 +86,18 @@ test("each reproduce command and its copy button are one unit, and a flag never 
   assert.match(index, /\.panel-source \.source-command \{ display: inline-flex; align-items: last baseline;[^}]*max-width: 100%; \}/);
 });
 
+test("STAB's model headers wrap at spaces and after a long name's first part, never inside a short one", async () => {
+  const { modelHeader } = await m.load("/src/panels/StabilityPanel.jsx");
+  const html = (label) => renderToStaticMarkup(createElement("span", null, modelHeader(label)));
+  assert.equal(html("GJR-GARCH(1,1)-t"), '<span>GJR-<wbr/><span class="nowrap">GARCH(1,1)-t</span></span>');
+  assert.equal(html("HAR-IV"), '<span><span class="nowrap">HAR-IV</span></span>');
+  assert.equal(html("HAR-IV-range"), '<span><span class="nowrap">HAR-IV-range</span></span>');
+  assert.equal(html("OVX-only regression"), '<span><span class="nowrap">OVX-only</span> regression</span>');
+  assert.equal(html("Raw OVX"), "<span>Raw OVX</span>");
+  // A wrapped sortable header keeps the same space under its last line as a one-line one.
+  assert.match(index, /\.data-table thead th\.wrap-head > \.sort-button \{ min-height: 0; padding-block: calc\(\(28px - 1lh\) \/ 2\); \}/);
+});
+
 test("on a phone the ledger's two filters share one row in equal halves under the search box", () => {
   assert.match(reference, /@media \(max-width: 640px\) \{[^}]*\.search-input \{ flex: 1 1 100%; width: auto; \}[\s\S]*?#ledg \.select \{ flex: 1 1 0; min-width: 0; \}/);
 });
