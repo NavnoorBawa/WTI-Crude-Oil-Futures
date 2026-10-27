@@ -153,9 +153,14 @@ export default defineConfig(({ command, mode }) => {
       rolldownOptions: {
         output: {
           // The charting library gets a chunk under its own name, so its size is traceable in the
-          // build output (otherwise it is named after whichever small module shares it).
+          // build output (otherwise it is named after whichever small module shares it). React and
+          // React DOM get their own chunk too: it loads in parallel with the app's, changes only on a
+          // dependency bump, so it stays cached across deploys, and keeps the app chunk under 500 kB.
           codeSplitting: {
-            groups: [{ name: 'lightweight-charts', test: /[\\/]node_modules[\\/](lightweight-charts|fancy-canvas)[\\/]/ }],
+            groups: [
+              { name: 'lightweight-charts', test: /[\\/]node_modules[\\/](lightweight-charts|fancy-canvas)[\\/]/ },
+              { name: 'react', test: /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/ },
+            ],
           },
         },
       },
