@@ -28,3 +28,10 @@ test("a header label that does not sort is padded to the sort button's 28px line
   assert.match(index, /\.sort-button \{[^}]*min-height: 28px;/);
   assert.match(index, /\.data-table thead th > \.th-label \{ display: inline-block; padding-block: calc\(\(28px - 1lh\) \/ 2\); \}/);
 });
+
+test("a phone's card table un-sticks its hidden first header, so no 112px rule floats above the cards", () => {
+  // index.css keeps a sticky row header sticky and 112px wide with a 0,4,3 selector; the card rules must out-rank it.
+  assert.match(index, /\.data-table\.has-sticky thead tr:not\(\.group-row\) th:first-child \{ white-space: normal; min-width: 112px;/);
+  assert.match(chrome, /\.data-table\.is-cards\.has-sticky thead tr:not\(\.group-row\) th:first-child \{ position: static; min-width: 0; max-width: none; \}/);
+  assert.match(chrome, /\.data-table\.is-cards\.has-sticky thead tr:not\(\.group-row\) th:first-child:not\(\[aria-sort\]\) \{ position: absolute; \}/);
+});

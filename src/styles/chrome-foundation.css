@@ -206,6 +206,10 @@
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
   }
+  /* The sticky row-header rule (index.css) out-ranks the two above: without these the hidden first
+     header stays sticky and 112px wide, and its row's rule draws as a stub above the first card. */
+  .data-table.is-cards.has-sticky thead tr:not(.group-row) th:first-child { position: static; min-width: 0; max-width: none; }
+  .data-table.is-cards.has-sticky thead tr:not(.group-row) th:first-child:not([aria-sort]) { position: absolute; }
   .data-table.is-cards thead .sort-button { width: auto; flex-direction: row; }
   .data-table.is-cards tbody tr { padding: var(--sp-3) 0; border-bottom: 1px solid var(--rule); }
   .data-table.is-cards tbody > tr > * {
