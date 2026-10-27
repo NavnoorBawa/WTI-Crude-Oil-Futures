@@ -143,4 +143,9 @@
 
   .panel-source a[href^="http"]::after,
   .site-footer a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 10px; overflow-wrap: anywhere; }
+
+  /* A figure whose chunk had not arrived when the print began (a Ctrl/Cmd+P right after load)
+     says how to print it, not "Loading". */
+  .figure-placeholder { font-size: 0; }
+  .figure-placeholder::after { content: "Figure not loaded yet: print from Jump › Print or save as PDF, which waits for every figure."; font-size: var(--fs-12); }
 }

@@ -1,5 +1,6 @@
 import { Suspense, startTransition, useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { preloadChunks } from "../app/lazyChunk";
 
 const DEFAULT_HEIGHT = 240;
 // Background mounting starts this long after the load event, once the first screen (the verdict,
@@ -64,11 +65,16 @@ function settled(entry) {
   else draining = false;
 }
 
-// Starts well after the first paint: the load event, SETTLE_MS, then an idle period.
+// Starts well after the first paint: the load event, SETTLE_MS, then an idle period. The chart
+// chunks are fetched at the load event already (in an idle period, rendering nothing), so a
+// figure mounted any time after that, a "beforeprint" mount included, renders at once.
 const startDraining = () => {
   if (draining || !queue.length) return;
   draining = true;
-  const start = () => window.setTimeout(() => whenIdle(drainNext), SETTLE_MS);
+  const start = () => {
+    whenIdle(preloadChunks);
+    window.setTimeout(() => whenIdle(drainNext), SETTLE_MS);
+  };
   if (document.readyState === "complete") start();
   else window.addEventListener("load", start, { once: true });
 };
