@@ -187,11 +187,20 @@ strength its test supports. Nothing here re-selects the challenger: the pair is 
    whether Yahoo's hourly bars (about 730 days) support an intraday-RV robustness check; if so,
    report it as a check, never as the target. Acceptance: each model has a leaderboard row, a
    ledger row and an MCS/SPA rerun.
-7. **Expected-shortfall backtests.** RISK has Kupiec, Christoffersen and DQ for VaR. Add the
-   Acerbi-Szekely ES test for the 97.5% ES the vol-targeting table already reports, per grid.
-   Acceptance: a RISK column and ledger rows, with the method named in the title if it changes.
-8. **Vol targeting with costs.** The vol-targeting comparison is cost-free. Add turnover and a
-   stated per-contract cost, report the Sharpe difference with and without costs, and keep the
+7. **Expected-shortfall backtests.** RISK has Kupiec, Christoffersen and DQ for VaR; the 97.5% ES
+   the overlay quotes is never tested. Add to `forecast_eval.py` the Acerbi-Szekely Z1 and Z2
+   tests with simulation p-values under each method's own distribution (fixed seed and stated
+   replications, so reproduction stays bit for bit) and the Fissler-Ziegel FZ0 joint VaR-ES score
+   (Patton, Ziegel and Chen 2019) with DM comparisons between methods; per method and grid in
+   `var_backtest`, with `*_pass_grids` counters as for VaR. A pass is "not rejected", never
+   "validated". Acceptance: FZ0 is minimised at the true (VaR, ES) on simulated data; Z2 rejects
+   about 5% under the null; RISK renders the ES columns.
+8. **Vol targeting with costs.** The overlay reports Sharpe differences at one cost. Add per book
+   the turnover per year, Sharpe by cost over {0, 2.5, 5, 10, 20} bp, the breakeven cost at which
+   any forecast advantage over trailing-22-day sizing vanishes (null if never positive), and the
+   realized-utility gain over trailing sizing with a DM test and a stationary-bootstrap CI; a
+   ledger row; one computed sentence in README section 2.4. Fields are additive and optional in
+   the validator, since the production validation is a recorded run on downloaded data. Keep the
    existing conclusion (risk control, not return) unless the test says otherwise.
 9. **Per-call attribution.** Store the fit's coefficients and smearing factor in new record
    entries only (additive fields in `vol_record.py`, the validator and `DATA_CONTRACT.md`), then
@@ -202,9 +211,43 @@ strength its test supports. Nothing here re-selects the challenger: the pair is 
 11. **Data-vintage audit.** Record, for each refresh, the last session each source returned, and
     plot how often each source lagged a day (the Oct 26 case). This explains the hero's "older
     close" note with data rather than prose.
-12. **Multiplicity as the ledger grows.** Every new row is declared before its result is known:
-    add a `declared_at` field and a test that no supported row lacks one from now on, so the
-    ledger remains a pre-registration log rather than a results list.
+12. **Multiplicity as the ledger grows: online control and registered rows.** BH and Holm are
+    recomputed over the whole family whenever a row is added, so an old claim's status can flip
+    because of hypotheses tested later, and only 3 of 76 rows are pre-specified. Add to
+    `research_ledger.py` online false-discovery control (LORD++, Ramdas et al. 2017; SAFFRON,
+    Ramdas et al. 2018) at FDR 0.05 over rows ordered by date, storing per row the online alpha
+    and rejection flags and a wealth path in the summary, with BH, Holm and HLZ kept as the batch
+    view. Add a status `registered`: a row declared with `registered_on`, a null p-value and the
+    artifact field path that will hold it; the rebuild test requires that field to exist before
+    the status changes. From now on every new hypothesis is registered before its result is
+    known. Acceptance: unit tests reproduce the LORD++ and SAFFRON rejection sets on a fixture
+    from a reference implementation; existing rows' batch fields are unchanged.
+13. **A second batch of free-data models: measurement error and shrinkage.** HARQ-lite (the RV5
+    coefficient interacted with the square root of a daily realized quarticity proxy), a ridge
+    HAR-IV with the penalty chosen from trailing purged QLIKE over a small declared grid, a
+    loss-weighted combination shrunk toward equal weights, and a threshold HAR on the sign of the
+    OVX-RV gap. Each is a new hypothesis with an MCS/SPA rerun and the no-look-ahead test. The
+    live challenger stays `har_iv_range` whatever the ranking: `choose_challenger` and the live
+    challenger path must not re-select. Refs: Bollerslev, Patton and Quaedvlieg (2016) HARQ.
+14. **Start collecting a free implied-vol term structure now.** No free OVX term-structure
+    history exists, so every uncollected day is lost. A failure-tolerant build step fetches the
+    USO option chain (yfinance) for the expiries nearest 30, 60 and 90 days, computes a
+    VIX-style model-free variance per expiry (or an ATM-interpolated implied vol where strikes
+    are sparse), and appends rows to an append-only file on an `aux-data` branch; check whether
+    CME's CVOL end-of-day values for WTI are published free. It never blocks the publish job and
+    never writes under `runtime-state/`. The implied-realized gap enters the field as a declared
+    hypothesis only once a year of rows exists. Acceptance: after one run the branch holds the
+    day's rows with at least two expiries; a schema test; terms of use stated in the datasheet.
+15. **A specification curve over the lab's fixed design choices.** The sample start, window
+    type, purge length, HAR lags, retransformation and OVX lag were set while looking at the
+    data, as README section 9 says. `scripts/build_specification_curve.py` reruns the walk-forward
+    over a grid declared in its docstring before the first run (training start, expanding vs
+    rolling window, purge 4 or 9, three lag sets, smearing vs normal vs none, OVX lag 1 or 2) into
+    `data/vol_lab_specifications.json`, a robustness artifact beside the pinned one, and STAB
+    shows the share of specifications in which the headline holds. Never used to pick a better
+    specification after the fact: the pinned settings stay. Acceptance: the artifact reproduces
+    within `REPRO_REL_TOL`; the grid in the docstring equals the artifact's grid field.
+    Refs: Simonsohn, Simmons and Nelson (2020) Nature Human Behaviour 4.
 
 ## Stage 3: the dashboard, for skeptical readers
 
@@ -213,12 +256,23 @@ strength its test supports. Nothing here re-selects the challenger: the pair is 
    value and the week's rank among weeks. Acceptance: deep link `?week=2020-03-06` renders it.
 2. **Error attribution view.** Decompose each week's log error into the OVX term and the realized
    terms using the fit's coefficients (needs Stage 2.9 for live calls; the lab series already
-   carry `ovx_elasticity` and `rv_elasticity`).
-3. **A feed of the record.** The refresh job writes `feed.xml` (Atom) with one entry per recorded
-   call and per resolution, so a reader can subscribe without visiting. Static, free.
-4. **"What changed" since a snapshot.** Each `data.json` carries `frozen_at`; add a small diff of
-   the headline numbers between the current snapshot and the previous one, built in the refresh
-   job (the previous payload is on `gh-pages`).
+   carry `ovx_elasticity` and `rv_elasticity`), and publish from `vol_lab.chart_series` the
+   inputs and every model's forecast on grid 0 plus cumulative QLIKE differentials (record minus
+   challenger, minus OVX-only, minus persistence), so a reader sees whether a gap is a few weeks
+   in 2020 or a steady edge. A cumulative path is descriptive: titles count weeks, never claim
+   significance.
+3. **A feed of the record.** `scripts/build_feed.py` (standard library) runs in the build job
+   after the record step and writes `public/feed.xml` (Atom) with one entry per recorded call and
+   per resolution; the entry text says the call is recorded and links the record's commit history
+   for the seal, since the seal happens in the publish job. A downloads manifest with digests
+   sits beside it. Acceptance: the feed validates at the W3C feed validator; the manifest's
+   digests match `sha256sum`.
+4. **"What changed" since a snapshot.** In the build job, `git show origin/gh-pages:data.json`
+   (read-only) and `scripts/snapshot_diff.py` produce `public/changes.json`: both `frozen_at`
+   values, the as-of change, forecast and band deltas for the record and the challenger, new or
+   resolved entries, a research hash change; the top bar shows it in a disclosure. Deltas are
+   numbers, never judgements. Acceptance: tests cover identical snapshots, a moved forecast, a
+   resolved entry, a hash change and no previous file.
 5. **Downloads with a codebook.** One CSV bundle per section (the CSV buttons exist per table) and
    a `docs/CODEBOOK.md` that defines every column, unit and sample.
 6. **Interface checks in CI.** Playwright screenshots of the fixture payloads at 1440 and 390 with
@@ -226,6 +280,12 @@ strength its test supports. Nothing here re-selects the challenger: the pair is 
    under 320 kB. These are the checks every release in this history passed by hand.
 7. **The remaining interface follow-ups** in `HANDOFF.md` section 4 (clipped FCST tick at 1280 px,
    leaderboard width at 320 px, phone deep-link drift, ledger card height, forced-colors SVG text).
+8. **An offline accessibility-structure test** in `npm test`, on the server-rendered markup: one
+   h1 and no skipped heading level; every section labelled by its heading; every table with a
+   caption, every figure with a figcaption, every canvas container described by its table view;
+   every control with a name; every scroll region keyboard reachable (the METH Reproduce block
+   first). It complements axe in the browser (3.6) and runs on every PR. The accessibility
+   statement claims only what is tested.
 
 ## Stage 4: how a reviewer reads it in ten minutes
 
@@ -246,10 +306,20 @@ strength its test supports. Nothing here re-selects the challenger: the pair is 
    alternatives considered.
 4. **`docs/LIMITATIONS.md`.** Daily data only; OVX is an ETF-options index, not CL options; the
    continuous contract's roll handling; a short live record; what the project does not claim.
-5. **README as a research note.** Keep the computed sections, but open with one screen: the
-   question, the answer, the three strongest numbers with their tests, the live record's status,
-   and links to the guide, the site and the reproduce run. Badges that mean something: Tests,
-   Reproduce, CodeQL, the DOI.
+5. **README as a research note.** The README is about 740 lines and 75 kB, so a reviewer never
+   reaches the system or limitations sections. Move the paper (sections 1 to 7 and the
+   references) to `docs/RESULTS.md` with every cog block intact and the file added to the cog
+   gate; the README keeps the title, badges, the computed abstract and results at a glance,
+   Figure 1, a "verify it in ten minutes" box linking the reviewer guide, a short system section
+   and the limitations. Moving a statistic out of a cog block into plain text would silently
+   exempt it from the drift check: never do that. Acceptance: README under about 220 lines; a
+   link-check test; badges that measure something (Tests, Reproduce, CodeQL, the DOI).
+6. **Contributing guide, PR template and issue templates.** `CONTRIBUTING.md` carries the loop,
+   every gate command through a cog block so it cannot drift from `CLAUDE.md`, how to add a model
+   (register the hypothesis, rebuild through the module, reproduce test, a new challenger means a
+   new declared test), the artifact rule, the 14-day dependency policy, the flake policy, and the
+   list of things a PR may never touch. The PR template asks for the gates run and the house-rule
+   check.
 
 ## Stage 5: engineering hygiene
 
@@ -282,6 +352,12 @@ strength its test supports. Nothing here re-selects the challenger: the pair is 
    computed title or number may change.
 6. **Capture scripts in the repo.** The README screenshot and share image were made with scratch
    scripts; commit `scripts/capture_figures.mjs` so they regenerate from a build.
+7. **Mutation testing on the scoring and sealing logic.** Line coverage says nothing about
+   whether a wrong boundary (a `<=` for a `<` on the seal margin) would be caught. Add `mutmut`
+   (pinned, 14-day policy) over `backend/vol_record.py` and `backend/forecast_eval.py` as a
+   weekly, read-only job with a recorded baseline that lists surviving mutants in the step
+   summary; a survivor in sealing or scoring is a reason to add a test, never to touch the
+   semantics. Property tests for the frontend formatters and URL-state parsers complete it.
 
 ## Non-goals
 
