@@ -260,16 +260,6 @@ export default function RiskPanel({ data, research, researchStatus }) {
             },
             csvLabel: `Breaches, last ${LAST_WEEKS} weeks (grid 0)`,
           },
-          {
-            key: "range", label: "All grids", title: "Breaches across the 5-session sampling grids (min–max)", align: "right", hideBelow: 640,
-            render: (row) => (row.exceedMin != null ? <span className="num muted">{fmtInt(row.exceedMin)}–{fmtInt(row.exceedMax)}</span> : DASH),
-            csv: (row) => (row.exceedMin != null ? `${row.exceedMin}–${row.exceedMax}` : null),
-            csvLabel: "Breaches across grids (min–max)",
-          },
-          {
-            key: "kupiecP", label: "Kupiec p", title: "Kupiec test p-value on grid 0", align: "right", sortable: true, firstDirection: "desc", hideBelow: 640,
-            render: (row) => <span className="num">{fmtPValue(row.kupiecP, { digits: 3 })}</span>,
-          },
           { key: "kupiecPass", label: "Kupiec", title: "Unconditional coverage (Kupiec 1995)", sortable: true, firstDirection: "desc", render: (row) => <PassMeter pass={row.kupiecPass} total={row.gridCount} />, csvLabel: "Kupiec: grids passed" },
           {
             key: "independencePass",
@@ -280,6 +270,16 @@ export default function RiskPanel({ data, research, researchStatus }) {
           },
           { key: "ccPass", label: "Cond. cov.", title: "Conditional coverage (Christoffersen 1998)", sortable: true, firstDirection: "desc", hideBelow: 640, render: (row) => <PassMeter pass={row.ccPass} total={row.gridCount} />, csvLabel: "Conditional coverage: grids passed" },
           { key: "dqPass", label: "DQ", title: "Dynamic quantile test (Engle-Manganelli 2004)", sortable: true, firstDirection: "desc", hideBelow: 640, render: (row) => <PassMeter pass={row.dqPass} total={row.gridCount} />, csvLabel: "DQ: grids passed" },
+          {
+            key: "range", label: "All grids", title: "Breaches across the 5-session sampling grids (min–max)", align: "right", hideBelow: 640,
+            render: (row) => (row.exceedMin != null ? <span className="num muted">{fmtInt(row.exceedMin)}–{fmtInt(row.exceedMax)}</span> : DASH),
+            csv: (row) => (row.exceedMin != null ? `${row.exceedMin}–${row.exceedMax}` : null),
+            csvLabel: "Breaches across grids (min–max)",
+          },
+          {
+            key: "kupiecP", label: "Kupiec p", title: "Kupiec test p-value on grid 0", align: "right", sortable: true, firstDirection: "desc", hideBelow: 640,
+            render: (row) => <span className="num">{fmtPValue(row.kupiecP, { digits: 3 })}</span>,
+          },
         ]}
         rows={shown}
       />

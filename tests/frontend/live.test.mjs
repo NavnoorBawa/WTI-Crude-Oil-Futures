@@ -236,6 +236,13 @@ test("the phone table keeps As of, Forecast with its band, Realized with its ver
   assert.match(css, /@media \(max-width: 640px\) \{\s*\.live-band-note, \.live-inband-note \{ display: block; \}/);
 });
 
+test("Status follows As of, so a tablet that scrolls the table sideways starts on each call's state", () => {
+  const { live } = render(data);
+  const head = live.match(/<thead[\s\S]*?<\/thead>/)[0];
+  const labels = [...head.matchAll(/<th scope="col"[^>]*>([\s\S]*?)<\/th>/g)].map((match) => visibleText(match[1]).trim());
+  assert.deepEqual(labels.slice(0, 2), ["As of", "Status"]);
+});
+
 test("the promotion rule is prose: no stylesheet makes .rule-note a flex container", () => {
   const sheets = ["src/index.css", ...readdirSync(new URL("../../src/styles", import.meta.url)).map((name) => `src/styles/${name}`)];
   const rules = sheets.flatMap((path) => [...readSource(path).matchAll(/^\s*\.rule-note\s*\{([^}]*)\}/gm)].map((match) => [path, match[1]]));

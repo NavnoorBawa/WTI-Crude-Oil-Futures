@@ -210,8 +210,13 @@ test("RISK: a last-250-weeks column, 3-decimal Kupiec p-values, and pass meters 
   const body = html.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/)?.[1] ?? "";
   const cells = [...body.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((row) => [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((cell) => visibleText(cell[1]).trim()));
   assert.equal(cells.length, rows.length);
-  // Columns after the row header: breaches, last 250, all grids, Kupiec p, then the meters.
-  for (const row of cells) assert.match(row[3], /^(\d\.\d{3}|<\s0\.001)$/, `Kupiec p ${row[3]}`);
+  // The four test meters come right after the breach counts, so a tablet that scrolls the table sideways
+  // starts on the verdicts; the descriptive grid range and grid-0 Kupiec p close the row.
+  const head = html.match(/<thead[\s\S]*?<\/thead>/)?.[0] ?? "";
+  const labels = [...head.matchAll(/<th scope="col"[^>]*>([\s\S]*?)<\/th>/g)]
+    .map((match) => visibleText(match[1].replace(/<span class="label-short"[\s\S]*?<\/span>/, "")).trim().replace(/\s*[↕↑↓]$/, ""));
+  assert.deepEqual(labels, ["Method", "Breaches", "Last 250 wk, Basel zone", "Kupiec", "Independence", "Cond. cov.", "DQ", "All grids", "Kupiec p"]);
+  for (const row of cells) assert.match(row[7], /^(\d\.\d{3}|<\s0\.001)$/, `Kupiec p ${row[7]}`);
   for (const level of [0.01, 0.05]) {
     for (const row of m.research.varRows(lab).filter((item) => item.level === level)) {
       assert.match(m.format.fmtPValue(row.kupiecP, { digits: 3 }), /^\d\.\d{3,4}$|^<\s0\.001$/);

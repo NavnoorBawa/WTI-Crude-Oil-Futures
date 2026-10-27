@@ -181,6 +181,11 @@ test("the ledger's CSV exports what each flag cell shows, with the id, test and 
   assert.match(ledg, /<th scope="col" class="align-left csv-only"[^>]*>ID<\/th>/);
   assert.match(ledg, /<th scope="col" class="align-left csv-only"[^>]*>Test<\/th>/);
   assert.match(ledg, /<th scope="col" class="align-left muted-cell"[^>]*title="The date of the artifact that holds the test"[^>]*><button type="button" class="sort-button"><span>Recorded<\/span>/);
+  // Status (the default sort) comes right after the hypothesis, so a tablet that scrolls the table
+  // sideways starts on each row's verdict; the descriptive columns follow.
+  const labels = [...(ledg.match(/<thead[\s\S]*?<\/thead>/)?.[0] ?? "").matchAll(/<th scope="col"[^>]*>([\s\S]*?)<\/th>/g)]
+    .map((match) => visibleText(match[1]).trim().replace(/\s*[↕↑↓]$/, ""));
+  assert.deepEqual(labels.slice(0, 3), ["Hypothesis", "Status", "Family"]);
   const preSpecified = rows.filter((row) => row.pre_specified === true);
   const shown = defaultOrder(rows).slice(0, reference.LEDGER_PAGE).filter((row) => row.pre_specified === true);
   assert.ok(preSpecified.length > 0);
