@@ -4,6 +4,10 @@ Written on 2026-10-27 at the end of the session that shipped 2.1.0 (PRs #56 and 
 next session continues from here. Keep this file current: at the end of every round, tick off what
 shipped, add what the round found, and update the date.
 
+The destination, measured, and the staged plan to reach it are in `docs/ROADMAP.md`; this file
+holds the short-term backlog and the loop. When the backlog below is empty, take the next
+unfinished roadmap item.
+
 The goal is to keep raising the project to the standard a professional quant research team expects
 from a research tool it relies on. That means correct and honest numbers, evidence a skeptic can
 check, reproducible results, a fast and accessible interface, and clean engineering. The bar is
