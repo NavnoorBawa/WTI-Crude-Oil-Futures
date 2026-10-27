@@ -4,7 +4,7 @@
 // in the order main.jsx imports them), so the checks hold whichever file a rule lives in.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { createElement } from "react";
+import { createElement, Suspense } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadDashboard, readFixture, readSource } from "./load.mjs";
 
@@ -181,6 +181,26 @@ test("a lazy figure reserves its height per breakpoint and is busy, not a live r
   assert.ok(placeholders.length >= 5);
   assert.equal((dashboard.match(/class="lazy-mount" aria-busy="true"/g) ?? []).length, placeholders.length);
   assert.ok(!/class="figure-placeholder"[^>]*role="status"/.test(dashboard));
+});
+
+test("a preloaded chart chunk renders on its first render, so a plain Ctrl+P's beforeprint prints the figure", async () => {
+  const { retryingLazy } = await m.load("/src/app/lazyChunk.js");
+  const Chart = () => createElement("b", null, "chart");
+  const load = async () => ({ Chart });
+  const render = (getter) => renderToStaticMarkup(createElement(Suspense, { fallback: "Loading chart…" }, createElement(getter())));
+  // Not fetched before its first render: React suspends on it and the placeholder shows.
+  assert.equal(render(retryingLazy(load, "Chart")), "Loading chart…");
+  // Fetched ahead (LazyMount preloads every chunk at the load event): no suspense at all.
+  const preloaded = retryingLazy(load, "Chart");
+  await preloaded.preload();
+  assert.equal(render(preloaded), "<b>chart</b>");
+  assert.equal(preloaded(), preloaded(), "the same component every render, so a mounted chart never remounts");
+  // A failed preload leaves the chunk to the render.
+  const failing = retryingLazy(() => Promise.reject(new Error("offline")), "Chart");
+  assert.equal(await failing.preload(), undefined);
+  // In print, a placeholder that is still there says how to print every figure.
+  const print = rules().filter((rule) => rule.context.some((at) => /print/.test(at)) && rule.selectors.includes(".figure-placeholder::after"));
+  assert.match(print[0]?.decls.content ?? "", /Print or save as PDF/);
 });
 
 // A stand-in browser for printPage(): records events, frames and the print call in order. The page

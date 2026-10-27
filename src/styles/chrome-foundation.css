@@ -120,7 +120,8 @@
 .term-pop {
   position: absolute;
   top: 100%;
-  left: 0;
+  /* Term.jsx shifts the box itself, not a transform of it, so its layout box never widens the page. */
+  left: var(--term-shift, 0px);
   z-index: 20;
   width: max-content;
   max-width: min(320px, 90vw);
@@ -137,7 +138,6 @@
   text-align: left;
   white-space: normal;
   color: var(--text-2);
-  transform: translateX(var(--term-shift, 0px));
 }
 .term-pop[data-place="above"] { top: auto; bottom: 100%; margin: 0 0 4px; }
 .term-pop-name { font-weight: 600; color: var(--text-1); }

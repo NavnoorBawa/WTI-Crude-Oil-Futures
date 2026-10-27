@@ -6,7 +6,7 @@ import { after, before, test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SECTIONS } from "../../src/app/sections.js";
-import { loadDashboard, readFixture, visibleText } from "./load.mjs";
+import { loadDashboard, readFixture, readSource, visibleText } from "./load.mjs";
 
 const FIXED_NOW = Date.parse("2026-10-21T12:00:00Z");
 Date.now = () => FIXED_NOW;
@@ -142,6 +142,16 @@ test("glossary patterns match whole words only, and definitions state no statist
   assert.deepEqual(refs, ["stat-bh", "stat-christoffersen", "stat-conformal", "stat-dm", "stat-dq", "stat-har", "stat-hlz",
     "stat-kupiec", "stat-mcs", "stat-mz", "stat-qlike", "stat-smearing", "stat-spa", "stat-utility"]);
   assert.equal(term.withTerms(7), 7, "non-text passes through");
+});
+
+test("a definition near the right edge moves its own box, so it never widens a phone's page", () => {
+  const css = readSource("src/styles/chrome-foundation.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  const rule = css.match(/^\.term-pop \{([^}]*)\}/m)?.[1] ?? "";
+  assert.match(rule, /\bleft: var\(--term-shift, 0px\);/, "the shift is applied through left");
+  assert.doesNotMatch(rule, /(^|[\s;])transform\s*:/, "a transform leaves the layout box past the edge (the layout viewport grows)");
+  const source = readSource("src/components/Term.jsx");
+  assert.match(source, /window\.visualViewport/, "the edges are the visual viewport's");
+  assert.doesNotMatch(source, /window\.inner(Width|Height)/, "not the layout viewport's, which grows with an overflow");
 });
 
 // --------------------------------------------------------------------------------- the source
