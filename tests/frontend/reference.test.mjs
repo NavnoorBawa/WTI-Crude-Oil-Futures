@@ -387,6 +387,7 @@ test("STDY's supply table has a column-group header row and an interval glyph on
   assert.doesNotMatch(stdy, /stat-cell is-stacked/);
   const glyphs = stdy.match(/<span class="interval-glyph" aria-hidden="true">/g) ?? [];
   assert.equal(glyphs.length, study.groups.length + 1, "one per group and the placebo row");
+  assert.match(stdy, /<span class="glyph-note"> Beside each median peak, the line is its 95% bootstrap interval/, "the sentence that reads the glyph hides with it");
   const domain = studies.peakGlyphDomain(study);
   const ci = study.groups.flatMap((group) => group.ciPeak);
   assert.ok(domain[0] < Math.min(...ci) && domain[1] > Math.max(...ci), "every interval fits the shared domain");

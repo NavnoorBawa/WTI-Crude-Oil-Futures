@@ -134,7 +134,8 @@ a.ledger-id:hover { color: var(--text-1); text-decoration: underline; text-decor
 .ig-dot { position: absolute; top: 2px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: var(--text-3); }
 .ig-dot.is-strong { background: var(--text-1); }
 @media (max-width: 640px) {
-  .interval-glyph { width: 56px; }
+  /* On a phone the [CI] brackets carry the interval, so the peak p-values stay on screen. */
+  .interval-glyph, .glyph-note { display: none; }
 }
 @media (forced-colors: active) {
   .ig-range, .ig-dot, .strip-cell { forced-color-adjust: none; }
