@@ -146,6 +146,36 @@ test("a live as-of the record does not hold yet shows the live values and says s
   assert.ok(hero.includes(`issued ${m.format.fmtCT(Date.parse(live.issued_at))}`));
 });
 
+test("a snapshot from an older close than the newest recorded call shows that call, and says so", () => {
+  const payload = structuredClone(data);
+  const live = payload.vol_forecast.live;
+  const recent = payload.vol_forecast.live_record.recent;
+  const newer = {
+    ...structuredClone(recent[0]),
+    as_of: "2026-10-26", issued_at: "2026-10-26T21:00:54Z", recorded_at: "2026-10-26T21:00:58Z", sealed_at: "2026-10-26T21:01:33Z",
+    forecast_pct: 57.8, median_pct: 48.4, lo80_pct: 28.3, hi80_pct: 77.6, challenger_pct: 58.9,
+    target_start: "2026-10-28", target_end: "2026-11-03",
+    inputs: { ...(recent[0].inputs ?? {}), rv5_pct: 50.61, ovx: 57.1, ovx_session: "2026-10-23" },
+  };
+  recent.unshift(newer);
+  live.issued_at = "2026-10-26T23:48:37Z";
+  const call = v.forecastOfRecord(live, payload.vol_forecast.live_record);
+  assert.equal(call.entry, newer);
+  assert.equal(call.forecast, 57.8);
+  assert.equal(call.recompute, null, "a different close is not a recomputation");
+  assert.deepEqual(call.olderSnapshot, { asOf: live.as_of, issuedAt: live.issued_at });
+  const hero = squash(visibleText(heroOf(render(payload, research).html)));
+  assert.ok(hero.includes("57.8 %"), hero);
+  assert.ok(hero.includes("80% interval 28.3–77.6%"), hero);
+  assert.ok(hero.includes("Target window Oct 28 – Nov 3, 2026, scored on its settlements"), hero);
+  assert.ok(hero.includes(`from an older close (${m.format.fmtDate(live.as_of, { year: false })})`), hero);
+  assert.ok(hero.includes("recorded from the Oct 26 close and is the one scored"), hero);
+  assert.doesNotMatch(hero, /Recomputed|Not in the live record yet/);
+  // A newer entry of another model version does not displace the call.
+  newer.model_version = "har-iv/3";
+  assert.notEqual(v.forecastOfRecord(live, payload.vol_forecast.live_record).entry, newer);
+});
+
 test("the target window is the recorded entry's", () => {
   const entry = data.vol_forecast.live_record.recent[0];
   const hero = squash(visibleText(heroOf(render(data, research).html)));

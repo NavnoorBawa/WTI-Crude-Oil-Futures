@@ -347,6 +347,13 @@ export default function Hero({ live, liveRecord, recentOos, research, researchSt
             </p>
           </Disclosure>
         )}
+        {call.olderSnapshot && (
+          <p className="hero-recompute">
+            This snapshot was computed {fmtCT(toMs(call.olderSnapshot.issuedAt))} from an older close
+            ({fmtDate(call.olderSnapshot.asOf, { year: false })}); the call above was recorded from the{" "}
+            {fmtDate(call.asOf, { year: false })} close and is the one scored.
+          </p>
+        )}
         {recompute && recomputeParts.length > 0 && (
           <p className="hero-recompute">
             Recomputed {fmtCT(toMs(recompute.issuedAt))} on the same close: {recomputeParts.join(", ")}. Not scored; the

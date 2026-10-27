@@ -217,6 +217,35 @@ export const forecastOfRecord = (live, liveRecord) => {
   const current = liveValues(block);
   const asOf = asText(block.as_of);
   const version = asText(block.model_version);
+  // A snapshot computed from an older close than the newest recorded call of the same model (its data
+  // source had not returned the latest session that run) does not displace that call: the newest
+  // recorded call is the one that will be scored, so it is the one shown, values and all.
+  const newest = callHistory(liveRecord).find((row) => row.model_version === version) ?? null;
+  if (asOf && newest && newest.as_of > asOf) {
+    const inputs = asObject(newest.inputs);
+    return {
+      source: "record",
+      entry: newest,
+      forecast: num(newest.forecast_pct),
+      median: num(newest.median_pct),
+      lo: num(newest.lo80_pct),
+      hi: num(newest.hi80_pct),
+      challenger: num(newest.challenger_pct),
+      asOf: newest.as_of,
+      issuedAt: asText(newest.issued_at),
+      sealedAt: asText(newest.sealed_at),
+      targetStart: asText(newest.target_start),
+      targetEnd: asText(newest.target_end),
+      prob: num(newest.prob_vol_rises_pct),
+      inputs,
+      recompute: null,
+      fromLive: false,
+      realized: { value: num(inputs?.rv5_pct), recomputed: false },
+      ovx: { value: num(inputs?.ovx), recomputed: false },
+      ovxSession: asText(inputs?.ovx_session),
+      olderSnapshot: { asOf, issuedAt: asText(block.issued_at) },
+    };
+  }
   const entry = asOf ? asArray(asObject(liveRecord)?.recent).find((row) => asObject(row) && row.as_of === asOf
     && row.model_version === version && num(row.forecast_pct) != null) ?? null : null;
   const blockInputs = asObject(block.inputs);
