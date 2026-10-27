@@ -23,9 +23,9 @@ const LEVELS = ["99", "95"];
 const RANGE_OPTIONS = RANGES.map((value) => ({ value, label: value.toUpperCase() }));
 // The breach count of the last LAST_WEEKS weeks, as var_backtest.grid0 reports it.
 const LAST_WEEKS = 250;
-// VarChart's plot plus its legend row, as measured at 1440 and 390px (a 300px plot; on a phone a
-// 240px plot under a legend that wraps).
-const VAR_HEIGHT = { wide: 328, narrow: 308 };
+// VarChart's plot plus its legend row, as measured at 1440 and 390px (a 300px plot under the reading
+// and the line naming the labelled weeks; on a phone a 240px plot under a legend that wraps).
+const VAR_HEIGHT = { wide: 344, narrow: 308 };
 
 /** Which VaR line a week's log return fell below: "99%", "95%" or "no". */
 const breachText = (row) => (row.var99 != null && row.ret < -row.var99 ? "99%" : row.var95 != null && row.ret < -row.var95 ? "95%" : "no");

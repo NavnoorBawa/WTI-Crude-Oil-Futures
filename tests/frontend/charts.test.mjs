@@ -78,6 +78,14 @@ test("varAnnotations finds the worst week and the latest 99% breach in a window"
   assert.deepEqual([all.worst.date, all.latestBreach.date], ["2020-04-13", "2024-01-05"]);
   const recent = varAnnotations(rows, "2025-01-01");
   assert.deepEqual([recent.worst.date, recent.latestBreach], ["2025-06-06", null]);
+  // The legend names them (marker text on the plot would sit under the VaR step lines).
+  const { varAnnotationText } = m.varChart;
+  assert.equal(varAnnotationText(all), "in view: worst week Apr 13, 2020 (−80.0%) · latest 99% breach Jan 5, 2024 (−35.0%)");
+  assert.equal(varAnnotationText(varAnnotations(rows, "2024-01-01", "2024-12-31")),
+    "in view: worst week Jan 5, 2024 (−35.0%), also the latest 99% breach", "one week said once");
+  assert.equal(varAnnotationText(recent), "in view: worst week Jun 6, 2025 (−25.0%)");
+  assert.equal(varAnnotationText({ worst: null, latestBreach: null }), null);
+  assert.doesNotMatch(readSource("src/charts/VarChart.jsx"), /\btext: /, "no marker carries text");
 });
 
 test("the VaR price axis leaves headroom and draws no tick label cut by the pane edge", () => {
