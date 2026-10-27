@@ -204,9 +204,11 @@ test("the palette's close button is named by its visible text, and its result li
     if (saved.document === undefined) delete globalThis.document;
   }
   const close = html.match(/<button[^>]*class="palette-close"[^>]*>[\s\S]*?<\/button>/)[0];
-  const name = close.match(/aria-label="([^"]+)"/)[1];
+  // Words of the name as a label-in-name check reads them: a parenthetical does not count.
+  const words = (text) => text.replace(/\([^()]*\)/g, " ").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const name = words(close.match(/aria-label="([^"]+)"/)[1]).join(" ");
   for (const shown of [...close.matchAll(/<span class="palette-close-(?:key|word)"[^>]*>([^<]+)<\/span>/g)].map((match) => match[1])) {
-    assert.ok(name.includes(shown), `"${name}" contains the visible "${shown}" (WCAG 2.5.3)`);
+    assert.ok(` ${name} `.includes(` ${words(shown).join(" ")} `), `"${name}" contains the visible "${shown}" (WCAG 2.5.3)`);
   }
   assert.match(html, /<div[^>]*role="listbox"[^>]*tabindex="-1"/, "the combobox owns the list; Tab skips it");
 });

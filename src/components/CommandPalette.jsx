@@ -291,8 +291,9 @@ export default function CommandPalette({ initialView = "search", data, research,
               onChange={(event) => { setQuery(event.target.value); setActiveIndex(0); }}
               onKeyDown={onKeyDown}
             />
-            {/* The name holds the visible text at every width: "Esc" above the phone layout, "Close" on it. */}
-            <button type="button" className="palette-close" onClick={() => closeThen()} aria-label="Close (Esc)">
+            {/* The name holds the visible text at every width ("Esc" with a fine pointer, "Close" with a coarse
+                one), outside parentheses, which name checks such as axe drop. */}
+            <button type="button" className="palette-close" onClick={() => closeThen()} aria-label="Close, Esc">
               <span className="palette-close-key" aria-hidden="true">Esc</span>
               <span className="palette-close-word" aria-hidden="true">Close</span>
             </button>
