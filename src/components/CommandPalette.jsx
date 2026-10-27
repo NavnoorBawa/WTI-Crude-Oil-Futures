@@ -291,12 +291,23 @@ export default function CommandPalette({ initialView = "search", data, research,
               onChange={(event) => { setQuery(event.target.value); setActiveIndex(0); }}
               onKeyDown={onKeyDown}
             />
-            <button type="button" className="palette-close" onClick={() => closeThen()} aria-label="Close">
+            {/* The name holds the visible text at every width: "Esc" above the phone layout, "Close" on it. */}
+            <button type="button" className="palette-close" onClick={() => closeThen()} aria-label="Close (Esc)">
               <span className="palette-close-key" aria-hidden="true">Esc</span>
               <span className="palette-close-word" aria-hidden="true">Close</span>
             </button>
           </div>
-          <div ref={listRef} id={listId} role="listbox" aria-label="Results" className="palette-list">
+          {/* Not a Tab stop (an overflowing list would be one), and a press on it leaves focus in the
+              combobox, the list's only keyboard owner (through aria-activedescendant). */}
+          <div
+            ref={listRef}
+            id={listId}
+            role="listbox"
+            aria-label="Results"
+            className="palette-list"
+            tabIndex={-1}
+            onMouseDown={(event) => event.preventDefault()}
+          >
             {groups.map((group) => (
               <div key={group.kind} role="group" aria-labelledby={`${baseId}-${group.kind}`} className="palette-group">
                 <div id={`${baseId}-${group.kind}`} role="presentation" className="palette-group-label">{group.label}</div>

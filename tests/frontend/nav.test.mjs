@@ -117,6 +117,28 @@ test("the snapshot reference names the view, the data's frozen time and the buil
   assert.equal(commands.snapshotReference("https://x.test/", data.frozen_at, null), `https://x.test/ · data frozen ${data.frozen_at}`);
 });
 
+test("the palette's close button is named by its visible text, and its result list is not a Tab stop", async () => {
+  const CommandPalette = (await m.load("/src/components/CommandPalette.jsx")).default;
+  // readPage reads the open page: an empty one is enough for the markup.
+  const saved = { window: globalThis.window, document: globalThis.document };
+  globalThis.window = { location: { search: "", hash: "", pathname: "/", origin: "https://x.test" } };
+  globalThis.document = { getElementById: () => null };
+  let html;
+  try {
+    html = renderToStaticMarkup(createElement(CommandPalette, { data, research: researchJson, onClose: () => {}, notify: () => {} }));
+  } finally {
+    Object.assign(globalThis, saved);
+    if (saved.window === undefined) delete globalThis.window;
+    if (saved.document === undefined) delete globalThis.document;
+  }
+  const close = html.match(/<button[^>]*class="palette-close"[^>]*>[\s\S]*?<\/button>/)[0];
+  const name = close.match(/aria-label="([^"]+)"/)[1];
+  for (const shown of [...close.matchAll(/<span class="palette-close-(?:key|word)"[^>]*>([^<]+)<\/span>/g)].map((match) => match[1])) {
+    assert.ok(name.includes(shown), `"${name}" contains the visible "${shown}" (WCAG 2.5.3)`);
+  }
+  assert.match(html, /<div[^>]*role="listbox"[^>]*tabindex="-1"/, "the combobox owns the list; Tab skips it");
+});
+
 test("both palette copy actions link the section on screen, as the c shortcut does, not a stale #hash", () => {
   const source = readSource("src/components/CommandPalette.jsx");
   assert.doesNotMatch(source, /window\.location\.href/);
