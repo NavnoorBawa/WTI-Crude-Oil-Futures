@@ -1,6 +1,6 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  buildCommands, downloadFile, groupCommands, jumpTo, MAX_RESULTS, rankCommands, snapshotReference,
+  buildCommands, downloadFile, getPrimarySection, groupCommands, jumpTo, MAX_RESULTS, rankCommands, sectionUrl, snapshotReference,
 } from "../app/commands";
 import { GIT_SHA, REPO_URL, RESEARCH_URL, STATIC_DATA_URL } from "../app/config";
 import { SECTIONS } from "../app/sections";
@@ -173,6 +173,9 @@ export default function CommandPalette({ initialView = "search", data, research,
 
   const run = (item) => {
     const action = item.run;
+    // The section on screen, as the c shortcut copies it: the #hash may name a section (or row)
+    // the reader has since scrolled away from.
+    const viewUrl = () => sectionUrl(getPrimarySection());
     switch (action.type) {
       case "jump":
         closeThen(() => jumpTo(action.target, { fallback: action.fallback, reveal: action.reveal }), false);
@@ -186,10 +189,10 @@ export default function CommandPalette({ initialView = "search", data, research,
         closeThen(() => jumpTo(action.section), false);
         break;
       case "copy-view":
-        closeThen(() => copyText(window.location.href).then((ok) => notify(ok ? "Link to this view copied" : "Could not copy the link")));
+        closeThen(() => copyText(viewUrl()).then((ok) => notify(ok ? "Link to this view copied" : "Could not copy the link")));
         break;
       case "copy-reference":
-        closeThen(() => copyText(snapshotReference(window.location.href, data?.frozen_at, GIT_SHA))
+        closeThen(() => copyText(snapshotReference(viewUrl(), data?.frozen_at, GIT_SHA))
           .then((ok) => notify(ok ? "Snapshot reference copied" : "Could not copy the reference")));
         break;
       case "notes":

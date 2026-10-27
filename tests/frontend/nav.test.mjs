@@ -5,7 +5,7 @@ import { after, before, test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SECTION_GROUPS, SECTIONS, startsGroup } from "../../src/app/sections.js";
-import { loadDashboard, readFixture } from "./load.mjs";
+import { loadDashboard, readFixture, readSource } from "./load.mjs";
 
 const FIXED_NOW = Date.parse("2026-10-21T12:00:00Z");
 Date.now = () => FIXED_NOW;
@@ -115,6 +115,12 @@ test("the snapshot reference names the view, the data's frozen time and the buil
   assert.equal(commands.snapshotReference("https://x.test/?fcst=all#modl", data.frozen_at, "abc1234"),
     `https://x.test/?fcst=all#modl · data frozen ${data.frozen_at} · build abc1234`);
   assert.equal(commands.snapshotReference("https://x.test/", data.frozen_at, null), `https://x.test/ · data frozen ${data.frozen_at}`);
+});
+
+test("both palette copy actions link the section on screen, as the c shortcut does, not a stale #hash", () => {
+  const source = readSource("src/components/CommandPalette.jsx");
+  assert.doesNotMatch(source, /window\.location\.href/);
+  assert.match(source, /sectionUrl\(getPrimarySection\(\)\)/);
 });
 
 test("shortcuts never fire while typing or with a modifier, and can be turned off", () => {
