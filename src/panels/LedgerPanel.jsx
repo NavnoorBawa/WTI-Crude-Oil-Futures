@@ -249,6 +249,8 @@ export default function LedgerPanel({ research, researchStatus }) {
   // and before the frame is painted, the page scrolls the button back under the reader's pointer.
   const moreRef = useRef(null);
   const collapsing = useRef(false);
+  // "Clear filters" sits in the empty table and is gone once rows return: focus goes to the search.
+  const searchRef = useRef(null);
   const toggleAll = () => {
     collapsing.current = showAll;
     setRowsParam(showAll ? "" : "all");
@@ -278,7 +280,12 @@ export default function LedgerPanel({ research, researchStatus }) {
   const others = statuses.filter((key) => key !== "supported").map((key) => `${fmtInt(ledger.byStatus?.[key] ?? 0)} ${ledgerStatusLabel(key)}`);
   const total = ledger.rows.length;
   const familySize = num(research?.ledger?.summary?.rows_in_multiplicity_family);
-  const clear = () => { setQuery(""); setFamily("all"); setStatus("all"); };
+  const clear = () => {
+    setQuery("");
+    setFamily("all");
+    setStatus("all");
+    searchRef.current?.focus();
+  };
   let shown = `${fmtInt(visible.length)} of ${fmtInt(total)} shown`;
   if (!filtered.length) shown = `none of ${fmtInt(total)} match`;
   else if (filtered.length < total) {
@@ -305,6 +312,7 @@ export default function LedgerPanel({ research, researchStatus }) {
       actions={(
         <>
           <input
+            ref={searchRef}
             type="search"
             className="search-input"
             aria-label="Filter hypotheses"
