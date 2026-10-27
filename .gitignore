@@ -79,8 +79,11 @@ data/vol_track_record.json
 *.temp
 temp_repo/
 
-# Claude Code local config
-.claude/
+# Claude Code local config. The session-start hook and its settings are shared (cloud sessions
+# install the dependencies with them); everything else under .claude/ stays local.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
 
 # Local notes (not part of the project)
 GRILL_NOTES.md
