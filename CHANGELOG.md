@@ -4,7 +4,49 @@ All notable changes. Research results are versioned like code: when a published 
 the correction is listed under **Errata** with the old and the new value, and the artifact that
 backs the new one.
 
-## Unreleased
+## 2.1.0 — 2026-10-27
+
+A release of the dashboard. No research result changed: the models, the benchmark lab, the ledger
+and every committed artifact are as in 2.0.0, and the live record is recorded, sealed and scored as
+before.
+
+### Dashboard
+
+- **The answer first.** The page opens on the research question and a one-line answer computed from
+  the benchmark lab's Diebold-Mariano tests, with the statistics and the sample behind it. Below the
+  tiles, an index lists the computed headlines of FCST, MODL, STAB, CALB, RISK, VRP and LIVE, each
+  linked to its section; a test keeps every row equal to its section's heading.
+- **This week's call, as recorded.** The hero shows the call the live record holds: its target
+  window, when it was recorded and sealed, the change since the previous call, the last calls, the
+  80% band with the region outside it, how many past weeks landed inside, below and above the band,
+  and the typical miss. A recomputation is labelled not scored, the probability that volatility
+  rises is one sentence labelled not calibrated, and the arithmetic is shown only when it reproduces
+  the number.
+- **Tiles** each pin one sample, with the weekly production figure beside it; a footnote names the
+  exceptions (coverage on the days with a band, VaR on weekly grid 0).
+- **Sections.** Thirteen, in four groups: evidence, market context, integrity and reference. FCST
+  draws the validated band and marks the weeks realized volatility fell outside it, and its table
+  gives each week's miss, log error and QLIKE. STAB compares each year with the OVX-only regression.
+  MODL shows Model Confidence Set membership with its robustness to the test's settings and the
+  sampling grids. CALB, CONE, RISK and VRP have dated marks, reconciled samples, and captions that
+  match their tables. LIVE draws the recent recorded calls with their bands and a 52-cell strip for
+  the promotion test, counts calls and independent weeks separately, and links the record's commit
+  history. LEDG is searchable and linkable. METH holds a model card, the data vintage, and how to
+  cite, correct and reuse the work.
+- **Reading tools.** Method notes in closed disclosures, which open for print, find-in-page and
+  links; glossary notes for QLIKE, MCS, SPA, DM, MZ, Kupiec, Christoffersen, DQ, conformal intervals
+  and more; source lines that link the payload files, and reproduce commands that link their
+  modules, with copy buttons; a copy-link button on each section; table views of the charts;
+  client-side CSV export (RFC 4180); view state in the URL, of which only reserved keys are read;
+  section codes grouped in the top bar, tracking the current section; a jump palette (`/` or
+  Ctrl/Cmd+K) and keyboard shortcuts (`?`), whose single-key shortcuts can be switched off; a print
+  stylesheet.
+- **Accessibility and loading.** Chart marks meet 3:1 contrast, the page supports forced colors, the
+  canvas charts can be read point by point from the keyboard, and labels with notation (VaR, p) are
+  no longer set in capitals. Lazy charts and the footer no longer shift the layout (cumulative
+  layout shift was 0.20 to 0.26); `data.json` and the fonts are preloaded.
+- **Errors.** A missing `research.json` shows a notice with Retry, and the sections that need it say
+  so; an invalid `data.json` gets a specific error.
 
 ### Fixed
 
@@ -12,6 +54,37 @@ backs the new one.
   They used the visitor's `navigator.language`, which threw on a POSIX locale tag (`en-US@posix`)
   and left both charts blank. The price chart, which formats its own labels, carries the same
   locale.
+- **The newest recorded call.** The hero matched calls on the snapshot's as-of date, so the Oct 26
+  refresh, which got data only through Oct 23, showed the Oct 23 call as this week's call while the
+  record already held one from the Oct 26 close. When the newest recorded call of the same model
+  version is from a later close than the snapshot, the hero, the forecast chart's live point, CONE
+  and METH now show that call, with a note that the snapshot is older; a call of another model
+  version is never substituted.
+- **One count per quantity.** RISK's 95% breach count was 46 in the caption (Kupiec) and 45 in the
+  chart summary (rounded series). The caption gives the Kupiec counts and, when rounding makes them
+  differ, the drawn counts and why. SPA and Mincer-Zarnowitz p-values, ledger t-statistics, counts,
+  %/month spreads and supply-study p-values each keep one precision across sections. The RISK title
+  names the VaR method (filtered historical simulation), and the model card names the sample of its
+  direction accuracy.
+- **Review findings.** A review of the live page through three lenses (layout at seven widths,
+  interaction and accessibility, data states) confirmed 41 findings, each reproduced by an
+  independent check; all are fixed. Among them: tablet tables show their result columns first; chart
+  badges and markers no longer cover labels or lines; cold deep links to model rows scroll to the
+  row; glossary popups no longer widen the phone layout; printing early shows the charts; the hero
+  says when a call will never be scored, for example because its window spans a roll; LIVE hides
+  QLIKE values it calls too few to compare; promotion wording follows the verdict; days to expiry
+  age with the snapshot.
+
+### Pipeline and docs
+
+- The live record summary's `recent` rows repeat more of what each entry already stores (recording
+  and seal times, base session, the probability that volatility rises, the recorded inputs) and say
+  whether the window spans a roll (`spans_roll`, the test resolution already applies), so the page
+  can show each seal against the settlement that opens its window. The data contract and
+  `validate_frozen_payload.py` cover the new optional fields.
+- zod 4.6.7 (GHSA-mrhx-c7xc-m3w5; a dev-only transitive dependency).
+- The README's dashboard screenshot and the link-preview image are regenerated from the new page,
+  and the README and `docs/ARCHITECTURE.md` describe it.
 
 ## 2.0.0 — 2026-10-20
 
