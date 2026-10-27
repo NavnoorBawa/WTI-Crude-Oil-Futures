@@ -1,6 +1,8 @@
 # WTI Volatility Research: notes for Claude Code sessions
 
 Read `docs/HANDOFF.md` first: it holds the current state, the open backlog and the working loop.
+Then `docs/ROADMAP.md`: what "good" means for this project, measured, and the staged plan to get
+there. A session picks the next unfinished roadmap item and works it through the handoff loop.
 
 ## What this is
 
