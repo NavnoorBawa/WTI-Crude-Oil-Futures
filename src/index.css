@@ -404,17 +404,19 @@ button { font: inherit; color: inherit; }
 .panel-body { margin-top: var(--sp-4); }
 .panel-figure[hidden], .panel-table[hidden] { display: none; }
 .panel-caption { margin-top: var(--sp-3); max-width: var(--measure); font-size: var(--fs-body); line-height: 1.55; color: var(--text-2); }
+/* Wrapped footer rows are 10px apart: a 16px link's centre then sits 26px from the one stacked
+   under it, which clears the 24px target-spacing rule (WCAG 2.5.8). */
 .panel-source {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px var(--sp-5);
+  gap: 10px var(--sp-5);
   margin-top: var(--sp-3);
   padding-top: var(--sp-2);
   border-top: 1px solid var(--rule);
   font-size: var(--fs-11);
   color: var(--text-3);
 }
-.panel-source > span { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px var(--sp-2); }
+.panel-source > span { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 10px var(--sp-2); }
 /* A command and its copy button wrap as one unit, so the button never starts the next command's
    line; only the command's own text may break, and the button sits level with its last line. */
 .panel-source .source-command { display: inline-flex; align-items: last baseline; gap: var(--sp-2); min-width: 0; max-width: 100%; }

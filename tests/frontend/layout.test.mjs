@@ -85,3 +85,8 @@ test("each reproduce command and its copy button are one unit, and a flag never 
   assert.match(units[0], /<code>python -m backend\.backtest_walk_forward <span class="nowrap">\[--no-purge\]<\/span><\/code>/);
   assert.match(index, /\.panel-source \.source-command \{ display: inline-flex; align-items: last baseline;[^}]*max-width: 100%; \}/);
 });
+
+test("wrapped footer rows are 10px apart, so stacked 16px links clear the 24px target spacing", () => {
+  assert.match(index, /\.panel-source \{[^}]*gap: 10px var\(--sp-5\);/);
+  assert.match(index, /\.panel-source > span \{[^}]*gap: 10px var\(--sp-2\); \}/);
+});
