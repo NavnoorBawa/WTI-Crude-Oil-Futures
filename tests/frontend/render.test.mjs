@@ -186,7 +186,9 @@ test("STDY shows both placebo tests and highlights a group only when both reject
   const oneSided = study.groups.filter((group) => m.assertions.placeboVerdict(group.peakP, group.peakPYear) === "one");
   assert.ok(oneSided.length > 0, "the fixture has a group that passes one placebo only");
   for (const group of oneSided) {
-    assert.ok(text.includes(`${group.name} (n = ${group.n}; ${m.format.fmtP(group.peakP).replace(/\s/g, " ")} vs placebo`), `${group.key} is named with its n and p`);
+    const p3 = m.format.fmtPValue(group.peakP, { digits: 3 });
+    const pText = /^[<>]/.test(p3) ? `p ${p3}` : `p = ${p3}`;
+    assert.ok(text.includes(`${group.name} (n = ${group.n}; ${pText.replace(/\s/g, " ")} vs placebo`), `${group.key} is named with its n and p`);
   }
   assert.ok(text.includes(research.supply_study.overlapping_events.definition), "the overlap caveat");
   assert.match(stdy, /title="Windows share sessions: /);

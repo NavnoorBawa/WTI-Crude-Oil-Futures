@@ -124,7 +124,10 @@ export default function ForecastPanel({ data, research }) {
   // The live week is drawn as the live record holds it (the recorded call when it has this as-of).
   const liveRow = useMemo(() => {
     const call = forecastOfRecord(live, getVol(data).liveRecord);
-    return call ? { date: call.asOf, forecast: call.forecast, lo: call.lo, hi: call.hi, ovx: call.ovx.value } : null;
+    return call ? {
+      date: call.asOf, forecast: call.forecast, lo: call.lo, hi: call.hi, ovx: call.ovx.value,
+      targetStart: call.targetStart, targetEnd: call.targetEnd,
+    } : null;
   }, [live, data]);
   const ForecastChart = getForecastChart();
   const modelName = shortModelName(live?.model) ?? shortModelName(validation?.model) ?? "Forecast";

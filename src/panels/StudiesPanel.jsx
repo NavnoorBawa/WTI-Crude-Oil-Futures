@@ -69,6 +69,12 @@ const UNMATCHED_TITLE = "resampling test of the group median vs random placebo d
 const YEAR_MATCHED_TITLE = "the same test with each event's placebo dates drawn from its own calendar year";
 
 /** Whether a group passes the study's rule (both placebo tests below ALPHA) on peak or on settle. */
+/** "p = 0.026": the 3-decimal precision of the group table, so prose and table agree. */
+const pLike = (value) => {
+  const text = fmtPValue(value, { digits: 3 });
+  return /^[<>]/.test(text) ? `p${NBSP}${text}` : `p${NBSP}=${NBSP}${text}`;
+};
+
 const passesRule = (row) => placeboVerdict(row.peakP, row.peakPYear) === "both"
   || placeboVerdict(row.settleP, row.settlePYear) === "both";
 
@@ -92,7 +98,7 @@ export const supplyStudyNotes = (study) => {
   const oneSided = study.groups.filter((group) => placeboVerdict(group.peakP, group.peakPYear) === "one");
   if (oneSided.length) {
     notes.push(`Significant on peak against only one of the two placebos: ${oneSided
-      .map((group) => `${group.name} (n${NBSP}=${NBSP}${fmtInt(group.n)}; ${fmtP(group.peakP)} vs placebo, ${fmtPValue(group.peakPYear)} year-matched)`)
+      .map((group) => `${group.name} (n${NBSP}=${NBSP}${fmtInt(group.n)}; ${pLike(group.peakP)} vs placebo, ${fmtPValue(group.peakPYear, { digits: 3 })} year-matched)`)
       .join("; ")}.`);
   }
   const pairs = study.overlapping?.pairs ?? [];

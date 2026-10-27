@@ -579,7 +579,7 @@ test("the SPA footnote reads an inconclusive p-value as inconclusive", () => {
   const spaAssertion = (...args) => spaced(m.assertions.spaAssertion(...args));
   const spa = { p_consistent: 0.072, p_lower: 0.0548, p_upper: 0.7048, models: ["a", "b", "c"] };
   const text = spaAssertion(spa, { recordName: "HAR-IV", mcsLevel: 90 });
-  assert.equal(text, "Hansen SPA test of HAR-IV against 3 alternatives: consistent p = 0.07 (lower 0.055, upper 0.70); "
+  assert.equal(text, "Hansen SPA test of HAR-IV against 3 alternatives: consistent p = 0.072 (lower 0.055, upper 0.70); "
     + "inconclusive: not significant at 5%, but it would reject at the 10% level the Model Confidence Set uses.");
   assert.doesNotMatch(text, /no alternative significantly beats/);
   assert.match(spaAssertion({ ...spa, p_consistent: 0.03 }, { recordName: "HAR-IV" }), /some alternative beats HAR-IV at the 5% level\.$/);
@@ -599,8 +599,8 @@ test("RISK names the VaR level of every clause and the 99% breach range across g
   const grids = record.exceedances_by_grid;
   const over = Math.min(...grids) > record.expected;
   assert.equal(m.assertions.riskAssertion(rows, labels, champion),
-    `${m.research.shortLabel(labels.get(champion))} 99% VaR passes Kupiec on ${record.kupiec_pass_grids}/${grids.length} grids`
-    + `${over ? ", each with more breaches than expected" : ""}`);
+    `${m.research.shortLabel(labels.get(champion))} 99% VaR (filtered HS) passes Kupiec on ${record.kupiec_pass_grids}/${grids.length} grids`
+    + `${over ? ", each above the expected count" : ""}`);
   const failing = [["99", summary["historical_simulation@0.01"]], ["95", summary["historical_simulation@0.05"]]]
     .filter(([, stats]) => stats.independence_pass_grids < stats.exceedances_by_grid.length)
     .map(([level, stats]) => `at ${level}% on ${stats.exceedances_by_grid.length - stats.independence_pass_grids}/${stats.exceedances_by_grid.length} grids`);
@@ -681,7 +681,9 @@ test("ledger statistics print with one precision per unit, and p-values like p-v
   assert.equal(fmtLedgerStatistic({ statistic: 0.002, statistic_name: "MCS p-value of HAR-IV" }), "0.002");
   assert.equal(fmtLedgerStatistic({ statistic: 0.0004, statistic_name: "SPA consistent p-value" }), "< 0.001");
   assert.equal(fmtLedgerStatistic({ statistic: -7.07, statistic_name: "DM statistic" }), "−7.07");
-  assert.equal(fmtLedgerStatistic({ statistic: 13.16, statistic_name: "t (HAC)" }), "13.2");
+  assert.equal(fmtLedgerStatistic({ statistic: 13.16, statistic_name: "t (HAC)" }), "13.16", "as METH prints it");
+  assert.equal(fmtLedgerStatistic({ statistic: 17, statistic_name: "exceedances" }), "17", "a count is a whole number");
+  assert.equal(fmtLedgerStatistic({ statistic: 1.977, statistic_name: "spread (%/month)" }), "1.98", "as the carry study prints it");
   // Percentages to one decimal, as the studies print them ("4.3", never "4.30").
   assert.equal(fmtLedgerStatistic({ statistic: 4.3, statistic_name: "median settle %" }), "4.3");
   assert.equal(fmtLedgerStatistic({ statistic: -4.8, statistic_name: "median settle %" }), "−4.8");

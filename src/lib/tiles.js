@@ -425,7 +425,15 @@ export const tilesKey = (data, research, researchStatus) => {
   const sample = [nDays != null ? `${fmtInt(nDays)} days` : null, span !== DASH ? span : null].filter(Boolean).join(", ");
   const pinned = inputsPinned(lab) ? "inputs pinned by SHA-256" : null;
   const detail = [sample, pinned].filter(Boolean).join("; ");
-  const head = `Tiles (except the live record): benchmark lab, every out-of-sample day${detail ? ` (${detail})` : ""}. Footnotes: ${weekly}.`;
+  const champion = getRoles(lab, null).champion;
+  const bandDays = num(asObject(lab?.conformal?.[champion])?.n_days);
+  const varWeeks = num(lab?.var_backtest?.grid0?.evaluation_weeks);
+  const exceptions = [
+    bandDays != null && bandDays !== nDays ? `coverage on the ${fmtInt(bandDays)} days with a band` : null,
+    varWeeks != null ? `VaR on weekly grid 0 (${fmtInt(varWeeks)} weeks)` : null,
+  ].filter(Boolean);
+  const head = `Tiles (except the live record): benchmark lab, every out-of-sample day${detail ? ` (${detail})` : ""}`
+    + `${exceptions.length ? `, except ${exceptions.join(" and ")}` : ""}. Footnotes: ${weekly}.`;
   const { k, d, bands } = pipelineAgreement(lab.series, recentOos);
   if (!k) return head;
   if (d > SAME_FORECAST_PTS) {

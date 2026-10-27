@@ -179,7 +179,8 @@ export default function VarChart({ rows, range = "ALL", frameKey = 0 }) {
     return {
       label: `Weekly log returns against the 95% and 99% VaR, ${fmtInt(rows.length)} weeks${span ? `, ${span}` : ""}`,
       summary: `Weekly 5-session log returns, ${rows.length} weeks${rows.length ? ` from ${fmtDate(rows[0].date)} to ${fmtDate(rows[rows.length - 1].date)}` : ""}, `
-        + `against the forecast-scaled 95% and 99% VaR; ${e99} of ${scored.length} weeks fell below the 99% line and ${e95} below the 95% line. `
+        + `against the forecast-scaled 95% and 99% VaR; in this series, rounded to 0.1 pt, ${e99} of ${scored.length} weeks fell below `
+        + `the 99% line and ${e95} below the 95% line (the caption gives the Kupiec counts). `
         + "Arrow keys read the weeks one by one; the Table button lists the latest weeks.",
     };
   }, [rows]);

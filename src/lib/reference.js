@@ -3,7 +3,7 @@
 // rows; the corrections list; and the citation built from CITATION.cff. Every value is read from
 // the payloads (data.json, research.json) or from CITATION.cff; nothing here states a statistic.
 import { ALPHA, shortModelName } from "./assertions";
-import { fmtNum, fmtP, fmtSigned, num } from "./format";
+import { NBSP, fmtNum, fmtP, fmtPValue, fmtSigned, num } from "./format";
 import { asArray, asObject, asText, getLab, getRoles, getVol, leaderboardRows, mcsLevel, mcsSummary, postmortemWindow, varSeries } from "./research";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}/;
@@ -268,7 +268,8 @@ export const modelCardEvaluation = (lab) => {
       key: "mz",
       label: "Mincer-Zarnowitz",
       text: `slope ${fmtNum(record.mzSlope, 2)}${record.mzSe != null ? ` (SE ${fmtNum(record.mzSe, 2)})` : ""}`
-        + `${record.mzP != null ? `; unbiasedness ${fmtP(record.mzP)}${record.mzP >= ALPHA ? ", not rejected" : ", rejected"}` : ""}`,
+        + `${record.mzP != null ? `; unbiasedness ${record.mzP < 0.001 ? fmtP(record.mzP) : `p${NBSP}=${NBSP}${fmtPValue(record.mzP, { digits: 3 })}`}`
+          + `${record.mzP >= ALPHA ? ", not rejected" : ", rejected"}` : ""}`,
       href: "#calb",
     });
   }
