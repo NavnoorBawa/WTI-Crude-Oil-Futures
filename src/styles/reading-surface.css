@@ -42,13 +42,10 @@
   .split--3 > :nth-child(3) { grid-column: auto; }
 }
 
-/* The retraction line and the market strip share one row on a wide screen. The columns are fixed
-   halves, not sized to content: the retraction line grows when research.json arrives, and a
-   content-sized column would then push the market strip sideways (a layout shift). */
-@media (min-width: 1280px) {
-  .strip-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .strip-row > :only-child { grid-column: 1 / -1; }
-}
+/* The retraction line and the market strip each take a full-width row at every width: a half row
+   is too narrow for either on one line, and neither row's width then depends on the other's text
+   (the retraction line grows when research.json arrives). */
+.strip-row > * { flex-basis: 100%; }
 
 /* Lazy figures reserve their mounted height (LazyMount sets both variables). */
 .lazy-mount > .figure-placeholder { min-height: var(--lazy-h, 240px); }

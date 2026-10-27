@@ -7,6 +7,7 @@ import { readSource } from "./load.mjs";
 
 const chrome = readSource("src/styles/chrome-foundation.css");
 const reference = readSource("src/styles/reference-sections.css");
+const surface = readSource("src/styles/reading-surface.css");
 
 test("on a tablet a header's form controls take their own row, and the code chip never shrinks", () => {
   assert.match(chrome, /@media \(max-width: 960px\) \{[^}]*?\.panel-actions:has\(input, select\) \{ grid-row: 4; grid-column: 1 \/ -1;/);
@@ -15,4 +16,9 @@ test("on a tablet a header's form controls take their own row, and the code chip
 
 test("a phone drops STDY's interval glyph and its note, so the peak p-value column fits beside the median", () => {
   assert.match(reference, /@media \(max-width: 640px\) \{[^}]*\.interval-glyph, \.glyph-note \{ display: none; \}/);
+});
+
+test("the retraction line and the market strip each keep a full-width row on a wide screen", () => {
+  assert.match(surface, /^\.strip-row > \* \{ flex-basis: 100%; \}$/m);
+  assert.doesNotMatch(surface, /\.strip-row \{ display: grid;/, "no half-width columns that wrap each line");
 });
