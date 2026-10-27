@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useViewParam } from "../app/viewState";
 import { getForecastChart } from "../charts/lazy";
 import DataTable from "../components/DataTable";
@@ -83,6 +83,19 @@ export const forecastTableColumns = (modelName) => [
  */
 export function ForecastTable({ rows, modelName }) {
   const [showAll, setShowAll] = useState(false);
+  // Collapsing back to the latest weeks keeps the button that did it in view (as LEDG's does): once
+  // the rows are gone and before the frame is painted, the page scrolls the button back into view.
+  const toggleRef = useRef(null);
+  const collapsing = useRef(false);
+  useLayoutEffect(() => {
+    if (!collapsing.current || showAll) return;
+    collapsing.current = false;
+    const root = document.documentElement;
+    const behavior = root.style.scrollBehavior;
+    root.style.scrollBehavior = "auto";
+    toggleRef.current?.scrollIntoView({ block: "center" });
+    root.style.scrollBehavior = behavior;
+  }, [showAll]);
   const tableRows = useMemo(() => (showAll ? rows : rows.slice(-TABLE_WEEKS)).slice().reverse(), [rows, showAll]);
   const exportRows = useMemo(() => rows.slice().reverse(), [rows]);
   const columns = useMemo(() => forecastTableColumns(modelName), [modelName]);
@@ -99,7 +112,15 @@ export function ForecastTable({ rows, modelName }) {
       columns={columns}
       rows={tableRows}
       footnote={rows.length > TABLE_WEEKS ? (
-        <button type="button" className="table-show-all" onClick={() => setShowAll((value) => !value)}>
+        <button
+          ref={toggleRef}
+          type="button"
+          className="table-show-all"
+          onClick={() => {
+            collapsing.current = showAll;
+            setShowAll(!showAll);
+          }}
+        >
           {showAll ? `Show the latest ${fmtInt(TABLE_WEEKS)} weeks` : `Show all ${fmtInt(rows.length)} weeks`}
         </button>
       ) : null}
