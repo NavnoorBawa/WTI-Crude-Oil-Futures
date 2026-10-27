@@ -210,12 +210,12 @@ test("RISK: a last-250-weeks column, 3-decimal Kupiec p-values, and pass meters 
   const body = html.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/)?.[1] ?? "";
   const cells = [...body.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((row) => [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((cell) => visibleText(cell[1]).trim()));
   assert.equal(cells.length, rows.length);
-  // The four test meters come right after the breach counts, so a tablet that scrolls the table sideways
-  // starts on the verdicts; the descriptive grid range and grid-0 Kupiec p close the row.
+  // The four test meters come right after the grid-0 breach count, so a tablet that scrolls the table
+  // sideways starts on the verdicts; the last-250-weeks count, the grid range and grid-0 Kupiec p close the row.
   const head = html.match(/<thead[\s\S]*?<\/thead>/)?.[0] ?? "";
   const labels = [...head.matchAll(/<th scope="col"[^>]*>([\s\S]*?)<\/th>/g)]
     .map((match) => visibleText(match[1].replace(/<span class="label-short"[\s\S]*?<\/span>/, "")).trim().replace(/\s*[↕↑↓]$/, ""));
-  assert.deepEqual(labels, ["Method", "Breaches", "Last 250 wk, Basel zone", "Kupiec", "Independence", "Cond. cov.", "DQ", "All grids", "Kupiec p"]);
+  assert.deepEqual(labels, ["Method", "Breaches", "Kupiec", "Independence", "Cond. cov.", "DQ", "Last 250 wk, Basel zone", "All grids", "Kupiec p"]);
   for (const row of cells) assert.match(row[7], /^(\d\.\d{3}|<\s0\.001)$/, `Kupiec p ${row[7]}`);
   for (const level of [0.01, 0.05]) {
     for (const row of m.research.varRows(lab).filter((item) => item.level === level)) {
@@ -225,13 +225,13 @@ test("RISK: a last-250-weeks column, 3-decimal Kupiec p-values, and pass meters 
   const grid0 = lab.var_backtest.grid0.methods;
   const record = grid0.find((row) => row.key === `${champion}:fhs` && row.level === 0.01);
   const recordCells = cells[rows.findIndex((row) => row.isRecord && row.quantile === "fhs")];
-  assert.ok(recordCells[1].startsWith(`${record.exceedances_last_250} / `), recordCells[1]);
+  assert.ok(recordCells[5].startsWith(`${record.exceedances_last_250} / `), recordCells[5]);
   assert.match(html, /<span class="pass-meter[^"]*" role="img" aria-label="passes on \d of \d grids">/);
   // The range presets are figure controls; the vol-targeting study is a disclosure headed by its claim.
   assert.match(html, /<div class="figure-controls"><div class="segmented" role="group" aria-label="VaR chart range">/);
   assert.match(html, /<details class="disclosure study-disclosure"><summary class="disclosure-summary"><h3 class="study-title">Sizing on the forecast held/);
   // The Basel zone shows only when the artifact gives one.
-  assert.ok(recordCells[1].endsWith(record.basel_zone_last_250), recordCells[1]);
+  assert.ok(recordCells[5].endsWith(record.basel_zone_last_250), recordCells[5]);
   const unzoned = structuredClone(research);
   for (const row of unzoned.vol_lab.var_backtest.grid0.methods) row.basel_zone_last_250 = null;
   const plain = section(render(data, unzoned).html, "risk");

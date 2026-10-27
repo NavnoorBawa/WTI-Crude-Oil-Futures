@@ -243,6 +243,16 @@ export default function RiskPanel({ data, research, researchStatus }) {
             render: (row) => <span className="num">{fmtInt(row.exceedances)} <span className="muted">/ {fmtNum(row.expected, 1)}</span></span>,
             csvLabel: "Breaches (grid 0)",
           },
+          { key: "kupiecPass", label: "Kupiec", title: "Unconditional coverage (Kupiec 1995)", sortable: true, firstDirection: "desc", render: (row) => <PassMeter pass={row.kupiecPass} total={row.gridCount} />, csvLabel: "Kupiec: grids passed" },
+          {
+            key: "independencePass",
+            // A phone shows "Indep." (the full word stays for screen readers), so the key columns fit.
+            label: <><span className="label-full">Independence</span><span className="label-short" aria-hidden="true">Indep.</span></>,
+            title: "No clustering (Christoffersen 1998)", sortable: true, firstDirection: "desc",
+            render: (row) => <PassMeter pass={row.independencePass} total={row.gridCount} />, csvLabel: "Independence: grids passed",
+          },
+          { key: "ccPass", label: "Cond. cov.", title: "Conditional coverage (Christoffersen 1998)", sortable: true, firstDirection: "desc", hideBelow: 640, render: (row) => <PassMeter pass={row.ccPass} total={row.gridCount} />, csvLabel: "Conditional coverage: grids passed" },
+          { key: "dqPass", label: "DQ", title: "Dynamic quantile test (Engle-Manganelli 2004)", sortable: true, firstDirection: "desc", hideBelow: 640, render: (row) => <PassMeter pass={row.dqPass} total={row.gridCount} />, csvLabel: "DQ: grids passed" },
           {
             key: "last250", label: hasZones ? `Last ${LAST_WEEKS} wk, Basel zone` : `Last ${LAST_WEEKS} wk`,
             title: `Grid 0 breaches in the last ${LAST_WEEKS} weeks vs the expected count${hasZones ? ", with the Basel traffic-light zone the backtest assigns" : ""}`,
@@ -260,16 +270,6 @@ export default function RiskPanel({ data, research, researchStatus }) {
             },
             csvLabel: `Breaches, last ${LAST_WEEKS} weeks (grid 0)`,
           },
-          { key: "kupiecPass", label: "Kupiec", title: "Unconditional coverage (Kupiec 1995)", sortable: true, firstDirection: "desc", render: (row) => <PassMeter pass={row.kupiecPass} total={row.gridCount} />, csvLabel: "Kupiec: grids passed" },
-          {
-            key: "independencePass",
-            // A phone shows "Indep." (the full word stays for screen readers), so the key columns fit.
-            label: <><span className="label-full">Independence</span><span className="label-short" aria-hidden="true">Indep.</span></>,
-            title: "No clustering (Christoffersen 1998)", sortable: true, firstDirection: "desc",
-            render: (row) => <PassMeter pass={row.independencePass} total={row.gridCount} />, csvLabel: "Independence: grids passed",
-          },
-          { key: "ccPass", label: "Cond. cov.", title: "Conditional coverage (Christoffersen 1998)", sortable: true, firstDirection: "desc", hideBelow: 640, render: (row) => <PassMeter pass={row.ccPass} total={row.gridCount} />, csvLabel: "Conditional coverage: grids passed" },
-          { key: "dqPass", label: "DQ", title: "Dynamic quantile test (Engle-Manganelli 2004)", sortable: true, firstDirection: "desc", hideBelow: 640, render: (row) => <PassMeter pass={row.dqPass} total={row.gridCount} />, csvLabel: "DQ: grids passed" },
           {
             key: "range", label: "All grids", title: "Breaches across the 5-session sampling grids (min–max)", align: "right", hideBelow: 640,
             render: (row) => (row.exceedMin != null ? <span className="num muted">{fmtInt(row.exceedMin)}–{fmtInt(row.exceedMax)}</span> : DASH),
