@@ -4,7 +4,7 @@
 
 [project]
 name = "wti-crude-oil-futures"
-version = "2.0.0"
+version = "2.1.0"
 description = "WTI crude oil volatility research: HAR-IV forecaster of record, benchmark field, Model Confidence Set, VaR backtests and conformal intervals on a pinned, reproducible data snapshot."
 readme = "README.md"
 license = "MIT"
