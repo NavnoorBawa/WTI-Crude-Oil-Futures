@@ -212,7 +212,7 @@ test("METH opens with a model card whose values come from the payloads", () => {
   assert.ok(text.includes(`DM ${m.format.fmtSigned(persistence.dm_qlike_vs_har_iv.stat, 2)}`));
   assert.ok(text.includes("not distinguishable from the OVX-only regression"));
   assert.ok(/inside on \d+ of \d+ sampling grids/.test(text));
-  assert.ok(text.includes(`promotion test accruing`));
+  assert.ok(text.includes(`promotion test: accruing`));
   assert.match(meth, /<a href="https:\/\/github\.com\/[^"]+\/MODEL_CARD\.md"[^>]*>Model card<span class="sr-only">/);
   assert.match(meth, /<a href="https:\/\/github\.com\/[^"]+\/METHODOLOGY\.md"[^>]*>Methodology<span class="sr-only">/);
   assert.ok(text.includes("the live record is short"), "the limitations sentence stays visible");

@@ -275,6 +275,39 @@ test("a recorded call that will never be scored says why, in the hero and on the
   assert.equal(fc.liveRealizedText(fc.buildForecastData(rows, live).live), "pending", "a call not in the record yet");
 });
 
+test("the challenger note says what the decided promotion test decided, and METH's card names it with a colon", () => {
+  const noteOf = (payload) => {
+    const html = render(payload, research).html;
+    const item = heroOf(html).match(/<li[^>]*><span class="hero-note-label">Challenger[\s\S]*?<\/li>/)?.[0] ?? "";
+    return squash(visibleText(item));
+  };
+  const meth = (payload) => squash(visibleText(render(payload, research).html.match(/<section id="meth"[\s\S]*?<\/section>/)[0]));
+  const accruing = noteOf(data);
+  assert.match(accruing, /replaces the model of record only through the 52-week live test \(0\/52\)\.$/, accruing);
+  assert.ok(meth(data).includes("promotion test: accruing 0/52 weeks"));
+  const decided = (status, extra) => {
+    const payload = structuredClone(data);
+    Object.assign(payload.vol_forecast.live_record.promotion, {
+      status, n_independent_paired: 52, required: 52, ...extra,
+    });
+    return payload;
+  };
+  const keep = decided("keep", { dm_stat: 0.97, p_value: 0.168753, mean_qlike_difference: 0.004 });
+  const kept = noteOf(keep);
+  assert.match(kept, /the 52-week live test kept the model of record\.$/, kept);
+  assert.doesNotMatch(kept, /replaces the model of record only through|keep the record/);
+  assert.ok(meth(keep).includes("promotion test: keep the record"));
+  const promote = decided("promote", { dm_stat: 2.86, p_value: 0.003041, mean_qlike_difference: 0.03 });
+  const favoured = noteOf(promote);
+  assert.match(favoured, /the 52-week live test favours it; the swap is a maintainer's change, not yet applied\.$/, favoured);
+  assert.doesNotMatch(favoured, /replaces the model of record only through|promote the challenger/);
+  // A call from another version than the pinned record's does not claim the swap is unapplied.
+  promote.vol_forecast.live.model_version = "har-iv-range/1";
+  promote.vol_forecast.live_record.recent[0].model_version = "har-iv-range/1";
+  const other = noteOf(promote);
+  assert.match(other, /favours it; the swap is a maintainer's change\.$/, other);
+});
+
 test("the change since the previous call is computed from the record, newest first", () => {
   const payload = structuredClone(data);
   const record = payload.vol_forecast.live_record;

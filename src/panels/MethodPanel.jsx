@@ -147,7 +147,7 @@ function ModelCard({ data, research }) {
         </CardRow>
         {card.challenger && (
           <CardRow label="Challenger">
-            {card.challenger}{promotion ? `; promotion test ${promotionText(promotion)}` : ""} (see <SectionLink id="live" />)
+            {card.challenger}{promotion ? `; promotion test: ${promotionText(promotion)}` : ""} (see <SectionLink id="live" />)
           </CardRow>
         )}
         <CardRow label="Documents">
