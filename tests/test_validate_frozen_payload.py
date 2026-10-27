@@ -566,11 +566,12 @@ class VolForecastValidationTest(unittest.TestCase):
         audited = {**row, "recorded_at": "2026-10-20T12:02:03Z", "sealed_at": "2026-10-20T12:02:30.5+00:00",
                    "base_session": "2026-10-20", "prob_vol_rises_pct": 58.3,
                    "inputs": {"ovx": 50.74, "ovx_session": "2026-10-16", "rv5_pct": 36.76, "rv22_pct": 36.81,
-                              "rv66_pct": 46.96}}
+                              "rv66_pct": 46.96},
+                   "spans_roll": True}
         self.assertEqual(self.record_errors(recent=[audited]), [])
         # Older summaries omit them; a row may carry null for any of them (an entry not sealed yet).
         self.assertEqual(self.record_errors(recent=[row]), [])
-        nulls = {**audited, "sealed_at": None, "prob_vol_rises_pct": None, "inputs": None}
+        nulls = {**audited, "sealed_at": None, "prob_vol_rises_pct": None, "inputs": None, "spans_roll": None}
         self.assertEqual(self.record_errors(recent=[nulls]), [])
         self.assertEqual(self.record_errors(recent=[{**audited, "inputs": dict.fromkeys(audited["inputs"])}]), [])
         cases = {
@@ -578,6 +579,7 @@ class VolForecastValidationTest(unittest.TestCase):
             "sealed_at": ("soon", f"{where} sealed_at must be an ISO timestamp with a UTC offset, or null"),
             "base_session": ("2026-10-20T00:00:00Z", f"{where} base_session must be an ISO date (YYYY-MM-DD), or null"),
             "prob_vol_rises_pct": (101.0, f"{where} prob_vol_rises_pct must be a percentage, or null"),
+            "spans_roll": ("yes", f"{where} spans_roll must be true or false, or null"),
         }
         for key, (bad, message) in cases.items():
             with self.subTest(key):

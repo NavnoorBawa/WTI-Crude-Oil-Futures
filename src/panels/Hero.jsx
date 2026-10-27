@@ -3,7 +3,7 @@ import Disclosure from "../components/Disclosure";
 import keepHyphenated from "../components/keepHyphenated";
 import { INTERVAL_LEVEL_PCT, promotionText, shortModelName } from "../lib/assertions";
 import { DASH, NBSP, fmtCT, fmtDate, fmtInt, fmtNum, fmtPct, fmtSigned, fmtSpan, num, toMs } from "../lib/format";
-import { asArray, asObject, asText, getLab, liveRecordSummary } from "../lib/research";
+import { asArray, asObject, asText, callScoring, getLab, liveRecordSummary } from "../lib/research";
 import {
   bandTrackRecord, callHistory, challengerStanding, changeSincePrevious, coneScale, elasticities, forecastDecomposition,
   forecastOfRecord, plainNumber, reproduces, TOLERANCE, typicalMiss,
@@ -11,6 +11,14 @@ import {
 
 /** How many recorded calls the hero lists (the full record is in LIVE). */
 const MAX_CALLS = 5;
+
+/** The target window's clause for a recorded call that is never scored (callScoring()); else it is scored. */
+const WINDOW_SCORING = {
+  pending_roll: " spans a contract roll: recorded, never scored",
+  skipped_roll: " spans a contract roll: recorded, never scored",
+  late_commit: ", never scored: not sealed before the settlement that opens it",
+  expired: ", never scored: its settlements did not arrive in time",
+};
 
 /**
  * Where the forecast sits: the 80% interval as a band with the region outside it drawn as possible
@@ -227,7 +235,8 @@ export default function Hero({ live, liveRecord, recentOos, research, researchSt
         </div>
         {call.source === "record" && call.targetStart && call.targetEnd && (
           <p className="hero-window">
-            Target window <b>{fmtDate(call.targetStart, { year: false })} – {fmtDate(call.targetEnd)}</b>, scored on its settlements
+            Target window <b>{fmtDate(call.targetStart, { year: false })} – {fmtDate(call.targetEnd)}</b>
+            {WINDOW_SCORING[callScoring(call.entry, liveRecord)] ?? ", scored on its settlements"}
           </p>
         )}
         {call.source === "live" && <p className="hero-window">Not in the live record yet</p>}

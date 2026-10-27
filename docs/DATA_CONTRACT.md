@@ -103,6 +103,7 @@ runs `build_research_bundle.validate` on `research.json`).
                     "challenger_pct": 45.1, "realized_pct": null,
                     "inputs": { "ovx": 50.74, "ovx_session": "2026-10-16",   // optional; null when the entry
                                 "rv5_pct": 36.76, "rv22_pct": 36.81, "rv66_pct": 46.96 },  // stored no inputs
+                    "spans_roll": false,                             // optional; the window spans a CL roll: never scored
                     "status": "pending|resolved|skipped_roll|expired|late_commit" } ],   // newest first, up to 12
       "promotion_rule": "...",                        // vol_record.PROMOTION_RULE
       "note": "the scoring-window and seal rule", "direction_note": "the direction noise floor"
@@ -138,11 +139,13 @@ promotion.n_excluded_no_challenger`. `next_result_due` must be present: an ISO d
 or null, and null when no entry is pending. The `recent[]` audit fields are optional (summaries
 written before they existed omit them) and each may be null; when present, `recorded_at` and
 `sealed_at` must be ISO timestamps with a UTC offset, `base_session` an ISO date,
-`prob_vol_rises_pct` a percentage, and `inputs` an object whose `ovx`, `rv5_pct`, `rv22_pct` and
-`rv66_pct` are finite numbers (vol points) or null and whose `ovx_session` is an ISO date or null.
-They repeat what each record entry already stores (`vol_record._recent`), so the dashboard can show
-each call's seal time against the settlement that opens its window, and how the inputs moved from
-one call to the next.
+`prob_vol_rises_pct` a percentage, `inputs` an object whose `ovx`, `rv5_pct`, `rv22_pct` and
+`rv66_pct` are finite numbers (vol points) or null and whose `ovx_session` is an ISO date or null,
+and `spans_roll` a boolean. They repeat what each record entry already stores (`vol_record._recent`),
+so the dashboard can show each call's seal time against the settlement that opens its window, and
+how the inputs moved from one call to the next. `spans_roll` is the test resolution skips a window
+with (`contract_calendar.spans_roll` on `base_session`..`target_end`), so a pending call that will
+never be scored is labelled as such before resolution closes it as `skipped_roll`.
 
 ### The live record file
 

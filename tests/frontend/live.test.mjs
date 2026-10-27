@@ -197,7 +197,34 @@ test("unscored statuses are explained in visible text under the table", () => {
   assert.ok(footnote.includes("late commit: Not sealed in time (less than five minutes before the settlement that opens its window, or never); never scored."));
   assert.ok(footnote.includes("skipped: roll: The target window spans a contract roll; never scored."));
   assert.doesNotMatch(text, /late_commit|skipped_roll/, "labels, never keys");
-  assert.doesNotMatch(visibleText(render(data).live), /never scored\./, "no footnote while every call is scorable");
+  const scorable = structuredClone(data);
+  Object.assign(scorable.vol_forecast.live_record, { next_result_due: scorable.vol_forecast.live_record.recent[0].target_end });
+  assert.doesNotMatch(visibleText(render(scorable).live), /never scored\./, "no footnote while every call is scorable");
+});
+
+test("a pending call whose window spans a contract roll says it will not be scored, and no result is due", () => {
+  // The fixture's only call (window Oct 21 – Oct 27) spans the CLX26 -> CLZ26 roll: next_result_due is null.
+  assert.equal(data.vol_forecast.live_record.next_result_due, null);
+  const row = data.vol_forecast.live_record.recent[0];
+  assert.equal(m.research.callScoring(row, data.vol_forecast.live_record), "pending_roll", "inferred from next_result_due");
+  assert.equal(m.research.callScoring({ ...row, spans_roll: false }, data.vol_forecast.live_record), "pending", "the row's own flag decides");
+  assert.equal(m.research.callScoring({ ...row, spans_roll: true }, { next_result_due: "2026-12-01", n_pending: 2 }), "pending_roll");
+  assert.equal(m.research.callScoring(row, { next_result_due: "2026-11-02", n_pending: 2 }), "pending_roll", "ends before the date due");
+  assert.equal(m.research.callScoring(row, { next_result_due: row.target_end, n_pending: 2 }), "pending");
+  assert.equal(m.research.callScoring({ ...row, status: "late_commit" }, null), "late_commit");
+  const { text } = render(data);
+  assert.ok(text.includes("No result is due: the pending call's window spans a contract roll, so it will not be scored."), text);
+  assert.doesNotMatch(text, /Scores appear once the first target window closes/);
+  const footnote = text.replace(/ :/g, ":");
+  assert.ok(footnote.includes("pending spans roll"), "the row says so beside its status");
+  assert.ok(footnote.includes("pending, spans roll: The target window spans a contract roll; it will be closed as skipped, never scored."));
+  // With the row flagged false and a result due, the row reads plain pending.
+  const scorable = structuredClone(data);
+  Object.assign(scorable.vol_forecast.live_record, { next_result_due: row.target_end });
+  scorable.vol_forecast.live_record.recent[0].spans_roll = false;
+  const plain = render(scorable).text;
+  assert.doesNotMatch(plain, /spans roll|No result is due/);
+  assert.ok(plain.includes(`Scores appear after the ${m.format.fmtDate(row.target_end)} settlement.`));
 });
 
 test("the record's sealing can be checked from the page", () => {

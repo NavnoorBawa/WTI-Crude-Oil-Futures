@@ -8,7 +8,7 @@ import Segmented from "../components/Segmented";
 import { INTERVAL_LEVEL_PCT, forecastAssertion, forecastDetail, shortModelName } from "../lib/assertions";
 import { expectedRatio, lossConcentration, withErrors } from "../lib/forecastErrors";
 import { DASH, fmtDate, fmtInt, fmtNum, fmtPct, fmtSigned, fmtSpan, num } from "../lib/format";
-import { bandCoverage, forecastRows, getLab, getVol, ovxOnlyLabel } from "../lib/research";
+import { bandCoverage, callScoring, forecastRows, getLab, getVol, ovxOnlyLabel } from "../lib/research";
 import { forecastOfRecord } from "../lib/verdict";
 
 // URL values (?fcst=) and the chart's range keys.
@@ -123,10 +123,12 @@ export default function ForecastPanel({ data, research }) {
   const rows = useMemo(() => forecastRows(lab, recentOos), [lab, recentOos]);
   // The live week is drawn as the live record holds it (the recorded call when it has this as-of).
   const liveRow = useMemo(() => {
-    const call = forecastOfRecord(live, getVol(data).liveRecord);
+    const { liveRecord } = getVol(data);
+    const call = forecastOfRecord(live, liveRecord);
     return call ? {
       date: call.asOf, forecast: call.forecast, lo: call.lo, hi: call.hi, ovx: call.ovx.value,
       targetStart: call.targetStart, targetEnd: call.targetEnd,
+      scoring: call.source === "record" ? callScoring(call.entry, liveRecord) : null,
     } : null;
   }, [live, data]);
   const ForecastChart = getForecastChart();

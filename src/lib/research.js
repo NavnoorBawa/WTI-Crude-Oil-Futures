@@ -515,6 +515,31 @@ export const liveRecordSummary = (record) => {
   };
 };
 
+/**
+ * Whether a recorded call (a live_record.recent row) is or will be scored. Its status, except that a
+ * pending call whose window spans a contract roll is "pending_roll": resolution will close it as
+ * skipped_roll, never scored. The row's own spans_roll (vol_record._recent) decides when present;
+ * for rows without it, the record's next_result_due is the earliest target_end of a pending call
+ * whose window does not span a roll, so with calls pending and none due every pending window spans
+ * one, and a pending call that ends before the date due spans one too. Null without a status.
+ *
+ * @returns {"pending"|"pending_roll"|"resolved"|"skipped_roll"|"late_commit"|"expired"|null}
+ */
+export const callScoring = (row, record = null) => {
+  const status = asText(row?.status);
+  if (status !== "pending") return status;
+  if (typeof row.spans_roll === "boolean") return row.spans_roll ? "pending_roll" : "pending";
+  const lr = asObject(record);
+  if (!lr || !("next_result_due" in lr)) return "pending";
+  const due = asText(lr.next_result_due);
+  const end = asText(row.target_end);
+  if (due == null) return num(lr.n_pending) > 0 ? "pending_roll" : "pending";
+  return ISO_DATE.test(due) && end && ISO_DATE.test(end) && end.slice(0, 10) < due.slice(0, 10) ? "pending_roll" : "pending";
+};
+
+/** A call's scoring (callScoring()) that will never produce a score. */
+export const NEVER_SCORED = new Set(["pending_roll", "skipped_roll", "late_commit", "expired"]);
+
 // ---------------------------------------------------------------------------------- leak anatomy
 
 const EXPERIMENT_LABELS = {

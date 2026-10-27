@@ -158,6 +158,8 @@ test("a snapshot from an older close than the newest recorded call shows that ca
     inputs: { ...(recent[0].inputs ?? {}), rv5_pct: 50.61, ovx: 57.1, ovx_session: "2026-10-23" },
   };
   recent.unshift(newer);
+  // The newer window (Oct 28 – Nov 3) spans no roll, so it is the result due; the fixture's own spans one.
+  Object.assign(payload.vol_forecast.live_record, { next_result_due: newer.target_end, n_pending: 2, n_recorded: 2 });
   live.issued_at = "2026-10-26T23:48:37Z";
   const call = v.forecastOfRecord(live, payload.vol_forecast.live_record);
   assert.equal(call.entry, newer);
@@ -228,13 +230,49 @@ test("with a snapshot from an older close, CONE and METH show the recorded call 
 });
 
 test("the target window is the recorded entry's", () => {
-  const entry = data.vol_forecast.live_record.recent[0];
-  const hero = squash(visibleText(heroOf(render(data, research).html)));
+  const scorable = structuredClone(data);
+  const entry = scorable.vol_forecast.live_record.recent[0];
+  scorable.vol_forecast.live_record.next_result_due = entry.target_end;
+  const hero = squash(visibleText(heroOf(render(scorable, research).html)));
   const f = m.format;
   assert.ok(hero.includes(`Target window ${f.fmtDate(entry.target_start, { year: false })} – ${f.fmtDate(entry.target_end)}, scored on its settlements`), hero);
-  const moved = structuredClone(data);
+  const moved = structuredClone(scorable);
   Object.assign(moved.vol_forecast.live_record.recent[0], { target_start: "2026-10-22", target_end: "2026-10-28" });
   assert.ok(squash(visibleText(heroOf(render(moved, research).html))).includes("Target window Oct 22 – Oct 28, 2026"));
+});
+
+test("a recorded call that will never be scored says why, in the hero and on the forecast chart, never 'scored' or 'pending'", () => {
+  const f = m.format;
+  const entry = data.vol_forecast.live_record.recent[0];
+  const window = `Target window ${f.fmtDate(entry.target_start, { year: false })} – ${f.fmtDate(entry.target_end)}`;
+  const heroWith = (change, record = {}) => {
+    const payload = structuredClone(data);
+    Object.assign(payload.vol_forecast.live_record.recent[0], change);
+    Object.assign(payload.vol_forecast.live_record, record);
+    return squash(visibleText(heroOf(render(payload, research).html)));
+  };
+  // The fixture's only call spans the CLX26 -> CLZ26 roll: no result is due for it.
+  const cases = [
+    [{}, {}, " spans a contract roll: recorded, never scored"],
+    [{ spans_roll: true }, { next_result_due: "2026-12-01" }, " spans a contract roll: recorded, never scored"],
+    [{ status: "skipped_roll", spans_roll: true }, { n_pending: 0, n_skipped_roll: 1 }, " spans a contract roll: recorded, never scored"],
+    [{ status: "late_commit" }, { n_pending: 0, n_late_commit: 1 }, ", never scored: not sealed before the settlement that opens it"],
+    [{ status: "expired" }, { n_pending: 0, n_expired: 1 }, ", never scored: its settlements did not arrive in time"],
+    [{ spans_roll: false }, { next_result_due: entry.target_end }, ", scored on its settlements"],
+  ];
+  for (const [change, record, clause] of cases) {
+    const hero = heroWith(change, record);
+    assert.ok(hero.includes(`${window}${clause}`), `${JSON.stringify(change)}: ${hero}`);
+    if (clause !== ", scored on its settlements") assert.doesNotMatch(hero, /scored on its settlements/);
+  }
+  // FCST's live point reads the same call: never scored, not pending.
+  const fc = m.forecastChart;
+  const rows = [{ date: "2026-10-12", actual: 40, forecast: 42, lo: 30, hi: 55, ovx: 50 }];
+  const live = { date: entry.as_of, forecast: entry.forecast_pct, lo: entry.lo80_pct, hi: entry.hi80_pct, ovx: null };
+  assert.equal(fc.liveRealizedText(fc.buildForecastData(rows, { ...live, scoring: "pending_roll" }).live), "never scored (roll)");
+  assert.equal(fc.liveRealizedText(fc.buildForecastData(rows, { ...live, scoring: "late_commit" }).live), "never scored (late commit)");
+  assert.equal(fc.liveRealizedText(fc.buildForecastData(rows, { ...live, scoring: "pending" }).live), "pending");
+  assert.equal(fc.liveRealizedText(fc.buildForecastData(rows, live).live), "pending", "a call not in the record yet");
 });
 
 test("the change since the previous call is computed from the record, newest first", () => {
