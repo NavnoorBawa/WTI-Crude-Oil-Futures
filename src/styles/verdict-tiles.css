@@ -85,7 +85,7 @@
 .kpi-key {
   grid-column: 1 / -1;
   background: var(--bg-1);
-  padding: var(--sp-3) var(--sp-5);
+  padding: var(--sp-3) var(--sp-6);
   font-size: var(--fs-12);
   line-height: 1.5;
   color: var(--text-3);
