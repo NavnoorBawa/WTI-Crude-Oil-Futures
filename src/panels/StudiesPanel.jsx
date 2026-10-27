@@ -144,6 +144,22 @@ function IntervalGlyph({ domain, lo = null, hi = null, median = null, placebo = 
   );
 }
 
+/** A group's 95% bootstrap interval of the median peak, or null when an edge is missing. */
+const peakInterval = (row) => (row.ciPeak?.length === 2 && row.ciPeak.every((v) => v != null) ? row.ciPeak : null);
+
+/**
+ * Columns for the CSV only (hidden on screen): the interval the peak cell draws beside the median,
+ * and the event pairs behind the n cell's †, so the export holds what the table shows.
+ */
+export const SUPPLY_CSV_COLUMNS = [
+  { key: "peakLo", label: "Median peak 95% CI low %", className: "csv-only", render: () => null, csv: (row) => peakInterval(row)?.[0] ?? null },
+  { key: "peakHi", label: "Median peak 95% CI high %", className: "csv-only", render: () => null, csv: (row) => peakInterval(row)?.[1] ?? null },
+  {
+    key: "overlaps", label: "Events whose windows share sessions (†)", className: "csv-only", render: () => null,
+    csv: (row) => (row.overlaps?.length ? row.overlaps.map(pairText).join("; ") : null),
+  },
+];
+
 /** The placebo-controlled event study (research.json supply_study). */
 function SupplyStudyTable({ study }) {
   const rows = [
@@ -195,7 +211,7 @@ function SupplyStudyTable({ study }) {
           key: "peak", label: "Median [95% CI]", title: "Median 20-session peak, with its 95% bootstrap interval", align: "right",
           csvLabel: "Median peak %",
           render: (row) => {
-            const ci = row.ciPeak?.length === 2 && row.ciPeak.every((v) => v != null) ? row.ciPeak : null;
+            const ci = peakInterval(row);
             return (
               <span className="peak-cell">
                 <span className="num">{fmtSignedPct(row.peak)}</span>
@@ -211,6 +227,7 @@ function SupplyStudyTable({ study }) {
         { key: "settle", label: "Median", csvLabel: "Median settle %", title: "Median move to the session-10 close", align: "right", render: (row) => <span className="num">{fmtSignedPct(row.settle)}</span> },
         { key: "settleP", label: "vs placebo", csvLabel: "Settle p vs placebo", title: `Settle p: ${UNMATCHED_TITLE}`, align: "right", className: "wrap-head", render: pCell("settleP") },
         { key: "settlePYear", label: "year-matched", csvLabel: "Settle p year-matched", title: `Settle p: ${YEAR_MATCHED_TITLE}`, align: "right", className: "wrap-head", render: pCell("settlePYear") },
+        ...SUPPLY_CSV_COLUMNS,
       ]}
       rows={rows}
       footnote={footnote}

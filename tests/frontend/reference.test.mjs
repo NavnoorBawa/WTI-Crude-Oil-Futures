@@ -394,6 +394,28 @@ test("STDY's supply table has a column-group header row and an interval glyph on
   assert.doesNotMatch(visibleText(stdy), /p_value_vs_placebo|mann_whitney|overlapping_events/, "no payload keys in the notes");
 });
 
+test("STDY's supply CSV holds the 95% interval and the shared-window pairs the table shows", () => {
+  const study = m.research.supplyStudy(research);
+  const csv = m.table.csvColumns(studies.SUPPLY_CSV_COLUMNS);
+  assert.deepEqual(csv.map((column) => column.label),
+    ["Median peak 95% CI low %", "Median peak 95% CI high %", "Events whose windows share sessions (†)"]);
+  for (const group of study.groups) {
+    assert.deepEqual([csv[0].value(group), csv[1].value(group)], group.ciPeak, group.key);
+  }
+  const overlapped = study.groups.filter((group) => group.overlaps.length > 0);
+  assert.ok(overlapped.length > 0, "the fixture has a group with a †");
+  for (const group of overlapped) assert.match(csv[2].value(group), / and .*, \d+ sessions apart/, group.key);
+  for (const group of study.groups.filter((entry) => !entry.overlaps.length)) assert.equal(csv[2].value(group), null, group.key);
+  assert.deepEqual(csv.map((column) => column.value({ key: "placebo", isPlacebo: true })), [null, null, null], "the placebo row has neither");
+  // In the table's header (hidden on screen), after the eight columns the groups span.
+  const stdy = section(renderPage().html, "stdy");
+  const supplyHead = stdy.slice(stdy.indexOf('<tr class="group-row">')).match(/<\/tr><tr>([\s\S]*?)<\/tr>/)[1];
+  const headers = [...supplyHead.matchAll(/<th scope="col"([^>]*)>/g)].map((match) => match[1]);
+  assert.equal(headers.length, 11);
+  assert.ok(headers.slice(8).every((attrs) => /class="[^"]*\bcsv-only\b/.test(attrs)), "the last three");
+  assert.ok(headers.slice(0, 8).every((attrs) => !/csv-only/.test(attrs)), "and only those");
+});
+
 test("MKT keeps its range in the URL's figure controls and shows the closes as a table", () => {
   const mkt = section(renderPage().html, "mkt");
   assert.match(mkt, /<div class="figure-controls"><div class="segmented" role="group" aria-label="Price chart range">/);
