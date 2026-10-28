@@ -149,6 +149,32 @@ test("month ticks name their year when the view spans more than 400 days", () =>
   assert.equal(spanDays(null), null);
 });
 
+test("a tick label or marker text that the plot's edge would cut is left out", () => {
+  const { fitsInPlot, installTickFormatter, MONO_CHAR_PX } = lw;
+  // A 600 px plot with one day every 10 px from 2026-01-01.
+  let formatter = null;
+  const chart = {
+    timeScale: () => ({
+      width: () => 600,
+      timeToCoordinate: (time) => (Date.parse(`${time}T00:00:00Z`) - Date.parse("2026-01-01T00:00:00Z")) / 86400000 * 10,
+      subscribeVisibleTimeRangeChange: () => {},
+      unsubscribeVisibleTimeRangeChange: () => {},
+    }),
+    applyOptions: (options) => { formatter = options.timeScale.tickMarkFormatter; },
+  };
+  const half = (text) => (text.length * MONO_CHAR_PX) / 2;
+  assert.equal(fitsInPlot(chart, "2026-01-01", "Jan"), false, "at x = 0 half the label is outside");
+  assert.equal(fitsInPlot(chart, "2026-01-02", "Jan"), 10 >= half("Jan"));
+  assert.equal(fitsInPlot(chart, "2026-01-30", "Jan"), true);
+  assert.equal(fitsInPlot(chart, "2026-03-01", "Mar ’26"), false, "x = 590: the right edge cuts it");
+  const stop = installTickFormatter(chart);
+  assert.equal(formatter("2026-01-01", TickMarkType.Month), "", "cut at the left edge");
+  assert.equal(formatter("2026-01-30", TickMarkType.Month), "Jan");
+  assert.equal(formatter("2026-03-02", TickMarkType.Month), "", "x = 600: cut at the right edge");
+  assert.equal(formatter("2026-01-30", TickMarkType.Time), null, "clock times still fall back to the library");
+  stop();
+});
+
 test("keyboard reading: arrows step one row (four with Shift), Home/End jump, Escape clears", () => {
   const { nextReadIndex, visibleRows, isOffFrame, frameFor, READ_STEP } = lw;
   const visible = visibleRows({ from: 9.5, to: 104 }, 100);

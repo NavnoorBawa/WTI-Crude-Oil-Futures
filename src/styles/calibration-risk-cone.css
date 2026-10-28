@@ -45,9 +45,10 @@
   }
   .data-table .label-short { display: inline; }
 }
-/* On a tablet the method name and its quantile stack as well, so the four test meters, which come
-   first after the breach count, fit beside them before any sideways scroll. */
-@media (min-width: 641px) and (max-width: 960px) {
+/* On a tablet and a small laptop the method name and its quantile stack as well, so the test meters,
+   which come first after the breach count, fit beside them before any sideways scroll (up to 1139px
+   the one-line name took 232px and pushed "Kupiec p" off screen). */
+@media (min-width: 641px) and (max-width: 1139px) {
   .data-table tbody .risk-method { white-space: normal; }
   .data-table .risk-method .model-cell { flex-direction: column; align-items: flex-start; gap: 0; }
 }

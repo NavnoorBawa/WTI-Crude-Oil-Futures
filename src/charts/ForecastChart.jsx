@@ -4,7 +4,7 @@ import { BandSeries } from "./bandSeries";
 import ChartFigure from "./ChartFigure";
 import { SCREEN_THEME, SURFACE, baseChartOptions, fontsReady, withAlpha } from "../theme/chartTheme";
 import { DASH, fmtDate, fmtInt, fmtNum, fmtSpan } from "../lib/format";
-import { ANNOTATION_MIN_PX, fmtAxisPercent, frameRange, installTickFormatter, timeKey, useChartReader } from "./lwUtil";
+import { ANNOTATION_MIN_PX, fitsInPlot, fmtAxisPercent, frameRange, installTickFormatter, timeKey, useChartReader } from "./lwUtil";
 
 export const FORECAST_RANGES = { "1Y": 365, "3Y": 3 * 365, ALL: null };
 // The legend names the pipeline behind the hovered week's band (forecastRows() `source`).
@@ -239,13 +239,16 @@ export default function ForecastChart({ rows, live, range = "3Y", frameKey = 0, 
           ? largestMiss(current.rows, timeKey(visible.from), timeKey(visible.to))
           : null;
         const above = miss ? miss.actual > miss.forecast : false;
+        const missText = miss ? `largest miss ${fmtNum(miss.actual, 1)} vs ${fmtNum(miss.forecast, 1)}` : "";
         const marker = miss ? [{
           time: miss.date,
           position: above ? "aboveBar" : "belowBar",
           shape: above ? "arrowDown" : "arrowUp",
           color: theme.series.truth,
           size: 0.6,
-          text: `largest miss ${fmtNum(miss.actual, 1)} vs ${fmtNum(miss.forecast, 1)}`,
+          // The library centres the text on the week and clips it at the plot's edges: near an edge
+          // the arrow stands alone (the reading and the table give the week's numbers).
+          text: fitsInPlot(chart, miss.date, missText) ? missText : "",
         }] : [];
         const outside = miss ? isOutsideBand(miss) : false;
         state.outsideMarkers.setMarkers(outside ? marker : []);

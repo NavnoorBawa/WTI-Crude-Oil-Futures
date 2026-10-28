@@ -104,25 +104,54 @@ export const formatTick = (time, tickMarkType, days = null) => {
   return null;
 };
 
+/** Advance of one character of the charts' 11px monospace axis font (0.6 em). */
+export const MONO_CHAR_PX = 6.6;
+
 /**
- * Keeps a chart's tick labels in step with its visible span: the library caches labels, so the
- * formatter is replaced whenever the span crosses LONG_SPAN_DAYS. Returns the unsubscribe.
+ * Whether `text`, centred on `time`, fits inside the plot: the library centres tick labels and marker
+ * text on their time and clips what runs past either edge ("’23" for "Oct ’23"). Pure given the chart.
+ * @param {import("lightweight-charts").IChartApi} chart
+ */
+export const fitsInPlot = (chart, time, text) => {
+  const x = chart.timeScale().timeToCoordinate(time);
+  if (x == null) return false;
+  const half = (String(text).length * MONO_CHAR_PX) / 2;
+  return x - half >= 0 && x + half <= chart.timeScale().width();
+};
+
+/**
+ * Keeps a chart's tick labels in step with its visible span (the year on month ticks beyond
+ * LONG_SPAN_DAYS) and leaves out a label that would be cut by either edge of the plot. The library
+ * caches labels, so the formatter is replaced on every visible-range change, at most once a frame.
+ * Returns the unsubscribe.
  * @param {import("lightweight-charts").IChartApi} chart
  * @param {(time: unknown, tickMarkType: number, days: number|null) => string|null} [format]
  */
 export const installTickFormatter = (chart, format = formatTick) => {
-  let long = null;
+  let frame = null;
   const apply = (days) => {
-    long = days != null && days > LONG_SPAN_DAYS;
-    chart.applyOptions({ timeScale: { tickMarkFormatter: (time, type) => format(time, type, days) } });
+    chart.applyOptions({
+      timeScale: {
+        tickMarkFormatter: (time, type) => {
+          const text = format(time, type, days);
+          return text && !fitsInPlot(chart, time, text) ? "" : text;
+        },
+      },
+    });
   };
   const onRange = (range) => {
-    const days = spanDays(range);
-    if ((days != null && days > LONG_SPAN_DAYS) !== long) apply(days);
+    if (frame != null) return;
+    frame = requestAnimationFrame(() => {
+      frame = null;
+      apply(spanDays(range));
+    });
   };
   apply(null);
   chart.timeScale().subscribeVisibleTimeRangeChange(onRange);
-  return () => chart.timeScale().unsubscribeVisibleTimeRangeChange(onRange);
+  return () => {
+    if (frame != null) cancelAnimationFrame(frame);
+    chart.timeScale().unsubscribeVisibleTimeRangeChange(onRange);
+  };
 };
 
 // ------------------------------------------------------------------------------------- reading

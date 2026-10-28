@@ -19,6 +19,35 @@ backs the new one.
   hero splits the change between them into each input's move (at the previous call's coefficients),
   the refit and the smearing factor, in vol points that add up to the change. It is shown only when
   both calls reproduce from their own recorded fits.
+- **The hand arithmetic shows again.** "How X is computed" was hidden whenever the one-decimal
+  median times √smearing missed the one-decimal forecast by more than rounding (47.5 × √1.4128 =
+  56.46 against the recorded 56.4), although the fit reproduces the call. It now prints the
+  coefficients at the six decimals the payload stores and chains from a two-decimal median (47.45 ×
+  √1.4128 = 56.40).
+- **No layout shift on a stale snapshot.** The stale-data notice sat above the page, so it pushed
+  everything down when the data arrived (layout shift 0.04 to 0.09); it now renders inside the page
+  with the dashboard (0.004).
+- **Typography.** Tabular figures apply only to values, tables and chart text: on body text Inter's
+  tabular forms also widened hyphens and thousands separators ("HAR - IV", "4 , 634").
+- **Tablets and phones.** RISK's method names stack up to 1139px, so its backtest table fits from
+  900px; MODL hides only its descriptive Inputs and Family columns below 1000px; numeric ranges,
+  tile values and a parenthesis after a section chip no longer break across lines; ledger cards on a
+  phone set their statistics two to a line (about 1,800px shorter); LIVE shows each call's seal
+  margin under its status on a phone; chart time labels and the largest-miss note are left out
+  where the plot's edge would cut them; deep-link placeholders match the mounted charts.
+- **Accessibility.** Every sideways-scrolling region is a keyboard stop, including METH's
+  reproduce commands; pressed range and table toggles carry a mark, not only a shade; inputs have a
+  3:1 border; MODL and RISK announce their sort; in forced-colors mode SVG text, halos, the noise
+  zone and the focused table row use the system colours; printed SVG figures scale to their column
+  and code blocks wrap.
+
+### Engineering
+
+- **Browser checks in CI.** A new "Interface" job renders the built site against the fixtures at
+  1440 and 390px, fresh and stale, and requires no console error, no sideways page scroll, every
+  scroll region keyboard-reachable, no serious axe violation, layout shift under 0.02, the skip link
+  and jump palette by keyboard, and the first screen's scripts within budget.
+- eslint ignores the in-repository `.venv` the cloud session's hook creates.
 
 ### Documentation and verification
 

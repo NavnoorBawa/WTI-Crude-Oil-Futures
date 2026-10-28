@@ -20,7 +20,8 @@ const RANGES = [
 const RANGE_VALUES = RANGES.map((option) => option.value);
 const TABLE_WEEKS = 52;
 // The figure's measured height (legend, plot and, on a touch phone, the tap hint), reserved before it mounts.
-const FIGURE_HEIGHTS = { wide: 368, narrow: 348 };
+// The mounted chart's height (host + legend), so a deep link below it does not drift as it mounts.
+const FIGURE_HEIGHTS = { wide: 368, narrow: 324 };
 // The weeks counted as "the worst" in the loss-concentration note: one in a hundred.
 const WORST_SHARE = 1 / 100;
 const WORST_LISTED = 3;

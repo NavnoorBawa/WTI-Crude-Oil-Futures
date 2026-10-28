@@ -216,7 +216,7 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
         <>
           <h3 className="figure-title">Coverage by OVX regime, lab weekly band ({fmtInt(tercileWeeks)} weeks)</h3>
           <Facts className="facts--row calb-regimes" items={terciles.map((row) => ({
-            label: `OVX ${fmtNum(row.ovxLow, 1)}–${fmtNum(row.ovxHigh, 1)}`,
+            label: <>OVX <span className="nowrap">{fmtNum(row.ovxLow, 1)}–{fmtNum(row.ovxHigh, 1)}</span></>,
             value: fmtPct(row.coverage),
             note: `of ${fmtInt(row.n)} wk`,
           }))} />

@@ -25,7 +25,8 @@ const RANGE_OPTIONS = RANGES.map((value) => ({ value, label: value.toUpperCase()
 const LAST_WEEKS = 250;
 // VarChart's plot plus its legend row, as measured at 1440 and 390px (a 300px plot under the reading
 // and the line naming the labelled weeks; on a phone a 240px plot under a legend that wraps).
-const VAR_HEIGHT = { wide: 344, narrow: 308 };
+// The mounted chart's height (host + legend; the legend wraps once more at 360px and below).
+const VAR_HEIGHT = { wide: 344, narrow: 284 };
 
 /** Which VaR line a week's log return fell below: "99%", "95%" or "no". */
 const breachText = (row) => (row.var99 != null && row.ret < -row.var99 ? "99%" : row.var95 != null && row.ret < -row.var95 ? "95%" : "no");
@@ -231,6 +232,7 @@ export default function RiskPanel({ data, research, researchStatus }) {
         rowClass={(row) => (row.id === record?.id ? "is-record" : row.isHistorical ? "is-flagged" : undefined)}
         dense
         exportName={`risk-var-backtest-${levelOf(shownLevel)}`}
+        announce="methods"
         initialSort={null}
         columns={[
           {
@@ -255,6 +257,7 @@ export default function RiskPanel({ data, research, researchStatus }) {
           { key: "dqPass", label: "DQ", title: "Dynamic quantile test (Engle-Manganelli 2004)", sortable: true, firstDirection: "desc", hideBelow: 640, render: (row) => <PassMeter pass={row.dqPass} total={row.gridCount} />, csvLabel: "DQ: grids passed" },
           {
             key: "last250", label: hasZones ? `Last ${LAST_WEEKS} wk, Basel zone` : `Last ${LAST_WEEKS} wk`,
+            className: "wrap-head",
             title: `Grid 0 breaches in the last ${LAST_WEEKS} weeks vs the expected count${hasZones ? ", with the Basel traffic-light zone the backtest assigns" : ""}`,
             align: "right", sortable: true, hideBelow: 640,
             sortValue: (row) => last250.get(row.id)?.count ?? null,

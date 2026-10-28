@@ -69,7 +69,7 @@ export function LiveCallsPlot({
     + `${fmtDate(marks[marks.length - 1].asOf)}: forecast and ${bandLevel}% band per call`
     + `${resolvedCount ? `, ${resolvedCount} with the realized vol` : ", none resolved yet"}${due ? `; next result due ${due}` : ""}`;
   return (
-    <svg width={width} height={height} className="svg-chart live-calls" role="img" aria-label={label}>
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart live-calls" role="img" aria-label={label}>
       <g className="axis axis-y">
         {y.ticks(4).map((tick) => (
           <g key={tick} transform={`translate(0,${y(tick)})`}>

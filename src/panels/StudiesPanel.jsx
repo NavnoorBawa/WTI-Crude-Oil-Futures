@@ -306,6 +306,7 @@ export default function StudiesPanel({ data, research, researchStatus }) {
               caption="Carry: second-nearby holding return when carry is above vs at or below its prior-months median"
               captionHidden
               rowKey={(row) => row.key}
+              cardsBelow={640}
               dense
               exportName="carry"
               columns={[

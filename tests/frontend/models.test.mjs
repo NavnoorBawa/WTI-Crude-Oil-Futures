@@ -173,7 +173,9 @@ test("the leaderboard keeps model, QLIKE, DM t and MCS columns on a phone, and i
   for (const key of ["label", "qlike", "dmStat", "mcsP", "inMcs"]) {
     assert.equal(columns.find((column) => column.key === key).hideBelow, undefined, key);
   }
-  assert.ok(columns.filter((column) => column.hideBelow === 640).length >= 4);
+  assert.ok(columns.filter((column) => column.hideBelow === 640).length >= 3);
+  // The descriptive columns give way first, below 1000px; every statistic stays to 640px.
+  assert.deepEqual(columns.filter((column) => column.hideBelow === 1000).map((column) => column.key), ["inputs", "family"]);
   const csv = m.table.csvColumns(columns);
   const value = (name, row) => csv.find((column) => column.label === name).value(row);
   const rows = m.research.leaderboardRows(lab);

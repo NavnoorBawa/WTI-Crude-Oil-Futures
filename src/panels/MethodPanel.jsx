@@ -106,7 +106,7 @@ function ModelCard({ data, research }) {
         <CardRow label="Not intended for">
           Price direction: {card.direction
             ? <>direction accuracy {fmtNum(card.direction.accuracy, 1)}% on every out-of-sample day (benchmark lab), against a {fmtNum(card.direction.floor, 1)}% noise floor on simulated returns with nothing to forecast</>
-            : "direction accuracy is not evidence of skill"} (see <SectionLink id="modl" />)
+            : "direction accuracy is not evidence of skill"} <span className="nowrap">(see <SectionLink id="modl" />)</span>
         </CardRow>
         <CardRow label="Specification"><code className="model-equation">{card.equation}</code>, OLS</CardRow>
         <CardRow label="Estimation">
@@ -148,7 +148,7 @@ function ModelCard({ data, research }) {
         </CardRow>
         {card.challenger && (
           <CardRow label="Challenger">
-            {card.challenger}{promotion ? `; promotion test: ${promotionText(promotion)}` : ""} (see <SectionLink id="live" />)
+            {card.challenger}{promotion ? `; promotion test: ${promotionText(promotion)}` : ""} <span className="nowrap">(see <SectionLink id="live" />)</span>
           </CardRow>
         )}
         <CardRow label="Documents">
@@ -388,7 +388,7 @@ function Corrections({ research }) {
       {timing && (
         <p className="prose-note">
           {timing}. The lower loss came from a close published after the decision, so the leaderboard keeps v1 only as a timing
-          control (see <SectionLink id="modl" />).
+          control <span className="nowrap">(see <SectionLink id="modl" />).</span>
         </p>
       )}
       {retracted.length > 0 && (

@@ -34,9 +34,8 @@
 }
 .hero-call, .hero-detail { min-width: 0; }
 .hero-more { display: flex; flex-direction: column; min-width: 0; }
-.hero-more > .hero-model { margin-top: auto; }
-/* Whatever sits last above the model line keeps the usual gap, since that line is pushed down. */
-.hero-more > :has(+ .hero-model) { margin-bottom: var(--sp-4); }
+/* The model line follows the notes above it (pushed to the column's foot it left a blank band). */
+.hero-more > .hero-model:not(:first-child) { margin-top: var(--sp-4); }
 
 /* The version is an identifier: it keeps its case inside the capitalised label. */
 .verdict-label .mono { text-transform: none; letter-spacing: 0; }

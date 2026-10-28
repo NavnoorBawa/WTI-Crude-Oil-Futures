@@ -303,7 +303,9 @@ button { font: inherit; color: inherit; }
 .kpi-label { font-size: var(--fs-12); font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text-3); line-height: 16px; }
 .kpi-link { color: inherit; text-decoration: none; }
 .kpi-link:hover { color: var(--text-1); text-decoration: underline; }
-.kpi-value { font-size: var(--fs-28); line-height: 1.1; font-weight: 500; letter-spacing: -0.01em; color: var(--text-1); margin-top: var(--sp-2); }
+/* One line always ("4/13 models", "71.3–88.0%"): between the phone and desktop sizes the value scales
+   with the viewport, so three tiles to a row at 641-700px do not wrap it. */
+.kpi-value { font-size: clamp(var(--fs-20), 2.6vw + 4px, var(--fs-28)); white-space: nowrap; line-height: 1.1; font-weight: 500; letter-spacing: -0.01em; color: var(--text-1); margin-top: var(--sp-2); }
 .kpi-unit { font-size: var(--fs-12); font-weight: 400; color: var(--text-3); margin-left: 6px; letter-spacing: 0; }
 .kpi-base { font-size: var(--fs-12); color: var(--text-2); margin-top: var(--sp-1); line-height: 1.45; }
 .kpi-base b { color: var(--text-1); font-weight: 500; }
@@ -421,7 +423,7 @@ button { font: inherit; color: inherit; }
    line; only the command's own text may break, and the button sits level with its last line. */
 .panel-source .source-command { display: inline-flex; align-items: last baseline; gap: var(--sp-2); min-width: 0; max-width: 100%; }
 .panel-source .source-command > .source-item { min-width: 0; overflow-wrap: anywhere; }
-.panel-source code { color: var(--text-2); }
+.panel-source code { color: var(--text-2); overflow-wrap: anywhere; }
 /* Source entries are links to the payload files, separated by a dot that trails each entry (so a
    wrapped line never starts with one; an inline-block pseudo-element is not underlined with its
    link). Each command is followed by its copy button, which separates the commands. */
@@ -471,7 +473,8 @@ button { font: inherit; color: inherit; }
 .prose-note.is-muted { color: var(--text-3); }
 /* A long note in a full-width panel: two columns at the usual line length instead of one beside a blank half. */
 @container (min-width: 880px) {
-  .prose-note.is-wide { max-width: calc(2 * var(--measure) + var(--sp-8)); columns: 2 40ch; column-gap: var(--sp-8); }
+  .prose-note.is-wide:has(> p + p) { max-width: calc(2 * var(--measure) + var(--sp-8)); columns: 2 40ch; column-gap: var(--sp-8); }
+  .prose-note.is-wide > p { break-inside: avoid; }
 }
 .callout {
   display: flex;
@@ -550,9 +553,10 @@ button { font: inherit; color: inherit; }
 }
 .segmented-button + .segmented-button { border-left: 1px solid var(--rule-strong); }
 .segmented-button:hover, .toggle-button:hover { color: var(--text-1); }
-.segmented-button[aria-pressed="true"] { background: var(--bg-2); color: var(--text-1); }
+/* Pressed: a 2px bar under the label, not only a shade (bg-2 against bg-1 is 1.07:1). */
+.segmented-button[aria-pressed="true"] { background: var(--bg-2); color: var(--text-1); box-shadow: inset 0 -2px 0 var(--s-model); }
 .toggle-button { border: 1px solid var(--rule-strong); border-radius: var(--radius); }
-.toggle-button[aria-pressed="true"] { background: var(--bg-2); color: var(--text-1); border-color: var(--text-4); }
+.toggle-button[aria-pressed="true"] { background: var(--bg-2); color: var(--text-1); border-color: var(--text-4); box-shadow: inset 0 -2px 0 var(--s-model); }
 .button { border: 1px solid var(--rule-strong); color: var(--text-1); min-height: 32px; margin-top: var(--sp-4); }
 
 /* ------------------------------------------------------------------------------------- tables */
@@ -595,6 +599,12 @@ button { font: inherit; color: inherit; }
 .data-table:not(.is-cards) tbody tr:focus-visible > * { box-shadow: inset 0 2px 0 var(--s-model), inset 0 -2px 0 var(--s-model); }
 .data-table:not(.is-cards) tbody tr:focus-visible > :first-child { box-shadow: inset 2px 0 0 var(--s-model), inset 0 2px 0 var(--s-model), inset 0 -2px 0 var(--s-model); }
 .data-table:not(.is-cards) tbody tr:focus-visible > :last-child { box-shadow: inset -2px 0 0 var(--s-model), inset 0 2px 0 var(--s-model), inset 0 -2px 0 var(--s-model); }
+/* Forced colors drop box-shadow: the focused row (a palette jump lands on one) keeps an outline,
+   and a pressed range or table toggle reads as selected. */
+@media (forced-colors: active) {
+  .data-table:not(.is-cards) tbody tr:focus-visible > * { outline: 2px solid Highlight; outline-offset: -2px; }
+  .segmented-button[aria-pressed="true"], .toggle-button[aria-pressed="true"] { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+}
 /* The whole header cell is the target (at least 28px tall), aligned like its column. */
 .sort-button {
   display: inline-flex;
@@ -637,7 +647,6 @@ button { font: inherit; color: inherit; }
 .model-cell { display: inline-flex; align-items: center; gap: var(--sp-2); }
 .model-name { color: var(--text-1); }
 .stat-cell { display: inline-flex; align-items: baseline; gap: 6px; }
-.stat-cell.is-stacked { flex-direction: column; align-items: flex-end; gap: 0; }
 .stat-range { font-size: var(--fs-11); color: var(--text-3); }
 /* QLIKE strip (MODL): a 7px dot on a 1px rule, on one scale for every row with no zero baseline
    (lib/comparison.js qlikeScale); a value beyond the scale is a "›" at the track's end. */
@@ -698,13 +707,11 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 .select {
   min-height: 28px;
   padding: 0 28px 0 var(--sp-2);
-  border: 1px solid var(--rule-strong);
+  border: 1px solid var(--text-4);  /* 3.22:1 on bg-1 (WCAG 1.4.11) */
   border-radius: var(--radius);
   background: var(--bg-1);
   color: var(--text-2);
   font: 500 var(--fs-11) / 1 var(--font-mono);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   max-width: 100%; /* a long option never widens its control past its row */
 }
 .select:hover { color: var(--text-1); }
@@ -807,6 +814,17 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 /* A label drawn over data: a stroke in the panel colour behind the glyphs keeps it legible. */
 .has-halo { paint-order: stroke; stroke: var(--bg-1); stroke-width: 4px; stroke-linejoin: round; }
 .value-label { fill: var(--text-2); }
+/* Forced colors force no SVG fill or stroke: text, halos, the noise zone and neutral marks take the
+   system colours, so labels keep their contrast; series hues stay, each paired with a shape or label. */
+@media (forced-colors: active) {
+  /* !important: per-label tints (.row-label.is-strong, .label-*) and the halo rule in a later sheet out-rank a plain override. */
+  .svg-chart text { fill: CanvasText !important; }
+  .svg-chart .has-halo, .svg-chart text.halo { stroke: Canvas !important; }
+  .fill-noise-zone { fill: Canvas; stroke: GrayText; stroke-dasharray: 2 3; }
+  .svg-chart :is(.fill-ink, .fill-neutral, .fill-muted, .fill-grid-dot, .bar-train) { fill: CanvasText; }
+  .svg-chart :is(.stroke-axis, .stroke-reference, .stroke-range, .thin-range, .grid-line, .stroke-target, .stroke-median, .stroke-neutral) { stroke: GrayText; }
+  .svg-chart :is(.ring-model, .ring-alt) { fill: Canvas; }
+}
 
 .fill-truth { fill: var(--s-truth); }
 .fill-model { fill: var(--s-model); }
@@ -838,7 +856,7 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 .label-neutral { fill: var(--text-2); color: var(--text-2); }
 
 /* -------------------------------------------------------------------------------- methodology */
-.method-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-6); }
+.method-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-6); align-items: start; }
 @container (min-width: 880px) {
   .method-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-6) var(--sp-8); }
   .method-block--wide { grid-column: 1 / -1; }

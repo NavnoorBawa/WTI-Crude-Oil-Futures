@@ -140,6 +140,10 @@
 
   .lw-host:has(~ .print-shot) { display: none; }
   img.print-shot { display: block; width: 100%; height: auto; }
+  /* SVG figures are drawn at the screen width they measured; each has a viewBox, so on paper it scales
+     to its column instead of running past the page edge or into the next column. */
+  svg.svg-chart { max-width: 100%; height: auto; }
+  .code-block { overflow: visible; white-space: pre-wrap; overflow-wrap: anywhere; }
 
   .panel-source a[href^="http"]::after,
   .site-footer a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 10px; overflow-wrap: anywhere; }

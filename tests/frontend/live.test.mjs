@@ -262,9 +262,14 @@ test("the phone table keeps As of, Forecast with its band, Realized with its ver
   assert.match(live, /<span class="live-date">Oct 19, 2026<\/span><span class="live-date-short">Oct 19<\/span>/);
   const resolved = render(scored({ resolved: 1, independent: 1, recent: [resolvedRow("2026-11-06", 70.0)] })).live;
   assert.match(resolved, /70\.0<span class="cell-note live-inband-note live-outside">outside band<\/span>/);
+  // The seal's lead, the record's evidence, moves under the status where the Sealed column is hidden.
+  const sealed = data.vol_forecast.live_record.recent[0];
+  const lead = panel.sealLead(sealed);
+  assert.ok(lead > 0);
+  assert.ok(live.includes(`<span class="cell-note live-seal-note">sealed ${m.format.fmtAge(lead)} before its window</span>`), "seal note");
   const css = readSource("src/styles/live-record.css");
-  assert.match(css, /\.live-band-note, \.live-inband-note, \.live-date-short \{ display: none; \}/);
-  assert.match(css, /@media \(max-width: 640px\) \{\s*\.live-band-note, \.live-inband-note \{ display: block; \}/);
+  assert.match(css, /\.live-band-note, \.live-inband-note, \.live-seal-note, \.live-date-short \{ display: none; \}/);
+  assert.match(css, /@media \(max-width: 640px\) \{\s*\.live-band-note, \.live-inband-note, \.live-seal-note \{ display: block; \}/);
 });
 
 test("Status follows As of, so a tablet that scrolls the table sideways starts on each call's state", () => {

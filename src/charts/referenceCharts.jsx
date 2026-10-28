@@ -84,7 +84,7 @@ export function LedgerStripSvg({ strip, width }) {
   const baseline = (lineIndex) => STRIP_H + LABEL_TOP + lineIndex * LABEL_LINE + 9;
   const keyKind = (key) => key.replace(/_/g, "-");
   return (
-    <svg width={width} height={height} className="svg-chart ledger-strip" role="img" aria-label={ledgerStripLabel(groups)}>
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart ledger-strip" role="img" aria-label={ledgerStripLabel(groups)}>
       {cells.map((cell, index) => {
         const x = cellX(index, cell.status);
         // The survivor's outline is drawn inside its cell, so neighbouring cells keep their gap.
@@ -200,7 +200,7 @@ export function ElasticityPathSvg({ path, width }) {
     ends[index].y = Math.max(ends[index].y, ends[index - 1].y + 26 + 13 * ends[index - 1].notes.length);
   }
   return (
-    <svg width={width} height={height} className="svg-chart" role="img" aria-label={elasticityLabel(path)}>
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart" role="img" aria-label={elasticityLabel(path)}>
       <YAxis scale={y} ticks={y.ticks(4)} format={(tick) => fmtNum(tick, 1)} left={m.left} right={right} />
       <line className="stroke-axis" x1={m.left} x2={right} y1={y(0)} y2={y(0)} />
       {path.rv && <path d={draw("rv")} className="stroke-ink" fill="none" />}

@@ -16,7 +16,8 @@ import { SnapshotContext } from "../lib/snapshot";
  * @property {string} [className]
  * @property {((row: object) => unknown)|false} [csv]  raw value for the CSV export; false leaves the column out
  * @property {string} [csvLabel]                   CSV header (default: the label when it is text, else the key)
- * @property {640} [hideBelow]                     hide the column on screens 640px wide or less
+ * @property {640|900|1000|1100} [hideBelow]       hide the column on screens narrower than that (640: 640px
+ *                                                  or less); the CSV keeps it
  */
 
 const isMissing = (value) => value == null || (typeof value === "number" && !Number.isFinite(value)) || value === "";
@@ -111,6 +112,14 @@ const count = (n) => n.toLocaleString("en-US");
  * @param {import("react").ReactNode} [props.footnote]
  * @param {import("react").ReactNode} [props.empty]  shown in one full-width row when there are no rows
  */
+/** The class that hides a column below its breakpoint (chrome-foundation.css): "col-wide" at 640px or
+ * less, "col-hide-<px>" below a mid breakpoint; any other value falls back to "col-wide". */
+const MID_BREAKPOINTS = [900, 1000, 1100];
+const hideClass = (hideBelow) => {
+  if (!hideBelow) return null;
+  return MID_BREAKPOINTS.includes(hideBelow) ? `col-hide-${hideBelow}` : "col-wide";
+};
+
 export default function DataTable({
   caption,
   captionHidden = false,
@@ -206,7 +215,7 @@ export default function DataTable({
   const cellClass = (column, index) => [
     `align-${column.align ?? "left"}`,
     column.className,
-    column.hideBelow ? "col-wide" : null,
+    hideClass(column.hideBelow),
     groupStarts.has(index) ? "group-start" : null,
   ].filter(Boolean).join(" ");
   const scrollable = overflow.wide || (tall && overflow.overY);

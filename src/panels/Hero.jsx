@@ -300,7 +300,7 @@ export default function Hero({ live, liveRecord, recentOos, research, researchSt
             </p>
             <p className="hero-interval">
               {INTERVAL_LEVEL_PCT}% interval{" "}
-              <b className="num">{call.lo != null && call.hi != null ? `${fmtNum(call.lo, 1)}–${fmtNum(call.hi, 1)}%` : DASH}</b>
+              <b className="num nowrap">{call.lo != null && call.hi != null ? `${fmtNum(call.lo, 1)}–${fmtNum(call.hi, 1)}%` : DASH}</b>
             </p>
             {changeText && <p className="hero-change">{changeText}</p>}
           </div>

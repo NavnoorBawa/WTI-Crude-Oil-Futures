@@ -4,7 +4,7 @@
 import { scaleBand, scaleLinear, scaleUtc } from "d3-scale";
 import { area, line } from "d3-shape";
 import { fmtDate, fmtNum, fmtSigned } from "../lib/format";
-import { Frame, XAxis, YAxis, extent } from "./svgCharts";
+import { Frame, XAxis, YAxis, extent, fitLabel } from "./svgCharts";
 
 // 11px JetBrains Mono advances about 6.6px per character (as in svgCharts.jsx).
 const CHAR_PX = 6.6;
@@ -58,7 +58,7 @@ export function YearlyGapSvg({ rows, recordLabel, limit, width }) {
   const offset = (value) => (Math.max(-limit, Math.min(limit, value)) / limit) * ROW_HALF;
   const span = years.length ? `${years[0]}–${years[years.length - 1]}` : "";
   return (
-    <svg width={width} height={height} className="svg-chart" role="img"
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart" role="img"
       aria-label={`Yearly QLIKE of each model minus ${recordLabel}'s, ${span}: ${rows
         .map((row) => `${row.label}, ${recordLabel} lower in ${row.wins} of ${row.total} years`).join("; ")}`}>
       {rows.map((row, index) => {
@@ -66,8 +66,10 @@ export function YearlyGapSvg({ rows, recordLabel, limit, width }) {
         const zero = top + ROW_LABEL_H + ROW_HALF;
         return (
           <g key={row.key} className="gap-row">
+            {/* Fitted to the plot (the full title in <title>): under larger text spacing it ran past the page. */}
             <text className={`multiple-title label-${row.tone}`} x={GUTTER} y={top + 11}>
-              {`${row.label} · ${recordLabel} lower in ${row.wins}/${row.total}`}
+              <title>{`${row.label} · ${recordLabel} lower in ${row.wins}/${row.total}`}</title>
+              {fitLabel(`${row.label} · ${recordLabel} lower in ${row.wins}/${row.total}`, width - GUTTER - 4)}
             </text>
             {tick != null && [tick, -tick].map((value) => (
               <line key={value} className="grid-line" x1={GUTTER} x2={width - 4} y1={zero - offset(value)} y2={zero - offset(value)} />
@@ -144,11 +146,12 @@ export function RollingGapSvg({ points, recordLabel, weeks, width }) {
   const path = line().x((row) => x(row.t)).y((row) => y(row.value))(rows);
   const yearFormat = (t) => String(new Date(t).getUTCFullYear());
   return (
-    <svg width={width} height={height} className="svg-chart" role="img"
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart" role="img"
       aria-label={`Rolling ${weeks}-week mean QLIKE gap, challenger minus ${recordLabel}, ${fmtDate(points[0].date)} to `
         + `${fmtDate(points[points.length - 1].date)}: from ${fmtSigned(lo, 3)} to ${fmtSigned(hi, 3)}, latest ${latest}; `
         + `below zero the challenger had the lower loss`}>
-      <YAxis scale={y} ticks={y.ticks(4)} format={(t) => fmtSigned(t, 2)} left={m.left} right={width - m.right} />
+      {/* The domain's foot sits on the year labels' baseline: its tick would run into the first year. */}
+      <YAxis scale={y} ticks={y.ticks(4).filter((t) => t !== y.domain()[0])} format={(t) => fmtSigned(t, 2)} left={m.left} right={width - m.right} />
       <path d={below} className="fill-gap-better" />
       <line className="stroke-axis" x1={m.left} x2={width - m.right} y1={y(0)} y2={y(0)} />
       <path d={path} className="stroke-ink" fill="none" />

@@ -5,7 +5,7 @@
   width: 220px;
   min-height: 28px;
   padding: 0 var(--sp-2);
-  border: 1px solid var(--rule-strong);
+  border: 1px solid var(--text-4);
   border-radius: var(--radius);
   background: var(--bg-1);
   color: var(--text-1);

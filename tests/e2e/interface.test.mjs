@@ -5,7 +5,7 @@
 // These are the checks every release was given by hand; property assertions rather than pixel diffs, so
 // font rasterization on another machine cannot fail them.
 import assert from "node:assert/strict";
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize, sep } from "node:path";
 import { after, before, test } from "node:test";
@@ -49,12 +49,13 @@ before(async () => {
     if (PAYLOADS[path]) return send(response, 200, TYPES[".json"], readFileSync(join(FIXTURES, PAYLOADS[path])));
     const file = normalize(join(DIST, path === "/" ? "index.html" : path));
     if (!file.startsWith(DIST + sep)) return send(response, 403, TYPES[".txt"], "forbidden");
+    let body;
     try {
-      if (statSync(file).isFile()) return send(response, 200, TYPES[extname(file)] ?? "application/octet-stream", readFileSync(file));
+      body = readFileSync(file);                      // one read: a missing file or a directory throws
     } catch {
-      // fall through to 404
+      return send(response, 404, TYPES[".txt"], "not found");
     }
-    return send(response, 404, TYPES[".txt"], "not found");
+    return send(response, 200, TYPES[extname(file)] ?? "application/octet-stream", body);
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   origin = `http://127.0.0.1:${server.address().port}`;

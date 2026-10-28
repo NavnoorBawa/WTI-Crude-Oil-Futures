@@ -209,6 +209,11 @@ export default function LiveRecordPanel({ data, research }) {
             {statusLabel(row.status)}
           </Chip>
           {spansRoll(row) && <span className="cell-note">{PENDING_ROLL_NOTE}</span>}
+          {sealLead(row) != null && (
+            <span className="cell-note live-seal-note">
+              {sealLead(row) >= 0 ? `sealed ${fmtAge(sealLead(row))} before its window` : `sealed ${fmtAge(-sealLead(row))} after it opened`}
+            </span>
+          )}
         </>
       ),
     },

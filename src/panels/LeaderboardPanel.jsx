@@ -18,6 +18,9 @@ const INPUT_TEXT = (info) => {
   return parts.length ? parts.join(" + ") : "returns only";
 };
 
+
+/** A header holding a year range ("2008–16") keeps it on one line; the header may still wrap at spaces. */
+const rangeLabel = (label) => (typeof label === "string" && label.includes("–") ? <span className="nowrap">{label}</span> : label);
 /** k of n sampling grids as dots and a count; one image to assistive tech. */
 export function GridDots({ grids }) {
   const count = grids.filter(Boolean).length;
@@ -137,7 +140,7 @@ export function McsMatrix({ robustness, level }) {
           ),
         },
         ...robustness.columns.map((column) => (column.kind === "grids" ? {
-          key: column.key, label: column.label, title: column.title, align: "center", className: "set-col",
+          key: column.key, label: rangeLabel(column.label), title: column.title, align: "center", className: "set-col",
           csvLabel: "Grids in set",
           csv: (row) => `${row.cells[column.key].in} of ${row.cells[column.key].of}`,
           render: (row) => (
@@ -147,8 +150,8 @@ export function McsMatrix({ robustness, level }) {
             </span>
           ),
         } : {
-          key: column.key, label: column.label, title: column.title, align: "center", className: "set-col",
-          csv: (row) => (row.cells[column.key] ? "in" : "out"),
+          key: column.key, label: rangeLabel(column.label), csvLabel: column.label, title: column.title, align: "center",
+          className: "set-col", csv: (row) => (row.cells[column.key] ? "in" : "out"),
           render: (row) => <SetCell inSet={row.cells[column.key]} />,
         })),
       ]}
@@ -210,10 +213,10 @@ export const leaderboardColumns = ({ recordName, scale, level, mcsAvailable, uti
     hideBelow: 640, render: (row) => <span className="num" title={row.mzSe != null ? `SE ${fmtNum(row.mzSe, 2)}` : undefined}>{fmtNum(row.mzSlope, 2)}</span>,
   },
   {
-    key: "inputs", label: "Inputs", sortable: true, hideBelow: 640, sortValue: (row) => INPUT_TEXT(row.info),
+    key: "inputs", label: "Inputs", sortable: true, hideBelow: 1000, sortValue: (row) => INPUT_TEXT(row.info),
     render: (row) => INPUT_TEXT(row.info), className: "muted-cell",
   },
-  { key: "family", label: "Family", sortable: true, hideBelow: 640, className: "muted-cell", render: (row) => keepHyphenated(row.family) },
+  { key: "family", label: "Family", sortable: true, hideBelow: 1000, className: "muted-cell", render: (row) => keepHyphenated(row.family) },
 ];
 
 /**
@@ -342,6 +345,7 @@ export default function LeaderboardPanel({ data, research, researchStatus }) {
           rowKey={(row) => row.key}
           rowId={(row) => `modl-${row.key}`}
           rowClass={rowClass}
+          announce="models"
           initialSort={{ key: "qlike", direction: "asc" }}
           pinLast={isPinned}
           exportName="leaderboard"
