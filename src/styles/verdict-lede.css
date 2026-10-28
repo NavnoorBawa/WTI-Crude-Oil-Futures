@@ -120,6 +120,12 @@
 .hero-math { margin-top: var(--sp-2); }
 .hero-math .disclosure-body { font-size: var(--fs-12); color: var(--text-3); }
 .hero-math-line { font-family: var(--font-mono); font-size: var(--fs-11); line-height: 1.6; color: var(--text-2); }
+.attribution-table { border-collapse: collapse; margin: var(--sp-1) 0 var(--sp-2); font-size: var(--fs-11); color: var(--text-2); }
+.attribution-table caption { text-align: left; caption-side: top; padding-bottom: var(--sp-1); color: var(--text-3); }
+.attribution-table th, .attribution-table td { padding: 2px var(--sp-3) 2px 0; text-align: left; font-weight: 400; }
+.attribution-table thead th { color: var(--text-3); }
+.attribution-table .num { font-family: var(--font-mono); text-align: right; white-space: nowrap; }
+.attribution-table tfoot th, .attribution-table tfoot td { border-top: 1px solid var(--rule); font-weight: 600; color: var(--text-1); }
 .hero-recompute {
   margin-top: var(--sp-3);
   padding-left: var(--sp-2);

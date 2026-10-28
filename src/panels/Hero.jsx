@@ -5,12 +5,62 @@ import { INTERVAL_LEVEL_PCT, shortModelName } from "../lib/assertions";
 import { DASH, NBSP, fmtCT, fmtDate, fmtInt, fmtNum, fmtPct, fmtSigned, fmtSpan, num, toMs } from "../lib/format";
 import { asArray, asObject, asText, callScoring, getLab, liveRecordSummary } from "../lib/research";
 import {
-  bandTrackRecord, callHistory, challengerStanding, changeSincePrevious, coneScale, elasticities, forecastDecomposition,
-  forecastOfRecord, plainNumber, reproduces, TOLERANCE, typicalMiss,
+  bandTrackRecord, callHistory, challengerStanding, changeAttribution, changeSincePrevious, coneScale, elasticities,
+  forecastDecomposition, forecastOfRecord, plainNumber, reproduces, TOLERANCE, typicalMiss,
 } from "../lib/verdict";
 
 /** How many recorded calls the hero lists (the full record is in LIVE). */
 const MAX_CALLS = 5;
+
+/** A step's from → to, as the call's inputs print them. */
+const attributionSpan = (step) => {
+  if (step.id === "refit") return null;
+  if (step.id === "smearing") return `${plainNumber(step.from, 4)} → ${plainNumber(step.to, 4)}`;
+  if (step.id === "ovx") return `${fmtNum(step.from, 2)} → ${fmtNum(step.to, 2)}`;
+  return `${fmtPct(step.from, 2)} → ${fmtPct(step.to, 2)}`;
+};
+
+/**
+ * What moved the call since the previous one (changeAttribution()): one row per input, the refit and
+ * the smearing factor, in vol points of the expected forecast, adding up to the change.
+ */
+function ChangeAttribution({ attribution, previousAsOf, asOf }) {
+  const previousDay = fmtDate(previousAsOf, { year: false });
+  const day = fmtDate(asOf, { year: false });
+  return (
+    <Disclosure summary={`What moved it since the ${previousDay} call`} className="hero-math hero-attribution">
+      <table className="attribution-table">
+        <caption>
+          Change in the expected forecast, {previousDay} call to {day} call, in vol points
+        </caption>
+        <thead>
+          <tr><th scope="col">Step</th><th scope="col">{previousDay} → {day}</th><th scope="col" className="num">Points</th></tr>
+        </thead>
+        <tbody>
+          {attribution.steps.map((step) => (
+            <tr key={step.id}>
+              <th scope="row">{step.label}</th>
+              <td className="num">{step.id === "refit" ? `${previousDay} fit → ${day} fit` : attributionSpan(step)}</td>
+              <td className="num">{fmtSigned(step.points, 2)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row">Expected forecast</th>
+            <td className="num">{fmtNum(attribution.from, 2)} → {fmtNum(attribution.to, 2)}</td>
+            <td className="num">{fmtSigned(attribution.total, 2)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      <p>
+        From each call&apos;s own recorded fit. Each input&apos;s move is valued at the {previousDay} coefficients, then
+        the refit at the {day} inputs, then the smearing factor; each step multiplies the forecast, so the steps add up to
+        the change exactly, and only their split in points depends on that order.
+      </p>
+    </Disclosure>
+  );
+}
 
 /** The target window's clause for a recorded call that is never scored (callScoring()); else it is scored. */
 const WINDOW_SCORING = {
@@ -166,6 +216,7 @@ export default function Hero({ live, liveRecord, recentOos, research, researchSt
   const summary = liveRecordSummary(liveRecord);
   const calls = callHistory(liveRecord);
   const change = changeSincePrevious(call, calls);
+  const attribution = change ? changeAttribution(call.entry, change.previous) : null;
   const track = bandTrackRecord(recentOos);
   const miss = typicalMiss(recentOos);
   const scale = coneScale(lab);
@@ -180,7 +231,8 @@ export default function Hero({ live, liveRecord, recentOos, research, researchSt
   const sealedMs = toMs(call.sealedAt);
   const implied = call.ovx.value;
   // The arithmetic: the recorded inputs when they reproduce the call, else the live block's.
-  const coefficients = asArray(call.entry?.coefficients).length ? call.entry.coefficients : live?.coefficients;
+  const ownFit = asArray(call.entry?.coefficients).length > 0;
+  const coefficients = ownFit ? call.entry.coefficients : live?.coefficients;
   const smearing = num(call.entry?.smearing_factor) ?? num(live?.smearing_factor);
   let math = forecastDecomposition(coefficients, call.inputs, smearing);
   let mathFrom = null;
@@ -370,12 +422,14 @@ export default function Hero({ live, liveRecord, recentOos, research, researchSt
               <span className="nowrap">(Duan smearing)</span>{" "}<span className="nowrap">= {fmtPct(call.forecast)}</span>
             </p>
             <p>
-              RV in decimals, OVX in index points; coefficients from the fit as of {fmtDate(asText(live?.as_of) ?? call.asOf)}
+              RV in decimals, OVX in index points; coefficients from the fit as of{" "}
+              {fmtDate(ownFit ? call.asOf : asText(live?.as_of) ?? call.asOf)}{ownFit ? ", as recorded with the call" : ""}
               {mathFrom != null ? `; inputs of the ${fmtCT(mathFrom)} computation` : ""}.{" "}
               <a href="#meth">Model card (METH) →</a>
             </p>
           </Disclosure>
         )}
+        {attribution && <ChangeAttribution attribution={attribution} previousAsOf={change.previous.as_of} asOf={call.asOf} />}
         {call.olderSnapshot && (
           <p className="hero-recompute">
             This snapshot was computed {fmtCT(toMs(call.olderSnapshot.issuedAt))} from an older close

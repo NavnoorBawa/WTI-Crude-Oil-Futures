@@ -41,6 +41,8 @@ LIVE_RECORD_STATUSES = ("pending", "resolved", "skipped_roll", "expired", "late_
 PROMOTION_STATUSES = ("accruing", "promote", "keep")
 # The forecaster inputs a recent[] row repeats (vol_record._RECENT_INPUT_NUMBERS), in vol points.
 RECENT_INPUT_NUMBERS = ("ovx", "rv5_pct", "rv22_pct", "rv66_pct")
+# A recent[] row's stored fit: intercept plus slopes (vol_record.MAX_FIT_TERMS).
+RECENT_MAX_FIT_TERMS = 8
 # Resolved entries left out of the pinned pair's comparison, by reason (vol_record.promotion_exclusions).
 PROMOTION_EXCLUSIONS = ("n_excluded_other_version", "n_excluded_other_challenger", "n_excluded_no_challenger")
 PROMOTION_KEYS = ("status", "n_independent_paired", "required", "dm_stat", "p_value", "mean_qlike_difference",
@@ -336,9 +338,10 @@ def _validate_recent_audit_fields(recent: list[dict]) -> list[str]:
     """The optional audit fields of recent[] rows (vol_record._recent), checked only when present.
 
     Summaries written before these fields existed omit them; a row may also carry null for any of
-    them (an entry not sealed yet, or recorded before inputs were stored). When present, each must
-    be what the dashboard reads: timestamps with a UTC offset, an ISO date, a percentage, an inputs
-    object of finite vol points with an ISO-dated OVX session, and a boolean spans_roll.
+    them (an entry not sealed yet, or recorded before inputs or the fit were stored). When present,
+    each must be what the dashboard reads: timestamps with a UTC offset, an ISO date, a percentage, an
+    inputs object of finite vol points with an ISO-dated OVX session, the fit's coefficients (1 to
+    RECENT_MAX_FIT_TERMS finite numbers) and positive smearing factor, and a boolean spans_roll.
     """
     where = "vol_forecast.live_record.recent"
     errors: list[str] = []
@@ -351,6 +354,14 @@ def _validate_recent_audit_fields(recent: list[dict]) -> list[str]:
         errors.append(f"{where} prob_vol_rises_pct must be a percentage, or null")
     if any(row.get("spans_roll") is not None and not isinstance(row["spans_roll"], bool) for row in recent):
         errors.append(f"{where} spans_roll must be true or false, or null")
+    if any(row.get("coefficients") is not None
+           and (not isinstance(row["coefficients"], list) or not 0 < len(row["coefficients"]) <= RECENT_MAX_FIT_TERMS
+                or not all(_finite_number(value) for value in row["coefficients"]))
+           for row in recent):
+        errors.append(f"{where} coefficients must be a list of 1 to {RECENT_MAX_FIT_TERMS} finite numbers, or null")
+    if any(row.get("smearing_factor") is not None and not _finite_number(row["smearing_factor"], positive=True)
+           for row in recent):
+        errors.append(f"{where} smearing_factor must be a positive number, or null")
     for row in recent:
         inputs = row.get("inputs")
         if inputs is None:

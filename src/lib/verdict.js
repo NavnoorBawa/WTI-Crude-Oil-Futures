@@ -495,6 +495,58 @@ export const elasticities = (coefs) => {
   ];
 };
 
+/** The fit's inputs in the order the split walks them (OVX first, as the elasticities list them). */
+const ATTRIBUTION_INPUTS = [
+  { id: "ovx", label: "OVX", key: "ovx", coefficient: 4, scale: 1 },
+  { id: "rv5", label: "5-day RV", key: "rv5_pct", coefficient: 1, scale: 100 },
+  { id: "rv22", label: "22-day RV", key: "rv22_pct", coefficient: 2, scale: 100 },
+  { id: "rv66", label: "66-day RV", key: "rv66_pct", coefficient: 3, scale: 100 },
+];
+
+/**
+ * What moved the expected forecast from the previous recorded call to this one, from the fit each
+ * entry stored (coefficients and smearing factor, vol_record entries from 2.2.0 on). In logs the
+ * change splits exactly: each input's move valued at the previous call's coefficients,
+ * b_prev·(ln x_now − ln x_prev); the refit at this call's inputs, (b0_now − b0_prev) +
+ * Σ (bk_now − bk_prev)·ln x_now; and half the log change of the smearing factor. In that order each
+ * step multiplies the forecast, so its points depend on the order but the steps add up to the
+ * model's change exactly. Null unless both calls are of the same model version and each entry's
+ * stored fit reproduces its own printed median and forecast (reproduces(), within TOLERANCE).
+ * @returns {{from:number, to:number, total:number, steps:Array<{id:string, label:string, from:number|null,
+ *   to:number|null, points:number, logPct:number}>}|null}
+ */
+export const changeAttribution = (entry, previous) => {
+  if (!entry || !previous || entry.model_version !== previous.model_version) return null;
+  const now = forecastDecomposition(entry.coefficients, entry.inputs, entry.smearing_factor);
+  const before = forecastDecomposition(previous.coefficients, previous.inputs, previous.smearing_factor);
+  if (!reproduces(now, num(entry.median_pct), num(entry.forecast_pct))
+    || !reproduces(before, num(previous.median_pct), num(previous.forecast_pct))) return null;
+  const bNow = entry.coefficients.map(num);
+  const bPrev = previous.coefficients.map(num);
+  const x = (row, input) => num(row.inputs[input.key]) / input.scale;
+  const terms = ATTRIBUTION_INPUTS.map((input) => ({
+    id: input.id, label: input.label, from: num(previous.inputs[input.key]), to: num(entry.inputs[input.key]),
+    log: bPrev[input.coefficient] * (Math.log(x(entry, input)) - Math.log(x(previous, input))),
+  }));
+  terms.push({
+    id: "refit", label: "Refit", from: null, to: null,
+    log: bNow[0] - bPrev[0] + ATTRIBUTION_INPUTS.reduce(
+      (sum, input) => sum + (bNow[input.coefficient] - bPrev[input.coefficient]) * Math.log(x(entry, input)), 0),
+  });
+  terms.push({
+    id: "smearing", label: "Smearing", from: before.smearing, to: now.smearing,
+    log: 0.5 * (Math.log(now.smearing) - Math.log(before.smearing)),
+  });
+  let level = before.mean;
+  const steps = terms.map(({ log, ...term }) => {
+    const next = level * Math.exp(log);
+    const points = next - level;
+    level = next;
+    return { ...term, points, logPct: 100 * log };
+  });
+  return { from: before.mean, to: now.mean, total: now.mean - before.mean, steps };
+};
+
 // ---------------------------------------------------------------------------------- the notes
 
 /**

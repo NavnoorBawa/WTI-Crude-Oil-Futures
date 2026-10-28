@@ -103,6 +103,8 @@ runs `build_research_bundle.validate` on `research.json`).
                     "challenger_pct": 45.1, "realized_pct": null,
                     "inputs": { "ovx": 50.74, "ovx_session": "2026-10-16",   // optional; null when the entry
                                 "rv5_pct": 36.76, "rv22_pct": 36.81, "rv66_pct": 46.96 },  // stored no inputs
+                    "coefficients": [-4.883566, 0.038819, 0.170853, -0.151549, 1.03495],  // optional; the entry's
+                    "smearing_factor": 1.4128,                       // stored fit, null for entries recorded before it
                     "spans_roll": false,                             // optional; the window spans a CL roll: never scored
                     "status": "pending|resolved|skipped_roll|expired|late_commit" } ],   // newest first, up to 12
       "promotion_rule": "...",                        // vol_record.PROMOTION_RULE
@@ -141,9 +143,11 @@ written before they existed omit them) and each may be null; when present, `reco
 `sealed_at` must be ISO timestamps with a UTC offset, `base_session` an ISO date,
 `prob_vol_rises_pct` a percentage, `inputs` an object whose `ovx`, `rv5_pct`, `rv22_pct` and
 `rv66_pct` are finite numbers (vol points) or null and whose `ovx_session` is an ISO date or null,
-and `spans_roll` a boolean. They repeat what each record entry already stores (`vol_record._recent`),
-so the dashboard can show each call's seal time against the settlement that opens its window, and
-how the inputs moved from one call to the next. `spans_roll` is the test resolution skips a window
+`coefficients` a list of 1 to 8 finite numbers, `smearing_factor` a positive number, and `spans_roll`
+a boolean. They repeat what each record entry already stores (`vol_record._recent`), so the
+dashboard can show each call's seal time against the settlement that opens its window, how the
+inputs moved from one call to the next, and, for entries that stored their fit, recompute each call
+and split the change between two calls into input moves and the refit. `spans_roll` is the test resolution skips a window
 with (`contract_calendar.spans_roll` on `base_session`..`target_end`), so a pending call that will
 never be scored is labelled as such before resolution closes it as `skipped_roll`.
 
@@ -155,7 +159,13 @@ before any job uses it. Each entry carries `as_of`, `issued_at`, `recorded_at`, 
 until the publish job's seal), `frozen_at`, `contract`, `model_version`, `model`, `forecast_pct`,
 `median_pct`, `prob_vol_rises_pct`, `direction`, `rv5_pct`, `lo80_pct`, `hi80_pct`, `inputs`,
 `challenger` (`{key, forecast_pct, median_pct}` or null), the window (`base_session`,
-`target_start`, `target_end`), `status` and `realized_pct`. A resolved entry adds `resolved_at` and
+`target_start`, `target_end`), `status` and `realized_pct`. Entries recorded from 2.2.0 on also
+store the fit that produced the forecast: `coefficients` (the log-log regression's intercept, then
+its slopes on ln RV5, ln RV22 and ln RV66 in decimals and ln OVX in index points; four numbers for
+the plain-HAR fallback; null when the live block had none) and `smearing_factor` (Duan's, positive,
+or null), so that median = 100·exp(b0 + Σ bk·ln xk) and forecast = median·√smearing can be checked
+from the sealed entry alone. They are descriptive: recording, sealing, resolution and scoring never
+read them, and entries recorded earlier do not have them. A resolved entry adds `resolved_at` and
 the six `closes` it was scored on; a `late_commit`, `skipped_roll` or `expired` entry adds
 `closed_at` (an expired one also `missing_sessions`). Only an entry sealed more than five minutes
 before the settlement that opens its window can be resolved, skipped or expired.
