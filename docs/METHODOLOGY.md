@@ -1,8 +1,9 @@
 # Methodology
 
 How every number in the project is produced. Code references point to the implementation;
-results are in the [README](../README.md) and the committed artifacts. This page states methods
-only; numbers that depend on the data are generated into the README from the artifacts.
+results are in the [full results](RESULTS.md) (summarised in the [README](../README.md)) and the
+committed artifacts. This page states methods only; numbers that depend on the data are generated
+into those pages from the artifacts.
 
 ## 1. Data, timing and provenance
 
@@ -281,7 +282,7 @@ data).
   the models in code, is a maintainer's change. The rule's text is `vol_record.PROMOTION_RULE`, fixed
   before the first live forecast and published with every record summary, together with the test's
   pair, status, sample size, statistic, p-value, mean difference and excluded counts. Its power at
-  the challenger's historical edge is computed in the README (section 3) from the noncentral t with
+  the challenger's historical edge is computed in the full results (section 3) from the noncentral t with
   the same 51 degrees of freedom.
 
 ## 13. The retracted direction model

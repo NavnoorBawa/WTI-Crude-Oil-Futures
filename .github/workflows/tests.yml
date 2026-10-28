@@ -94,14 +94,14 @@ jobs:
           if-no-files-found: ignore
 
       - name: Generated docs match the committed artifacts
-        # Every number in the README, the model card and the datasheet is generated from data/*.json
+        # Every number in the README, the full results, the model card and the datasheet is generated from data/*.json
         # by scripts/readme_blocks.py, and every figure by scripts/make_figures.py; neither may drift.
         env:
           PYTHONPATH: .
         run: |
           set -euo pipefail
-          python -m cogapp --check --diff --check-fail-msg='run: PYTHONPATH=. cog -r README.md docs/MODEL_CARD.md docs/DATASHEET.md' \
-            README.md docs/MODEL_CARD.md docs/DATASHEET.md
+          python -m cogapp --check --diff --check-fail-msg='run: PYTHONPATH=. cog -r README.md docs/RESULTS.md docs/MODEL_CARD.md docs/DATASHEET.md' \
+            README.md docs/RESULTS.md docs/MODEL_CARD.md docs/DATASHEET.md
           python -B scripts/make_figures.py
           git diff --exit-code --stat -- docs/figures
 
