@@ -639,7 +639,7 @@ test("the model card's mean forecast is the hero's arithmetic and equals the her
   const row = meth.match(/Mean forecast Median × √smearing \(Duan\): ([\d.]+)% × √([\d.]+) = ([\d.]+)% for this call\./);
   assert.ok(row, meth);
   assert.deepEqual(row.slice(1), ["47.45", "1.4128", "56.40"], "the fitted median at two decimals, not the recorded 47.5");
-  assert.equal(m.format.fmtNum(Number(row[3]), 1), heroValue.replace("%", ""), "METH's mean is the hero's value to one decimal");
+  assert.equal(m.format.fmtNum(Number(row[3]), 1), heroValue.replace(/%$/, ""), "METH's mean is the hero's value to one decimal");
   assert.ok(Math.abs(Number(row[1]) * Math.sqrt(Number(row[2])) - Number(row[3])) < 0.005, "the printed chain is exact to its two decimals");
   const math = squash(visibleText(html.match(/<details class="disclosure hero-math">[\s\S]*?<\/details>/)[0]));
   assert.ok(math.includes(`expected = ${row[1]} × √${row[2]} (Duan smearing) = ${row[3]}%`), "the hero prints the same chain");
