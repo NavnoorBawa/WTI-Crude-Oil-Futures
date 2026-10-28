@@ -4,6 +4,22 @@ All notable changes. Research results are versioned like code: when a published 
 the correction is listed under **Errata** with the old and the new value, and the artifact that
 backs the new one.
 
+## Unreleased
+
+### Live record
+
+- **Each call stores its fit.** New record entries also store the coefficients and the smearing
+  factor that produced the forecast (additive, optional fields; the entries already sealed are
+  untouched, and recording, sealing, resolution and scoring never read them). A sealed call can now
+  be recomputed from its own entry: median = 100·exp(b0 + Σ bk·ln xk), forecast = median·√smearing.
+
+### Dashboard
+
+- **What moved the call.** When the newest call and the one before it both stored their fit, the
+  hero splits the change between them into each input's move (at the previous call's coefficients),
+  the refit and the smearing factor, in vol points that add up to the change. It is shown only when
+  both calls reproduce from their own recorded fits.
+
 ## 2.1.0 — 2026-10-27
 
 A release of the dashboard. No research result changed: the models, the benchmark lab, the ledger

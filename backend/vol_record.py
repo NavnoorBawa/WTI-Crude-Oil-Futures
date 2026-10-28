@@ -43,6 +43,12 @@ Rules (conservative by construction; sessions are CME business days, see contrac
   to open was never committed by the seal step (for example, it was written by hand), so it is
   closed as "late_commit" too. A failed persist never gets that far: the run's new entry does not
   reach live-data at all, and later runs restore the record without it.
+- FIT. A new entry also stores the fit that produced it: `coefficients` (the log-log regression's
+  intercept, then its slopes on ln RV5, ln RV22 and ln RV66 in decimals and ln OVX in index points;
+  four numbers for the plain-HAR fallback) and the Duan `smearing_factor`, so a sealed
+  forecast can be recomputed from its own entry and the change between two calls split into input
+  moves and the refit. Both are descriptive: nothing in recording, sealing, resolution or scoring
+  reads them. Entries recorded before they were stored have neither.
 - Closes come from `vol_forecast.recent_closes` (the finished-session closes the forecaster itself
   used) and, for any session it lacks, from the payload's completed daily ("1d") chart bars
   (unified_data.actual), dated by their session. A bar newer than the last finished session
@@ -150,6 +156,7 @@ BAR_FETCH_MARGIN = timedelta(hours=1)        # daily bars are fetched before fro
 MAX_CLOCK_SKEW = timedelta(minutes=5)        # an issued_at later than the run's clock is refused
 MAX_WAIT_SESSIONS = 10                       # closes missing this long after k0+5: expired
 RECENT_ENTRIES = 12
+MAX_FIT_TERMS = 8                            # stored coefficients: intercept + slopes (5 for HAR-IV v2)
 STATUSES = ("pending", "resolved", "skipped_roll", "expired", "late_commit")
 _SEALED_IN_TIME = ("resolved", "skipped_roll", "expired")    # only entries sealed in time get these
 DIRECTIONS = ("RISING", "FALLING")
@@ -317,6 +324,12 @@ def _validate_entry(entry: object, index: int) -> date:
             raise ValueError(f"{where}: {key} must be a string or null")
     if entry.get("inputs") is not None and not isinstance(entry["inputs"], dict):
         raise ValueError(f"{where}: inputs must be an object or null")
+    coefficients = entry.get("coefficients")
+    if coefficients is not None and (not isinstance(coefficients, list) or not 0 < len(coefficients) <= MAX_FIT_TERMS
+                                     or any(_number(value) is None for value in coefficients)):
+        raise ValueError(f"{where}: coefficients must be 1 to {MAX_FIT_TERMS} finite numbers or null")
+    if entry.get("smearing_factor") is not None and _positive(entry["smearing_factor"]) is None:
+        raise ValueError(f"{where}: smearing_factor must be a positive number or null")
     challenger = entry.get("challenger")
     if challenger is not None:
         if (not isinstance(challenger, dict) or not isinstance(challenger.get("key"), str)
@@ -444,6 +457,18 @@ def _parse_challenger(raw: object, as_of: str) -> Challenger | None:
     return {"key": key, "forecast_pct": forecast, "median_pct": _positive(raw.get("forecast_median_pct"))}
 
 
+def _parse_fit(live: dict[str, Any]) -> tuple[list[float] | None, float | None]:
+    """The live fit's coefficients (1 to MAX_FIT_TERMS finite numbers) and smearing factor (positive),
+    each None when absent or malformed: they describe the forecast and never decide whether it is recorded."""
+    raw = live.get("coefficients")
+    coefficients = None
+    if isinstance(raw, list) and 0 < len(raw) <= MAX_FIT_TERMS:
+        values = [_number(value) for value in raw]
+        if all(value is not None for value in values):
+            coefficients = [value for value in values if value is not None]
+    return coefficients, _positive(live.get("smearing_factor"))
+
+
 def extract_entry(payload: Payload, now: datetime) -> tuple[Entry | None, str]:
     """Build the record entry for the payload's live forecast, or (None, why it is not recordable)."""
     live = _dict(_dict(payload).get("vol_forecast")).get("live")
@@ -476,6 +501,7 @@ def extract_entry(payload: Payload, now: datetime) -> tuple[Entry | None, str]:
     contract = _dict(payload.get("contract"))
     frozen_at = payload.get("frozen_at")
     model = live.get("model")
+    coefficients, smearing = _parse_fit(live)
     entry = {
         "as_of": as_of.isoformat(),
         "issued_at": _stamp(issued_at),
@@ -493,6 +519,8 @@ def extract_entry(payload: Payload, now: datetime) -> tuple[Entry | None, str]:
         "lo80_pct": lo,
         "hi80_pct": hi,
         "inputs": json.loads(json.dumps(inputs, allow_nan=False)) if inputs is not None else None,
+        "coefficients": coefficients,
+        "smearing_factor": smearing,
         "challenger": _parse_challenger(live.get("challenger"), as_of.isoformat()),
         "base_session": window["base_session"].isoformat(),
         "target_start": window["target_start"].isoformat(),
@@ -816,7 +844,7 @@ def _recent_inputs(raw: object) -> dict[str, Any] | None:
 
 def _recent(entry: Entry) -> dict[str, Any]:
     """One `recent` row: what the entry already stores, for the dashboard. Entries recorded before a
-    field existed (no `inputs`, no seal yet) give null for it. `spans_roll` is the test resolution
+    field existed (no `inputs` or fit, no seal yet) give null for it. `spans_roll` is the test resolution
     skips a window with, so a pending call that will never be scored can say so before it is closed."""
     challenger = entry.get("challenger") or {}
     return {
@@ -829,6 +857,7 @@ def _recent(entry: Entry) -> dict[str, Any]:
         "challenger_pct": challenger.get("forecast_pct"),
         "realized_pct": entry.get("realized_pct") if entry["status"] == "resolved" else None,
         "inputs": _recent_inputs(entry.get("inputs")),
+        "coefficients": entry.get("coefficients"), "smearing_factor": entry.get("smearing_factor"),
         "spans_roll": spans_roll(_iso_date(entry["base_session"]), _iso_date(entry["target_end"])),
         "status": entry["status"],
     }

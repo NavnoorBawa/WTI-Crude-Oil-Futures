@@ -429,3 +429,107 @@ test("the question is static and the hero label keeps the version's case", () =>
   assert.ok(html.indexOf('class="verdict-lede"') < html.indexOf('class="verdict-hero"'));
   assert.ok(html.indexOf('class="kpi-grid"') < html.indexOf('class="evidence"'), "the index follows the tiles");
 });
+
+// Two consecutive recorded calls that each store their fit (vol_record entries from 2.2.0 on): the
+// Oct 19 call with the fixture's fit, and an Oct 20 call refit on one more day, its median and forecast
+// printed from that fit as the backend prints them.
+const attributedRecord = () => {
+  const payload = structuredClone(data);
+  const live = payload.vol_forecast.live;
+  const [previousRow] = payload.vol_forecast.live_record.recent;
+  const previous = { ...previousRow, coefficients: [...live.coefficients], smearing_factor: live.smearing_factor };
+  const coefficients = [-4.883566, 0.038819, 0.170853, -0.151549, 1.03495];
+  const smearing = 1.4128;
+  const inputs = { ovx: 50.22, ovx_session: "2026-10-19", rv5_pct: 38.85, rv22_pct: 36.93, rv66_pct: 46.31 };
+  const fit = v.forecastDecomposition(coefficients, inputs, smearing);
+  const median = round1(fit.median);
+  const forecast = round1(median * Math.sqrt(smearing));
+  const current = {
+    ...structuredClone(previousRow), as_of: "2026-10-20", issued_at: "2026-10-21T05:03:50Z", recorded_at: "2026-10-21T05:03:53Z",
+    sealed_at: "2026-10-21T05:04:20Z", base_session: "2026-10-21", target_start: "2026-10-22", target_end: "2026-10-28",
+    forecast_pct: forecast, median_pct: median, lo80_pct: 23.1, hi80_pct: 63.6, challenger_pct: 47.6, inputs, coefficients,
+    smearing_factor: smearing,
+  };
+  payload.vol_forecast.live_record.recent = [current, previous];
+  Object.assign(live, {
+    as_of: "2026-10-20", issued_at: current.issued_at, coefficients, smearing_factor: smearing,
+    forecast_next_week_vol_annualized_pct: forecast, forecast_median_pct: median,
+    interval_80: { ...live.interval_80, low_pct: 23.1, high_pct: 63.6 },
+    inputs: { ...live.inputs, ...inputs }, current_realized_vol_5d_annualized_pct: round1(inputs.rv5_pct),
+    implied_vol_ovx_pct: round1(inputs.ovx),
+    challenger: { ...live.challenger, as_of: "2026-10-20", forecast_next_week_vol_annualized_pct: 47.6 },
+  });
+  return { payload, current, previous };
+};
+
+test("what moved the call: the stored fits split the change exactly into input moves, the refit and smearing", () => {
+  const { current, previous } = attributedRecord();
+  const split = v.changeAttribution(current, previous);
+  assert.ok(split, "both calls reproduce from their own fits");
+  assert.deepEqual(split.steps.map((step) => step.id), ["ovx", "rv5", "rv22", "rv66", "refit", "smearing"]);
+  // The endpoints are each call's own forecast (within the printed precision) ...
+  assert.ok(Math.abs(split.from - previous.forecast_pct) < v.TOLERANCE);
+  assert.ok(Math.abs(split.to - current.forecast_pct) < v.TOLERANCE);
+  // ... the steps add up to the change exactly, in points and in logs ...
+  const sum = split.steps.reduce((total, step) => total + step.points, 0);
+  assert.ok(Math.abs(sum - split.total) < 1e-9);
+  assert.ok(Math.abs(split.to - split.from - split.total) < 1e-12);
+  const logSum = split.steps.reduce((total, step) => total + step.logPct / 100, 0);
+  assert.ok(Math.abs(logSum - Math.log(split.to / split.from)) < 1e-12);
+  // ... and each input's step is its move valued at the previous call's coefficient.
+  const ovx = split.steps[0];
+  assert.deepEqual([ovx.from, ovx.to], [previous.inputs.ovx, current.inputs.ovx]);
+  assert.ok(Math.abs(ovx.logPct / 100 - previous.coefficients[4] * Math.log(current.inputs.ovx / previous.inputs.ovx)) < 1e-12);
+  const rv5 = split.steps[1];
+  assert.ok(Math.abs(rv5.points - split.from * Math.exp(ovx.logPct / 100) * (Math.exp(rv5.logPct / 100) - 1)) < 1e-9, "steps multiply in order");
+  // Unchanged fit and inputs: every step is zero.
+  const same = v.changeAttribution({ ...previous, as_of: "2026-10-20" }, previous);
+  assert.ok(same.steps.every((step) => Math.abs(step.points) < 1e-12));
+});
+
+test("what moved the call is shown only when both calls reproduce from their own recorded fits", () => {
+  const { current, previous } = attributedRecord();
+  const without = (row, key) => { const copy = structuredClone(row); delete copy[key]; return copy; };
+  assert.equal(v.changeAttribution(current, without(previous, "coefficients")), null, "an entry recorded before the fit was stored");
+  assert.equal(v.changeAttribution(without(current, "smearing_factor"), previous), null);
+  assert.equal(v.changeAttribution(current, { ...previous, inputs: null }), null);
+  assert.equal(v.changeAttribution(current, { ...previous, model_version: "har/2" }), null, "another model version");
+  const off = structuredClone(current);
+  off.coefficients[4] += 0.01;
+  assert.equal(v.changeAttribution(off, previous), null, "a fit that no longer reproduces its call");
+  assert.equal(v.changeAttribution(current, { ...previous, coefficients: previous.coefficients.slice(0, 4) }), null, "plain-HAR fit");
+  assert.equal(v.changeAttribution(null, previous), null);
+});
+
+test("the hero lists what moved the call since the previous one, in points that add up to the change", () => {
+  const { payload, current, previous } = attributedRecord();
+  const { html, errors } = render(payload, research);
+  assert.deepEqual(errors, []);
+  const block = html.match(/<details class="disclosure hero-math hero-attribution">[\s\S]*?<\/details>/)?.[0];
+  assert.ok(block, "the disclosure renders");
+  const text = squash(visibleText(block));
+  const f = m.format;
+  const split = v.changeAttribution(current, previous);
+  assert.ok(text.includes("What moved it since the Oct 19 call"), text);
+  assert.ok(text.includes("Change in the expected forecast, Oct 19 call to Oct 20 call, in vol points"), text);
+  assert.ok(text.includes(`OVX ${f.fmtNum(previous.inputs.ovx, 2)} → ${f.fmtNum(current.inputs.ovx, 2)} ${f.fmtSigned(split.steps[0].points, 2)}`), text);
+  assert.ok(text.includes(`5-day RV ${f.fmtPct(previous.inputs.rv5_pct, 2)} → ${f.fmtPct(current.inputs.rv5_pct, 2)}`), text);
+  assert.ok(text.includes("Refit Oct 19 fit → Oct 20 fit"), text);
+  assert.ok(text.includes(`Smearing ${v.plainNumber(previous.smearing_factor, 4)} → ${v.plainNumber(current.smearing_factor, 4)}`), text);
+  assert.ok(text.includes(`Expected forecast ${f.fmtNum(split.from, 2)} → ${f.fmtNum(split.to, 2)} ${f.fmtSigned(split.total, 2)}`), text);
+  assert.match(block, /<caption>/);
+  assert.match(block, /<th scope="row">OVX<\/th>/);
+  // The change line and the split agree on the sign and, at one decimal, on the size.
+  const hero = squash(visibleText(heroOf(html)));
+  assert.ok(hero.includes(`${f.fmtSigned(round1(current.forecast_pct - previous.forecast_pct), 1)} pts since the Oct 19 call`), hero);
+  assert.ok(Math.abs(split.total - (current.forecast_pct - previous.forecast_pct)) < 2 * v.TOLERANCE);
+
+  // The fixture's record stores no fit: no split.
+  assert.doesNotMatch(render(data, research).html, /hero-attribution/);
+  // A fit that does not reproduce its call hides the split; the change line stays.
+  const off = structuredClone(payload);
+  off.vol_forecast.live_record.recent[1].coefficients[0] += 0.02;
+  const corrupt = render(off, research);
+  assert.doesNotMatch(corrupt.html, /hero-attribution/);
+  assert.match(corrupt.html, /pts since the Oct 19 call/);
+});

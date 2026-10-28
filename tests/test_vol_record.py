@@ -58,9 +58,16 @@ def live(as_of="2026-11-02", issued_at="2026-11-03T13:00:00Z", forecast=40.0, me
         "challenger": ({"key": "har_iv_range", "label": "HAR-IV + range", "as_of": as_of,
                         "forecast_next_week_vol_annualized_pct": forecast - 2, "forecast_median_pct": median - 2}
                        if challenger == "default" else challenger),
+        "coefficients": list(FIT),
+        "smearing_factor": 1.4128,
+        "residual_sd": 0.4078,
     }
     block.update(extra)
     return block
+
+
+# The live fit's intercept and slopes (ln RV5, ln RV22, ln RV66, ln OVX), as vol_forecast publishes them.
+FIT = (-4.883566, 0.038819, 0.170853, -0.151549, 1.03495)
 
 
 def bars(closes: dict, extra_points=()):
@@ -172,6 +179,8 @@ class RecordingTest(unittest.TestCase):
         self.assertEqual((entry["lo80_pct"], entry["hi80_pct"]), (25.0, 55.0))
         self.assertEqual((entry["direction"], entry["rv5_pct"], entry["prob_vol_rises_pct"]), ("RISING", 30.0, 58.0))
         self.assertEqual(entry["inputs"]["ovx_session"], "2026-10-30")
+        self.assertEqual((entry["coefficients"], entry["smearing_factor"]), (list(FIT), 1.4128))
+        self.assertNotIn("residual_sd", entry)
         self.assertEqual(entry["challenger"], {"key": "har_iv_range", "forecast_pct": 38.0, "median_pct": 34.0})
         self.assertEqual((entry["base_session"], entry["target_start"], entry["target_end"]),
                          ("2026-11-03", "2026-11-04", "2026-11-10"))
@@ -239,6 +248,46 @@ class RecordingTest(unittest.TestCase):
         no_inputs = recorded(inputs=None, rv5=31.2)["entries"][0]
         self.assertEqual(no_inputs["rv5_pct"], 31.2)    # falls back to the rounded current RV5
         vr.validate_record({"schema_version": 1, "started": "2026-11-03", "entries": [entry]})
+
+    def test_the_fit_is_stored_when_valid_and_never_decides_recording(self):
+        # The plain-HAR fallback has four coefficients; integers are numbers too.
+        har = recorded(coefficients=[-3.2, 0.4, 0.3, 1])["entries"][0]
+        self.assertEqual(har["coefficients"], [-3.2, 0.4, 0.3, 1.0])
+        bad_fits = {
+            "missing": {"coefficients": None, "smearing_factor": None},
+            "not a list": {"coefficients": {"b0": 1.0}},
+            "empty": {"coefficients": []},
+            "too long": {"coefficients": [0.1] * (vr.MAX_FIT_TERMS + 1)},
+            "boolean": {"coefficients": [True, 0.1, 0.2, 0.3, 0.4]},
+            "text": {"coefficients": ["-4.88", 0.1, 0.2, 0.3, 0.4]},
+            "nested": {"coefficients": [[1.0], 0.1, 0.2, 0.3, 0.4]},
+        }
+        for name, fit in bad_fits.items():
+            with self.subTest(name):
+                entry = recorded(**fit)["entries"][0]
+                self.assertIsNone(entry["coefficients"])
+                self.assertEqual(entry["status"], "pending")
+        for smearing in (None, 0, -1.2, True, "1.41"):
+            with self.subTest(smearing=smearing):
+                entry = recorded(smearing_factor=smearing)["entries"][0]
+                self.assertIsNone(entry["smearing_factor"])
+                self.assertEqual(entry["coefficients"], list(FIT))
+        # A non-finite coefficient makes the payload invalid JSON for the record; the entry keeps no fit.
+        nan = recorded(coefficients=[float("nan"), 0.1, 0.2, 0.3, 0.4])["entries"][0]
+        self.assertIsNone(nan["coefficients"])
+
+    def test_the_stored_fit_reproduces_the_recorded_median_and_forecast(self):
+        # median = 100 exp(b0 + b1 ln RV5 + b2 ln RV22 + b3 ln RV66 + b4 ln OVX), RV in decimals and
+        # OVX in points; forecast = median * sqrt(smearing). The Oct 27 2026 live call: 47.5 and 56.4.
+        inputs = {"rv5_pct": 48.65, "rv22_pct": 37.69, "rv66_pct": 45.95, "ovx": 58.71,
+                  "ovx_session": "2026-10-30", "ovx_last_print": "2026-11-02", "ovx_source": "yahoo ^OVX"}
+        entry = recorded(inputs=inputs, forecast=56.4, median=47.5)["entries"][0]
+        b, x = entry["coefficients"], entry["inputs"]
+        log_median = b[0] + sum(bk * math.log(v) for bk, v in zip(
+            b[1:], (x["rv5_pct"] / 100, x["rv22_pct"] / 100, x["rv66_pct"] / 100, x["ovx"])))
+        median = 100 * math.exp(log_median)
+        self.assertAlmostEqual(median, entry["median_pct"], delta=0.05)
+        self.assertAlmostEqual(median * math.sqrt(entry["smearing_factor"]), entry["forecast_pct"], delta=0.05)
 
 
 class BarsTest(unittest.TestCase):
@@ -482,7 +531,7 @@ class SummaryTest(unittest.TestCase):
                 "mean_forecast_pct", "mean_realized_pct"}
     RECENT = {"as_of", "issued_at", "recorded_at", "sealed_at", "model_version", "base_session", "target_start",
               "target_end", "forecast_pct", "median_pct", "lo80_pct", "hi80_pct", "prob_vol_rises_pct",
-              "challenger_pct", "realized_pct", "inputs", "spans_roll", "status"}
+              "challenger_pct", "realized_pct", "inputs", "coefficients", "smearing_factor", "spans_roll", "status"}
     RECENT_INPUTS = {"ovx", "ovx_session", "rv5_pct", "rv22_pct", "rv66_pct"}
 
     def test_empty_record_has_the_contract_shape_with_null_statistics(self):
@@ -541,6 +590,8 @@ class SummaryTest(unittest.TestCase):
         self.assertEqual(row["inputs"], {"ovx": 41.0, "ovx_session": "2026-10-30", "rv5_pct": 30.0,
                                          "rv22_pct": 33.0, "rv66_pct": 35.0})
         self.assertEqual(set(row["inputs"]), self.RECENT_INPUTS)
+        # The stored fit, so the page can recompute the call and split a change between two calls.
+        self.assertEqual((row["coefficients"], row["smearing_factor"]), (list(FIT), 1.4128))
         self.assertIsNone(vr.summarize(recorded(seal_after=None))["recent"][0]["sealed_at"])
         json.dumps(row, allow_nan=False)
 
@@ -557,6 +608,7 @@ class SummaryTest(unittest.TestCase):
         newest, oldest = summary["recent"]
         self.assertEqual(set(oldest), self.RECENT)
         self.assertEqual((oldest["inputs"], oldest["prob_vol_rises_pct"]), (None, None))
+        self.assertEqual((oldest["coefficients"], oldest["smearing_factor"]), (None, None))
         self.assertEqual((oldest["sealed_at"], oldest["base_session"]), (old["sealed_at"], "2026-11-03"))
         self.assertEqual(newest["inputs"], {"ovx": None, "ovx_session": None, "rv5_pct": None, "rv22_pct": 33.0,
                                             "rv66_pct": None})
@@ -1031,6 +1083,13 @@ class RecordFileTest(unittest.TestCase):
             "issued after recording": with_entry(issued_at="2026-11-03T14:00:00Z"),
             "pending with a realized vol": with_entry(realized_pct=30.0),
             "challenger": with_entry(challenger={"key": "", "forecast_pct": 1.0}),
+            "coefficients not a list": with_entry(coefficients="-4.88,0.04"),
+            "coefficients empty": with_entry(coefficients=[]),
+            "coefficients too long": with_entry(coefficients=[0.1] * (vr.MAX_FIT_TERMS + 1)),
+            "coefficient boolean": with_entry(coefficients=[True, 0.1, 0.2, 0.3, 0.4]),
+            "coefficient text": with_entry(coefficients=["1", 0.1, 0.2, 0.3, 0.4]),
+            "smearing zero": with_entry(smearing_factor=0),
+            "smearing boolean": with_entry(smearing_factor=True),
             "naive sealed_at": with_entry(sealed_at="2026-11-03T13:15:00"),
             "sealed_at not a time": with_entry(sealed_at=1),
             "sealed before recording": with_entry(sealed_at="2026-11-03T12:59:00Z"),
@@ -1054,6 +1113,9 @@ class RecordFileTest(unittest.TestCase):
             with self.subTest(late_commit=sealed_at):
                 vr.validate_record(with_resolved(status="late_commit", realized_pct=None, sealed_at=sealed_at))
         vr.validate_record(with_entry(sealed_at="2026-11-03T13:01:00Z"))    # within the clock-skew allowance
+        # Entries recorded before the fit was stored, or with no fit, are valid.
+        vr.validate_record(with_entry(coefficients=KeyError, smearing_factor=KeyError))
+        vr.validate_record(with_entry(coefficients=None, smearing_factor=None))
         for name, bad in cases.items():
             with self.subTest(name):
                 self.write(bad)

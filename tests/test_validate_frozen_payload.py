@@ -9,6 +9,8 @@ from pathlib import Path
 from backend import vol_record
 from scripts.validate_frozen_payload import (
     LIVE_RECORD_STATUSES,
+    RECENT_INPUT_NUMBERS,
+    RECENT_MAX_FIT_TERMS,
     RETRACTED_MODEL_FIELDS,
     research_payload_path,
     validate_payload,
@@ -399,6 +401,8 @@ class VolForecastValidationTest(unittest.TestCase):
         # What backend/vol_record.py publishes: the seeded record, one holding every status, and one
         # whose promotion test has decided.
         self.assertEqual(LIVE_RECORD_STATUSES, vol_record.STATUSES)
+        self.assertEqual(RECENT_INPUT_NUMBERS, vol_record._RECENT_INPUT_NUMBERS)
+        self.assertEqual(RECENT_MAX_FIT_TERMS, vol_record.MAX_FIT_TERMS)
 
         def entry(week, status, realized=None, challenger=38.0, model_version="har-iv/2", key="har_iv_range"):
             base = date(2026, 11, 2) + timedelta(days=7 * week)       # Mondays; windows Tuesday to Monday
@@ -567,11 +571,13 @@ class VolForecastValidationTest(unittest.TestCase):
                    "base_session": "2026-10-20", "prob_vol_rises_pct": 58.3,
                    "inputs": {"ovx": 50.74, "ovx_session": "2026-10-16", "rv5_pct": 36.76, "rv22_pct": 36.81,
                               "rv66_pct": 46.96},
+                   "coefficients": [-4.883566, 0.038819, 0.170853, -0.151549, 1.03495], "smearing_factor": 1.4128,
                    "spans_roll": True}
         self.assertEqual(self.record_errors(recent=[audited]), [])
         # Older summaries omit them; a row may carry null for any of them (an entry not sealed yet).
         self.assertEqual(self.record_errors(recent=[row]), [])
-        nulls = {**audited, "sealed_at": None, "prob_vol_rises_pct": None, "inputs": None, "spans_roll": None}
+        nulls = {**audited, "sealed_at": None, "prob_vol_rises_pct": None, "inputs": None, "spans_roll": None,
+                 "coefficients": None, "smearing_factor": None}
         self.assertEqual(self.record_errors(recent=[nulls]), [])
         self.assertEqual(self.record_errors(recent=[{**audited, "inputs": dict.fromkeys(audited["inputs"])}]), [])
         cases = {
@@ -580,10 +586,20 @@ class VolForecastValidationTest(unittest.TestCase):
             "base_session": ("2026-10-20T00:00:00Z", f"{where} base_session must be an ISO date (YYYY-MM-DD), or null"),
             "prob_vol_rises_pct": (101.0, f"{where} prob_vol_rises_pct must be a percentage, or null"),
             "spans_roll": ("yes", f"{where} spans_roll must be true or false, or null"),
+            "coefficients": ([], f"{where} coefficients must be a list of 1 to 8 finite numbers, or null"),
+            "smearing_factor": (0, f"{where} smearing_factor must be a positive number, or null"),
         }
         for key, (bad, message) in cases.items():
             with self.subTest(key):
                 self.assertIn(message, self.record_errors(recent=[{**audited, key: bad}]))
+        fit_message = f"{where} coefficients must be a list of 1 to 8 finite numbers, or null"
+        for bad in ("-4.88", [0.1] * 9, [True, 0.1], [float("inf"), 0.1], ["0.1"]):
+            with self.subTest(coefficients=bad):
+                self.assertIn(fit_message, self.record_errors(recent=[{**audited, "coefficients": bad}]))
+        for bad in (-1.4, True, "1.41", float("nan")):
+            with self.subTest(smearing_factor=bad):
+                self.assertIn(f"{where} smearing_factor must be a positive number, or null",
+                              self.record_errors(recent=[{**audited, "smearing_factor": bad}]))
         inputs_message = (f"{where} inputs must be an object of finite vol points (ovx, rv5_pct, rv22_pct, rv66_pct) "
                           "and an ISO ovx_session, each possibly null, or null")
         for bad in ([], "50.7", {**audited["inputs"], "ovx": float("nan")}, {**audited["inputs"], "rv5_pct": "36.8"},
