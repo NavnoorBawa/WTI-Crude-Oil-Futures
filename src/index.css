@@ -28,7 +28,6 @@ body {
   font-family: var(--font-sans);
   font-size: var(--fs-14);
   line-height: 1.45;
-  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -46,7 +45,9 @@ button { font: inherit; color: inherit; }
   outline-offset: 2px;
 }
 
-.num { font-variant-numeric: tabular-nums; }
+/* Tabular figures only where numbers line up (values, tables, chart text). Inter's tnum also swaps the
+   hyphen, comma and period for figure-width forms, which spaces out "HAR-IV" and "4,634" in prose. */
+.num, table, svg text { font-variant-numeric: tabular-nums; }
 .muted { color: var(--text-3); }
 .nowrap { white-space: nowrap; }
 
@@ -183,7 +184,6 @@ button { font: inherit; color: inherit; }
   font-size: var(--fs-12);
 }
 .notice.is-warn { border-left-color: var(--warn); }
-.app > .notice { max-width: 1392px; margin: var(--sp-3) auto 0; width: calc(100% - 48px); }
 
 .section-error {
   grid-column: 1 / -1;
@@ -848,6 +848,7 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 .reference-list { display: grid; font-size: var(--fs-12); }
 .reference-list li { display: flex; justify-content: space-between; gap: var(--sp-4); padding: 5px 0; border-bottom: 1px solid var(--rule); color: var(--text-2); }
 .reference-list li .muted { text-align: right; }
+.code-block:focus-visible { outline-offset: -2px; }
 .code-block {
   margin: 0;
   padding: var(--sp-3) var(--sp-4);
@@ -949,7 +950,6 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
   .lw-host--forecast { height: 260px; }
   .lw-host--var { height: 240px; }
   .lw-host--price { height: 260px; }
-  .app > .notice { width: 100%; }
   .brand-title { font-size: var(--fs-13); }
   .snapshot-chip { font-size: var(--fs-11); }
   /* "3h old": the short age keeps its word. */

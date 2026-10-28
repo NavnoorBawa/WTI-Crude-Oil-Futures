@@ -216,6 +216,59 @@ jobs:
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
         run: npm run build
 
+  interface:
+    name: Interface
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Configure resilient npm downloads
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 10000
+          npm config set fetch-retry-maxtimeout 120000
+
+      - name: Install dependencies
+        run: |
+          for attempt in 1 2 3; do
+            if npm ci --ignore-scripts --no-audit --no-fund; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "npm ci failed after 3 attempts" >&2
+              exit 1
+            fi
+            delay=$((attempt * 10))
+            echo "npm registry error; retrying in ${delay}s" >&2
+            sleep "$delay"
+          done
+
+      # The Chromium build the pinned playwright package expects, with its system libraries.
+      - name: Install Chromium
+        run: npx --no-install playwright install --with-deps chromium
+
+      - name: Build static site
+        env:
+          VITE_STATIC_DATA: 'true'
+        run: npm run build
+
+      # The built site against the fixture payloads at 1440 and 390 px, fresh and stale: no console
+      # error, no sideways scroll, no serious axe violation, layout shift under 0.02, the keyboard path,
+      # and the first screen's script budget (tests/e2e/interface.test.mjs).
+      - name: Browser checks
+        run: npm run test:e2e
+
   workflow-hygiene:
     name: Workflows and secrets
     runs-on: ubuntu-24.04

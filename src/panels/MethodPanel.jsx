@@ -2,6 +2,7 @@ import citationSource from "../../CITATION.cff?raw";
 import { DATA_HISTORY_URL, DOCS, GIT_SHA, RECORD_HISTORY_URL, REPO_URL, RESEARCH_URL, STATIC_DATA_URL } from "../app/config";
 import { SECTIONS } from "../app/sections";
 import { getElasticityPath } from "../charts/lazy";
+import CodeBlock from "../components/CodeBlock";
 import CopyButton from "../components/CopyButton";
 import DataTable from "../components/DataTable";
 import LazyMount from "../components/LazyMount";
@@ -503,7 +504,7 @@ export default function MethodPanel({ data, research, researchStatus }) {
         <div className="method-block">
           <h3 className="study-title">Reproduce</h3>
           <div className="code-copy">
-            <pre className="code-block"><code>{reproduceLines()}</code></pre>
+            <CodeBlock label="Reproduce commands">{reproduceLines()}</CodeBlock>
             <CopyButton label="Copy the reproduce commands" text={reproduceLines()} done="Commands copied" />
           </div>
           <p className="prose-note is-muted">

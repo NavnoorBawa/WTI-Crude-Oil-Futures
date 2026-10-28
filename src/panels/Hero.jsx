@@ -415,14 +415,15 @@ export default function Hero({ live, liveRecord, recentOos, research, researchSt
               {math.factors.map((factor, index) => (
                 <Fragment key={index}>{" "}<span className="nowrap">× {factor.base}^{factor.exponent}</span></Fragment>
               ))}
-              {" "}<span className="nowrap">= {fmtPct(call.median)}</span>
+              {" "}<span className="nowrap">= {fmtPct(math.shownMedian, 2)}</span>
             </p>
             <p className="hero-math-line">
-              <span className="nowrap">expected = median × √{plainNumber(math.smearing, 4)}</span>{" "}
-              <span className="nowrap">(Duan smearing)</span>{" "}<span className="nowrap">= {fmtPct(call.forecast)}</span>
+              <span className="nowrap">expected = {fmtNum(math.shownMedian, 2)} × √{plainNumber(math.smearing, 4)}</span>{" "}
+              <span className="nowrap">(Duan smearing)</span>{" "}<span className="nowrap">= {fmtPct(math.printedMean, 2)}</span>
             </p>
             <p>
-              RV in decimals, OVX in index points; coefficients from the fit as of{" "}
+              Recorded to one decimal: median {fmtPct(call.median)}, expected {fmtPct(call.forecast)}. RV in decimals, OVX in
+              index points; coefficients from the fit as of{" "}
               {fmtDate(ownFit ? call.asOf : asText(live?.as_of) ?? call.asOf)}{ownFit ? ", as recorded with the call" : ""}
               {mathFrom != null ? `; inputs of the ${fmtCT(mathFrom)} computation` : ""}.{" "}
               <a href="#meth">Model card (METH) →</a>

@@ -435,14 +435,20 @@ export const plainNumber = (value, digits = 4) => {
   return text.startsWith("-") ? `−${text.slice(1)}` : text;
 };
 
-const COEFFICIENT_DIGITS = 4;
+/** Coefficient decimals in the hand arithmetic: all six the payload stores, so the chain is exact. */
+const COEFFICIENT_DIGITS = 6;
+/** The printed chain's own rounding: the two-decimal median carried through √smearing (0.005·√s < 0.01). */
+const CHAIN_ROUNDING = 0.01;
 
 /**
  * The live HAR-IV forecast by hand: median = 100 × exp(b0 + b1 ln(rv5/100) + b2 ln(rv22/100) +
  * b3 ln(rv66/100) + b4 ln(ovx)) and mean = median × sqrt(smearing), as backend/vol_forecast.py
  * computes them (realized vols in decimals, OVX in index points). `median`/`mean` use the payload's
- * precision; `printed` repeats the arithmetic with the numbers as printed, so a reader with a
- * calculator gets the same answer. Null unless five coefficients and every input are usable.
+ * precision; `printedMedian` repeats the arithmetic with the numbers as printed (coefficients at the
+ * payload's six decimals), so a reader with a calculator gets the same answer, and `printedMean`
+ * chains from that median shown to two decimals (`shownMedian`): a one-decimal median times √smearing
+ * can miss the one-decimal forecast by more than rounding (47.5 × √1.4128 = 56.46 against 56.4), so
+ * the hand arithmetic carries two. Null unless five coefficients and every input are usable.
  */
 export const forecastDecomposition = (coefs, inputs, smearing) => {
   const b = asArray(coefs).map(num);
@@ -455,10 +461,13 @@ export const forecastDecomposition = (coefs, inputs, smearing) => {
   const median = 100 * Math.exp(b[0] + values.reduce((sum, value, k) => sum + b[k + 1] * Math.log(value), 0));
   const round = (value) => Number(value.toFixed(COEFFICIENT_DIGITS));
   const printedMedian = 100 * Math.exp(round(b[0])) * values.reduce((product, value, k) => product * value ** round(b[k + 1]), 1);
+  const shownMedian = Number(printedMedian.toFixed(2));
   return {
     median,
     mean: median * Math.sqrt(smear),
     printedMedian,
+    shownMedian,
+    printedMean: shownMedian * Math.sqrt(Number(smear.toFixed(4))),
     smearing: smear,
     intercept: plainNumber(b[0], COEFFICIENT_DIGITS),
     factors: values.map((value, k) => ({
@@ -469,15 +478,16 @@ export const forecastDecomposition = (coefs, inputs, smearing) => {
 };
 
 /**
- * Whether a decomposition reproduces the displayed median and expected forecast (one decimal),
- * both at the payload's precision and with the printed numbers (expected = printed median ×
- * √smearing), each within TOLERANCE.
+ * Whether a decomposition reproduces the displayed median and expected forecast (one decimal): at
+ * the payload's precision and with the printed numbers, each within the one-decimal rounding
+ * (TOLERANCE); the printed expected value, which chains from the two-decimal median, also within
+ * that median's own rounding (CHAIN_ROUNDING).
  */
 export const reproduces = (decomposition, median, mean) => {
   if (!decomposition || median == null || mean == null) return false;
-  const printedMean = Number(median.toFixed(1)) * Math.sqrt(decomposition.smearing);
   return close(decomposition.median, median) && close(decomposition.mean, mean)
-    && close(decomposition.printedMedian, median) && close(printedMean, mean);
+    && close(decomposition.printedMedian, median)
+    && Math.abs(decomposition.printedMean - mean) < TOLERANCE + CHAIN_ROUNDING;
 };
 
 /**

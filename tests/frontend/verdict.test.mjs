@@ -186,7 +186,7 @@ test("with a snapshot from an older close, CONE and METH show the recorded call 
   // A median the snapshot's coefficients reproduce from these inputs, and its mean, as the backend prints them.
   const fit = v.forecastDecomposition(live.coefficients, inputs, live.smearing_factor);
   const median = round1(fit.median);
-  const forecast = round1(median * Math.sqrt(live.smearing_factor));
+  const forecast = round1(fit.mean);
   const newer = {
     ...structuredClone(recent[0]),
     as_of: "2026-10-26", issued_at: "2026-10-26T21:00:54Z", recorded_at: "2026-10-26T21:00:58Z", sealed_at: "2026-10-26T21:01:33Z",
@@ -385,8 +385,12 @@ test("the arithmetic reproduces the median and the expected forecast, or is not 
   const math = squash(visibleText(html.match(/<details class="disclosure hero-math">[\s\S]*?<\/details>/)[0]));
   const f = m.format;
   assert.ok(math.includes(`How ${f.fmtNum(live.forecast_next_week_vol_annualized_pct, 1)} is computed`));
-  assert.ok(math.includes(`× ${v.plainNumber(live.inputs.ovx, 2)}^${v.plainNumber(live.coefficients[4], 4)} = ${f.fmtPct(live.forecast_median_pct)}`), math);
-  assert.ok(math.includes(`expected = median × √${v.plainNumber(live.smearing_factor, 4)} (Duan smearing) = ${f.fmtPct(live.forecast_next_week_vol_annualized_pct)}`));
+  assert.ok(math.includes(`× ${v.plainNumber(live.inputs.ovx, 2)}^${v.plainNumber(live.coefficients[4], 6)} = ${f.fmtPct(decomposition.shownMedian, 2)}`), math);
+  assert.ok(math.includes(`median = exp(${v.plainNumber(live.coefficients[0], 6)})`), math);
+  assert.ok(math.includes(`expected = ${f.fmtNum(decomposition.shownMedian, 2)} × √${v.plainNumber(live.smearing_factor, 4)} (Duan smearing) = ${f.fmtPct(decomposition.printedMean, 2)}`), math);
+  assert.ok(math.includes(`Recorded to one decimal: median ${f.fmtPct(live.forecast_median_pct)}, expected ${f.fmtPct(live.forecast_next_week_vol_annualized_pct)}.`), math);
+  // The two-decimal chain lands within rounding of the recorded one-decimal forecast.
+  assert.ok(Math.abs(decomposition.printedMean - live.forecast_next_week_vol_annualized_pct) < 0.06);
   assert.ok(squash(visibleText(heroOf(html))).includes("Elasticity of the forecast: OVX "
     + `${f.fmtNum(live.coefficients[4], 2)}, 5-day RV ${f.fmtNum(live.coefficients[1], 2)}, 22-day ${f.fmtNum(live.coefficients[2], 2)}, `
     + `66-day ${f.fmtNum(live.coefficients[3], 2)} (log-log, current fit).`));
@@ -432,7 +436,7 @@ test("the question is static and the hero label keeps the version's case", () =>
 
 // Two consecutive recorded calls that each store their fit (vol_record entries from 2.2.0 on): the
 // Oct 19 call with the fixture's fit, and an Oct 20 call refit on one more day, its median and forecast
-// printed from that fit as the backend prints them.
+// printed from that fit as the backend prints them (each rounded from the unrounded fit).
 const attributedRecord = () => {
   const payload = structuredClone(data);
   const live = payload.vol_forecast.live;
@@ -443,7 +447,7 @@ const attributedRecord = () => {
   const inputs = { ovx: 50.22, ovx_session: "2026-10-19", rv5_pct: 38.85, rv22_pct: 36.93, rv66_pct: 46.31 };
   const fit = v.forecastDecomposition(coefficients, inputs, smearing);
   const median = round1(fit.median);
-  const forecast = round1(median * Math.sqrt(smearing));
+  const forecast = round1(fit.mean);
   const current = {
     ...structuredClone(previousRow), as_of: "2026-10-20", issued_at: "2026-10-21T05:03:50Z", recorded_at: "2026-10-21T05:03:53Z",
     sealed_at: "2026-10-21T05:04:20Z", base_session: "2026-10-21", target_start: "2026-10-22", target_end: "2026-10-28",
@@ -532,4 +536,26 @@ test("the hero lists what moved the call since the previous one, in points that 
   const corrupt = render(off, research);
   assert.doesNotMatch(corrupt.html, /hero-attribution/);
   assert.match(corrupt.html, /pts since the Oct 19 call/);
+});
+
+test("the arithmetic shows when only the one-decimal median times √smearing misses the forecast (the Oct 27, 2026 call)", () => {
+  // 47.5 × √1.4128 = 56.46, which prints 56.5, yet the fit gives 47.45 and 56.40, recorded as 47.5 and 56.4.
+  const payload = structuredClone(data);
+  const live = payload.vol_forecast.live;
+  const inputs = { rv5_pct: 48.65, rv22_pct: 37.69, rv66_pct: 45.95, ovx: 58.71, ovx_session: "2026-10-26" };
+  Object.assign(live, {
+    coefficients: [-4.883566, 0.038819, 0.170853, -0.151549, 1.03495], smearing_factor: 1.4128,
+    forecast_median_pct: 47.5, forecast_next_week_vol_annualized_pct: 56.4, inputs: { ...live.inputs, ...inputs },
+  });
+  const decomposition = v.forecastDecomposition(live.coefficients, live.inputs, live.smearing_factor);
+  assert.ok(Math.abs(47.5 * Math.sqrt(1.4128) - 56.4) > v.TOLERANCE, "the one-decimal chain misses");
+  assert.equal(decomposition.shownMedian, 47.45);
+  assert.ok(v.reproduces(decomposition, 47.5, 56.4));
+  payload.vol_forecast.live_record.recent = [];
+  const { html, errors } = render(payload, research);
+  assert.deepEqual(errors, []);
+  const math = squash(visibleText(html.match(/<details class="disclosure hero-math">[\s\S]*?<\/details>/)?.[0] ?? ""));
+  assert.ok(math.includes("How 56.4 is computed"), math);
+  assert.ok(math.includes("= 47.45%"), math);
+  assert.ok(math.includes("expected = 47.45 × √1.4128 (Duan smearing) = 56.40%"), math);
 });

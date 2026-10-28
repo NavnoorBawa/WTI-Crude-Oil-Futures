@@ -6,7 +6,8 @@ import reactHooks from "eslint-plugin-react-hooks";
 // violations (rules-of-hooks, exhaustive-deps). Mirrors the Python side, where ruff guards
 // F/E9 only. Style is intentionally not enforced.
 export default [
-  { ignores: ["dist/**", "node_modules/**"] },
+  // .venv: the cloud session's startup hook builds the Python environment inside the repository.
+  { ignores: ["dist/**", "node_modules/**", ".venv/**"] },
   {
     files: ["src/**/*.{js,jsx}"],
     languageOptions: {

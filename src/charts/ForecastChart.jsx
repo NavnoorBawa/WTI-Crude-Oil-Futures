@@ -175,8 +175,10 @@ export default function ForecastChart({ rows, live, range = "3Y", frameKey = 0, 
         width: host.clientWidth || 600,
         height: host.clientHeight || 320,
         grid: { ...baseChartOptions().grid, vertLines: { visible: false } },
+        // Headroom over the highest week, and no tick label drawn half outside the pane (as RISK).
         rightPriceScale: {
-          borderColor: SURFACE.rule, mode: PriceScaleMode.Logarithmic, scaleMargins: { top: 0.06, bottom: 0.04 },
+          borderColor: SURFACE.rule, mode: PriceScaleMode.Logarithmic, entireTextOnly: true,
+          scaleMargins: { top: 0.08, bottom: 0.04 },
         },
         timeScale: { borderColor: SURFACE.rule, rightOffset: 5, fixLeftEdge: true, minBarSpacing: 0.2 },
         localization: {
