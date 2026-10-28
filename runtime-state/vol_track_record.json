@@ -181,6 +181,42 @@
       "target_end": "2026-11-03",
       "status": "pending",
       "realized_pct": null
+    },
+    {
+      "as_of": "2026-10-27",
+      "issued_at": "2026-10-28T05:39:24.832186Z",
+      "recorded_at": "2026-10-28T05:39:28.616074Z",
+      "sealed_at": "2026-10-28T05:39:51.313925Z",
+      "frozen_at": "2026-10-28T05:39:28.103912+00:00",
+      "contract": "CLZ26",
+      "model_version": "har-iv/2",
+      "model": "HAR-IV (RV5,RV22,RV66,OVX)",
+      "forecast_pct": 56.4,
+      "median_pct": 47.5,
+      "prob_vol_rises_pct": 47.6,
+      "direction": "FALLING",
+      "rv5_pct": 48.65,
+      "lo80_pct": 27.6,
+      "hi80_pct": 75.8,
+      "inputs": {
+        "ovx": 58.71,
+        "ovx_last_print": "2026-10-27",
+        "ovx_session": "2026-10-26",
+        "ovx_source": "yahoo ^OVX",
+        "rv22_pct": 37.69,
+        "rv5_pct": 48.65,
+        "rv66_pct": 45.95
+      },
+      "challenger": {
+        "key": "har_iv_range",
+        "forecast_pct": 52.9,
+        "median_pct": 44.8
+      },
+      "base_session": "2026-10-28",
+      "target_start": "2026-10-29",
+      "target_end": "2026-11-04",
+      "status": "pending",
+      "realized_pct": null
     }
   ]
 }
