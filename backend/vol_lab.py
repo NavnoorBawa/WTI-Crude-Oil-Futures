@@ -81,7 +81,7 @@ try:
     from . import vol_forecast as vf
     from .contract_calendar import last_trade_date
     from .forecast_eval import (basel_zone, delayed_aci, christoffersen, dm_test, dq_test, hac_z,
-                                kupiec, mincer_zarnowitz, model_confidence_set, mse_var, qlike)
+                                kupiec, mincer_zarnowitz, model_confidence_set, mse_var, qlike, spa_test)
     from .safe_paths import data_json_path
 except ImportError:  # Direct invocation from backend/
     import market_data  # type: ignore[import-not-found, no-redef]
@@ -89,7 +89,7 @@ except ImportError:  # Direct invocation from backend/
     from contract_calendar import last_trade_date  # type: ignore[import-not-found, no-redef]
     from forecast_eval import (  # type: ignore[import-not-found, no-redef]
         basel_zone, delayed_aci, christoffersen, dm_test, dq_test, hac_z,
-        kupiec, mincer_zarnowitz, model_confidence_set, mse_var, qlike)
+        kupiec, mincer_zarnowitz, model_confidence_set, mse_var, qlike, spa_test)
     from safe_paths import data_json_path  # type: ignore[import-not-found, no-redef]
 
 ARTIFACT = "vol_lab.json"
@@ -592,18 +592,21 @@ def realized_utility(actual: npt.ArrayLike, forecast: npt.ArrayLike, sr: float =
     return cast("np.ndarray", (sr ** 2 / gamma) * (ratio - 0.5 * ratio ** 2))
 
 
+def _spa_summary(spa: dict[str, Any]) -> dict[str, Any]:
+    """The parts of an SPA result a robustness check reports."""
+    return {"p_consistent": spa["p_consistent"], "best_model": spa["best_model"],
+            "p_consistent_non_studentized": spa["non_studentized"]["p_consistent"]}
+
+
 def spa_vs_champion(losses: pd.DataFrame, block: int = MCS_BLOCK, reps: int = SPA_REPS,
                     seed: int = SEED) -> dict[str, Any]:
     """Hansen (2005) Superior Predictive Ability: is ANY model in the field better than the model of
-    record, after accounting for having searched over all of them? Small p: some model beats it."""
-    from arch.bootstrap import SPA
-
+    record, after accounting for having searched over all of them? Small p: some model beats it.
+    Studentized, as Hansen defines it (forecast_eval.spa_test); `non_studentized` keeps the p-values
+    arch.bootstrap.SPA 8.0.0 returns on the same draws, which ignore its studentize flag."""
     others = losses.drop(columns=[CHAMPION, *TIMING_CONTROLS], errors="ignore")
-    spa = SPA(losses[CHAMPION], others, block_size=block, reps=reps, bootstrap="stationary", seed=seed)
-    spa.compute()
-    pv = spa.pvalues
-    return {"p_consistent": round(float(pv["consistent"]), 4), "p_lower": round(float(pv["lower"]), 4),
-            "p_upper": round(float(pv["upper"]), 4), "models": list(others.columns),
+    result = spa_test(losses[CHAMPION], others, block=block, reps=reps, seed=seed)
+    return {**result, "models": list(others.columns),
             "note": "excludes the timing control (same-day OVX), which uses information published after the decision"}
 
 
@@ -663,11 +666,14 @@ def leaderboard(frame: pd.DataFrame) -> dict[str, Any]:
     for rank, row in enumerate(rows, 1):
         row["rank_qlike"] = rank
     robustness = {f"block_{b}": _mcs(LQ[FEASIBLE], b)["included"] for b in (10, 40)}
+    spa_robustness = {f"block_{b}": _spa_summary(spa_vs_champion(LQ, block=b)) for b in (10, 40)}
     for start, end in (("2008-01-01", "2016-12-31"), ("2017-01-01", "2099-12-31")):
         mask = ((frame["date"] >= start) & (frame["date"] <= end)).to_numpy()
         label = f"{start[:4]}-{min(int(end[:4]), int(frame['date'].max().year))}"
         robustness[label] = {"n_days": int(mask.sum()),
                              "included": _mcs(LQ[FEASIBLE][mask].reset_index(drop=True), MCS_BLOCK)["included"]}
+        spa_robustness[label] = {"n_days": int(mask.sum()),
+                                 **_spa_summary(spa_vs_champion(LQ[mask].reset_index(drop=True)))}
     up = (frame["actual"] > frame["rv5"]).to_numpy()
     return {"models": rows, "mcs_qlike_included": mcs_q["included"], "mcs_mse_included": mcs_m["included"],
             "mcs_qlike_range_proxy_included": mcs_range["included"],
@@ -677,6 +683,7 @@ def leaderboard(frame: pd.DataFrame) -> dict[str, Any]:
                          "MCS p-values depend on the whole field, so it would push feasible models out; its "
                          "losses and DM tests are reported as a timing control."),
             "spa_qlike_vs_har_iv": spa_vs_champion(LQ),
+            "spa_robustness_qlike": spa_robustness,
             "realized_utility_max_pct": round(UTILITY_SR ** 2 / (2 * UTILITY_GAMMA) * 100, 3),
             "mcs_qlike_by_grid": {str(g): grids[g]["mcs"] for g in range(vf.STEP)},
             "mcs_robustness_qlike": robustness, "n_days": int(len(frame)),
@@ -781,7 +788,7 @@ def choose_challenger(frame: pd.DataFrame) -> str:
     """The challenger: the lowest-QLIKE model in the 90% Model Confidence Set of the feasible models,
     other than the model of record (or the lowest-QLIKE eligible model if the set holds none). The
     choice is made on the full 2008-present sample, so the challenger's historical edge is in-sample to
-    the choice; its forward live record is the clean test (see the promotion rule in the README)."""
+    the choice; its forward live record is the clean test (see the promotion rule in docs/RESULTS.md, section 3)."""
     LQ, _ = _losses(frame)
     eligible = set(FEASIBLE) - {CHAMPION}
     included = set(_mcs(LQ[FEASIBLE], MCS_BLOCK)["included"]) & eligible

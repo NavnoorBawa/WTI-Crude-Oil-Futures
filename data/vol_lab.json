@@ -1052,9 +1052,30 @@
   ],
   "mcs_note": "Every Model Confidence Set is computed over the feasible models only. har_iv_sameday reads the test day's OVX close (16:15 ET), published after the 14:30 ET decision, and MCS p-values depend on the whole field, so it would push feasible models out; its losses and DM tests are reported as a timing control.",
   "spa_qlike_vs_har_iv": {
-   "p_consistent": 0.072,
-   "p_lower": 0.045,
-   "p_upper": 0.7048,
+   "statistic": 2.9088,
+   "best_model": "har_iv_range",
+   "t_stats": {
+    "persistence": -7.014,
+    "raw_ovx": -0.489,
+    "ewma": -3.959,
+    "garch": -3.484,
+    "gjr": -2.932,
+    "har_rv": -3.698,
+    "har_rs": -3.617,
+    "har_range": 0.464,
+    "ovx_only": 0.468,
+    "har_iv_range": 2.909,
+    "lgbm": -4.322,
+    "combo": 0.342
+   },
+   "p_consistent": 0.0114,
+   "p_lower": 0.0104,
+   "p_upper": 0.012,
+   "non_studentized": {
+    "p_lower": 0.045,
+    "p_consistent": 0.072,
+    "p_upper": 0.7048
+   },
    "models": [
     "persistence",
     "raw_ovx",
@@ -1070,6 +1091,30 @@
     "combo"
    ],
    "note": "excludes the timing control (same-day OVX), which uses information published after the decision"
+  },
+  "spa_robustness_qlike": {
+   "block_10": {
+    "p_consistent": 0.0052,
+    "best_model": "har_iv_range",
+    "p_consistent_non_studentized": 0.0606
+   },
+   "block_40": {
+    "p_consistent": 0.0134,
+    "best_model": "har_iv_range",
+    "p_consistent_non_studentized": 0.0702
+   },
+   "2008-2016": {
+    "n_days": 2177,
+    "p_consistent": 0.027,
+    "best_model": "combo",
+    "p_consistent_non_studentized": 0.3574
+   },
+   "2017-2026": {
+    "n_days": 2457,
+    "p_consistent": 0.0262,
+    "best_model": "har_iv_range",
+    "p_consistent_non_studentized": 0.0626
+   }
   },
   "realized_utility_max_pct": 4.0,
   "mcs_qlike_by_grid": {

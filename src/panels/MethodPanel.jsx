@@ -38,7 +38,7 @@ export const REFERENCES = [
   { id: "stat-hlz", method: "The t > 3 hurdle for findings chosen from many", ref: "Harvey, Liu & Zhu (2016), Review of Financial Studies" },
 ];
 
-// Each artifact on the page and the command that rebuilds it, in the order the README runs them.
+// Each artifact on the page and the command that rebuilds it, in the order docs/RESULTS.md (section 7) runs them.
 const REPRODUCE_STEPS = [
   ["pip install -r requirements.txt", null],
   [REPRODUCE.lab, "data/vol_lab.json, offline"],

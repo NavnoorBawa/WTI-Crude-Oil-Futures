@@ -150,8 +150,9 @@ export const leaderboardDetail = (rows, { available = true, robustness = null } 
 };
 
 /**
- * MODL footnote: the Hansen SPA test of the model of record, read at the level its p-value
- * supports. A p between 5% and 10% is inconclusive, and is said to be.
+ * MODL footnote: the Hansen SPA test of the model of record (studentized, as Hansen defines it),
+ * read at the level its p-value supports. A p between 5% and 10% is inconclusive, and is said to be;
+ * above 10% no alternative is shown to beat the record, which is not evidence that none does.
  */
 export const spaAssertion = (spa, { recordName = "the model of record", mcsLevel = null } = {}) => {
   const p = num(asObject(spa)?.p_consistent);
@@ -165,10 +166,10 @@ export const spaAssertion = (spa, { recordName = "the model of record", mcsLevel
   let reading;
   if (p < ALPHA) reading = `some alternative beats ${recordName} at the ${pct(ALPHA)}% level`;
   else if (p < ALPHA_LOOSE) reading = `inconclusive: not significant at ${pct(ALPHA)}%, but it would reject at the ${loose}`;
-  else reading = `no alternative beats ${recordName} even at the ${pct(ALPHA_LOOSE)}% level`;
-  // Three decimals, as the hero prints it: the reading turns on thresholds this value sits near (0.072, not 0.07).
+  else reading = `no alternative is shown to beat ${recordName} even at the ${pct(ALPHA_LOOSE)}% level`;
+  // Three decimals, as the hero prints it: the reading turns on thresholds a value can sit near (0.052, not 0.05).
   const consistent = p < 0.001 ? fmtP(p) : `p${NBSP}=${NBSP}${fmtPValue(p, { digits: 3 })}`;
-  return `Hansen SPA test of ${recordName} against ${count ? plural(count, "alternative") : "the alternatives"}: consistent ${consistent}${bounds}; ${reading}.`;
+  return `Hansen SPA test (studentized) of ${recordName} against ${count ? plural(count, "alternative") : "the alternatives"}: consistent ${consistent}${bounds}; ${reading}.`;
 };
 
 /**

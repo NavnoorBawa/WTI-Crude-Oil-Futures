@@ -617,11 +617,11 @@ test("the SPA footnote reads an inconclusive p-value as inconclusive", () => {
   const spaAssertion = (...args) => spaced(m.assertions.spaAssertion(...args));
   const spa = { p_consistent: 0.072, p_lower: 0.0548, p_upper: 0.7048, models: ["a", "b", "c"] };
   const text = spaAssertion(spa, { recordName: "HAR-IV", mcsLevel: 90 });
-  assert.equal(text, "Hansen SPA test of HAR-IV against 3 alternatives: consistent p = 0.072 (lower 0.055, upper 0.70); "
+  assert.equal(text, "Hansen SPA test (studentized) of HAR-IV against 3 alternatives: consistent p = 0.072 (lower 0.055, upper 0.70); "
     + "inconclusive: not significant at 5%, but it would reject at the 10% level the Model Confidence Set uses.");
   assert.doesNotMatch(text, /no alternative significantly beats/);
   assert.match(spaAssertion({ ...spa, p_consistent: 0.03 }, { recordName: "HAR-IV" }), /some alternative beats HAR-IV at the 5% level\.$/);
-  assert.match(spaAssertion({ ...spa, p_consistent: 0.3 }, { recordName: "HAR-IV" }), /no alternative beats HAR-IV even at the 10% level\.$/);
+  assert.match(spaAssertion({ ...spa, p_consistent: 0.3 }, { recordName: "HAR-IV" }), /no alternative is shown to beat HAR-IV even at the 10% level\.$/);
   assert.match(spaAssertion({ ...spa, p_consistent: 0.08 }, { recordName: "HAR-IV", mcsLevel: 95 }), /would reject at the 10% level\.$/);
   const fixture = spaAssertion(research.vol_lab.leaderboard.spa_qlike_vs_har_iv, { mcsLevel: 90 });
   assert.ok(fixture.includes(`lower ${spaced(m.format.fmtPValue(research.vol_lab.leaderboard.spa_qlike_vs_har_iv.p_lower))}`));

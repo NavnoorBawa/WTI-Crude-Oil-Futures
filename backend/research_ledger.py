@@ -537,7 +537,7 @@ def _vol_rows() -> list[Row]:
                "The challenger HAR-IV-range beats the model of record on MSE of variance.", POSITIVE),
         Row(id="vol_spa_beats_record", family="volatility forecast",
             hypothesis="Some benchmark model beats the model of record on QLIKE (Hansen SPA, data-snooping robust).",
-            test="Hansen (2005) SPA, consistent p-value, stationary bootstrap", source=LAB,
+            test="Hansen (2005) SPA, studentized, consistent p-value, stationary bootstrap", source=LAB,
             statistic=("SPA consistent p-value", "leaderboard.spa_qlike_vs_har_iv.p_consistent"),
             p=Field("leaderboard.spa_qlike_vs_har_iv.p_consistent"), sided="one",
             context={"p_lower": "leaderboard.spa_qlike_vs_har_iv.p_lower"}),

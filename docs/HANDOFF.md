@@ -17,8 +17,10 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
 
 - **Research.** HAR-IV (`har-iv/2`) on 4,634 out-of-sample days has QLIKE 0.370 against 0.952 for
   persistence. It beats all 6 returns-only models (DM p < 0.05) and is statistically tied with an
-  OVX-only regression. The challenger HAR-IV-range has DM p = 0.002 but SPA p = 0.072, so it is
-  inconclusive after the search and runs live under a pinned 52-week, one-look promotion test.
+  OVX-only regression (and with HAR-range, which uses no OVX). The challenger HAR-IV-range has DM
+  p = 0.002 and a studentized Hansen SPA p = 0.011 after the search (0.072 was the non-studentized
+  figure arch returns; CHANGELOG errata), which does not survive the ledger's Benjamini-Hochberg
+  adjustment (q = 0.090). It runs live under the pinned 52-week, one-look promotion test.
   `data/vol_lab.json` rebuilds bit for bit (Reproduce workflow).
 - **Live record.** Daily calls are recorded and sealed in git on the `live-data` branch before their
   window opens. The first window resolves after the Oct 28, 2026 settlement. Since 2026-10-27

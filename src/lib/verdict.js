@@ -571,7 +571,7 @@ export const challengerStanding = (lab, promotion) => {
   let spaReading = null;
   if (p != null) {
     const level = (alpha) => `${fmtNum(alpha * 100, 0)}% level`;
-    // Three decimals near the thresholds this reading turns on (0.072, not 0.07).
+    // Three decimals near the thresholds this reading turns on (0.052, not 0.05).
     const pSpa = p < 0.001 ? fmtP(p) : `p${NBSP}=${NBSP}${fmtPValue(p, { digits: 3 })}`;
     if (p < ALPHA) spaReading = { text: `Hansen SPA ${pSpa}: some alternative beats ${recordName} at the ${level(ALPHA)}`, keepsRecord: false };
     else if (p < ALPHA_LOOSE) spaReading = { text: `Hansen SPA ${pSpa} is inconclusive`, keepsRecord: true };

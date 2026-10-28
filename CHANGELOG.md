@@ -6,6 +6,30 @@ backs the new one.
 
 ## Unreleased
 
+### Research
+
+- **Hansen's SPA test is now studentized, as Hansen (2005) defines it.** `arch.bootstrap.SPA` 8.0.0
+  ignores its `studentize` flag: it maximizes raw mean loss differences, so the noisiest model's
+  bootstrap swings set the maximum. `forecast_eval.spa_test` divides each model's mean loss
+  difference by its long-run standard deviation (arch's own stationary-bootstrap kernel), on the
+  same bootstrap draws, and is checked against arch where arch is right (the variance kernel, and
+  the non-studentized p-values to the last digit) and on known-answer cases. The artifact keeps the
+  old figures as `non_studentized`, and adds the test at blocks of 10 and 40 days and over 2008–2016
+  and 2017 onward (`spa_robustness_qlike`). The promotion test, the model of record and the live
+  record are unchanged.
+- **Wording.** A p-value from 0.05 to 0.10 now reads "inconclusive" everywhere it is generated, as
+  the project's rules say, not "significant at 10%". The findings say that HAR-range, from daily
+  price ranges without OVX, ties the model of record as OVX alone does, so the options market is
+  one source of the skill, not the only one. The README's "What it does not claim", the model
+  card's caveats (with the understated 1% VaR tail) and the limitation on risk use are now
+  generated from the artifacts, like the rest of the results.
+
+### Errata (published numbers that were wrong)
+
+| Claim as published | Correction | Evidence |
+|---|---|---|
+| Hansen SPA, null that no model beats the model of record: p = 0.072 (lower 0.045, upper 0.705), "significant at 10% but not at 5%", so the challenger's edge was "inconclusive" after the search | That was the non-studentized test (White's Reality Check with Hansen's recentring); arch 8.0.0 returns it whatever its `studentize` flag says. The studentized test on the same draws gives p = 0.011 (lower 0.010, upper 0.012), significant at 5%, with HAR-IV-range the model with the largest studentized gain (t 2.91); 0.005 to 0.027 across block lengths and sub-periods. It does not survive the ledger's Benjamini-Hochberg adjustment (q = 0.090), and the challenger still replaces the model of record only through the pinned 52-week live test | `data/vol_lab.json` `leaderboard.spa_qlike_vs_har_iv` (`p_consistent`, `non_studentized`, `t_stats`) and `leaderboard.spa_robustness_qlike`; `data/research_ledger.json` row `vol_spa_beats_record` |
+
 ### Live record
 
 - **Each call stores its fit.** New record entries also store the coefficients and the smearing
@@ -259,13 +283,13 @@ before.
 | Claim as published | Correction | Evidence |
 |---|---|---|
 | Vol forecaster: "about 73% next-week vol-direction accuracy vs a 52% base rate (z ≈ 12, HAC z ≈ 16)" was the headline evidence of skill | Not evidence of skill: with nothing to forecast (i.i.d. returns) the same pipeline, run as HAR without OVX, scores about 75%, because the five-session realized vol it compares against is itself noisy. Skill is now judged by losses, where the model beats persistence, GARCH, EWMA, HAR-RV and LightGBM but is statistically tied with implied volatility alone | `data/vol_lab.json` `noise_floor`, `leaderboard` |
-| Vol forecaster QLIKE 0.422 | That scored the median forecast against a variance loss; the variance-consistent forecast (and lagged OVX) gives the figures in the README's results table | `data/vol_forecast_validation.json` `har_qlike`, `har_qlike_median_forecast` |
+| Vol forecaster QLIKE 0.422 | That scored the median forecast against a variance loss; the variance-consistent forecast (and lagged OVX) gives 0.376 on the production run ([full results, robustness](docs/RESULTS.md#27-robustness)) and the lab figures in the [benchmark field](docs/RESULTS.md#21-the-benchmark-field) | `data/vol_forecast_validation.json` `har_qlike`, `har_qlike_median_forecast` |
 | "OVX at day t is known at t (no leak)" | OVX settles at 16:15 ET, about 1h45m after the CL settlement that opens the target window; the same-day print is measurably more informative, so version 2 uses the previous session's OVX | `vol_lab.json` model `har_iv_sameday`; `validation.robustness_same_day_ovx` |
 | "Outscores the same model without OVX (z 2.5)" on direction | With lagged OVX the direction gain is not significant; the OVX gain is clear on QLIKE | `data/research_ledger.json` rows `vol_ovx_gain_*` |
 | Variance risk premium "real" and "genuinely there": OVX above the following month's realized vol in 72.5% of periods (73.5% on the current sample), by 2.5 vol points on average | Read against the wrong null. With zero premium a 20-session realized vol, noisy and right-skewed, still falls below implied vol in about 69.5% of periods, and the vol-point gap averages about 1.5 points (Jensen's inequality); the observed share is not significantly above that (one-sided bootstrap p = 0.318). In variance units, the relevant measure, the premium is not significant either. A premium is not established; nothing shows it is zero | `data/vol_forecast_validation.json` `economic.variance_risk_premium.zero_premium_null`; `data/research_ledger.json` rows `vrp_exists` (retracted) and `vrp_exists_vs_zero_premium` |
 | Supply shocks: "threat-only events peak +4.0%, settle +0.5%", read as the market reacting to headlines | A random ordinary date peaks higher under the same path statistic; threat-only events are indistinguishable from it. Announced or physical supply removal does peak more than the placebo | `data/supply_shock_study.json` |
-| Carry: "faded to nothing measurable since 2007" | The post-2007 spread test is underpowered and the change in spread is not significant, while the rank correlation did fall; see the README's carry section for the figures. Columns relabelled: the split is on the prior-months median carry, not backwardation vs contango | `data/carry_signal_test.json` |
-| Earlier corrections (1.x): the direction model's Sharpe 2.44/2.47 (a look-ahead leak; purged −0.98), the roll-biased carry test, the supply-shock grouping | See the README post-mortem and the 1.x history in git | `data/wf_*`, `data/leak_anatomy.json` |
+| Carry: "faded to nothing measurable since 2007" | The post-2007 spread test is underpowered and the change in spread is not significant, while the rank correlation did fall; see [the carry section of the full results](docs/RESULTS.md#51-term-structure-carry) for the figures. Columns relabelled: the split is on the prior-months median carry, not backwardation vs contango | `data/carry_signal_test.json` |
+| Earlier corrections (1.x): the direction model's Sharpe 2.44/2.47 (a look-ahead leak; purged −0.98), the roll-biased carry test, the supply-shock grouping | See the [post-mortem](docs/RESULTS.md#4-post-mortem-the-direction-model) and the 1.x history in git | `data/wf_*`, `data/leak_anatomy.json` |
 
 ## 1.x — 2026-06 to 2026-10
 

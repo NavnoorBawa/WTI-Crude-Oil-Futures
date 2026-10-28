@@ -81,7 +81,7 @@ generated from the committed artifacts (`scripts/readme_blocks.py`, checked in C
 | QLIKE, every OOS day (lower is better) | 0.370 | 0.353 | persistence 0.952; OVX-only regression 0.368; Raw OVX 0.374 |
 | Diebold-Mariano on QLIKE vs the model of record (pairwise) | — | +3.10 (p = 0.002; before adjusting for the search that chose it) | OVX-only regression +0.47 (p = 0.641) |
 | In the 90% Model Confidence Set (full sample; sampling grids) | no, MCS p 0.037 (2/5 grids) | yes, MCS p 1.000 (5/5 grids) | 4 of 13 feasible models; the timing control is excluded |
-| Hansen SPA, null: no model beats the model of record | p = 0.072 | — | 12 feasible alternatives; significant at 10% but not at 5% |
+| Hansen SPA, null: no model beats the model of record | p = 0.011 | — | 12 feasible alternatives; significant at 5% |
 | Mincer-Zarnowitz slope (joint unbiasedness p) | 0.86 (0.161) | 0.81 (0.142) | 1 (unbiased) |
 | 80% conformal interval coverage | 80.0% | 80.0% | target 80% |
 | Realized utility (% per year) | 3.25 | 3.30 | maximum 4.0 |
@@ -117,9 +117,11 @@ data is for personal use).
 
 ## Caveats and recommendations
 
-- Most of the model's skill is implied volatility: compare the OVX elasticity and the OVX-only
-  regression's Diebold-Mariano test in the table above. The options market already prices most of
-  this information.
+<!-- [[[cog import scripts.readme_blocks as b; b.print_block("model_card_caveats") ]]] -->
+
+- The model is statistically indistinguishable from implied volatility alone: the OVX-only regression (DM p = 0.641) and Raw OVX (DM p = 0.620), with an OVX elasticity of 1.03 (HAC t 13.2). The options market already prices what the model forecasts, though OVX is not the only route to that skill: HAR-range, from daily price ranges alone, is also tied with it (DM p = 0.629).
+- **The 1% tail is understated.** The weekly 99% Value-at-Risk (filtered historical simulation) breaches 9 to 14 times per sampling grid against 8.8 expected, above the expected count on 5 of 5 grids, although Kupiec's test passes on 5/5 (each grid alone has little power at 1%); with a normal quantile Kupiec passes on 1/5. Use the filtered version, and size a 99% limit with that in mind ([full results, section 2.4](RESULTS.md#24-use-as-a-risk-input)).
+<!-- [[[end]]] -->
 - OVX is built from options on the USO ETF, not on CL futures, so it carries a basis to the
   front-month contract.
 - The challenger's historical edge was found on the same sample it is evaluated on, so its pairwise
