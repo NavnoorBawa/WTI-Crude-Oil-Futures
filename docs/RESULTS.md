@@ -9,7 +9,7 @@ and the limitations. The [README](../README.md) is the short version, and the
 
 *Figure 1. Out-of-sample forecasts of the model of record (blue) with its 80% adaptive conformal
 interval, realized next-week volatility (grey) and the OVX implied-volatility index (orange), on the
-production weekly grid. Log scale.*
+production weekly grid (every fifth session). Log scale; the axis spans every plotted value.*
 
 ## Abstract
 
