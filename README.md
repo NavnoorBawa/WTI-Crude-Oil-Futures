@@ -1,7 +1,7 @@
 # Forecasting WTI Crude Oil Volatility with Free Data
 
 How well can next-week realized volatility of front-month NYMEX WTI crude oil be forecast from free,
-public data? This project answers with a field of fourteen forecasters judged by the losses and tests
+public data? This project answers with a field of benchmark forecasters judged by the losses and tests
 of the volatility-forecasting literature, rebuilt in CI from a hash-pinned data snapshot, and with a
 live forward record whose forecasts are sealed in git before the settlement that opens their scoring
 window. A public dashboard is refreshed from GitHub Actions every four hours, on GitHub's best-effort
