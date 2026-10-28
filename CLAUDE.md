@@ -15,7 +15,8 @@ their window opens and scored afterwards. Site: https://navnoorbawa.github.io/WT
 - `backend/`: Python research and pipeline (vol_lab, vol_forecast, vol_record, studies, ledger).
 - `src/`: React 19 + Vite dashboard (panels, charts, lib); `tests/frontend/` (node --test).
 - `data/`: committed research artifacts; `data/vol_lab.json` must reproduce bit for bit.
-- `docs/`: METHODOLOGY, ARCHITECTURE, DATA_CONTRACT, MODEL_CARD, DATASHEET.
+- `docs/`: RESULTS (the full write-up; the README is its summary), REVIEWER_GUIDE, METHODOLOGY,
+  ARCHITECTURE, DATA_CONTRACT, MODEL_CARD, DATASHEET.
 
 ## Non-negotiable rules
 
@@ -40,7 +41,7 @@ their window opens and scored afterwards. Site: https://navnoorbawa.github.io/WT
 - Python gates (venv on PATH): `ruff check backend/ scripts/ tests/ freeze.py ./*.py --select F,E9`,
   `ruff check`, `mypy`, `bandit -q -r backend scripts freeze.py`,
   `python -B -m unittest discover -s tests`,
-  `PYTHONPATH=. python -m cogapp --check README.md docs/MODEL_CARD.md docs/DATASHEET.md`,
+  `PYTHONPATH=. python -m cogapp --check README.md docs/RESULTS.md docs/MODEL_CARD.md docs/DATASHEET.md`,
   `python -B scripts/make_figures.py && git diff --stat -- docs/figures` (must be empty),
   `python scripts/validate_frozen_payload.py tests/fixtures/valid_frozen_payload.json`.
 - Reproduce test, as `.github/workflows/reproduce.yml` runs it (about 4 minutes):

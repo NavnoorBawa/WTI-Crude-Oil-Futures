@@ -20,6 +20,21 @@ backs the new one.
   the refit and the smearing factor, in vol points that add up to the change. It is shown only when
   both calls reproduce from their own recorded fits.
 
+### Documentation and verification
+
+- **A README a reviewer can read in two minutes.** The README (740 lines) becomes a 150-line landing
+  page: the answer in four computed findings, each at the strength its test supports, the results
+  at a glance, how to check each claim, how the system works and what it does not claim. The full
+  write-up moves intact, every generated block included, to `docs/RESULTS.md`, which joins the
+  `cog --check` gate.
+- **`docs/REVIEWER_GUIDE.md`.** Five checks in about ten minutes, each with its command and what a
+  passing run prints.
+- **`scripts/verify_record.py`.** Checks the sealed live record from the record file alone: each
+  entry's scoring window, the margin between its seal and the settlement that opens the window,
+  the roll rule, the realized volatility recomputed from its stored closes, its QLIKE, and the
+  forecast recomputed from its stored fit. Standard library only.
+- **A link check.** A test resolves every relative link and heading anchor in the README and the docs.
+
 ## 2.1.0 — 2026-10-27
 
 A release of the dashboard. No research result changed: the models, the benchmark lab, the ledger

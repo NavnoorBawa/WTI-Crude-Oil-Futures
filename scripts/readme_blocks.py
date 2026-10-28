@@ -1,7 +1,7 @@
 """Markdown blocks for README.md and docs/, generated from the committed artifacts.
 
-Every table, result statistic and data-dependent verdict in the README, and every table in the model
-card and the datasheet, is produced here from data/*.json and inserted with cog
+Every table, result statistic and data-dependent verdict in the README and docs/RESULTS.md (the full
+write-up), and every table in the model card and the datasheet, is produced here from data/*.json and inserted with cog
 (https://nedbatchelder.com/code/cog): `cog -r README.md` regenerates the blocks and `cog --check
 README.md` (run in CI) fails if a committed artifact and the page disagree. A sentence that states a
 result, a direction ("above one"), a significance verdict or a quantifier ("every", "none") is written
@@ -386,6 +386,70 @@ def abstract() -> str:
         f"20-tree random forest a gross (before costs) Sharpe ratio of {_fmt(leak['unpurged_leaked']['sharpe_mean'], 2)} "
         f"on a pure random walk. {ledger_text}"
     )
+
+
+def key_findings() -> str:
+    """The README's first screen: four findings, each worded at the strength its test supports."""
+    lab, prod = _lab(), _prod()
+    k = key_numbers()
+    chall = _chall(lab)
+    ovx_only = _model(lab, "ovx_only")
+    returns_only = [m for m in _feasible(lab) if _inputs(m["key"]) == {"returns"}]
+    worse = {m["key"] for m in _worse_than_record(lab)}
+    beaten = [m for m in returns_only if m["key"] in worse]
+    years = f"{k['first'][:4]}–{k['last'][:4]}"
+    if len(beaten) == len(returns_only):
+        beat = f"significantly better than all {len(returns_only)} models built from returns alone"
+    elif beaten:
+        beat = f"significantly better than {len(beaten)} of the {len(returns_only)} models built from returns alone"
+    else:
+        beat = "not significantly better than any model built from returns alone"
+    first = (f"- **Forecastable from free data.** Over {k['n_days']:,} out-of-sample days ({years}), the model of "
+             f"record, HAR-IV (realized-volatility terms plus OVX lagged one session), has a QLIKE loss of "
+             f"{_fmt(k['champ_qlike'])} against {_fmt(k['persistence_qlike'])} for a random-walk forecast, and is "
+             f"{beat} (Diebold-Mariano p < {ALPHA:g} each).")
+    odm = ovx_only["dm_qlike_vs_har_iv"]
+    coef = k["ovx_coef"]
+    if not _sig(odm["p_value"]):
+        tie = f"statistically tied with the full model (DM {_peq(odm['p_value'])})"
+    elif odm["stat"] > 0:
+        tie = f"significantly better than the full model (DM {_peq(odm['p_value'])})"
+    else:
+        tie = f"significantly worse than the full model (DM {_peq(odm['p_value'])})"
+    second = (f"- **Most of that skill is the options market's.** The forecast's elasticity to OVX is "
+              f"{_fmt(coef['coef'], 2)} (HAC t {_fmt(coef['t_hac'], 1)}), and a log regression on OVX alone scores "
+              f"{_fmt(ovx_only['qlike'])}: {tie}.")
+    spa = k["spa_p"]
+    lowest = chall["qlike"] == min(m["qlike"] for m in lab["leaderboard"]["models"])
+    loss = (f"has the lowest loss of all {k['n_models']} models" if lowest else f"has a QLIKE of {_fmt(chall['qlike'])}")
+    if _sig(spa):
+        verdict = (f"Hansen's SPA test, which accounts for that search, still rejects the null that nothing beats "
+                   f"the model of record (p = {_fmt(spa)}).")
+        head = "One variant beats it, even after the search."
+    else:
+        verdict = (f"Hansen's SPA test, which accounts for that search, gives p = {_fmt(spa)} ({_level(spa)}), "
+                   f"so the edge is inconclusive.")
+        head = "One variant may be better; that is not established."
+    third = (f"- **{head}** {chall['label']}, {_gloss(lab, chall)}, {loss} ({_fmt(chall['qlike'])}; pairwise DM "
+             f"{_peq(chall['dm_qlike_vs_har_iv']['p_value'])}), but it was found by searching this sample. {verdict} "
+             f"It runs live against the model of record under a promotion test fixed in advance: "
+             f"{PROMOTION_WEEKS} independent weeks, one look.")
+    c = lab["conformal"][lab["config"]["champion"]]
+    by_year = list(c["coverage_by_year_pct"].values())
+    overlay = prod["economic"]["vol_target_overlay"]["sharpe_difference_tests"]["forecast_minus_buy_hold"]
+    skill = _ledger_row(_ledger(), "vol_dir_vs_noise_floor")["status"] == "supported"
+    direction = (f"Volatility-direction accuracy ({k['dir_acc']}%) is "
+                 + ("above" if skill else "not above")
+                 + f" what the same pipeline scores with nothing to forecast ({k['prod_noise_floor']}%)"
+                 + ("" if skill else ", so it is not evidence of skill"))
+    sharpe = ("does not change the Sharpe ratio detectably" if not _sig(overlay["p_value"]) else
+              f"{'raises' if overlay['difference'] > 0 else 'lowers'} the Sharpe ratio")
+    fourth = (f"- **Intervals on target; no claim about direction or returns.** The {_interval_level(lab)} "
+              f"adaptive conformal intervals cover {c['coverage_pct']}% of {c['n_days']:,} days, which the method "
+              f"steers to its target over the long run; by calendar year, {min(by_year)}% to {max(by_year)}%. "
+              f"{direction}, and a volatility target sized on the forecast {sharpe} (production run: difference "
+              f"{_fmt(overlay['difference'], 2, True)} vs buy-and-hold, {_peq(overlay['p_value'])}).")
+    return f"{first}\n{second}\n{third}\n{fourth}"
 
 
 def results_at_a_glance() -> str:
@@ -1160,7 +1224,8 @@ def postmortem_table() -> str:
     return "\n".join(rows)
 
 
-def leak_mechanism() -> str:
+def leak_mechanism(root: str = "") -> str:
+    """`root`: the repository root relative to the page the block is in ("../" for docs/)."""
     a = _load("leak_anatomy.json")
     an = a["analytic"]
     nn = a["synthetic_random_walk"]["nearest_neighbour"]
@@ -1176,7 +1241,7 @@ def leak_mechanism() -> str:
             f"{u['accuracy_when_nearest_is_newest_pct_mean']:.1f}% of the time; with the purge the newest available "
             f"row is nearest in {p['nearest_is_newest_row_pct_mean']:.0f}% of decisions and is right "
             f"{p['accuracy_when_nearest_is_newest_pct_mean']:.1f}% of the time "
-            f"([`backend/leak_anatomy.py`](backend/leak_anatomy.py)):")
+            f"([`backend/leak_anatomy.py`]({root}backend/leak_anatomy.py)):")
 
 
 def leak_table() -> str:
@@ -1563,11 +1628,14 @@ def promotion_power(min_weeks: int = PROMOTION_WEEKS, alpha: float = PROMOTION_A
             f"t({min_weeks - 1})'s {crit:.3f}. {size} {reading}")
 
 
-def print_block(name: str) -> None:
-    """Entry point for cog: `[[[cog import scripts.readme_blocks as b; b.print_block("leaderboard_table") ]]]`."""
+def print_block(name: str, **options: str) -> None:
+    """Entry point for cog: `[[[cog import scripts.readme_blocks as b; b.print_block("leaderboard_table") ]]]`.
+
+    `options` go to the block (a page in docs/ passes root="../" to a block that links into the repository).
+    """
     import cog  # provided by cogapp at generation time
 
-    cog.out("\n" + globals()[name]() + "\n")
+    cog.out("\n" + globals()[name](**options) + "\n")
 
 
 # --------------------------------------------------------------------------- model card and datasheet
