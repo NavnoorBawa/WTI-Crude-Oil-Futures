@@ -51,7 +51,7 @@ flowchart LR
     Y --> W --> A2
     A1 & A2 & A3 & A4 & A5 --> LG["backend/research_ledger.py"] --> A6
     A1 & A2 & A3 & A4 & A6 --> B["scripts/build_research_bundle.py<br/>research.json"]
-    A1 & A2 & A3 & A4 & A5 & A6 --> R["scripts/readme_blocks.py<br/>(cog) README, model card, datasheet"]
+    A1 & A2 & A3 & A4 & A5 & A6 --> R["scripts/readme_blocks.py<br/>(cog) README, results, model card, datasheet"]
 ```
 
 `python -m backend.vol_lab` rebuilds `data/vol_lab.json` from the pinned snapshot with no network

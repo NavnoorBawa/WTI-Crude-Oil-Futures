@@ -34,11 +34,12 @@ generated from the committed artifacts (`scripts/readme_blocks.py`, checked in C
 - A **risk input**: sizing positions to a volatility target, and setting a weekly Value-at-Risk.
   Most of that benefit comes from scaling by a volatility estimate at all: raw OVX passes the VaR
   tests as often as this model, and sizing on trailing realized volatility comes close in the
-  overlay; between the sized books only the Sharpe difference is tested (README section 2.4).
+  overlay; between the sized books only the Sharpe difference is tested
+  ([full results, section 2.4](RESULTS.md#24-use-as-a-risk-input)).
 - **Not** a signal for whether implied volatility is rich or cheap: timing short-variance positions
   on OVX minus the forecast was tested and is not supported, a failure to reject rather than
-  evidence that timing cannot work (`data/research_ledger.json`, row `vrp_timing`; README section
-  2.5).
+  evidence that timing cannot work (`data/research_ledger.json`, row `vrp_timing`;
+  [full results, section 2.5](RESULTS.md#25-the-variance-risk-premium)).
 - **Not** a directional trading signal, and not a source of return on its own: the vol-target
   overlay's Sharpe difference from buy-and-hold is in the table below. What it is for is risk
   control (realized vol near target, thinner tails).
@@ -105,7 +106,7 @@ because Yahoo revises history.
 ## Quantitative analyses
 
 The full benchmark table, VaR tests, conformal coverage by year and robustness checks are in the
-[README](../README.md#2-results) and `data/vol_lab.json`; the live forward record is on the
+[full results](RESULTS.md#2-results) and `data/vol_lab.json`; the live forward record is on the
 dashboard and in `runtime-state/vol_track_record.json` on the `live-data` branch.
 
 ## Ethical considerations
@@ -126,7 +127,7 @@ data is for personal use).
   the research ledger leaves the pairwise test out of its multiplicity adjustments. The challenger is
   promoted only by a single one-sided Diebold-Mariano test on its first 52 independent live weeks of
   the pinned pair, with a Student t(51) reference (see the promotion rule and its power in the
-  README, section 3). A `keep` verdict, a failure to reject, does not by itself show that the
+  [full results, section 3](RESULTS.md#3-live-record-and-governance)). A `keep` verdict, a failure to reject, does not by itself show that the
   challenger is no better.
 - Free daily data cannot measure intraday volatility; the range-based measure (Rogers-Satchell plus
   the overnight return, with the test day's bar taken only to its settlement) is the free
