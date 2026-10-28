@@ -183,7 +183,10 @@ test("source and command parsing are pure and conservative", () => {
   assert.equal(config.codeUrl("backend/x.py"), `${config.REPO_URL}/blob/main/backend/x.py`, "no build SHA in tests: main");
   assert.equal(config.RECORD_HISTORY_URL, `${config.REPO_URL}/commits/live-data/runtime-state/vol_track_record.json`);
   assert.equal(config.DATA_HISTORY_URL, `${config.REPO_URL}/commits/gh-pages/data.json`);
-  assert.deepEqual(Object.keys(config.DOCS).sort(), ["changelog", "citation", "datasheet", "license", "methodology", "modelCard"]);
+  assert.deepEqual(Object.keys(config.DOCS).sort(),
+    ["changelog", "citation", "datasheet", "license", "methodology", "modelCard", "results", "reviewerGuide"]);
+  assert.equal(config.DOCS.results, `${config.REPO_URL}/blob/main/docs/RESULTS.md`);
+  assert.equal(config.DOCS.reviewerGuide, `${config.REPO_URL}/blob/main/docs/REVIEWER_GUIDE.md`);
   for (const url of Object.values(config.DOCS)) assert.ok(url.startsWith(`${config.REPO_URL}/blob/main/`), url);
 });
 
@@ -375,4 +378,41 @@ test("without research.json STDY is named in the notice, says so in place, and n
   assert.equal(m.assertions.supplyPlaybookAssertion(wide), "Median 20-session peak +12.1% after supply removal, +14.1% after threats; no placebo test");
   const wider = { distributions: { supply_lost: { peak: { median: 112.14 } }, threat_only: { peak: { median: 104.05 } } } };
   assert.ok(m.assertions.supplyPlaybookAssertion(wider).length <= 90);
+});
+
+test("without research.json STDY sets the two playbook medians beside data.json's ordinary-date baseline", () => {
+  const payload = structuredClone(data);
+  const playbook = payload.supply_shock_playbook;
+  playbook.placebo = { n: 7352, median_peak_pct: 5.4, median_settle_pct: 0.7, share_peak_positive_pct: 86.9 };
+  const f = m.format;
+  const lost = f.fmtSigned(playbook.distributions.supply_lost.peak.median, 1, "%");
+  const threat = f.fmtSigned(playbook.distributions.threat_only.peak.median, 1, "%");
+  const title = m.assertions.supplyPlaybookAssertion(playbook, { researchLoaded: false });
+  assert.equal(title, `Median 20-session peak: supply removal ${lost}, threats ${threat}, an ordinary date +5.4%`);
+  assert.ok(title.length <= 90, title);
+  assert.doesNotMatch(title, /placebo/, "the placebo study exists in research.json; nothing is said about it");
+  // Longer medians keep the baseline in a shorter wording rather than drop it, within 90 characters.
+  const wide = { ...playbook, placebo: { median_peak_pct: -115.42 },
+    distributions: { supply_lost: { peak: { median: -112.14 } }, threat_only: { peak: { median: -104.05 } } } };
+  const short = m.assertions.supplyPlaybookAssertion(wide, { researchLoaded: false });
+  assert.ok(short.length <= 90 && short.endsWith("ordinary date −115.4%"), short);
+  // The page: the h3 and an ordinary-date row in the playbook table, both from data.json.
+  const original = console.error;
+  const errors = [];
+  console.error = (...args) => errors.push(args.join(" "));
+  let html;
+  try {
+    html = renderToStaticMarkup(createElement(m.dashboard.default, {
+      data: payload, research: null, researchStatus: "unavailable", quote: m.quote.resolveQuote(null, payload),
+    }));
+  } finally {
+    console.error = original;
+  }
+  assert.deepEqual(errors, []);
+  const stdy = section(html, "stdy");
+  assert.ok(visibleText(stdy).replace(/\s+/g, " ").includes(title), visibleText(stdy));
+  const row = stdy.match(/<tr class="is-reference"[^>]*>[\s\S]*?<\/tr>/)?.[0] ?? "";
+  const cells = visibleText(row).replace(/\s+/g, " ").trim();
+  assert.ok(cells.startsWith("Ordinary date (placebo) 7,352 dates +5.4%"), cells);
+  assert.ok(cells.endsWith("+0.7%"), cells);
 });

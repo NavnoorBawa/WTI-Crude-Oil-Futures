@@ -114,6 +114,13 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
   }
 
   const years = series[0].points;
+  // The sample the coverage chart plots: the out-of-sample days that have a band (the first band
+  // needs a window of earlier misses), not every out-of-sample day, with the years it spans. The
+  // count is given when every plotted model's band covers the same number of days.
+  const dayCounts = series.map((s) => num(lab?.conformal?.[s.key]?.n_days));
+  const bandDays = dayCounts.every((count) => count != null && count === dayCounts[0]) ? dayCounts[0] : null;
+  const yearSpan = `${years[0].year}–${years[years.length - 1].year}`;
+  const coverageSample = `${bandDays != null ? `${fmtInt(bandDays)} ` : ""}out-of-sample days with a band (${yearSpan})`;
   const weeklySlope = weeklyLab?.slope ?? num(weeklyMz?.slope);
   const caption = `Coverage near ${fmtNum(target, 0)}% overall is by construction; the evidence is the year-by-year spread and the interval score.`
     + (weeklySlope != null && recordMz
@@ -144,7 +151,7 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
       fallbackTitle="Interval coverage by year"
       meta={[
         ...calibrationDetail(lab, champion),
-        `${years[0].year}–${years[years.length - 1].year}`,
+        yearSpan,
         "adaptive conformal (Gibbs-Candès 2021)",
       ]}
       caption={caption}
@@ -154,7 +161,7 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
       table={() => (
         <>
           <DataTable
-            caption={`${fmtNum(target, 0)}% interval coverage by year, every out-of-sample day (%)`}
+            caption={`${fmtNum(target, 0)}% interval coverage by year, ${coverageSample} (%)`}
             rowKey={(row) => String(row.year)}
             dense
             exportName="calb-coverage-by-year"
@@ -207,7 +214,7 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
       )}
     >
       {facts}
-      <h3 className="figure-title">Coverage by year, every out-of-sample day</h3>
+      <h3 className="figure-title">Coverage by year, {coverageSample}</h3>
       <Legend items={series.map((s, index) => ({ tone: s.tone, label: s.label, shape: index === 0 ? "dot" : "ring" }))} />
       <LazyMount minHeight={COVERAGE_HEIGHT} label="coverage chart">
         <CoverageByYear series={series} target={target} />

@@ -513,13 +513,31 @@ test("assertion titles state one claim each, and only what the numbers support",
     `supply removal: ${spaced(f.fmtP(lost.peakP))} vs placebo, ${spaced(f.fmtPValue(lost.peakPYear))} year-matched`,
     `threat-only: ${spaced(f.fmtP(threat.peakP))} vs placebo, ${spaced(f.fmtPValue(threat.peakPYear))} year-matched`,
   ]);
-  const studies = keep(a.studiesAssertion(research.carry, study));
-  assert.match(studies, /; supply removal beat placebo dates$/);
+  // STDY's panel title frames the two studies with their samples; each study's result is its own h3,
+  // so the panel title states no result of either (and never joins two results in one title).
+  const playbook = data.supply_shock_playbook;
+  const carryYears = research.carry.full_sample.span.split("..").map((day) => day.slice(0, 4));
+  const eventYears = [playbook.first_event_year, playbook.last_event_year].map(String);
+  const sameYears = carryYears.join() === eventYears.join();
+  const studies = keep(a.studiesAssertion({ carry: research.carry, playbook, study }));
+  assert.equal(studies, sameYears
+    ? `Two descriptive studies, not traded: carry timing and ${playbook.event_count} supply shocks, ${carryYears.join("–")}`
+    : `Two descriptive studies, not traded: carry timing (${carryYears.join("–")}) and ${playbook.event_count} supply shocks (${eventYears.join("–")})`);
+  assert.doesNotMatch(studies, /;|beat|placebo|sorted|significant/, "no study's result in the panel title");
+  // Two spans: each named; the shorter wording keeps the title within 90 characters (the meta then says "not traded").
+  const lateEvents = { ...playbook, last_event_year: 2025 };
+  const twoSpans = a.studiesAssertion({ carry: research.carry, playbook: lateEvents, study });
+  assert.equal(twoSpans,
+    `Two descriptive studies: carry timing (${carryYears.join("–")}) and ${playbook.event_count} supply shocks (${playbook.first_event_year}–2025)`);
+  assert.ok(twoSpans.length <= 90, twoSpans);
+  assert.equal(a.studiesAssertion({ playbook }), `${playbook.event_count} supply shocks, ${eventYears.join("–")}: a descriptive study, not traded`,
+    "without research.json: the playbook alone, and nothing said about the carry study");
+  assert.equal(a.studiesAssertion({ carry: research.carry }), `Carry timing, ${carryYears.join("–")}: a descriptive study, not traded`);
+  assert.equal(a.studiesAssertion({}), null);
   // A group that passes only the unmatched placebo does not pass the rule.
   const oneSided = structuredClone(research);
   oneSided.supply_study.groups.find((group) => group.key === "supply_lost").p_value_vs_year_matched_placebo.peak = 0.2;
   const oneStudy = m.research.supplyStudy(oneSided);
-  assert.match(a.studiesAssertion(research.carry, oneStudy), /; supply removal beat only one placebo$/);
   assert.match(a.supplyStudyAssertion(oneStudy), /^Supply removal peaks .*, significant against only one placebo; /);
   assert.equal(a.placeboVerdict(0.01, 0.02), "both");
   assert.equal(a.placeboVerdict(0.01, 0.2), "one");

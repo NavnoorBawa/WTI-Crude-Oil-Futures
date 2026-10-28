@@ -15,6 +15,7 @@ import {
 } from "../lib/reference";
 import { asArray, asObject, asText, getLab, getVol, ledgerText, liveRecordSummary, modelLabels, researchLedger, supplyStudy } from "../lib/research";
 import { snapshotDate } from "../lib/csv";
+import { plainNumber } from "../lib/verdict";
 import { Facts, ResearchUnavailable } from "./common";
 
 /**
@@ -104,9 +105,12 @@ function ModelCard({ data, research }) {
           The level of realized volatility over the next {card.horizon != null ? `${card.horizon} sessions` : "week"}, for risk sizing
         </CardRow>
         <CardRow label="Not intended for">
-          Price direction: {card.direction
-            ? <>direction accuracy {fmtNum(card.direction.accuracy, 1)}% on every out-of-sample day (benchmark lab), against a {fmtNum(card.direction.floor, 1)}% noise floor on simulated returns with nothing to forecast</>
-            : "direction accuracy is not evidence of skill"} <span className="nowrap">(see <SectionLink id="modl" />)</span>
+          Price direction: it forecasts the level of volatility, not price. Nor the direction of volatility:{" "}
+          {card.direction
+            ? <>vol-direction accuracy {fmtNum(card.direction.accuracy, 1)}% on every out-of-sample day (benchmark lab),{" "}
+              {card.direction.accuracy < card.direction.floor ? "below" : "against"} a {fmtNum(card.direction.floor, 1)}% noise
+              floor on simulated returns with nothing to forecast</>
+            : "vol-direction accuracy is not evidence of skill"} <span className="nowrap">(see <SectionLink id="modl" />)</span>
         </CardRow>
         <CardRow label="Specification"><code className="model-equation">{card.equation}</code>, OLS</CardRow>
         <CardRow label="Estimation">
@@ -119,7 +123,7 @@ function ModelCard({ data, research }) {
         </CardRow>
         <CardRow label="Mean forecast">
           Median × √smearing (Duan){card.mean
-            ? <>: <span className="num">{fmtNum(card.mean.median, 1)}% × √{fmtNum(card.mean.smearing, 3)} ≈ {fmtNum(card.mean.mean, 1)}%</span>{" "}
+            ? <>: <span className="num">{fmtNum(card.mean.median, 2)}% × √{plainNumber(card.mean.smearing, 4)} = {fmtNum(card.mean.mean, 2)}%</span>{" "}
               {card.mean.superseded
                 ? `for the ${fmtDate(card.mean.asOf, { year: false })} snapshot computation, not the call recorded from the ${fmtDate(card.mean.superseded, { year: false })} close`
                 : "for this call"}</>
@@ -153,6 +157,8 @@ function ModelCard({ data, research }) {
         )}
         <CardRow label="Documents">
           <span className="link-list">
+            <OutLink href={DOCS.results}>Full results</OutLink>
+            <OutLink href={DOCS.reviewerGuide}>Reviewer guide</OutLink>
             <OutLink href={DOCS.modelCard}>Model card</OutLink>
             <OutLink href={DOCS.methodology}>Methodology</OutLink>
           </span>
@@ -439,6 +445,8 @@ function Docs() {
     <div className="method-block appendix-block" id={APPENDIX.docs}>
       <h3 className="study-title" tabIndex={-1}>Docs</h3>
       <p className="link-list">
+        <OutLink href={DOCS.results}>Full results</OutLink>
+        <OutLink href={DOCS.reviewerGuide}>Reviewer guide</OutLink>
         <OutLink href={DOCS.modelCard}>Model card</OutLink>
         <OutLink href={DOCS.methodology}>Methodology</OutLink>
         <OutLink href={DOCS.datasheet}>Datasheet</OutLink>

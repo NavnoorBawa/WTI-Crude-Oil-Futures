@@ -49,13 +49,15 @@ test("the verdict's h2 is the computed answer, at most 90 characters, and loses 
   assert.ok(answer.length <= 90, answer);
   const returnsOnly = m.research.leaderboardRows(research.vol_lab)
     .filter((row) => row.mcsEligible && !row.timingControl && row.info.size === 0 && row.role !== "record");
-  assert.ok(answer.startsWith(`HAR-IV beats all ${returnsOnly.length} returns-only models`), answer);
-  assert.ok(answer.endsWith("it is not distinguishable from OVX alone"), "OVX-only and raw OVX both have p >= 0.05");
+  // The models it beats are named for what they use: close-to-close returns, no OVX, no intraday range.
+  assert.ok(answer.startsWith(`HAR-IV beats all ${returnsOnly.length} models on close-to-close returns`), answer);
+  assert.doesNotMatch(answer, /returns-only/);
+  assert.ok(answer.endsWith("not distinguishable from OVX alone"), "OVX-only and raw OVX both have p >= 0.05");
   // The detail names the sample and gives the computed range.
   const stats = returnsOnly.map((row) => row.dmStat);
   const f = m.format;
   const detail = visibleText(html.match(/<p class="verdict-answer-detail">([\s\S]*?)<\/p>/)[1]);
-  assert.ok(squash(detail).includes(`returns-only models ${f.fmtSigned(Math.max(...stats), 2)} to ${f.fmtSigned(Math.min(...stats), 2)}`), detail);
+  assert.ok(squash(detail).includes(`models on close-to-close returns ${f.fmtSigned(Math.max(...stats), 2)} to ${f.fmtSigned(Math.min(...stats), 2)}`), detail);
   assert.ok(detail.includes(`${f.fmtInt(research.vol_lab.leaderboard.n_days)} days`), "names n");
   assert.ok(detail.includes("benchmark lab"), "names the pipeline");
 
@@ -70,18 +72,18 @@ test("the verdict's h2 is the computed answer, at most 90 characters, and loses 
   // The OVX-alone clause follows the sign and size of both OVX comparisons.
   const loses = structuredClone(research);
   Object.assign(loses.vol_lab.leaderboard.models.find((model) => model.key === "ovx_only").dm_qlike_vs_har_iv, { stat: 2.5, p_value: 0.01 });
-  assert.match(v.verdictAnswer(loses.vol_lab, data), /models but loses to OVX alone$/);
+  assert.match(v.verdictAnswer(loses.vol_lab, data), /close-to-close returns but loses to OVX alone$/);
   const beats = structuredClone(research);
   for (const key of ["ovx_only", "raw_ovx"]) {
     Object.assign(beats.vol_lab.leaderboard.models.find((model) => model.key === key).dm_qlike_vs_har_iv, { stat: -2.5, p_value: 0.01 });
   }
-  assert.match(v.verdictAnswer(beats.vol_lab, data), /models and OVX alone$/);
+  assert.match(v.verdictAnswer(beats.vol_lab, data), /close-to-close returns and OVX alone$/);
   const near = structuredClone(research);
   near.vol_lab.leaderboard.models.find((model) => model.key === "ovx_only").dm_qlike_vs_har_iv.p_value = 0.07;
-  assert.match(v.verdictAnswer(near.vol_lab, data), /models; the comparison with OVX alone is inconclusive$/, "0.05 <= p < 0.10");
+  assert.match(v.verdictAnswer(near.vol_lab, data), /close-to-close returns; (the comparison with OVX alone is inconclusive|inconclusive against OVX alone)$/, "0.05 <= p < 0.10");
   const mixed = structuredClone(research);
   Object.assign(mixed.vol_lab.leaderboard.models.find((model) => model.key === "raw_ovx").dm_qlike_vs_har_iv, { stat: -2.5, p_value: 0.01 });
-  assert.match(v.verdictAnswer(mixed.vol_lab, data), /returns-only models$/, "mixed: the first clause only");
+  assert.match(v.verdictAnswer(mixed.vol_lab, data), /models on close-to-close returns$/, "mixed: the first clause only");
 });
 
 test("every evidence row is its section's h2, linked, in section order", () => {
@@ -207,17 +209,21 @@ test("with a snapshot from an older close, CONE and METH show the recorded call 
   const { html, errors } = render(payload, research);
   assert.deepEqual(errors, []);
   const cone = sectionOf(html, "cone");
-  assert.ok(cone.includes(`5-day realized vol (${f.fmtPct(inputs.rv5_pct)}, Oct 26)`), cone);
+  // The recorded call's two-decimal input prints at two decimals: the snapshot's one-decimal figure is another close's.
+  assert.ok(cone.includes(`5-day realized vol (${f.fmtPct(inputs.rv5_pct, 2)}, Oct 26)`), cone);
   assert.ok(cone.includes(`Forecast, 5d ${f.fmtPct(forecast)} as of the Oct 26 close`), cone);
   assert.ok(cone.includes("marks: data.json, Oct 26, 2026 close"), cone);
   const lag = Math.round((Date.parse("2026-10-26") - Date.parse(research.vol_lab.vol_cone.as_of)) / 86400000);
   assert.ok(cone.includes(`cone ${lag} days older than the forecast`), cone);
   assert.ok(!cone.includes(f.fmtPct(live.forecast_next_week_vol_annualized_pct)), "the superseded forecast is not CONE's");
   const meth = sectionOf(html, "meth");
-  assert.ok(meth.includes(`${f.fmtNum(median, 1)}% × √${f.fmtNum(live.smearing_factor, 3)} ≈ ${f.fmtNum(forecast, 1)}% for this call`), meth);
+  assert.ok(meth.includes(`${f.fmtNum(fit.shownMedian, 2)}% × √${v.plainNumber(live.smearing_factor, 4)} = ${f.fmtNum(fit.printedMean, 2)}% for this call`), meth);
   assert.ok(meth.includes(`The live coefficients reproduce this call's ${f.fmtNum(median, 1)}% median`), meth);
   assert.ok(meth.includes(`Live fit as of ${f.fmtDate(live.as_of)} on every matured row, with the inputs of the call recorded from the Oct 26 close`), meth);
-  assert.ok(!meth.includes(`${f.fmtNum(live.forecast_median_pct, 1)}% × √`), "the superseded median is not 'this call'");
+  // The snapshot's own chain, as the model card would print it for the superseded computation.
+  const own = v.forecastDecomposition(live.coefficients, live.inputs, live.smearing_factor);
+  const ownChain = `${f.fmtNum(own.shownMedian, 2)}% × √${v.plainNumber(live.smearing_factor, 4)} = ${f.fmtNum(own.printedMean, 2)}%`;
+  assert.ok(!meth.includes(`${f.fmtNum(own.shownMedian, 2)}% × √`), "the superseded median is not 'this call'");
 
   // Recorded values the snapshot's fit does not reproduce: METH names the snapshot computation as such.
   newer.median_pct = round1(median + 3);
@@ -225,7 +231,7 @@ test("with a snapshot from an older close, CONE and METH show the recorded call 
   const off = sectionOf(render(payload, research).html, "meth");
   const snap = f.fmtDate(live.as_of, { year: false });
   assert.ok(off.includes(`HAR-IV coefficients: the ${snap} snapshot's fit, not the recorded Oct 26 call`), off);
-  assert.ok(off.includes(`≈ ${f.fmtNum(live.forecast_median_pct * Math.sqrt(live.smearing_factor), 1)}% for the ${snap} snapshot computation, not the call recorded from the Oct 26 close`), off);
+  assert.ok(off.includes(`${ownChain} for the ${snap} snapshot computation, not the call recorded from the Oct 26 close`), off);
   assert.doesNotMatch(off, /for this call|reproduce this call/);
 });
 
@@ -558,4 +564,90 @@ test("the arithmetic shows when only the one-decimal median times √smearing mi
   assert.ok(math.includes("How 56.4 is computed"), math);
   assert.ok(math.includes("= 47.45%"), math);
   assert.ok(math.includes("expected = 47.45 × √1.4128 (Duan smearing) = 56.40%"), math);
+});
+
+/**
+ * The Oct 27, 2026 call as the record and the live block hold it: the same issuance. Its 5-session
+ * realized vol is 48.6524 unrounded, stored as 48.65 in the inputs and as 48.7 in the live block's
+ * one-decimal field; RV66 is 45.9468, stored as 45.95.
+ */
+const oct27 = () => {
+  const payload = structuredClone(data);
+  const live = payload.vol_forecast.live;
+  const inputs = { rv5_pct: 48.65, rv22_pct: 37.69, rv66_pct: 45.95, ovx: 58.71, ovx_session: "2026-10-26" };
+  Object.assign(live, {
+    as_of: "2026-10-27", issued_at: "2026-10-28T05:39:24.832186Z",
+    coefficients: [-4.883566, 0.038819, 0.170853, -0.151549, 1.03495], smearing_factor: 1.4128,
+    forecast_median_pct: 47.5, forecast_next_week_vol_annualized_pct: 56.4, current_realized_vol_5d_annualized_pct: 48.7,
+    implied_vol_ovx_pct: 58.7, prob_vol_rises_pct: 47.6, interval_80: { ...live.interval_80, low_pct: 27.6, high_pct: 75.8 },
+    inputs: { ...live.inputs, ...inputs },
+  });
+  live.challenger = { ...live.challenger, as_of: "2026-10-27", forecast_next_week_vol_annualized_pct: 52.9, forecast_median_pct: 44.8 };
+  payload.vol_forecast.live_record.recent.unshift({
+    ...structuredClone(payload.vol_forecast.live_record.recent[0]),
+    as_of: "2026-10-27", issued_at: live.issued_at, recorded_at: "2026-10-28T05:39:28.616074Z", sealed_at: null,
+    base_session: "2026-10-28", target_start: "2026-10-29", target_end: "2026-11-04", forecast_pct: 56.4, median_pct: 47.5,
+    lo80_pct: 27.6, hi80_pct: 75.8, prob_vol_rises_pct: 47.6, challenger_pct: 52.9, inputs: { ...inputs }, status: "pending",
+  });
+  return payload;
+};
+const sectionText = (html, id) => squash(visibleText(html.match(new RegExp(`<section id="${id}"[\\s\\S]*?</section>`))?.[0] ?? ""));
+
+test("a realized vol stored at two decimals is never rounded again to one (Oct 27, 2026: 48.65 is 48.7, not 48.6)", async () => {
+  const cone = await m.load("/src/lib/cone.js");
+  assert.deepEqual(cone.realizedShown(48.65, 48.7), { value: 48.7, digits: 1 }, "the one-decimal field, rounded once");
+  assert.deepEqual(cone.realizedShown(48.65, null), { value: 48.65, digits: 2 }, "no such field: the stored two decimals");
+  assert.deepEqual(cone.realizedShown(48.65, 48.8), { value: 48.65, digits: 2 }, "a one-decimal field of another number is not used");
+  assert.deepEqual(cone.realizedShown(null, 48.7), { value: 48.7, digits: 1 });
+  assert.equal(cone.realizedShown(null, null), null);
+
+  const payload = oct27();
+  const call = v.forecastOfRecord(payload.vol_forecast.live, payload.vol_forecast.live_record);
+  assert.equal(call.fromLive, true, "the live block is the recorded issuance");
+  assert.deepEqual([call.realized.value, call.realized.digits], [48.7, 1]);
+  const { html, errors } = render(payload, research);
+  assert.deepEqual(errors, []);
+  const hero = squash(visibleText(heroOf(html)));
+  assert.ok(hero.includes("Realized 5d 48.7%"), hero);
+  assert.ok(hero.includes("exceeds the last 5 sessions' 48.7%"), hero);
+  assert.match(html, /aria-label="[^"]*realized last 5 sessions 48\.7;/);
+  assert.doesNotMatch(hero, /48\.6%/);
+  const coneText = sectionText(html, "cone");
+  assert.ok(coneText.includes("5-day realized vol (48.7%, Oct 27)"), coneText);
+  for (const fact of ["Realized 5d, Oct 27 48.7%", "Realized 22d, Oct 27 37.69%", "Realized 66d, Oct 27 45.95%"]) {
+    assert.ok(coneText.includes(fact), `${fact}: ${coneText}`);
+  }
+  assert.doesNotMatch(coneText, /48\.6%|46\.0%/, "no two-decimal input rounded again to one decimal");
+
+  // The same recorded call while the live block is a later computation: the record's own two decimals.
+  const later = oct27();
+  later.vol_forecast.live.issued_at = "2026-10-28T09:00:00Z";
+  const recorded = v.forecastOfRecord(later.vol_forecast.live, later.vol_forecast.live_record);
+  assert.deepEqual([recorded.realized.value, recorded.realized.digits], [48.65, 2]);
+  const laterHero = squash(visibleText(heroOf(render(later, research).html)));
+  assert.ok(laterHero.includes("Realized 5d 48.65%"), laterHero);
+  assert.ok(laterHero.includes("exceeds the last 5 sessions' 48.65%"), laterHero);
+});
+
+test("the model card's mean forecast is the hero's arithmetic and equals the hero's value to one decimal", () => {
+  const payload = oct27();
+  const { html, errors } = render(payload, research);
+  assert.deepEqual(errors, []);
+  const heroValue = visibleText(html.match(/<p class="hero-value num">([\s\S]*?)<\/p>/)[1]).replace(/\s+/g, "");
+  assert.equal(heroValue, "56.4%");
+  const meth = sectionText(html, "meth");
+  const row = meth.match(/Mean forecast Median × √smearing \(Duan\): ([\d.]+)% × √([\d.]+) = ([\d.]+)% for this call\./);
+  assert.ok(row, meth);
+  assert.deepEqual(row.slice(1), ["47.45", "1.4128", "56.40"], "the fitted median at two decimals, not the recorded 47.5");
+  assert.equal(m.format.fmtNum(Number(row[3]), 1), heroValue.replace("%", ""), "METH's mean is the hero's value to one decimal");
+  assert.ok(Math.abs(Number(row[1]) * Math.sqrt(Number(row[2])) - Number(row[3])) < 0.005, "the printed chain is exact to its two decimals");
+  const math = squash(visibleText(html.match(/<details class="disclosure hero-math">[\s\S]*?<\/details>/)[0]));
+  assert.ok(math.includes(`expected = ${row[1]} × √${row[2]} (Duan smearing) = ${row[3]}%`), "the hero prints the same chain");
+  assert.doesNotMatch(meth, /47\.5% × √|56\.5%/, "never the one-decimal median times √smearing (47.5 × √1.4128 = 56.46)");
+
+  // A fit that no longer reproduces the call leaves the card without a worked example rather than a wrong one.
+  const corrupt = oct27();
+  corrupt.vol_forecast.live.coefficients[4] += 0.01;
+  const card = sectionText(render(corrupt, research).html, "meth");
+  assert.ok(card.includes("Mean forecast Median × √smearing (Duan). The median decides the direction call and the interval."), card);
 });

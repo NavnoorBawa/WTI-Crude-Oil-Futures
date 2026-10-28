@@ -44,6 +44,20 @@ export const supplyRows = (playbook) => {
     .sort((a, b) => b.peak - a.peak);
 };
 
+/**
+ * The ordinary-date baseline from data.json supply_shock_playbook.placebo, as a row of the playbook
+ * table (the medians over every non-event session); null without its median peak.
+ */
+export const playbookPlaceboRow = (playbook) => {
+  const placebo = asObject(playbook?.placebo);
+  const peak = num(placebo?.median_peak_pct);
+  if (peak == null) return null;
+  return {
+    key: "placebo", label: "Ordinary date (placebo)", n: num(placebo.n), peak, peakMin: null, peakMax: null,
+    settle: num(placebo.median_settle_pct), isPlacebo: true,
+  };
+};
+
 /** "Is a big first day already priced in?" from priced_in_stats; null when the sample is missing. */
 export const pricedInNote = (playbook) => {
   const priced = asObject(playbook?.priced_in_stats) ?? {};
@@ -254,6 +268,7 @@ export default function StudiesPanel({ data, research, researchStatus }) {
   const study = supplyStudy(research);
   const ledger = researchLedger(research);
   const rows = supplyRows(playbook);
+  const placeboRow = playbookPlaceboRow(playbook);
   const priced = pricedInNote(playbook);
   const eventCount = num(playbook?.event_count);
   const firstYear = num(playbook?.first_event_year);
@@ -270,18 +285,21 @@ export default function StudiesPanel({ data, research, researchStatus }) {
 
   if (!carryRows.length && !rows.length && !hasStudy && !researchMissing) return null;
 
+  // One framing claim for the panel; each study's result is its own h3 below.
+  const title = studiesAssertion({ carry, playbook, study });
+
   return (
     <Panel
       id="stdy"
       code="STDY"
       name="Side studies"
-      title={studiesAssertion(carry, study)}
+      title={title}
       fallbackTitle="Side studies"
       meta={[
         carryRows[0]?.stats?.n_months != null ? `carry: ${fmtInt(carryRows[0].stats.n_months)} contract months` : null,
         eventCount != null ? `supply shocks: ${fmtInt(eventCount)} events${eventSpan ? ` ${eventSpan}` : ""}` : null,
         study?.placebo?.n != null ? `${fmtInt(study.placebo.n)} placebo dates` : null,
-        "descriptive; not traded",
+        title?.includes("not traded") ? null : "descriptive; not traded",
       ]}
       notes={[
         asText(carry?.method) ? `Carry: ${tidyProse(carry.method)}` : null,
@@ -313,7 +331,7 @@ export default function StudiesPanel({ data, research, researchStatus }) {
                 { key: "label", label: "Sample", rowHeader: true, render: (row) => <span title={row.stats.span ?? undefined}>{row.label}</span> },
                 { key: "months", label: "Months", align: "right", csv: (row) => num(row.stats.n_months), render: (row) => fmtInt(row.stats.n_months) },
                 {
-                  key: "spread", label: "Above / below", title: "Mean monthly return (%) with carry above vs at or below the median of all prior months", align: "right",
+                  key: "spread", label: "Above / below, %/month", title: "Mean monthly return (%) with carry above vs at or below the median of all prior months", align: "right",
                   csvLabel: "Mean return above / below median carry, %/month",
                   csv: (row) => `${num(row.stats.mean_ret_above_median_carry_pct ?? row.stats.mean_ret_backwardated_pct) ?? ""} / ${num(row.stats.mean_ret_below_median_carry_pct ?? row.stats.mean_ret_contango_pct) ?? ""}`,
                   render: (row) => (
@@ -354,13 +372,17 @@ export default function StudiesPanel({ data, research, researchStatus }) {
             />
             {hasStudy ? <SupplyStudyTable study={study} /> : (
               <DataTable
-                caption={`Historical WTI price response by supply event type: median move across ${eventCount != null ? `${fmtInt(eventCount)} events` : "events"}${eventSpan ? ` ${eventSpan}` : ""}, from EIA daily spot`}
+                caption={`Historical WTI price response by supply event type: median move across ${eventCount != null ? `${fmtInt(eventCount)} events` : "events"}${eventSpan ? ` ${eventSpan}` : ""}, from EIA daily spot${placeboRow ? ", with the ordinary-date (placebo) median for reference" : ""}`}
                 captionHidden
                 rowKey={(row) => row.key}
+                rowClass={(row) => (row.isPlacebo ? "is-reference" : undefined)}
                 dense
                 columns={[
                   { key: "label", label: "Event type", rowHeader: true },
-                  { key: "n", label: "Events", align: "right", render: (row) => fmtInt(row.n) },
+                  {
+                    key: "n", label: "Events", align: "right",
+                    render: (row) => (row.isPlacebo ? <span className="muted">{fmtInt(row.n)} dates</span> : fmtInt(row.n)),
+                  },
                   { key: "peak", label: "Peak", align: "right", render: (row) => <span className="num">{fmtSignedPct(row.peak)}</span> },
                   {
                     key: "range", label: "Peak range", align: "right",
@@ -368,7 +390,7 @@ export default function StudiesPanel({ data, research, researchStatus }) {
                   },
                   { key: "settle", label: "Settled", align: "right", render: (row) => <span className="num">{fmtSignedPct(row.settle)}</span> },
                 ]}
-                rows={rows}
+                rows={placeboRow ? [placeboRow, ...rows] : rows}
               />
             )}
             {hasStudy && <p className="prose-note is-wide">{supplyStudyNotes(study).join(" ")}</p>}

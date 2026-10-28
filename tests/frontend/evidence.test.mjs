@@ -81,9 +81,11 @@ test("with data.json newer than the cone, the title reads the live 5-day value, 
     "above the 95th percentile": window5.p95 * 2,
   };
   for (const [phrase, rv5] of Object.entries(values)) {
-    const payload = withLiveOn(asOf, { rv5_pct: rv5 });
+    // Only the recorded two-decimal input, no one-decimal field: it prints at its two decimals.
+    const payload = withLiveOn(asOf, { rv5_pct: Number(rv5.toFixed(2)) });
+    delete payload.vol_forecast.live.current_realized_vol_5d_annualized_pct;
     const title = m.assertions.coneAssertion(lab.vol_cone, payload.vol_forecast.live);
-    assert.equal(title, `5-day realized vol (${f.fmtPct(rv5)}, ${f.fmtDate(asOf, { year: false })}) is ${phrase} of its history`);
+    assert.equal(title, `5-day realized vol (${f.fmtPct(rv5, 2)}, ${f.fmtDate(asOf, { year: false })}) is ${phrase} of its history`);
     assert.ok(title.length <= 90, title);
     const { html, errors } = render(payload);
     assert.deepEqual(errors, []);
@@ -109,8 +111,11 @@ test("the cone's meta names both dates and the day gap, and every fact carries i
   assert.ok(meta.includes(`cone ${gap} days older than the forecast`), meta);
   const body = visibleText(section(html, "cone"));
   const live = payload.vol_forecast.live;
-  for (const [window, field] of [[5, "rv5_pct"], [22, "rv22_pct"], [66, "rv66_pct"]]) {
-    assert.ok(body.includes(`Realized ${window}d, ${f.fmtDate(asOf, { year: false })} ${f.fmtPct(live.inputs[field])}`), `${window}d fact`);
+  // The 5-day value is the live block's one-decimal field; the 22- and 66-day ones are the stored
+  // two-decimal inputs, printed at two decimals.
+  assert.ok(body.includes(`Realized 5d, ${f.fmtDate(asOf, { year: false })} ${f.fmtPct(live.current_realized_vol_5d_annualized_pct)}`), "5d fact");
+  for (const [window, field] of [[22, "rv22_pct"], [66, "rv66_pct"]]) {
+    assert.ok(body.includes(`Realized ${window}d, ${f.fmtDate(asOf, { year: false })} ${f.fmtPct(live.inputs[field], 2)}`), `${window}d fact`);
   }
   assert.ok(body.includes(`OVX, ${f.fmtDate(live.inputs.ovx_session, { year: false })} close ${f.fmtNum(live.implied_vol_ovx_pct, 1)}`), "OVX fact");
   assert.ok(body.includes(`realized, ${f.fmtDate(lab.vol_cone.as_of, { year: false })}`), "the lab's older marks keep their own date");
@@ -185,6 +190,17 @@ test("CALB keeps the mechanism in the notes and the by-construction caveat in vi
   assert.ok(caption.startsWith(`Coverage near ${m.format.fmtNum(lab.conformal[champion].target_coverage_pct, 0)}% overall is by construction`), caption);
   const notes = visibleText(html.match(/<details class="disclosure panel-notes">([\s\S]*?)<\/details>/)?.[1] ?? "");
   assert.ok(notes.includes("delayed feedback") && notes.includes("Mincer-Zarnowitz regresses realized on forecast variance"), notes);
+});
+
+test("CALB's coverage-by-year heading names the sample it plots: the days with a band, and their years", () => {
+  const html = section(render(data).html, "calb");
+  const conformal = lab.conformal[champion];
+  const years = Object.keys(conformal.coverage_by_year_pct).map(Number).sort((x, y) => x - y);
+  const sample = `${m.format.fmtInt(conformal.n_days)} out-of-sample days with a band (${years[0]}–${years.at(-1)})`;
+  const headings = [...html.matchAll(/<h3 class="figure-title">([\s\S]*?)<\/h3>/g)].map((match) => visibleText(match[1]).trim());
+  assert.ok(headings.includes(`Coverage by year, ${sample}`), headings.join(" | "));
+  assert.ok(conformal.n_days < lab.sample.n_days, "the band starts later than the first out-of-sample day");
+  assert.ok(!headings.some((text) => text.startsWith("Coverage by year, every out-of-sample day")), "not the full out-of-sample sample");
 });
 
 // ------------------------------------------------------------------------------------------- RISK

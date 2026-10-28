@@ -3,10 +3,10 @@ import Disclosure from "../components/Disclosure";
 import keepHyphenated from "../components/keepHyphenated";
 import { INTERVAL_LEVEL_PCT, shortModelName } from "../lib/assertions";
 import { DASH, NBSP, fmtCT, fmtDate, fmtInt, fmtNum, fmtPct, fmtSigned, fmtSpan, num, toMs } from "../lib/format";
-import { asArray, asObject, asText, callScoring, getLab, liveRecordSummary } from "../lib/research";
+import { asObject, asText, callScoring, getLab, liveRecordSummary } from "../lib/research";
 import {
-  bandTrackRecord, callHistory, challengerStanding, changeAttribution, changeSincePrevious, coneScale, elasticities,
-  forecastDecomposition, forecastOfRecord, plainNumber, reproduces, TOLERANCE, typicalMiss,
+  bandTrackRecord, callArithmetic, callHistory, challengerStanding, changeAttribution, changeSincePrevious, coneScale,
+  elasticities, forecastOfRecord, plainNumber, TOLERANCE, typicalMiss,
 } from "../lib/verdict";
 
 /** How many recorded calls the hero lists (the full record is in LIVE). */
@@ -75,9 +75,12 @@ const WINDOW_SCORING = {
  * (hatched), the expected forecast (filled dot), the median (open tick), the current 5-session
  * realized vol and OVX as marks, and the history's 5-day median as a faint tick. Anchored at zero so
  * the width and skew of the interval read honestly. Plain HTML so it needs no chart code above the
- * fold; `track` labels the tails with the counted weeks that landed there.
+ * fold; `track` labels the tails with the counted weeks that landed there. `realizedDigits` is the
+ * realized value's own precision (two for a recorded two-decimal input, which is never rounded to one).
  */
-export function RangeBar({ lo, hi, forecast, median = null, realized = null, implied = null, track = null, history = null }) {
+export function RangeBar({
+  lo, hi, forecast, median = null, realized = null, realizedDigits = 1, implied = null, track = null, history = null,
+}) {
   const values = [lo, hi, forecast, median, realized, implied, history?.p50].filter((value) => value != null);
   if (lo == null || hi == null || values.length < 3) return null;
   const max = Math.max(...values) * 1.1 || 1;
@@ -86,7 +89,7 @@ export function RangeBar({ lo, hi, forecast, median = null, realized = null, imp
     `${INTERVAL_LEVEL_PCT}% interval ${fmtNum(lo, 1)} to ${fmtNum(hi, 1)} percent`,
     forecast != null ? `expected ${fmtNum(forecast, 1)}` : null,
     median != null ? `median ${fmtNum(median, 1)}` : null,
-    realized != null ? `realized last 5 sessions ${fmtNum(realized, 1)}` : null,
+    realized != null ? `realized last 5 sessions ${fmtNum(realized, realizedDigits)}` : null,
     implied != null ? `OVX ${fmtNum(implied, 1)}` : null,
     history ? `5-day realized vol has a historical median of ${fmtNum(history.p50, 1)}` : null,
     track ? `in ${fmtInt(track.inside)} of ${fmtInt(track.n)} production-validation weeks realized vol landed inside that week's band, `
@@ -230,20 +233,14 @@ export default function Hero({ live, liveRecord, recentOos, research, researchSt
   const issuedMs = toMs(call.issuedAt);
   const sealedMs = toMs(call.sealedAt);
   const implied = call.ovx.value;
-  // The arithmetic: the recorded inputs when they reproduce the call, else the live block's.
-  const ownFit = asArray(call.entry?.coefficients).length > 0;
-  const coefficients = ownFit ? call.entry.coefficients : live?.coefficients;
-  const smearing = num(call.entry?.smearing_factor) ?? num(live?.smearing_factor);
-  let math = forecastDecomposition(coefficients, call.inputs, smearing);
-  let mathFrom = null;
-  if (!reproduces(math, call.median, call.forecast)) {
-    math = forecastDecomposition(coefficients, live?.inputs, smearing);
-    if (!reproduces(math, call.median, call.forecast)) math = null;
-    else if (call.source === "record" && toMs(live?.issued_at) !== issuedMs) mathFrom = toMs(live?.issued_at);
-  }
+  // The arithmetic: the recorded inputs when they reproduce the call, else the live block's (the
+  // model card in METH prints the same chain from the same function).
+  const { math, ownFit, coefficients, inputsFrom: mathFrom } = callArithmetic(call, live);
   const weights = elasticities(coefficients);
   const sd = num(live?.residual_sd);
   const realized = call.realized.value;
+  // A recorded two-decimal input prints at two decimals, never rounded again to one.
+  const realizedText = fmtPct(realized, call.realized.digits);
   const changeText = change && (Math.abs(change.delta) < TOLERANCE
     ? `unchanged since the ${fmtDate(change.previous.as_of, { year: false })} call`
     : `${fmtSigned(change.delta, 1)} pts since the ${fmtDate(change.previous.as_of, { year: false })} call (${fmtNum(change.previous.forecast_pct, 1)})`);
@@ -325,7 +322,7 @@ export default function Hero({ live, liveRecord, recentOos, research, researchSt
         )}
         <RangeBar
           lo={call.lo} hi={call.hi} forecast={call.forecast} median={call.median}
-          realized={realized} implied={implied} track={track} history={scale}
+          realized={realized} realizedDigits={call.realized.digits} implied={implied} track={track} history={scale}
         />
         {track && (
           <p className="hero-track">
@@ -346,7 +343,7 @@ export default function Hero({ live, liveRecord, recentOos, research, researchSt
           <div className="fact">
             <dt><i className="swatch swatch-truth is-tick" />Realized 5d</dt>
             <dd className="num">
-              {fmtPct(realized)}
+              {realizedText}
               {call.asOf && (
                 <span className="fact-note">
                   last 5 sessions to {fmtDate(call.asOf, { year: false })}{call.realized.recomputed ? " (recomputation)" : ""}
@@ -389,7 +386,7 @@ export default function Hero({ live, liveRecord, recentOos, research, researchSt
             // probability is one plain sentence: whole percent, its model stated, never as a frequency.
             <li className="hero-prob">
               <span className="hero-note-label">P(vol rises):</span> model-implied chance that next-week realized vol exceeds
-              the last 5 sessions&apos; {fmtPct(realized)}: {wholePercent(call.prob)} (lognormal around the {fmtPct(call.median)} median
+              the last 5 sessions&apos; {realizedText}: {wholePercent(call.prob)} (lognormal around the {fmtPct(call.median)} median
               {sd != null ? `, log sd ${fmtNum(sd, 2)} from the fit's residuals` : ""}; not calibrated; direction is not evidence of skill).
             </li>
           )}

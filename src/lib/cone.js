@@ -1,7 +1,7 @@
 // Pure helpers for CONE (where realized vol sits in its own history) and CALB (the weekly-grid
 // Mincer-Zarnowitz slope and coverage by OVX regime). Like research.js they tolerate missing or
 // malformed fields and return null / [] instead of throwing.
-import { num } from "./format";
+import { fmtPct, num } from "./format";
 import { asArray, asObject } from "./research";
 
 /** The cone's stored percentiles, lowest first, with their rank. */
@@ -9,6 +9,29 @@ export const CONE_PERCENTILES = [["p5", 5], ["p25", 25], ["p50", 50], ["p75", 75
 
 /** The windows data.json measures realized vol over (vol_forecast.live.inputs), by length in sessions. */
 export const LIVE_WINDOWS = [[5, "rv5_pct"], [22, "rv22_pct"], [66, "rv66_pct"]];
+
+/**
+ * The most a one-decimal and a two-decimal rounding of the same number can differ by (0.05 +
+ * 0.005), with room for floating point.
+ */
+const ROUNDING_GAP = 0.0551;
+
+/**
+ * A realized vol as it is printed: {value, digits}. The recorded inputs (inputs.rv5_pct and the
+ * like) are stored at two decimals, and a value already rounded to two decimals is never rounded
+ * again to one (48.65 is 48.6 or 48.7 depending on digits it no longer has), so it prints at its two
+ * decimals. A one-decimal field the backend rounded once from the unrounded value (the live block's
+ * current_realized_vol_5d_annualized_pct) prints at one decimal: `oneDecimal` is used when given and
+ * consistent with the two-decimal value (both roundings of one number), else the two-decimal value.
+ * Null when neither is a number.
+ * @returns {{value: number, digits: number}|null}
+ */
+export const realizedShown = (twoDecimals, oneDecimal = null) => {
+  const stored = num(twoDecimals);
+  const rounded = num(oneDecimal);
+  if (rounded != null && (stored == null || Math.abs(rounded - stored) <= ROUNDING_GAP)) return { value: rounded, digits: 1 };
+  return stored != null ? { value: stored, digits: 2 } : null;
+};
 
 /** "2026-10-23T…" or "2026-10-23" -> "2026-10-23"; anything else -> null. */
 export const isoDay = (value) => (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : null);
@@ -61,22 +84,32 @@ export const coneBracket = (value, row) => {
 /**
  * The latest realized vol from data.json (vol_forecast.live.inputs, as of live.as_of) on the 5-,
  * 22- and 66-session windows, each bracketed against the same window of the lab's cone. Windows
- * missing from either side are left out.
+ * missing from either side are left out. `value` is the stored two-decimal input, which places the
+ * mark and picks its band; `shown` and `digits` are how it prints (realizedShown()): the 5-session
+ * window at one decimal from the live block's own one-decimal field, the others at their stored two.
  *
- * @returns {{asOf: string|null, marks: {window: number, value: number, bracket: ReturnType<typeof coneBracket>}[]}}
+ * @returns {{asOf: string|null, marks: {window: number, value: number, shown: number, digits: number,
+ *   bracket: ReturnType<typeof coneBracket>}[]}}
  */
 export const coneNow = (cone, live) => {
   const rows = coneWindows(cone);
-  const inputs = asObject(asObject(live)?.inputs);
-  const asOf = isoDay(asObject(live)?.as_of);
+  const block = asObject(live);
+  const inputs = asObject(block?.inputs);
+  const asOf = isoDay(block?.as_of);
   if (!inputs || !asOf) return { asOf, marks: [] };
+  const oneDecimal = { 5: block.current_realized_vol_5d_annualized_pct };
   const marks = LIVE_WINDOWS.map(([window, field]) => {
     const row = rows.find((item) => item.window === window);
     const value = num(inputs[field]);
-    return row && value != null ? { window, value, bracket: coneBracket(value, row) } : null;
+    if (!row || value == null) return null;
+    const shown = realizedShown(value, oneDecimal[window] ?? null);
+    return { window, value, shown: shown.value, digits: shown.digits, bracket: coneBracket(value, row) };
   }).filter(Boolean);
   return { asOf, marks };
 };
+
+/** A cone mark's realized vol as printed: "48.7%", or "37.69%" for a stored two-decimal input. */
+export const markPct = (mark) => fmtPct(mark?.shown ?? mark?.value, mark?.digits ?? 1);
 
 /**
  * Everything CONE draws, with the date of each piece. The marks are current when data.json is at
@@ -94,9 +127,10 @@ export const coneView = (cone, live) => {
   const liveWindows = new Set(useLive ? now.marks.map((mark) => mark.window) : []);
   const marks = [
     ...(useLive ? now.marks.map((mark) => ({ ...mark, date: now.asOf, source: "live" })) : []),
+    // The lab's latest values are rounded once, to one decimal, from the unrounded series.
     ...windows.filter((row) => !liveWindows.has(row.window) && row.latest != null).map((row) => ({
-      window: row.window, value: row.latest, bracket: coneBracket(row.latest, row), percentile: row.percentile,
-      date: labDate, source: "lab",
+      window: row.window, value: row.latest, shown: row.latest, digits: 1, bracket: coneBracket(row.latest, row),
+      percentile: row.percentile, date: labDate, source: "lab",
     })),
   ].sort((a, b) => a.window - b.window);
   const liveBlock = asObject(live);
