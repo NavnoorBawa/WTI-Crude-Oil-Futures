@@ -1,4 +1,4 @@
-import { useContext, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { csvFileName, downloadText, toCsv } from "../lib/csv";
 import { SnapshotContext } from "../lib/snapshot";
 
@@ -159,7 +159,9 @@ export default function DataTable({
     onSortChange?.(next);
   };
 
-  useEffect(() => {
+  // Layout effect: the "Scroll sideways" line is part of the first paint, so it does not push the
+  // rest of the page down after a deep link has landed.
+  useLayoutEffect(() => {
     const node = scrollRef.current;
     if (!node) return undefined;
     const update = () => {
