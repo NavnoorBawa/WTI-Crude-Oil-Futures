@@ -3,7 +3,7 @@ import Disclosure from "../components/Disclosure";
 import keepHyphenated from "../components/keepHyphenated";
 import { INTERVAL_LEVEL_PCT, shortModelName } from "../lib/assertions";
 import { DASH, NBSP, fmtCT, fmtDate, fmtInt, fmtNum, fmtPct, fmtSigned, fmtSpan, num, toMs } from "../lib/format";
-import { asArray, asObject, asText, callScoring, getLab, liveRecordSummary } from "../lib/research";
+import { asArray, asObject, asText, callScoring, getLab, liveRecordSummary, researchLedger } from "../lib/research";
 import {
   bandTrackRecord, callHistory, challengerStanding, changeAttribution, changeSincePrevious, coneScale, elasticities,
   forecastDecomposition, forecastOfRecord, plainNumber, reproduces, TOLERANCE, typicalMiss,
@@ -226,7 +226,7 @@ export default function Hero({ live, liveRecord, recentOos, research, researchSt
   const ovxSource = asText(live?.inputs?.ovx_source);
   const challengerError = asText(live?.challenger_error);
   const challengerLabel = asText(asObject(live?.challenger)?.label);
-  const standing = challengerStanding(lab, summary?.promotion);
+  const standing = challengerStanding(lab, summary?.promotion, researchLedger(research)?.byId.get("vol_spa_beats_record"));
   const issuedMs = toMs(call.issuedAt);
   const sealedMs = toMs(call.sealedAt);
   const implied = call.ovx.value;

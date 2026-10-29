@@ -21,8 +21,9 @@ exception is a timing control, below):
      regression in logs estimates the conditional median, which is biased low for a variance loss,
      so each log model's forecast is retransformed with Duan's (1983) smearing estimator computed on
      its own purged training residuals, vol_mean = vol_median * sqrt(mean(exp(2 e))). The Model
-     Confidence Set (Hansen, Lunde and Nason 2011) and Hansen's (2005) SPA test against the model of
-     record, both from arch.bootstrap; Diebold-Mariano tests with Newey-West variance and the
+     Confidence Set (Hansen, Lunde and Nason 2011; arch.bootstrap.MCS) and Hansen's (2005) studentized
+     SPA test against the model of record (forecast_eval.spa_test, on arch's stationary bootstrap);
+     Diebold-Mariano tests with Newey-West variance and the
      Harvey-Leybourne-Newbold correction; Mincer-Zarnowitz regressions; a second, range-based
      realized proxy; sub-period and block-size robustness; HAR-IV coefficients with HAC t-statistics.
      Direction accuracy (will next week's realized vol exceed this week's?) is reported only next to

@@ -175,7 +175,8 @@ def spa_test(benchmark: npt.ArrayLike, models: pd.DataFrame, *, block: int, reps
     best = int(np.argmax(t_stats))
     return {
         "statistic": round(statistic, 4),
-        "best_model": str(models.columns[best]),
+        # The model with the largest studentized gain; None when no model is better on average (T = 0).
+        "best_model": str(models.columns[best]) if statistic > 0 else None,
         "t_stats": {str(name): round(float(t), 3) for name, t in zip(models.columns, t_stats)},
         "p_consistent": round(exceed["consistent"] / reps, 4),
         "p_lower": round(exceed["lower"] / reps, 4),

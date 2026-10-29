@@ -7,7 +7,8 @@ import { ALPHA, leaderboardAssertion, leaderboardDetail, spaAssertion } from "..
 import { mcsRobustness, qlikeScale } from "../lib/comparison";
 import { DASH, NBSP, fmtInt, fmtNum, fmtP, fmtPValue, fmtSpan, num, withCentralTime } from "../lib/format";
 import {
-  asArray, asObject, asText, getLab, getVol, hasMcsResults, leaderboardRows, mcsLevel, modelLabels, shortLabel, withModelLabels,
+  asArray, asObject, asText, getLab, getVol, hasMcsResults, leaderboardRows, mcsLevel, modelLabels, researchLedger, shortLabel,
+  withModelLabels,
 } from "../lib/research";
 import { ResearchUnavailable } from "./common";
 
@@ -251,7 +252,7 @@ export default function LeaderboardPanel({ data, research, researchStatus }) {
     );
   }
 
-  const spaText = spaAssertion(spa, { recordName, mcsLevel: level });
+  const spaText = spaAssertion(spa, { recordName, mcsLevel: level, ledgerRow: researchLedger(research)?.byId.get("vol_spa_beats_record") });
   const selectionP = num(selection?.dm_vs_har_iv?.p_value);
   const liveNoiseMean = num(liveNoise?.dir_acc_pct_mean);
   const utilityText = `Realized utility of a volatility-targeting investor, % per year (Bollerslev et al. 2018)${utilityMax != null ? `; perfect foresight ${fmtNum(utilityMax, 2)}%` : ""}.`;

@@ -13,22 +13,27 @@ backs the new one.
   bootstrap swings set the maximum. `forecast_eval.spa_test` divides each model's mean loss
   difference by its long-run standard deviation (arch's own stationary-bootstrap kernel), on the
   same bootstrap draws, and is checked against arch where arch is right (the variance kernel, and
-  the non-studentized p-values to the last digit) and on known-answer cases. The artifact keeps the
+  the non-studentized p-values to the last digit), against a second, vectorized implementation of the
+  studentized p-values on the same draws, on a designed case and on one known answer (T = 0 gives
+  p = 1). The artifact keeps the
   old figures as `non_studentized`, and adds the test at blocks of 10 and 40 days and over 2008–2016
   and 2017 onward (`spa_robustness_qlike`). The promotion test, the model of record and the live
   record are unchanged.
 - **Wording.** A p-value from 0.05 to 0.10 now reads "inconclusive" everywhere it is generated, as
-  the project's rules say, not "significant at 10%". The findings say that HAR-range, from daily
-  price ranges without OVX, ties the model of record as OVX alone does, so the options market is
-  one source of the skill, not the only one. The README's "What it does not claim", the model
-  card's caveats (with the understated 1% VaR tail) and the limitation on risk use are now
+  the project's rules say, not "significant at 10%". A tie is worded as a tie: the findings no
+  longer say most of the skill is the options market's, and they add that HAR-range, from daily
+  price ranges without OVX, is statistically tied with the model of record too, so these data do
+  not show that OVX is needed to reach its loss. Every sentence that states the SPA rejection
+  carries the ledger's Benjamini-Hochberg result. The README's "What it does not claim", the model
+  card's caveats (with the 99% VaR's breach counts, which may understate the 1% tail although
+  Kupiec's test does not reject) and the limitation on risk use are now
   generated from the artifacts, like the rest of the results.
 
 ### Errata (published numbers that were wrong)
 
 | Claim as published | Correction | Evidence |
 |---|---|---|
-| Hansen SPA, null that no model beats the model of record: p = 0.072 (lower 0.045, upper 0.705), "significant at 10% but not at 5%", so the challenger's edge was "inconclusive" after the search | That was the non-studentized test (White's Reality Check with Hansen's recentring); arch 8.0.0 returns it whatever its `studentize` flag says. The studentized test on the same draws gives p = 0.011 (lower 0.010, upper 0.012), significant at 5%, with HAR-IV-range the model with the largest studentized gain (t 2.91); 0.005 to 0.027 across block lengths and sub-periods. It does not survive the ledger's Benjamini-Hochberg adjustment (q = 0.090), and the challenger still replaces the model of record only through the pinned 52-week live test | `data/vol_lab.json` `leaderboard.spa_qlike_vs_har_iv` (`p_consistent`, `non_studentized`, `t_stats`) and `leaderboard.spa_robustness_qlike`; `data/research_ledger.json` row `vol_spa_beats_record` |
+| Hansen SPA, null that no model beats the model of record: p = 0.072 (artifact `p_lower` 0.045, `p_upper` 0.7048), "significant at 10% but not at 5%", so the challenger's edge was "inconclusive" after the search | That was the non-studentized test (White's Reality Check with Hansen's recentring); arch 8.0.0 returns it whatever its `studentize` flag says. The studentized test on the same draws gives p = 0.011 (lower 0.0104, upper 0.012), significant at 5%, with HAR-IV-range the model with the largest studentized gain (t 2.91); 0.005 to 0.027 across block lengths and sub-periods. It does not survive the ledger's Benjamini-Hochberg adjustment (q = 0.090), and the challenger still replaces the model of record only through the pinned 52-week live test | `data/vol_lab.json` `leaderboard.spa_qlike_vs_har_iv` (`p_consistent`, `non_studentized`, `t_stats`) and `leaderboard.spa_robustness_qlike`; `data/research_ledger.json` row `vol_spa_beats_record` |
 
 ### Live record
 

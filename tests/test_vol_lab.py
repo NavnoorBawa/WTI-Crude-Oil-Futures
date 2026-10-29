@@ -329,9 +329,31 @@ class LossAndTestTest(unittest.TestCase):
         worse = pd.DataFrame({"a": bench + 0.2 + rng.normal(0, 0.1, 400), "b": bench + 0.1 + rng.normal(0, 0.3, 400)})
         res = fe.spa_test(bench, worse, block=10, reps=500, seed=lab.SEED)
         self.assertEqual(res["statistic"], 0.0)
+        self.assertIsNone(res["best_model"])                       # nothing beats it, so nothing leads
         self.assertEqual((res["p_lower"], res["p_consistent"], res["p_upper"]), (1.0, 1.0, 1.0))
         with self.assertRaises(ValueError):                    # a copy of the benchmark has nothing to test
             fe.spa_test(bench, worse.assign(a=bench), block=10, reps=10, seed=lab.SEED)
+
+    def test_spa_studentized_p_matches_a_second_implementation(self):
+        """Hansen's p-values written again, vectorized over the draws, with arch's own variance kernel
+        (SPA._compute_variance) and arch's stationary-bootstrap draws for the same seed."""
+        from arch.bootstrap import SPA, StationaryBootstrap
+
+        bench, models = self._spa_case(2)
+        models = models.assign(mid=bench - 0.005 + np.random.default_rng(4).normal(0, 0.4, 400))
+        res = fe.spa_test(bench, models, block=10, reps=400, seed=lab.SEED)
+        d = bench[:, None] - models.to_numpy()
+        n = len(d)
+        spa = SPA(bench, models, block_size=10, reps=400, bootstrap="stationary", seed=lab.SEED)
+        spa._compute_variance()
+        omega = np.sqrt(spa._loss_diff_var)
+        means = np.array([data[0].mean(axis=0) for data, _ in StationaryBootstrap(10, d, seed=lab.SEED).bootstrap(400)])
+        dbar = d.mean(axis=0)
+        t_obs = max((np.sqrt(n) * dbar / omega).max(), 0.0)
+        keep = dbar >= -omega * np.sqrt(2 * np.log(np.log(n)) / n)
+        for name, centre in (("lower", np.maximum(dbar, 0)), ("consistent", np.where(keep, dbar, 0)), ("upper", dbar)):
+            t_star = np.maximum((np.sqrt(n) * (means - centre) / omega).max(axis=1), 0.0)
+            self.assertEqual(res[f"p_{name}"], round(float((t_star >= t_obs).mean()), 4), name)
 
     def test_spa_matches_arch_where_arch_is_right(self):
         """The variance kernel is arch's, and on raw means the p-values are arch.bootstrap.SPA's on the
