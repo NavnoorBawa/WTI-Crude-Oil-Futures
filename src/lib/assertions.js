@@ -222,7 +222,13 @@ export const calibrationAssertion = (lab, champion) => {
   if (coverage == null) return null;
   const years = coverageByYear(lab, champion).map((row) => row.coverage);
   if (years.length > 1) {
-    return `In every year the ${fmtNum(target, 0)}% interval covered between ${fmtPct(Math.min(...years))} and ${fmtPct(Math.max(...years))} of days`;
+    // The sample in the title: the calendar years and the days with a band (the first year has none).
+    const span = coverageByYear(lab, champion).map((row) => row.year);
+    const days = num(conformal?.n_days);
+    const title = `Each year ${span[0]}–${span[span.length - 1]}, the ${fmtNum(target, 0)}% interval covered `
+      + `${fmtPct(Math.min(...years))} to ${fmtPct(Math.max(...years))}`;
+    const full = days != null ? `${title} of the ${fmtInt(days)} days with a band` : `${title} of days`;
+    return full.length <= 90 ? full : `${title} of days`;
   }
   return `The ${fmtNum(target, 0)}% interval covered ${fmtPct(coverage)} of days, as adaptive conformal targets by construction`;
 };
@@ -354,14 +360,16 @@ const LIVE_TITLE_MAX = 90;
  * The comparison itself uses the same calls for both models (liveRecordSummary().paired); the
  * record's QLIKE over all its resolved calls is a different sample, shown only labelled as such.
  */
-export const liveAssertion = (summary) => {
+export const liveAssertion = (summary, day = null) => {
   if (!summary) return null;
   const resolved = summary.resolved ?? 0;
   if (resolved <= 0) {
     // The start date is in the meta line (liveDetail's neighbour), so the title keeps to one claim.
-    return summary.firstResult
-      ? `No live forecast has resolved yet; the first is due ${fmtDate(summary.firstResult)}`
-      : "No live forecast has resolved yet";
+    // `day` is the snapshot's own date: a first result due before it is overdue, not due.
+    if (!summary.firstResult) return "No live forecast has resolved yet";
+    return day && summary.firstResult < day
+      ? `No live forecast has resolved yet; the first is overdue since ${fmtDate(summary.firstResult)}`
+      : `No live forecast has resolved yet; the first is due ${fmtDate(summary.firstResult)}`;
   }
   const promotion = summary.promotion;
   if (promotion && promotion.status !== "accruing") {
@@ -420,13 +428,14 @@ export const promotionDetail = (promotion) => {
  * test's progress. After: calls resolved and independent weeks, the two models' QLIKE on the same
  * calls once there are LIVE_MIN_INDEPENDENT independent weeks, and the promotion verdict once decided.
  */
-export const liveTileFoot = (summary) => {
+export const liveTileFoot = (summary, day = null) => {
   if (!summary) return null;
   const resolved = summary.resolved ?? 0;
   const promotion = summary.promotion;
   if (resolved <= 0) {
+    const overdue = day && summary.firstResult && summary.firstResult < day;
     const status = summary.firstResult
-      ? `first result ${fmtDate(summary.firstResult)}`
+      ? `first result ${overdue ? "overdue since " : ""}${fmtDate(summary.firstResult)}`
       : `${plural(summary.recorded ?? 0, "call")} recorded, no result due`;
     const progress = promotion?.paired != null && promotion?.required != null
       ? `promotion test ${fmtInt(promotion.paired)}/${fmtInt(promotion.required)} weeks`
@@ -631,8 +640,10 @@ export const supplyPlaybookAssertion = (playbook, { researchLoaded = true } = {}
       + `ordinary date ${fmtSigned(ordinary, 1, "%")}`,
   ].find((text) => text.length <= TITLE_MAX) : null;
   if (!researchLoaded) return withBaseline ?? head;
+  // The ordinary-date baseline is worth more than the caveat: keep it when only one fits.
   const candidates = [
     withBaseline ? `${withBaseline}; no placebo test` : null,
+    withBaseline,
     `${head}; no placebo comparison`,
     `${head}; no placebo test`,
   ];

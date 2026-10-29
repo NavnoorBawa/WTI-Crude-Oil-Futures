@@ -297,7 +297,7 @@ test("method notes hold the rule and the input changes, without an attribution c
   const latest = { as_of: "2026-10-23", forecast_pct: 53.4, inputs: { ovx: 55.6, rv5_pct: 50.6, rv22_pct: 38.9, rv66_pct: 47.6, ovx_session: "2026-10-22" } };
   const previous = { as_of: "2026-10-22", forecast_pct: 50.8, inputs: { ovx: 53.2, rv5_pct: 48.9, rv22_pct: 37.6, rv66_pct: 47.2, ovx_session: "2026-10-21" } };
   assert.equal(inputChanges([latest, previous]),
-    "Since the Oct 22 call: forecast +2.6; OVX +2.4, 5-day RV +1.7, 22-day RV +1.3, 66-day RV +0.4 (vol points, as recorded).");
+    "Since the Oct 22 call: forecast +2.6; OVX +2.40, 5-day RV +1.70, 22-day RV +1.30, 66-day RV +0.40 (vol points, as recorded).");
   assert.equal(inputChanges([latest, { ...previous, inputs: null }]), null, "an entry recorded without inputs");
   assert.equal(inputChanges([latest]), null);
   const payload = structuredClone(data);
@@ -472,7 +472,12 @@ test("a result due before the snapshot's date reads as overdue, waiting for a mi
   // Before any result, the empty line says so too.
   const first = longRecord();
   Object.assign(first.vol_forecast.live_record, { n_resolved: 0, n_independent: 0 });
-  assert.ok(render(first).text.includes("The first result is overdue since Dec 3, 2026: a settlement its window needs is missing from this snapshot."));
+  const page = render(first);
+  assert.ok(page.text.includes("The first result is overdue since Dec 3, 2026: a settlement its window needs is missing from this snapshot."));
+  // The title, the evidence list and the verdict tile say overdue too, not "due".
+  assert.equal(page.title, "No live forecast has resolved yet; the first is overdue since Dec 3, 2026");
+  assert.match(page.foot, /^first result overdue since Dec 3, 2026 · promotion test /);
+  assert.doesNotMatch(visibleText(page.html), /the first is due Dec 3/);
   // The page's wait is the record's own.
   const backend = readSource("backend/vol_record.py").match(/^MAX_WAIT_SESSIONS = (\d+)/m);
   assert.equal(Number(backend?.[1]), panel.MAX_WAIT_SESSIONS);

@@ -3,15 +3,44 @@ import { NBSP } from "../lib/format";
 import KpiGlyph from "./KpiGlyph";
 import keepHyphenated from "./keepHyphenated";
 
+const SEPARATOR = " · ";
+
+/** Tile text parts as segments, split wherever a string part holds " · " (a {num} never does). */
+export const tileSegments = (content) => {
+  const segments = [[]];
+  for (const part of Array.isArray(content) ? content : [content]) {
+    if (typeof part !== "string") {
+      segments[segments.length - 1].push(part);
+      continue;
+    }
+    part.split(SEPARATOR).forEach((piece, index) => {
+      if (index > 0) segments.push([]);
+      if (piece) segments[segments.length - 1].push(piece);
+    });
+  }
+  return segments.filter((segment) => segment.length);
+};
+
+const parts = (segment) => segment.map((part, index) => (typeof part === "string"
+  ? <Fragment key={index}>{keepHyphenated(part)}</Fragment>
+  : <b key={index} className="num">{part?.num}</b>));
+
 /**
  * Tile text: a string, or a list of strings and {num} figures (set in bold tabular digits). Strings
- * keep hyphenated names whole ("HAR-IV", "OVX-only"), so a name never breaks at its hyphen.
+ * keep hyphenated names whole ("HAR-IV", "OVX-only"), so a name never breaks at its hyphen. Parts
+ * joined by " · " render as a .sep-list, so no wrapped line starts or ends with the dot; the dot is
+ * text (hidden from screen readers), so a copied footnote keeps it.
  */
 const richText = (content) => {
-  if (!Array.isArray(content)) return keepHyphenated(content);
-  return content.map((part, index) => (typeof part === "string"
-    ? <Fragment key={index}>{keepHyphenated(part)}</Fragment>
-    : <b key={index} className="num">{part?.num}</b>));
+  const segments = tileSegments(content);
+  if (segments.length <= 1) return parts(segments[0] ?? []);
+  return (
+    <span className="sep-list has-dots">
+      {segments.map((segment, index) => (
+        <span key={index}><span className="sep" aria-hidden="true">{index ? " · " : ""}</span>{parts(segment)}</span>
+      ))}
+    </span>
+  );
 };
 
 /**

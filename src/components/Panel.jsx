@@ -204,6 +204,7 @@ export default function Panel({
           {artifacts.length > 0 && (
             <span className="source-group source-files">
               <span className="micro">Source</span>
+              <span className="sep-list">
               {sourceLinks(artifacts).map(({ text, href }) => (href ? (
                 <a
                   key={text}
@@ -216,6 +217,7 @@ export default function Panel({
                   <code>{text}</code>
                 </a>
               ) : <code key={text} className="source-item">{text}</code>))}
+              </span>
             </span>
           )}
           {reproduce.length > 0 && (

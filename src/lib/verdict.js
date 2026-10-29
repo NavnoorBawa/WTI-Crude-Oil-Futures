@@ -11,7 +11,7 @@ import { realizedShown } from "./cone";
 import { NBSP, fmtInt, fmtNum, fmtP, fmtPValue, fmtSigned, fmtSpan, num, toMs } from "./format";
 import {
   OVX_ONLY_KEY, asArray, asObject, asText, coverageByYear, getLab, getRoles, getVol, hasMcsResults, leaderboardRows,
-  liveRecordSummary, mcsLevel, modelLabels, ovxOnlyLabel, shortLabel, varRows, varSeries, yearlyQlike,
+  liveRecordSummary, mcsLevel, modelLabels, ovxOnlyLabel, shortLabel, snapshotDay, varRows, varSeries, yearlyQlike,
 } from "./research";
 
 /** Two payload values within this many points are the same figure (they print alike at one decimal). */
@@ -191,7 +191,7 @@ export const evidenceRows = (data, research) => {
     calb: coverageByYear(lab, champion).length || coverageByYear(lab, challenger).length ? calibrationAssertion(lab, champion) : null,
     risk: methods.length && varSeries(lab).length ? riskAssertion(methods, labels, champion) : null,
     vrp: vrpAssertion(asObject(economic?.variance_risk_premium)),
-    live: summary ? liveAssertion(summary) : null,
+    live: summary ? liveAssertion(summary, snapshotDay(data)) : null,
   };
   return SECTIONS
     .filter((section) => titles[section.id])

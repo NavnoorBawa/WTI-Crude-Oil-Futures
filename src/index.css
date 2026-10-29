@@ -63,8 +63,20 @@ button { font: inherit; color: inherit; }
   gap: 2px var(--sep-w);
   clip-path: inset(-8px -8px -8px -4px);
 }
-.sep-list > * { margin-left: calc(-1 * var(--sep-w)); }
-.sep-list > ::before { content: "·"; display: inline-block; width: var(--sep-w); text-align: center; color: var(--text-4); }
+/* A hanging indent: an item that wraps inside itself starts its later lines at the list's edge, not in
+   the clipped gutter where its dot sits; text-indent is inherited, so nested boxes and the dot reset it. */
+.sep-list > * {
+  margin-left: calc(-1 * var(--sep-w));
+  padding-left: var(--sep-w);
+  text-indent: calc(-1 * var(--sep-w));
+}
+.sep-list > * * { text-indent: 0; }
+.sep-list > ::before,
+.sep-list.has-dots > * > .sep {
+  content: "·"; display: inline-block; width: var(--sep-w); text-indent: 0; text-align: center; color: var(--text-4);
+}
+/* A list whose dots are text (`.sep` spans, so a copy keeps them) draws no generated dot. */
+.sep-list.has-dots > ::before { content: none; }
 
 .micro {
   font-size: var(--fs-11);
@@ -434,10 +446,14 @@ button { font: inherit; color: inherit; }
 .panel-source .source-command { display: inline-flex; align-items: last baseline; gap: var(--sp-2); min-width: 0; max-width: 100%; }
 .panel-source .source-command > .source-item { min-width: 0; overflow-wrap: anywhere; }
 .panel-source code { color: var(--text-2); overflow-wrap: anywhere; }
-/* Source entries are links to the payload files, separated by a dot that trails each entry (so a
-   wrapped line never starts with one; an inline-block pseudo-element is not underlined with its
-   link). Each command is followed by its copy button, which separates the commands. */
-.panel-source .source-files .source-item:not(:last-child)::after { content: "·"; display: inline-block; margin-left: var(--sp-2); color: var(--text-4); text-decoration: none; }
+/* Source entries are links to the payload files in a .sep-list, so no wrapped line starts or ends
+   with a dot (an inline-block pseudo-element is not underlined with its link). Each command is
+   followed by its copy button, which separates the commands. */
+/* The label stays on the first line; the list takes the rest of the row and wraps inside it (below
+   the label only when less than 12rem is left beside it). */
+.panel-source > .source-files { display: flex; align-items: first baseline; }
+.panel-source .source-files > .sep-list { flex: 1 1 0; min-width: min(100%, 12rem); --sep-w: 16px; }
+.panel-source .source-files .source-item::before { text-decoration: none; }
 .panel-source .micro { line-height: inherit; }
 
 .figure-title {

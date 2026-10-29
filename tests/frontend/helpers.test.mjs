@@ -493,9 +493,14 @@ test("assertion titles state one claim each, and only what the numbers support",
   assert.equal(a.vrpAssertion({ ...noCi, zero_premium_null: null }), null, "without the null the share supports no title");
 
   const champion = research.vol_lab.config.champion;
-  const years = m.research.coverageByYear(research.vol_lab, champion).map((row) => row.coverage);
-  assert.equal(keep(a.calibrationAssertion(research.vol_lab, champion)),
-    `In every year the 80% interval covered between ${f.fmtPct(Math.min(...years))} and ${f.fmtPct(Math.max(...years))} of days`);
+  const byYear = m.research.coverageByYear(research.vol_lab, champion);
+  const years = byYear.map((row) => row.coverage);
+  // The title names its sample: the calendar years and the days with a band.
+  const calb = keep(a.calibrationAssertion(research.vol_lab, champion));
+  assert.equal(calb, `Each year ${byYear[0].year}–${byYear[byYear.length - 1].year}, the 80% interval covered `
+    + `${f.fmtPct(Math.min(...years))} to ${f.fmtPct(Math.max(...years))} of the `
+    + `${f.fmtInt(research.vol_lab.conformal[champion].n_days)} days with a band`);
+  assert.ok(calb.length <= 90, calb);
   const conformal = research.vol_lab.conformal[champion];
   assert.deepEqual(a.calibrationDetail(research.vol_lab, champion),
     [`overall ${f.fmtPct(conformal.coverage_pct)} of ${f.fmtInt(conformal.n_days)} days, targeted by construction`]);

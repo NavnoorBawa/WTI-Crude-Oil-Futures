@@ -49,8 +49,8 @@ tr.is-challenger .set-mark.is-in { color: var(--s-alt); }
 
 /* Below 1000px the descriptive Inputs and Family columns are hidden (hideBelow 1000; both stay in the
    CSV) and the QLIKE strip, a picture of the number beside it, gives way, so the result columns fit a
-   tablet before any sideways scroll. */
-@media (max-width: 999px) {
+   tablet before any sideways scroll. Screens only, as for the hidden columns: print keeps them. */
+@media screen and (max-width: 999px) {
   .leaderboard .bar-track { display: none; }
   /* The year ranges hold one line ("2008–16"), so the setting columns give up half their padding. */
   .mcs-matrix .data-table th.set-col, .mcs-matrix .data-table td.set-col { padding-left: 6px; padding-right: 6px; }

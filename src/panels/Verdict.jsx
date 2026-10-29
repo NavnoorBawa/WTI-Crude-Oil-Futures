@@ -3,7 +3,7 @@ import Kpi from "../components/Kpi";
 import keepHyphenated from "../components/keepHyphenated";
 import { liveTileFoot } from "../lib/assertions";
 import { DASH, fmtDate, fmtInt, fmtP, fmtPct, num } from "../lib/format";
-import { asObject, asText, getVol, liveRecordSummary } from "../lib/research";
+import { asObject, asText, getVol, liveRecordSummary, snapshotDay } from "../lib/research";
 import { evidenceTiles, progressGlyph, tilesKey } from "../lib/tiles";
 import Hero from "./Hero";
 import { EvidenceList, VerdictLede } from "./VerdictLede";
@@ -18,7 +18,7 @@ export default function Verdict({ data, research, researchStatus }) {
   const { live, liveRecord } = getVol(data);
   const tiles = evidenceTiles(data, research, researchStatus);
   const record = liveRecordSummary(liveRecord);
-  const liveFoot = liveTileFoot(record);
+  const liveFoot = liveTileFoot(record, snapshotDay(data));
   // While research.json loads, the tiles and their key keep the height their lab text will need.
   const pending = researchStatus === "loading" && !research ? " is-pending" : "";
 

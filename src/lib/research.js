@@ -1,7 +1,7 @@
 // Pure selectors over data.json (schema 3) and research.json (schema 1). See docs/DATA_CONTRACT.md.
 // Every function tolerates a missing or malformed field and returns null / [] instead of throwing:
 // research.json is optional, and one bad field must cost a figure, not the page.
-import { num } from "./format";
+import { ctIsoDate, num, toMs } from "./format";
 
 export const asObject = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : null);
 export const asArray = (value) => (Array.isArray(value) ? value : []);
@@ -687,6 +687,9 @@ export const supplyStudy = (research) => {
     conclusion: asText(study.conclusion),
   };
 };
+
+/** The US Central calendar date the snapshot was frozen on ("YYYY-MM-DD"), or null. Pure. */
+export const snapshotDay = (data) => ctIsoDate(toMs(data?.frozen_at));
 
 // --------------------------------------------------------------------------------------- ledger
 

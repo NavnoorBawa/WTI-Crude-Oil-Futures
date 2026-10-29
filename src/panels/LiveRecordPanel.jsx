@@ -7,11 +7,11 @@ import LazyMount from "../components/LazyMount";
 import Panel from "../components/Panel";
 import { INTERVAL_LEVEL_PCT, liveAssertion, liveDetail, promotionDetail, promotionText } from "../lib/assertions";
 import {
-  DASH, ctIsoDate, ctWallTimeMs, fmtAge, fmtCT, fmtDate, fmtInt, fmtNum, fmtSigned, num, toMs, withCentralTime,
+  DASH, ctWallTimeMs, fmtAge, fmtCT, fmtDate, fmtInt, fmtNum, fmtSigned, num, toMs, withCentralTime,
 } from "../lib/format";
 import {
   LIVE_MIN_INDEPENDENT, asObject, asText, callScoring, getLab, getRoles, getVol, liveRecordSummary, modelLabels, shortLabel,
-  withModelLabels,
+  withModelLabels, snapshotDay,
 } from "../lib/research";
 import { Facts, Legend } from "./common";
 
@@ -47,8 +47,8 @@ const OVERDUE_FOOTNOTE = "Its window has closed, but a settlement it needs is mi
   + `when the settlement arrives, or expires, never scored, if that is still missing more than ${MAX_WAIT_SESSIONS} sessions `
   + "after the window closed.";
 
-/** The US Central calendar date the snapshot was frozen on ("YYYY-MM-DD"), or null. Pure. */
-export const snapshotDay = (data) => ctIsoDate(toMs(data?.frozen_at));
+// Re-exported for the tests that import it from the panel.
+export { snapshotDay };
 
 /**
  * The date a pending call's result has been overdue since (its window's last session), when that
@@ -191,7 +191,8 @@ export const inputChanges = (recent) => {
   const before = asObject(previous?.inputs);
   if (!now || !before || typeof previous.as_of !== "string") return null;
   const moves = INPUT_LABELS
-    .map(([key, label]) => (num(now[key]) != null && num(before[key]) != null ? `${label} ${fmtSigned(now[key] - before[key], 1)}` : null))
+    // The recorded inputs are stored at two decimals: their moves print at two, never rounded again to one.
+    .map(([key, label]) => (num(now[key]) != null && num(before[key]) != null ? `${label} ${fmtSigned(now[key] - before[key], 2)}` : null))
     .filter(Boolean);
   if (!moves.length) return null;
   const forecast = num(latest.forecast_pct) != null && num(previous.forecast_pct) != null
@@ -408,7 +409,7 @@ export default function LiveRecordPanel({ data, research }) {
       id="live"
       code="LIVE"
       name="Live record"
-      title={liveAssertion(summary)}
+      title={liveAssertion(summary, day)}
       fallbackTitle="Live forward record"
       meta={[
         summary.started ? `since ${fmtDate(summary.started)}` : null,

@@ -156,6 +156,51 @@ for (const viewport of VIEWPORTS) {
   });
 }
 
+test("separator lists: no text is clipped at a wrap, and no wrapped line starts or ends with a dot", async () => {
+  for (const width of [320, 480, 768]) {
+    const { context, page, problems } = await openPage({ name: `w${width}`, width, height: 900 });
+    try {
+      await page.waitForSelector("#verdict-title");
+      await mountEverything(page);
+      const report = await page.evaluate(() => {
+        const clipped = [];
+        const dangling = [];
+        for (const list of document.querySelectorAll(".sep-list")) {
+          const left = list.getBoundingClientRect().left;
+          const walker = document.createTreeWalker(list, NodeFilter.SHOW_TEXT);
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            if (!node.textContent.trim() || node.parentElement.closest(".sep, .sr-only")) continue;
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            for (const rect of range.getClientRects()) {
+              if (rect.width && rect.left < left - 0.5) clipped.push(`${list.className}: "${node.textContent.trim().slice(0, 30)}" at ${Math.round(rect.left - left)}px`);
+            }
+          }
+          // A visible dot sits inside the list's box; one at a line start would be outside it (clipped).
+          const items = [...list.children];
+          items.forEach((item, index) => {
+            const next = items[index + 1];
+            if (!next) return;
+            const a = item.getBoundingClientRect();
+            const b = next.getBoundingClientRect();
+            // The next item starts a new line: its dot must be left of the list (clipped), never visible.
+            if (b.top > a.top + 2 && b.left - 0.5 > left - 1 && getComputedStyle(next, "::before").content !== "none") {
+              const dot = next.getBoundingClientRect().left;
+              if (dot >= left) dangling.push(`${list.className}: line starts with a dot before "${next.textContent.trim().slice(0, 24)}"`);
+            }
+          });
+        }
+        return { clipped, dangling };
+      });
+      assert.deepEqual(report.clipped, [], `text clipped at ${width}px`);
+      assert.deepEqual(report.dangling, [], `dangling dots at ${width}px`);
+      assert.deepEqual(problems, []);
+    } finally {
+      await context.close();
+    }
+  }
+});
+
 test("a stale snapshot's notice does not shift the page when the data arrives", async () => {
   const { context, page, problems } = await openPage(VIEWPORTS[1], { now: null });
   try {
