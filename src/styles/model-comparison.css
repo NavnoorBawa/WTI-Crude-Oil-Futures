@@ -29,9 +29,8 @@ tr.is-record .set-mark.is-in { color: var(--s-model); }
 tr.is-challenger .set-mark.is-in { color: var(--s-alt); }
 
 /* ------------------------------------------------------------------------------- STAB marks */
-/* Neutral series: ink for models that use OVX or the range, faint for returns-only models. The
-   faint label is text-3, since text-4 is for decoration only. */
-.swatch-ink { --c: var(--text-1); }
+/* Neutral series: ink for models that use OVX or the range (.swatch-ink, in reference-sections.css),
+   faint for returns-only models. The faint label is text-3, since text-4 is for decoration only. */
 .swatch-faint { --c: var(--text-4); }
 .label-faint { fill: var(--text-3); color: var(--text-3); }
 /* A yearly-gap bar cut at the scale's edge carries a break near its end. */

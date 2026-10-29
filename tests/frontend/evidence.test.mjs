@@ -276,8 +276,10 @@ test("VRP prints its interval with thousands separators and keeps the method in 
   assert.ok(reading.includes(`(${ci})`), "the reading quotes the same interval");
 });
 
-test("RISK: the caption gives the Kupiec counts, and says so when the rounded chart series colours fewer", async () => {
-  const { riskCaption, drawnBreachCounts } = await m.load("/src/panels/RiskPanel.jsx");
+test("RISK: the caption gives the Kupiec counts; the method notes say when the rounded chart series colours fewer", async () => {
+  const { riskCaption, riskCaptionCounts, roundingNote } = await m.load("/src/panels/RiskPanel.jsx");
+  // The rule VarChart colours by and the panel counts by, from one module.
+  const { breachOf, drawnBreachCounts } = await m.load("/src/lib/var.js");
   const counts = { n: 875, e99: 14, e95: 46, quantileLabel: "Filtered hist. sim." };
   // A tie after rounding: ret equals -var95, so the chart does not colour it.
   const series = [
@@ -287,11 +289,24 @@ test("RISK: the caption gives the Kupiec counts, and says so when the rounded ch
     { ret: -25.0, var95: 10.9, var99: 20.6 },
     { ret: -30.0, var95: null, var99: null },
   ];
+  assert.deepEqual(series.map(breachOf), ["var95", "ok", "ok", "var99", "none"]);
   assert.deepEqual(drawnBreachCounts(series), { n: 4, e99: 1, e95: 2 });
-  const same = riskCaption(counts, { n: 875, e99: 14, e95: 46 }, "HAR-IV");
-  assert.equal(same, "On grid 0, 14 of 875 weeks breached the 99% VaR and 46 the 95% (Kupiec counts, HAR-IV filtered hist. sim.).");
-  const differ = riskCaption(counts, { n: 875, e99: 14, e95: 45 }, "HAR-IV");
-  assert.ok(differ.startsWith(same), differ);
-  assert.ok(differ.includes("rounded to 0.1 pt, so it colours 14 and 45"), differ);
-  assert.equal(riskCaption(null, null, "HAR-IV"), null);
+  const caption = riskCaption(counts, "HAR-IV");
+  assert.equal(caption, "On grid 0, 14 of 875 weeks breached the 99% VaR and 46 the 95% (Kupiec counts, HAR-IV filtered hist. sim.).");
+  assert.equal(riskCaption(null, "HAR-IV"), null);
+  assert.equal(roundingNote(counts, { n: 875, e99: 14, e95: 46 }), null, "the chart agrees: no note");
+  const note = roundingNote(counts, { n: 875, e99: 14, e95: 45 });
+  assert.ok(note.includes("rounded to 0.1 pt, so it colours 14 weeks below the 99% line and 45 below the 95% line"), note);
+  assert.ok(note.includes("Kupiec counts are 14 and 46"), note);
+  assert.equal(roundingNote(null, null), null);
+
+  // On the page: the caption is the Kupiec sentence alone; the notes carry the rounding sentence
+  // exactly when the fixture's rounded series colours other counts.
+  const html = section(render(data).html, "risk");
+  const shown = visibleText(html.match(/<p class="panel-caption">([\s\S]*?)<\/p>/)?.[1] ?? "").trim();
+  assert.ok(shown.startsWith("On grid 0, "), shown);
+  assert.doesNotMatch(shown, /rounded/, shown);
+  const expected = roundingNote(riskCaptionCounts(m.research.varRows(lab)), drawnBreachCounts(m.research.varSeries(lab)));
+  const notes = visibleText(html.match(/<div class="disclosure-body">([\s\S]*?)<\/div>/)?.[1] ?? "");
+  assert.equal(notes.includes("rounded to 0.1 pt"), expected != null, notes);
 });

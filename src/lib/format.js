@@ -275,10 +275,6 @@ export const ordinal = (value) => {
   return `${r}${suffix}`;
 };
 
-/** First characters of a hex digest, shown next to the full value (in a title attribute). */
-export const shortHash = (value, length = 12) =>
-  typeof value === "string" && /^[0-9a-f]{16,}$/i.test(value) ? value.slice(0, length) : DASH;
-
 /** "har_iv_range" -> "Har iv range": a readable fallback label for unknown payload keys. */
 export const humanizeKey = (key) => {
   if (typeof key !== "string" || !key) return DASH;

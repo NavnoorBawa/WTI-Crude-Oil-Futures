@@ -37,9 +37,6 @@ const isSortParam = (value) => SORT_KEYS.has(SORT_PARAM.exec(value)?.[1]);
 // How long a row reached by a #ledg-<id> link stays marked.
 const TARGET_MS = 2000;
 
-/** Filters ledger rows by family and status ("all" passes everything), and by a search, when given. */
-export const filterLedger = (rows, family, status, query = "") => filterLedgerRows(rows, { family, status, query });
-
 /** How many rows of each value of `key` remain once the other filters are applied. */
 const countBy = (rows, key) => rows.reduce((acc, row) => ({ ...acc, [row[key]]: (acc[row[key]] ?? 0) + 1 }), {});
 

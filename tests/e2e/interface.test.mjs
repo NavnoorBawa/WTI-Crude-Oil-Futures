@@ -140,6 +140,22 @@ for (const viewport of VIEWPORTS) {
   });
 }
 
+// The price axis settles on its width after the first frames; a chart nobody has touched must still
+// sit on its range preset, so no "Reset view" is offered.
+for (const viewport of VIEWPORTS) {
+  test(`${viewport.name} (${viewport.width} px): an untouched forecast chart offers no "Reset view"`, async () => {
+    const { context, page, problems } = await openPage(viewport, { path: "/#fcst" });
+    try {
+      await page.waitForSelector("#fcst .lw-host canvas");
+      await page.waitForTimeout(3000);
+      assert.equal(await page.locator("#fcst .reset-view").count(), 0, "Reset view shown with no input");
+      assert.deepEqual(problems, []);
+    } finally {
+      await context.close();
+    }
+  });
+}
+
 test("a stale snapshot's notice does not shift the page when the data arrives", async () => {
   const { context, page, problems } = await openPage(VIEWPORTS[1], { now: null });
   try {

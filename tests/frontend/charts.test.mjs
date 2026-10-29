@@ -150,7 +150,8 @@ test("month ticks name their year when the view spans more than 400 days", () =>
 });
 
 test("a tick label or marker text that the plot's edge would cut is left out", () => {
-  const { fitsInPlot, installTickFormatter, MONO_CHAR_PX } = lw;
+  const { fitsInPlot, installTickFormatter } = lw;
+  const { MONO_CHAR_PX } = m.theme;
   // A 600 px plot with one day every 10 px from 2026-01-01.
   let formatter = null;
   const chart = {
@@ -197,6 +198,30 @@ test("keyboard reading: arrows step one row (four with Shift), Home/End jump, Es
   assert.equal(isOffFrame({ from: 1.7, to: 7.2 }, frame), false, "within half a bar");
   assert.equal(isOffFrame({ from: 0.5, to: 6 }, frame), true, "dragged a bar to the left");
   assert.equal(isOffFrame(null, frame), false);
+
+  // A narrower or wider plot moves one edge (the library keeps the right one, or the left one at the
+  // first bar), which re-applies the preset; a drag moves both, which leaves the frame.
+  const { isWidthShift } = lw;
+  assert.equal(isWidthShift({ from: 2.8, to: 7 }, frame), true, "the axis widened: only the left edge moved");
+  assert.equal(isWidthShift({ from: 1.5, to: 8.3 }, frame), true, "scrolled to the start: only the right edge moved");
+  assert.equal(isWidthShift({ from: 0.5, to: 6 }, frame), false, "dragged a bar: both edges moved");
+  assert.equal(isWidthShift(null, frame), false);
+});
+
+test("one mono character width, from the chart theme, in every chart module", () => {
+  assert.equal(m.theme.MONO_CHAR_PX, 6.6);
+  for (const file of ["lwUtil.js", "svgCharts.jsx", "referenceCharts.jsx", "stabilityCharts.jsx"]) {
+    const source = readSource(`src/charts/${file}`);
+    assert.match(source, /import \{[^}]*\bMONO_CHAR_PX\b[^}]*\} from "\.\.\/theme\/chartTheme"/, file);
+    assert.doesNotMatch(source, /CHAR_PX = 6\.6/, `${file} defines no width of its own`);
+  }
+});
+
+test("the canvas charts keep a reader's pan through a data refresh, as PriceChart does", () => {
+  for (const file of ["ForecastChart.jsx", "VarChart.jsx", "PriceChart.jsx"]) {
+    const source = readSource(`src/charts/${file}`);
+    assert.match(source, /if \(framed\.current === key && offFrame\) return;/, `${file} re-frames on new data only while on the preset`);
+  }
 });
 
 test("the print palette mirrors the print stylesheet's light tokens", () => {

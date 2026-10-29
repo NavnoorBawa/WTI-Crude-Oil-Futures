@@ -35,8 +35,6 @@ test("format helpers handle ages, spans, ordinals and p-value cells", () => {
   assert.equal(f.fmtPValue(null), "—");
   assert.equal(f.fmtInt(4370), "4,370");
   assert.equal(f.fmtShare(0.9988, 2), "99.88%");
-  assert.equal(f.shortHash("2e0c57f697484b466eac5945c755a76c"), "2e0c57f69748");
-  assert.equal(f.shortHash("not-a-hash"), "—");
   assert.equal(f.humanizeKey("supply_lost"), "Supply lost");
 });
 

@@ -15,6 +15,7 @@ import {
   asArray, asText, getLab, getRoles, getVol, logToSimplePct, modelLabels, recordVar, shortLabel, varRows, varSeries,
   volTargetRisk,
 } from "../lib/research";
+import { breachOf, drawnBreachCounts } from "../lib/var";
 import { EconomicUnavailable, ResearchUnavailable, economicSpan } from "./common";
 
 // The chart range and the table's VaR level live in the URL (?risk=10y&var=95).
@@ -23,13 +24,14 @@ const LEVELS = ["99", "95"];
 const RANGE_OPTIONS = RANGES.map((value) => ({ value, label: value.toUpperCase() }));
 // The breach count of the last LAST_WEEKS weeks, as var_backtest.grid0 reports it.
 const LAST_WEEKS = 250;
-// VarChart's plot plus its legend row, as measured at 1440 and 390px (a 300px plot under the reading
-// and the line naming the labelled weeks; on a phone a 240px plot under a legend that wraps).
-// The mounted chart's height (host + legend; the legend wraps once more at 360px and below).
-const VAR_HEIGHT = { wide: 344, narrow: 284 };
+// VarChart's plot plus its legend, as measured at 1440 and 390px: a 300px plot under the reading and
+// the key row (breach colours, then the labelled weeks); on a phone a 240px plot under a reading that
+// wraps once and the key row. Between 600 and 700px, and at 360px and below, the legend wraps once more.
+const VAR_HEIGHT = { wide: 344, narrow: 304 };
 
-/** Which VaR line a week's log return fell below: "99%", "95%" or "no". */
-const breachText = (row) => (row.var99 != null && row.ret < -row.var99 ? "99%" : row.var95 != null && row.ret < -row.var95 ? "95%" : "no");
+/** Which VaR line a week's log return fell below (breachOf()): "99%", "95%" or "no"; null before the VaR warms up. */
+const BREACH_TEXT = { var99: "99%", var95: "95%", ok: "no" };
+const breachText = (row) => BREACH_TEXT[breachOf(row)] ?? null;
 
 /** k of n grids passed, as n small squares plus the count. */
 function PassMeter({ pass, total }) {
@@ -63,35 +65,29 @@ export const lastWindowBreaches = (lab, rows) => {
   }));
 };
 
+/** RISK's caption: grid 0's Kupiec counts (riskCaptionCounts()) for the model of record. Null without them. Pure. */
+export const riskCaption = (counts, recordName) => (counts
+  ? `On grid 0, ${fmtInt(counts.e99)} of ${fmtInt(counts.n)} weeks breached the 99% VaR and ${fmtInt(counts.e95)} the 95% `
+    + `(Kupiec counts, ${recordName} ${counts.quantileLabel.toLowerCase()}).`
+  : null);
+
+/**
+ * A method note for when the chart colours other counts than the caption gives: the chart's series is
+ * stored rounded to 0.1 pt (drawnBreachCounts()), the Kupiec counts use unrounded values. Null when
+ * they agree. Pure.
+ */
+export const roundingNote = (counts, drawn) => {
+  if (!counts || !drawn?.n || (drawn.e99 === counts.e99 && drawn.e95 === counts.e95)) return null;
+  return `The chart's weekly series is rounded to 0.1 pt, so it colours ${fmtInt(drawn.e99)} weeks below the 99% line and `
+    + `${fmtInt(drawn.e95)} below the 95% line, where grid 0's Kupiec counts are ${fmtInt(counts.e99)} and ${fmtInt(counts.e95)}: `
+    + "a week whose rounded return equals its rounded VaR is not coloured.";
+};
+
 /**
  * The caption's breach counts, from the backtest artifact (grid 0's Kupiec counts for the model of
  * record's VaR at 99% and 95%), so the caption and the table can never disagree. Null when either
  * level is missing. Pure.
  */
-/**
- * Breaches as the chart draws them: the weekly series is stored rounded to 0.1 pt, so a week whose
- * rounded return equals its rounded VaR is not coloured, while the Kupiec counts use unrounded
- * values. Same rule as VarChart's breachOf (kept here so this panel does not load the chart chunk).
- */
-export const drawnBreachCounts = (series) => {
-  const scored = (series ?? []).filter((row) => row?.ret != null && row.var95 != null && row.var99 != null);
-  return {
-    n: scored.length,
-    e99: scored.filter((row) => row.ret < -row.var99).length,
-    e95: scored.filter((row) => row.ret < -row.var95).length,
-  };
-};
-
-/** RISK's caption: the Kupiec counts, and the drawn series' counts too when rounding makes them differ. */
-export const riskCaption = (counts, drawn, recordName) => {
-  if (!counts) return null;
-  const head = `On grid 0, ${fmtInt(counts.e99)} of ${fmtInt(counts.n)} weeks breached the 99% VaR and ${fmtInt(counts.e95)} the 95% `
-    + `(Kupiec counts, ${recordName} ${counts.quantileLabel.toLowerCase()}).`;
-  if (!drawn?.n || (drawn.e99 === counts.e99 && drawn.e95 === counts.e95)) return head;
-  return `${head} The chart's series is rounded to 0.1 pt, so it colours ${fmtInt(drawn.e99)} and ${fmtInt(drawn.e95)}: `
-    + "a week whose rounded return equals its rounded VaR is not coloured.";
-};
-
 export const riskCaptionCounts = (rows) => {
   const v99 = recordVar(rows, 0.01);
   const v95 = recordVar(rows, 0.05);
@@ -144,11 +140,12 @@ export default function RiskPanel({ data, research, researchStatus }) {
   const hasZones = shown.some((row) => last250.get(row.id)?.zone);
   const expectedLast = shownLevel != null ? LAST_WEEKS * shownLevel : null;
 
-  const caption = riskCaption(counts, drawnBreachCounts(series), recordName);
+  const caption = riskCaption(counts, recordName);
   const notes = [
     `Bars: weekly 5-session log returns, in percent. Lines: −VaR on the same log-return scale, from ${recordName} scaled by `
       + "filtered historical simulation (95% solid, 99% dashed); a coloured bar breached its line. "
       + "The range buttons change the chart only: the backtest statistics cover the full sample whatever the range.",
+    roundingNote(counts, drawnBreachCounts(series)),
     worst
       ? `The VaR and its returns are log returns; the vol-targeting table reports simple returns. The worst week, ${fmtDate(worst.date)}, `
         + `is ${fmtSigned(worst.ret, 1, "%")} as a log return, ${fmtSigned(logToSimplePct(worst.ret), 1, "%")} as a simple return.`
@@ -192,7 +189,7 @@ export default function RiskPanel({ data, research, researchStatus }) {
             { key: "ret", label: "Log return", align: "right", render: (row) => fmtSigned(row.ret, 1) },
             { key: "var95", label: "−VaR 95%", align: "right", hideBelow: 640, render: (row) => (row.var95 != null ? fmtNum(-row.var95, 1) : DASH), csv: (row) => (row.var95 != null ? -row.var95 : null) },
             { key: "var99", label: "−VaR 99%", align: "right", render: (row) => (row.var99 != null ? fmtNum(-row.var99, 1) : DASH), csv: (row) => (row.var99 != null ? -row.var99 : null) },
-            { key: "breach", label: "Breach", align: "center", render: breachText, csv: breachText },
+            { key: "breach", label: "Breach", align: "center", render: (row) => breachText(row) ?? DASH, csv: breachText },
           ]}
           rows={series.slice(-26).reverse()}
         />

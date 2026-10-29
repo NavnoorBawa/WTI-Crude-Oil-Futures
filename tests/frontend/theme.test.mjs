@@ -139,11 +139,11 @@ test("meaning-bearing chart marks meet 3:1 on the panel once their opacity is co
   marks.push(["cone band edges", token(coneEdge.stroke), Number(coneEdge["stroke-opacity"])]);
   // .thin dims whichever series stroke it is combined with.
   const thin = Number(decls(".thin")["stroke-opacity"]);
-  for (const series of ["truth", "model", "implied", "bench", "alt", "alt2"]) {
+  for (const series of ["truth", "model", "implied", "alt", "alt2"]) {
     marks.push([`thin ${series} line`, token(decls(`.stroke-${series}`).stroke), thin]);
   }
-  // The legend keys of the soft fills carry their plot's edge: the series' own channels.
-  for (const [selector, series] of [[".swatch-band", "--s-model"], [".swatch-cone-inner", "--s-truth"], [".swatch-cone-outer", "--s-truth"]]) {
+  // The legend key of the soft fill carries its plot's edge: the series' own channels.
+  for (const [selector, series] of [[".swatch-band", "--s-model"]]) {
     const edge = rgbaEdge(decls(selector).border);
     assert.deepEqual(edge.channels, rgb(cssVars[series]), `${selector} edge is ${series}`);
     marks.push([`${selector} edge`, edge.channels, edge.alpha]);

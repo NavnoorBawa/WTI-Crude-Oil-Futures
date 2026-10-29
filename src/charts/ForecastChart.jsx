@@ -160,7 +160,7 @@ export default function ForecastChart({ rows, live, range = "3Y", frameKey = 0, 
     },
     paint: (theme) => stateRef.current?.paint(theme),
   });
-  const { connect, reframe } = reader;
+  const { connect, reframe, offFrame } = reader;
 
   useEffect(() => {
     let disposed = false;
@@ -312,11 +312,16 @@ export default function ForecastChart({ rows, live, range = "3Y", frameKey = 0, 
     state.annotate();
   }, [ready, model]);
 
-  // Re-frame on a new preset, a click on the pressed preset (frameKey) or new data.
+  // Re-frame on a new preset or a click on the pressed one (frameKey). New data re-frames too, unless
+  // the reader has dragged or pinched away from the preset (as PriceChart does).
+  const framed = useRef(null);
   useEffect(() => {
     if (!ready || !times.length) return;
+    const key = `${range}|${String(frameKey)}`;
+    if (framed.current === key && offFrame) return;
+    framed.current = key;
     reframe();
-  }, [ready, range, frameKey, times, reframe]);
+  }, [ready, range, frameKey, times, offFrame, reframe]);
 
   const shown = (reader.activeKey && model.lookup.get(reader.activeKey)) || model.live || model.rows[model.rows.length - 1] || null;
   const { label, summary } = useMemo(() => {

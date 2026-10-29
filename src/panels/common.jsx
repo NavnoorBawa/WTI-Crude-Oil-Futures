@@ -30,7 +30,7 @@ export function ResearchUnavailable({ status, what = "this figure" }) {
 
 /**
  * An inline legend for an SVG figure (the canvas charts draw their own).
- * @param {{items: {tone: string, label: string, shape?: "dot"|"line"|"dash"|"band"|"ring"|"tick"}[]}} props
+ * @param {{items: {tone: string, label: string, shape?: "dot"|"line"|"dash"|"ring"|"tick"|"diamond"|"bar"|"bar-open"|"mark-tick"|"mark-tick-open"}[]}} props
  */
 export function Legend({ items }) {
   return (
@@ -64,9 +64,6 @@ export function Facts({ items, className = "" }) {
     </dl>
   );
 }
-
-/** Tones used for the four models compared in stability and calibration figures. */
-export const ROLE_TONE = { record: "model", challenger: "alt" };
 
 /**
  * A sub-study's heading: its one-claim title (h3) and, under it, the statistics behind the claim

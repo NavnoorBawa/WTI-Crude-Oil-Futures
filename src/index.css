@@ -51,9 +51,20 @@ button { font: inherit; color: inherit; }
 .muted { color: var(--text-3); }
 .nowrap { white-space: nowrap; }
 
-/* Inline lists separated by a middle dot that trails each item, so a wrapped line never starts with one. */
-.sep-list { display: flex; flex-wrap: wrap; align-items: baseline; row-gap: 2px; }
-.sep-list > :not(:last-child)::after { content: "·"; margin: 0 var(--sp-2); color: var(--text-4); }
+/* Inline lists separated by a middle dot, with no dot at either end of a wrapped line. Each item
+   carries its dot in front, in a --sep-w box that a negative margin pulls into the gap before it;
+   the item that starts a line puts its dot left of the list, where the clip cuts it off (the clip
+   keeps 4px there and 8px elsewhere, for focus rings). */
+.sep-list {
+  --sep-w: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--sep-w);
+  clip-path: inset(-8px -8px -8px -4px);
+}
+.sep-list > * { margin-left: calc(-1 * var(--sep-w)); }
+.sep-list > ::before { content: "·"; display: inline-block; width: var(--sep-w); text-align: center; color: var(--text-4); }
 
 .micro {
   font-size: var(--fs-11);
@@ -346,7 +357,6 @@ button { font: inherit; color: inherit; }
 .sparkline { display: inline-flex; align-items: center; }
 .sparkline path { fill: none; stroke: var(--s-truth); stroke-width: 1.25; stroke-linejoin: round; }
 .sparkline.is-muted path { stroke: var(--text-4); stroke-dasharray: 2 2; }
-.ms-name { color: var(--text-3); }
 .ms-price { font-size: var(--fs-14); font-weight: 600; color: var(--text-1); }
 /* Price direction is context on a volatility page: an arrow, not a saturated colour. */
 .ms-change { color: var(--text-2); }
@@ -732,22 +742,20 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 .swatch-truth { --c: var(--s-truth); }
 .swatch-model { --c: var(--s-model); }
 .swatch-implied { --c: var(--s-implied); }
-.swatch-bench { --c: var(--s-bench); }
 .swatch-alt { --c: var(--s-alt); }
 .swatch-alt2 { --c: var(--s-alt2); }
 .swatch-neutral { --c: var(--text-2); }
 .swatch-median { --c: var(--text-3); }
-/* Soft fills carry a 1px edge of at least 3:1 on --bg-1, as the plots do (theme.test.mjs checks the alphas). */
-.swatch-cone-inner { --c: rgb(201 209 217 / 0.32); border: 1px solid rgb(201 209 217 / 0.45); }
-.swatch-cone-outer { --c: rgb(201 209 217 / 0.14); border: 1px solid rgb(201 209 217 / 0.45); }
+/* A soft fill carries a 1px edge of at least 3:1 on --bg-1, as the plot does (theme.test.mjs checks the alpha). */
 .swatch-band { --c: rgb(57 135 229 / 0.35); height: 8px; border: 1px solid rgb(57 135 229 / 0.7); }
 .swatch-bar { --c: var(--text-3); width: 4px; height: 10px; }
 .swatch.is-dot { width: 8px; height: 8px; border-radius: 50%; }
 .swatch.is-ring { width: 8px; height: 8px; border-radius: 50%; background: transparent; border: 1.5px solid var(--c); }
-.swatch.is-band { height: 8px; }
 .swatch.is-tick { width: 2px; height: 10px; }
 .swatch.is-diamond { width: 7px; height: 7px; transform: rotate(45deg); margin-left: 2px; }
-.swatch.is-dash, .swatch.is-dashed { background: transparent; border-top: 2px dashed var(--c); height: 0; }
+/* Dashes painted as dashes (a dashed border this short is drawn as one solid bar): three 4px dashes
+   with 3px gaps, as the SVG figures' dashed strokes (.dashed). */
+.swatch.is-dash, .swatch.is-dashed { width: 18px; height: 2px; background: repeating-linear-gradient(90deg, var(--c) 0 4px, transparent 4px 7px); }
 .swatch.is-line { height: 2px; }
 .fact dt .swatch { margin-right: 6px; vertical-align: 1px; }
 
@@ -829,16 +837,13 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 .fill-truth { fill: var(--s-truth); }
 .fill-model { fill: var(--s-model); }
 .fill-implied { fill: var(--s-implied); }
-.fill-bench { fill: var(--s-bench); }
 .fill-alt { fill: var(--s-alt); }
 .fill-alt2 { fill: var(--s-alt2); }
 .fill-neutral { fill: var(--text-3); }
 .fill-muted { fill: var(--text-3); }
-.fill-neg { fill: var(--neg); }
 .stroke-truth { stroke: var(--s-truth); stroke-width: 1.5; }
 .stroke-model { stroke: var(--s-model); stroke-width: 1.5; }
 .stroke-implied { stroke: var(--s-implied); stroke-width: 1.5; }
-.stroke-bench { stroke: var(--s-bench); stroke-width: 1.5; }
 .stroke-alt { stroke: var(--s-alt); stroke-width: 1.5; }
 .stroke-alt2 { stroke: var(--s-alt2); stroke-width: 1.5; }
 .stroke-neutral { stroke: var(--text-3); stroke-width: 1.5; }
@@ -850,7 +855,6 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 .label-truth { fill: var(--s-truth); color: var(--s-truth); }
 .label-model { fill: var(--s-model); color: var(--s-model); }
 .label-implied { fill: var(--s-implied); color: var(--s-implied); }
-.label-bench { fill: var(--s-bench); color: var(--s-bench); }
 .label-alt { fill: var(--s-alt); color: var(--s-alt); }
 .label-alt2 { fill: var(--s-alt2); color: var(--s-alt2); }
 .label-neutral { fill: var(--text-2); color: var(--text-2); }

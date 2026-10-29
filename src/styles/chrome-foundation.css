@@ -95,7 +95,7 @@
 .disclosure-summary::before { content: "▸"; display: inline-block; width: 1em; color: var(--text-3); font-size: var(--fs-11); }
 .disclosure[open] > .disclosure-summary::before { content: "▾"; }
 .disclosure-summary:hover { color: var(--text-1); }
-.disclosure-body { display: grid; gap: var(--sp-2); margin-top: var(--sp-1); font-size: var(--fs-12); line-height: 1.55; color: var(--text-2); }
+.disclosure-body { display: grid; gap: var(--sp-2); margin-top: var(--sp-1); line-height: 1.55; color: var(--text-2); }
 .panel-notes { margin-top: var(--sp-3); max-width: var(--measure); }
 @media (pointer: coarse) {
   .disclosure-summary { min-height: 44px; }

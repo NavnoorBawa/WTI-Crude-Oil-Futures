@@ -96,9 +96,10 @@ test("search 'ovx' narrows the ledger to rows that mention it; every term must m
   const display = (text) => m.research.ledgerText(text, { labels });
   const range = reference.filterLedgerRows(rows, { query: "HAR-IV-range" }, display);
   assert.ok(range.some((row) => row.id === "vol_challenger_qlike"));
-  // Combined with the filters, as the panel's export of filterLedger does.
-  const family = rows[0].family;
-  assert.ok(m.ledger.filterLedger(rows, family, "all", "ovx").every((row) => row.family === family));
+  // Combined with the filters, as LedgerPanel calls it.
+  const family = hits[0].family;
+  const filtered = reference.filterLedgerRows(rows, { family, status: "all", query: "ovx" }, display);
+  assert.ok(filtered.length > 0 && filtered.every((row) => row.family === family));
 });
 
 test("a #ledg-<id> link reveals its row: search and filters cleared, every row shown", () => {

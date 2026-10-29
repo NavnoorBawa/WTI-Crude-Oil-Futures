@@ -215,7 +215,7 @@ test("canvas charts carry an accessible summary of what they draw", async () => 
   assert.match(description(forecast), new RegExp(`^Weekly HAR-IV forecast against realized next-week volatility, ${rows.length} weeks from `));
   assert.match(description(forecast), /with the 80% band \(production for \d+ weeks, benchmark lab for \d+ weeks\) and OVX/);
   const series = m.research.varSeries(research.vol_lab);
-  const counts = m.research.countExceedances(series);
+  const counts = (await m.load("/src/lib/var.js")).drawnBreachCounts(series);
   const varChart = renderToStaticMarkup(h(m.varChart.default, { rows: series }));
   assert.match(varChart, /role="group" aria-roledescription="chart" aria-label="Weekly log returns against the 95% and 99% VaR, /);
   assert.match(description(varChart), new RegExp(`^Weekly 5-session log returns, ${series.length} weeks`));
@@ -362,17 +362,21 @@ test("the VRP table compares the two short-vol proxies like for like", () => {
   assert.ok(m.vrp.vrpStatRows(half).every((row) => !String(row.note ?? "").includes("excl.")), "one proxy alone is not shown ex-worst-year");
 });
 
-test("the ledger filter narrows by family and status", () => {
+test("the ledger filter narrows by family and status", async () => {
   const rows = research.ledger.rows;
-  const { filterLedger } = m.ledger;
-  assert.equal(filterLedger(rows, "all", "all").length, rows.length);
-  const retracted = filterLedger(rows, "all", "retracted");
+  // As LedgerPanel calls it: the filters, the search and the text as the page shows it.
+  const { filterLedgerRows } = await m.load("/src/lib/reference.js");
+  const labels = m.research.modelLabels(research.vol_lab);
+  const display = (text) => m.research.ledgerText(text, { labels });
+  const filter = (family, status, query = "") => filterLedgerRows(rows, { family, status, query }, display);
+  assert.equal(filter("all", "all").length, rows.length);
+  const retracted = filter("all", "retracted");
   assert.ok(retracted.length > 0 && retracted.every((row) => row.status === "retracted"));
   const family = rows[0].family;
-  assert.ok(filterLedger(rows, family, "all").every((row) => row.family === family));
+  assert.ok(filter(family, "all").every((row) => row.family === family));
   // A search narrows within the filters: every term must match the hypothesis, test, id or family.
-  const searched = filterLedger(rows, family, "all", "qlike");
-  assert.ok(searched.length < filterLedger(rows, family, "all").length);
+  const searched = filter(family, "all", "qlike");
+  assert.ok(searched.length < filter(family, "all").length);
   assert.ok(searched.every((row) => row.family === family && /qlike/i.test([row.hypothesis, row.test, row.id].join(" "))));
 });
 

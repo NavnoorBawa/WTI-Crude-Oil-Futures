@@ -240,6 +240,25 @@ test("the yearly gap rows draw one bar per year and model with both values, the 
   function count(a, b) { return lab.yearly.filter((year) => year[`${a}_qlike`] < year[`${b}_qlike`]).length; }
 });
 
+test("a STAB row title keeps its count whole and shortens only the model name", () => {
+  const { fitTitleName, titleWidth } = stabilityCharts;
+  const measure = (text) => text.length * 7;  // a stand-in font: 7 px a character
+  const suffix = " · HAR-IV lower in 16/19";
+  assert.equal(fitTitleName("GJR-GARCH(1,1)-t", suffix, 400, measure), "GJR-GARCH(1,1)-t", "fits: unchanged");
+  const cut = fitTitleName("GJR-GARCH(1,1)-t", suffix, 200, measure);
+  assert.ok(cut.endsWith("…") && "GJR-GARCH(1,1)-t".startsWith(cut.slice(0, -1)), cut);
+  assert.ok(measure(`${cut}${suffix}`) <= 200 && measure(`${cut.slice(0, -1)}x…${suffix}`) > 200, "the longest name that fits");
+  assert.equal(fitTitleName("OVX-only regression", suffix, 10, measure), "O…", "never less than a letter");
+  // On the server there is no canvas: each character counts at least as wide as the sans title measures.
+  assert.ok(titleWidth("GJR-GARCH(1,1)-t · HAR-IV lower in 16/19") / 40 >= 7);
+  // The drawn title: the whole count after the (possibly shortened) name; the full title in <title>.
+  const rows = [{ key: "gjr", label: "GJR-GARCH(1,1)-t", tone: "ink", wins: 16, total: 19, gaps: [{ year: 2020, value: 0.01, model: 1, record: 0.99 }] }];
+  const markup = html(createElement(stabilityCharts.YearlyGapSvg, { rows, recordLabel: "HAR-IV", limit: 0.05, width: 240 }));
+  const drawn = markup.match(/<text class="multiple-title[^"]*"[^>]*><title>([^<]*)<\/title>([^<]*)<\/text>/);
+  assert.equal(drawn?.[1], `GJR-GARCH(1,1)-t${suffix}`);
+  assert.ok(drawn[2].endsWith(suffix) && drawn[2].length < drawn[1].length, drawn[2]);
+});
+
 test("without the OVX-only regression the STAB title states the challenger's count on its own", () => {
   const years = m.research.yearlyQlike(lab, [champion, challenger]);
   const wins = lab.yearly.filter((row) => row[`${challenger}_qlike`] < row[`${champion}_qlike`]).length;

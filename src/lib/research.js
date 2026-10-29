@@ -378,18 +378,6 @@ export const logToSimplePct = (value) => {
   return n == null ? null : Math.expm1(n / 100) * 100;
 };
 
-/** Exceedance counts recomputed from the (rounded) chart series, for the chart's own legend. */
-export const countExceedances = (rows) => {
-  let n = 0, e95 = 0, e99 = 0;
-  for (const row of rows) {
-    if (row.var95 == null || row.var99 == null) continue;
-    n += 1;
-    if (row.ret < -row.var95) e95 += 1;
-    if (row.ret < -row.var99) e99 += 1;
-  }
-  return { n, e95, e99 };
-};
-
 /** Pairs of (OVX, next-week realized) for the VRP scatter. */
 export const vrpPoints = (lab) => {
   const series = asObject(lab?.series);
@@ -536,9 +524,6 @@ export const callScoring = (row, record = null) => {
   if (due == null) return num(lr.n_pending) > 0 ? "pending_roll" : "pending";
   return ISO_DATE.test(due) && end && ISO_DATE.test(end) && end.slice(0, 10) < due.slice(0, 10) ? "pending_roll" : "pending";
 };
-
-/** A call's scoring (callScoring()) that will never produce a score. */
-export const NEVER_SCORED = new Set(["pending_roll", "skipped_roll", "late_commit", "expired"]);
 
 // ---------------------------------------------------------------------------------- leak anatomy
 

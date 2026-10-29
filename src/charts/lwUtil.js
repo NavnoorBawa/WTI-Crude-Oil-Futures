@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { TickMarkType } from "lightweight-charts";
-import { PRINT_THEME, SCREEN_THEME, themeChartOptions } from "../theme/chartTheme";
+import { MONO_CHAR_PX, PRINT_THEME, SCREEN_THEME, themeChartOptions } from "../theme/chartTheme";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MINUS = "−";
@@ -104,9 +104,6 @@ export const formatTick = (time, tickMarkType, days = null) => {
   return null;
 };
 
-/** Advance of one character of the charts' 11px monospace axis font (0.6 em). */
-export const MONO_CHAR_PX = 6.6;
-
 /**
  * Whether `text`, centred on `time`, fits inside the plot: the library centres tick labels and marker
  * text on their time and clips what runs past either edge ("’23" for "Oct ’23"). Pure given the chart.
@@ -196,6 +193,17 @@ export const nextReadIndex = (key, { shift = false, current = null, visible = nu
 export const isOffFrame = (range, frame) => Boolean(range && frame)
   && (Math.abs(range.from - frame.from) > FRAME_TOLERANCE_BARS || Math.abs(range.to - frame.to) > FRAME_TOLERANCE_BARS);
 
+/**
+ * True when a visible logical range differs from the frame the way a change of plot width moves it:
+ * the library keeps the right edge (or, scrolled to the first bar under fixLeftEdge, the left edge)
+ * and moves the other one. A drag moves both edges. Pure.
+ */
+export const isWidthShift = (range, frame) => Boolean(range && frame)
+  && (Math.abs(range.to - frame.to) <= FRAME_TOLERANCE_BARS || Math.abs(range.from - frame.from) <= FRAME_TOLERANCE_BARS);
+
+/** Automatic re-framings in a row for a plot that keeps changing width; after them its view is the frame. */
+const MAX_REFITS = 3;
+
 const coarsePointer = () =>
   typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 
@@ -207,7 +215,8 @@ const coarsePointer = () =>
  * - tap or click pins a row (the same row again clears it); on a coarse pointer a hint says so
  *   until the first tap;
  * - the range preset is the frame: a drag or pinch away from it shows "Reset view", which (like a
- *   double click on the plot, or a new `frameKey` in the chart) puts the preset back;
+ *   double click on the plot, or a new `frameKey` in the chart) puts the preset back; a plot that
+ *   changes width by itself (the price axis settling on its labels) gets the preset again instead;
  * - printing swaps the canvas for a screenshot taken in the light print palette.
  *
  * The chart component calls `connect(chart, host, mainSeries)` once the chart exists (it returns the
@@ -289,21 +298,33 @@ export function useChartReader(options) {
     }
   }, []);
 
-  /** Puts the range preset back (also on a new frameKey, a double click, or "Reset view"). */
-  const reframe = useCallback(() => {
+  /** Applies the range preset, then records the view it gives and the plot's width as the frame. */
+  const applyFrame = useCallback(() => {
     const link = linkRef.current;
     if (!link) return;
+    const scale = link.chart.timeScale();
     link.framing = true;
+    link.frameWidth = scale.width();
     optionsRef.current.frame(link.chart);
     window.cancelAnimationFrame(link.frameRaf);
     // The library applies a new range in its next animation frame; read the settled range after it.
     link.frameRaf = window.requestAnimationFrame(() => {
       link.frameRaf = 0;
-      link.frame = link.chart.timeScale().getVisibleLogicalRange();
+      link.frame = scale.getVisibleLogicalRange();
       link.framing = false;
       setOff(false);
+      // The plot changed width while the preset was being applied: apply it at the new width.
+      if (scale.width() !== link.frameWidth) link.refit();
     });
   }, [setOff]);
+
+  /** Puts the range preset back (also on a new frameKey, a double click, or "Reset view"). */
+  const reframe = useCallback(() => {
+    const link = linkRef.current;
+    if (!link) return;
+    link.refits = 0;
+    applyFrame();
+  }, [applyFrame]);
 
   // A pinned row that left the data (new rows, another cadence) is dropped; one that moved is followed.
   const { times } = options;
@@ -320,7 +341,21 @@ export function useChartReader(options) {
 
   const connect = useCallback((chart, host, series) => {
     const link = {
-      chart, host, series: () => series, frame: null, framing: false, offFrame: false, frameRaf: 0, pinRaf: 0, announceTimer: 0,
+      chart, host, series: () => series, frame: null, frameWidth: 0, framing: false, offFrame: false, refits: 0,
+      frameRaf: 0, pinRaf: 0, announceTimer: 0,
+      // The plot can change width while its host keeps its size: the price axis settles on its width
+      // once the first tick labels and last-value badges are drawn. The reader did not move the view,
+      // so the preset is applied again at the new width (MAX_REFITS times in a row at most; after that
+      // the settled view is the frame), and a chart nobody has touched never offers "Reset view".
+      refit: () => {
+        if (link.refits < MAX_REFITS) {
+          link.refits += 1;
+          applyFrame();
+          return;
+        }
+        link.frame = chart.timeScale().getVisibleLogicalRange();
+        link.frameWidth = chart.timeScale().width();
+      },
     };
     linkRef.current = link;
     const keyOf = (time) => (optionsRef.current.keyOf ?? timeKey)(time);
@@ -351,8 +386,12 @@ export function useChartReader(options) {
     };
     const onRange = (range) => {
       if (!link.framing && link.frame) {
-        const off = isOffFrame(range, link.frame);
-        if (off !== link.offFrame) setOff(off);
+        if (!link.offFrame && chart.timeScale().width() !== link.frameWidth && isWidthShift(range, link.frame)) {
+          link.refit();
+        } else {
+          const off = isOffFrame(range, link.frame);
+          if (off !== link.offFrame) setOff(off);
+        }
       }
       restoreCrosshair();
     };
@@ -400,7 +439,7 @@ export function useChartReader(options) {
       window.clearTimeout(link.announceTimer);
       if (linkRef.current === link) linkRef.current = null;
     };
-  }, [pinAt, reframe, restoreCrosshair, setOff, unpin]);
+  }, [applyFrame, pinAt, reframe, restoreCrosshair, setOff, unpin]);
 
   const onKeyDown = useCallback((event) => {
     const link = linkRef.current;

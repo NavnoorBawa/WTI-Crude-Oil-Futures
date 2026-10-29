@@ -5,10 +5,8 @@ import { scaleLinear, scaleUtc } from "d3-scale";
 import { line } from "d3-shape";
 import { fmtDate, fmtNum } from "../lib/format";
 import { ledgerStripLabel } from "../lib/reference";
+import { MONO_CHAR_PX } from "../theme/chartTheme";
 import { Frame, XAxis, YAxis, extent } from "./svgCharts.jsx";
-
-// 11px JetBrains Mono advances about this many px per character (as in svgCharts.jsx).
-const CHAR_PX = 6.6;
 
 // ------------------------------------------------------------------------------- ledger strip
 
@@ -76,7 +74,7 @@ export function LedgerStripSvg({ strip, width }) {
   const labels = groups.map((group) => {
     const words = groupWords(group);
     const text = `${words.count}${words.label}${words.survivors}`;
-    return { group, words, start: cellX(group.start, group.key), width: KEY + KEY_GAP + text.length * CHAR_PX };
+    return { group, words, start: cellX(group.start, group.key), width: KEY + KEY_GAP + text.length * MONO_CHAR_PX };
   });
   const placed = placeStripLabels(labels, width);
   const lines = Math.max(1, ...placed.map((item) => item.line + 1));
@@ -174,7 +172,7 @@ export function ElasticityPathSvg({ path, width }) {
     .defined((point) => point[key] != null)
     .x((point) => x(parseDay(point.date)))
     .y((point) => y(point[key]))(path.points);
-  const clampX = (value, text) => Math.min(Math.max(value, m.left + (text.length * CHAR_PX) / 2), right - (text.length * CHAR_PX) / 2);
+  const clampX = (value, text) => Math.min(Math.max(value, m.left + (text.length * MONO_CHAR_PX) / 2), right - (text.length * MONO_CHAR_PX) / 2);
   const polyline = (key) => path.points.map((point) => (point[key] != null ? { px: x(parseDay(point.date)), py: y(point[key]) } : null));
   const lines = [polyline("ovx"), ...(path.rv ? [polyline("rv")] : [])];
   const marks = (path.ovx ? [
@@ -184,7 +182,7 @@ export function ElasticityPathSvg({ path, width }) {
     const label = `${mark.key} ${fmtNum(mark.value, 2)}`;
     const cx = x(parseDay(mark.date));
     const lx = clampX(cx, label);
-    const half = (label.length * CHAR_PX) / 2;
+    const half = (label.length * MONO_CHAR_PX) / 2;
     const baseline = y(mark.value) + mark.dy;
     // The label's box at the 11px font, its halo and a line's half-width included.
     const box = { x0: lx - half - 3, x1: lx + half + 3, y0: baseline - 12, y1: baseline + 5 };

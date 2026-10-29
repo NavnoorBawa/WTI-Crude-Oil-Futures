@@ -5,6 +5,7 @@ import { scaleLinear, scaleLog, scaleUtc } from "d3-scale";
 import { area, line } from "d3-shape";
 import useMeasure from "../lib/useMeasure";
 import { fmtDate, fmtNum, fmtSigned, fmtSignedUsd, fmtSpan } from "../lib/format";
+import { MONO_CHAR_PX } from "../theme/chartTheme";
 
 const MARGIN = { top: 12, right: 16, bottom: 26, left: 44 };
 
@@ -46,8 +47,6 @@ export const extent = (values) => {
   return finite.length ? [Math.min(...finite), Math.max(...finite)] : [0, 1];
 };
 
-// 11px JetBrains Mono advances about 6.6px per character.
-const MONO_CHAR_PX = 6.6;
 /** Shortens a row label to fit `px`, with an ellipsis; the full text goes in a <title>. */
 export const fitLabel = (text, px) => {
   const max = Math.max(4, Math.floor(px / MONO_CHAR_PX));

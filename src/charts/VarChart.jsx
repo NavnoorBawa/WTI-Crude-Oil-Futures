@@ -3,20 +3,13 @@ import { HistogramSeries, LineSeries, LineStyle, LineType, createChart, createSe
 import ChartFigure from "./ChartFigure";
 import { SCREEN_THEME, SURFACE, baseChartOptions, fontsReady, withAlpha } from "../theme/chartTheme";
 import { DASH, fmtDate, fmtInt, fmtNum, fmtSigned, fmtSpan } from "../lib/format";
+import { breachOf, drawnBreachCounts } from "../lib/var";
 import { ANNOTATION_MIN_PX, fmtAxisPercent, frameRange, installTickFormatter, timeKey, useChartReader } from "./lwUtil";
 
 export const VAR_RANGES = { "3Y": 3 * 365, "10Y": 10 * 365, ALL: null };
 const ANNOTATE_DELAY_MS = 150;
 // Room right of the last week, so the last time label is not cut by the price axis on a phone.
 const ROOM_PX = 24;
-
-/** Classifies each week: "var99" breach, "var95" breach, or "ok" (no VaR yet -> "none"). */
-export const breachOf = (row) => {
-  if (row.var95 == null || row.var99 == null) return "none";
-  if (row.ret < -row.var99) return "var99";
-  if (row.ret < -row.var95) return "var95";
-  return "ok";
-};
 
 /** Bar colours in a palette. Weeks before the VaR warms up are solid text-4, which keeps 3:1 on the panel. */
 export const barColors = (theme) => ({
@@ -95,7 +88,7 @@ export default function VarChart({ rows, range = "ALL", frameKey = 0 }) {
     frame: (chart) => frameRange(chart, model.times, VAR_RANGES[range] ?? null, 1, ROOM_PX),
     paint: (theme) => stateRef.current?.paint(theme),
   });
-  const { connect, reframe } = reader;
+  const { connect, reframe, offFrame } = reader;
 
   useEffect(() => {
     let disposed = false;
@@ -178,22 +171,25 @@ export default function VarChart({ rows, range = "ALL", frameKey = 0 }) {
     state.paint(state.theme);
   }, [ready, rows]);
 
-  // Re-frame on a new preset, a click on the pressed preset (frameKey) or new data.
+  // Re-frame on a new preset or a click on the pressed one (frameKey). New data re-frames too, unless
+  // the reader has dragged or pinched away from the preset (as PriceChart does).
+  const framed = useRef(null);
   useEffect(() => {
     if (!ready || !rows.length) return;
+    const key = `${range}|${String(frameKey)}`;
+    if (framed.current === key && offFrame) return;
+    framed.current = key;
     reframe();
-  }, [ready, range, frameKey, rows, reframe]);
+  }, [ready, range, frameKey, rows, offFrame, reframe]);
 
   const shown = (reader.activeKey && model.lookup.get(reader.activeKey)) || model.lookup.get(rows[rows.length - 1]?.date) || null;
   const { label, summary } = useMemo(() => {
-    const scored = rows.filter((row) => row.var95 != null && row.var99 != null);
-    const e99 = scored.filter((row) => breachOf(row) === "var99").length;
-    const e95 = scored.filter((row) => breachOf(row) !== "ok").length;
+    const { n, e99, e95 } = drawnBreachCounts(rows);
     const span = rows.length ? fmtSpan(rows[0].date, rows[rows.length - 1].date) : null;
     return {
       label: `Weekly log returns against the 95% and 99% VaR, ${fmtInt(rows.length)} weeks${span ? `, ${span}` : ""}`,
       summary: `Weekly 5-session log returns, ${rows.length} weeks${rows.length ? ` from ${fmtDate(rows[0].date)} to ${fmtDate(rows[rows.length - 1].date)}` : ""}, `
-        + `against the forecast-scaled 95% and 99% VaR; in this series, rounded to 0.1 pt, ${e99} of ${scored.length} weeks fell below `
+        + `against the forecast-scaled 95% and 99% VaR; in this series, rounded to 0.1 pt, ${e99} of ${n} weeks fell below `
         + `the 99% line and ${e95} below the 95% line (the caption gives the Kupiec counts). `
         + "Arrow keys read the weeks one by one; the Table button lists the latest weeks.",
     };
@@ -205,8 +201,13 @@ export default function VarChart({ rows, range = "ALL", frameKey = 0 }) {
       <span className="legend-item"><i className="swatch swatch-bar" />5-session log return {fmtSigned(shown?.ret, 1, "%")}</span>
       <span className="legend-item"><i className="swatch swatch-model" />−VaR 95% {shown?.var95 != null ? `${fmtNum(-shown.var95, 1)}%` : DASH}</span>
       <span className="legend-item"><i className="swatch swatch-model is-dashed" />−VaR 99% {shown?.var99 != null ? `${fmtNum(-shown.var99, 1)}%` : DASH}</span>
-      {shown && <span className={`legend-item legend-status is-${shown.breach}`}>{STATUS_TEXT[shown.breach]}</span>}
-      {note && <span className="legend-item legend-annotation"><span className="legend-arrow">↑</span>{note}</span>}
+      {shown &&<span className={`legend-item legend-status is-${shown.breach}`}>{STATUS_TEXT[shown.breach]}</span>}
+      {/* A row of its own for what holds whatever the week read: the bars' breach colours, and the weeks the arrows label. */}
+      <span className="legend-key">
+        <span className="legend-item"><i className="swatch swatch-bar is-var95" />95% breach</span>
+        <span className="legend-item"><i className="swatch swatch-bar is-var99" />99% breach</span>
+        {note && <span className="legend-item legend-annotation"><span className="legend-arrow">↑</span>{note}</span>}
+      </span>
     </>
   );
 
