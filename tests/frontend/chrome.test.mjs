@@ -332,6 +332,58 @@ test("fmtNum and fmtSigned group thousands on request only", () => {
   assert.equal(f.fmtNum(-0.04, 1, { group: true }), "0.0", "a value that rounds to zero is unsigned");
 });
 
+test("the cached number formatters print what Number#toLocaleString printed, without building one per value", () => {
+  const f = m.format;
+  for (const value of [0, 7, 999.5, 4370, -4370.4, 1234567.89, 1e21]) {
+    assert.equal(f.fmtInt(value), Math.round(value).toLocaleString("en-US"), String(value));
+    for (const digits of [0, 1, 2]) {
+      const grouped = Math.abs(Number(value.toFixed(digits)))
+        .toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+      assert.equal(f.fmtNum(Math.abs(value), digits, { group: true }), grouped, `${value}, ${digits}`);
+      assert.equal(f.fmtUsd(value, digits), `$${value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`);
+    }
+  }
+  assert.equal(f.fmtInt("x"), "—");
+  const source = readSource("src/lib/format.js");
+  assert.doesNotMatch(source, /\.toLocaleString\(|JSON\.stringify\(/, "no formatter is built per call, nor keyed by a JSON string");
+  // DataTable's counts use the same cached formatter.
+  assert.doesNotMatch(readSource("src/components/DataTable.jsx"), /\.toLocaleString\(/);
+  // A date formatter per option set: the year and no-year forms of a date never share one.
+  assert.equal(f.fmtDate("2026-12-03"), "Dec 3, 2026");
+  assert.equal(f.fmtDate("2026-12-03", { year: false }), "Dec 3");
+  assert.equal(f.fmtCT(Date.parse("2026-12-03T19:30:00Z"), { year: true }), "Dec 3, 2026, 1:30 PM CT");
+  assert.equal(f.fmtCT(Date.parse("2026-12-03T19:30:00Z"), { date: false }), "1:30 PM CT");
+  assert.equal(f.ctIsoDate(Date.parse("2026-12-04T05:59:00Z")), "2026-12-03", "11:59 PM CST is still Dec 3");
+  assert.equal(f.ctIsoDate(Date.parse("2026-12-04T06:00:00Z")), "2026-12-04");
+  assert.equal(f.ctIsoDate(null), null);
+});
+
+test("a table speaks its row count after a reader's sort, filter or Show all, never for a data change", () => {
+  const { shouldAnnounce, READER_WINDOW_MS } = m.table;
+  const before = "Showing 52 of 156 weeks";
+  const after = "Showing 52 of 928 weeks";
+  // research.json landing on a ?table= link: the rows change with no input from the reader.
+  assert.equal(shouldAnnounce({ previous: before, next: after, inputAt: Number.NEGATIVE_INFINITY, now: 4000 }), false);
+  assert.equal(shouldAnnounce({ previous: before, next: after, inputAt: 1000, now: 1000 + READER_WINDOW_MS + 1 }), false,
+    "a refresh long after the reader's last input");
+  // A sort or Show all, right after the click or key press that asked for it.
+  assert.equal(shouldAnnounce({ previous: before, next: `${before}, sorted by QLIKE descending`, inputAt: 1000, now: 1012 }), true);
+  // Rows re-created by a re-render with the same counts say nothing new.
+  assert.equal(shouldAnnounce({ previous: before, next: before, inputAt: 1000, now: 1012 }), false);
+  assert.ok(READER_WINDOW_MS >= 500 && READER_WINDOW_MS <= 2000);
+});
+
+test("a data.json refresh that returns the snapshot already shown is not set again", async () => {
+  const { isSameSnapshot } = await m.load("/src/app/useDashboardData.js");
+  const text = JSON.stringify(data);
+  assert.equal(isSameSnapshot(text, JSON.stringify(data)), true, "byte-identical: skipped, so nothing re-renders");
+  assert.equal(isSameSnapshot(text, JSON.stringify({ ...data, frozen_at: "2026-10-20T16:20:05Z" })), false, "a new snapshot is set");
+  assert.equal(isSameSnapshot(null, text), false, "the first snapshot is always set");
+  const source = readSource("src/app/useDashboardData.js");
+  // Only a changed snapshot is set, and a refresh renders as a transition; the check time always moves.
+  assert.match(source, /if \(!isSameSnapshot\(shownText, result\.text\)\) \{[\s\S]*?startTransition\(\(\) => setData\(payload\)\)[\s\S]*?\}\s*setLastUpdate\(Date\.now\(\)\);\s*setError\(null\);/);
+});
+
 // ------------------------------------------------------------------------ research.json missing
 test("without research.json one notice under the verdict names the sections, and the panels point to it", () => {
   const { html, text, errors } = renderDashboard(null, "unavailable");

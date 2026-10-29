@@ -1,5 +1,6 @@
 import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { csvFileName, downloadText, toCsv } from "../lib/csv";
+import { fmtInt } from "../lib/format";
 import { SnapshotContext } from "../lib/snapshot";
 
 /**
@@ -78,7 +79,35 @@ export const csvColumns = (columns) => columns
 
 const ARIA_SORT = { asc: "ascending", desc: "descending" };
 const ANNOUNCE_DELAY_MS = 250;
-const count = (n) => n.toLocaleString("en-US");
+
+// A change to the rows this soon after a reader's click, key press or typing is the reader's (a sort,
+// a filter, Show all); a later one comes from the data (research.json landing, a refreshed snapshot).
+export const READER_WINDOW_MS = 1500;
+const READER_EVENTS = ["pointerdown", "keydown", "input"];
+let readerInputAt = Number.NEGATIVE_INFINITY;
+let watchingReaders = false;
+/** Notes the time of every input from the reader, once per page, before any handler runs. */
+const watchReaders = () => {
+  if (watchingReaders || typeof window === "undefined") return;
+  watchingReaders = true;
+  const note = (event) => {
+    if (event.isTrusted) readerInputAt = performance.now();
+  };
+  for (const type of READER_EVENTS) window.addEventListener(type, note, { capture: true, passive: true });
+};
+
+/**
+ * Whether a table's "Showing N of M …, sorted by …" sentence is spoken: only when its text has
+ * changed (the same rows re-created by a re-render say nothing new) and a reader's input came at
+ * most READER_WINDOW_MS before, so a sort, a filter or Show all is announced, while research.json
+ * landing or a refreshed snapshot, which change the rows too, stay silent (on the load of a ?table=
+ * link as well). Times in ms on one clock. Pure.
+ *
+ * @param {{previous: string, next: string, inputAt: number, now: number}} change  the sentence before
+ *   and after, the time of the reader's last input and the time of the change
+ */
+export const shouldAnnounce = ({ previous, next, inputAt, now }) =>
+  next !== previous && now - inputAt >= 0 && now - inputAt <= READER_WINDOW_MS;
 
 /**
  * A semantic, optionally sortable table: <caption>, scoped headers and aria-sort on sortable
@@ -186,19 +215,25 @@ export default function DataTable({
     };
   }, []);
 
-  // "Showing N of M rows, sorted by …", spoken a moment after the rows or the sort change (never on load).
+  // "Showing N of M rows, sorted by …", spoken a moment after a reader's sort, filter or Show all
+  // (shouldAnnounce): never on load, nor when the data behind the rows changes.
   const sortColumn = sort ? columns.find((column) => column.key === sort.key) : null;
   const noun = typeof announce === "string" ? announce : "rows";
-  const summary = `Showing ${count(rows.length)} of ${count(totalCount ?? rows.length)} ${noun}`
+  const summary = `Showing ${fmtInt(rows.length)} of ${fmtInt(totalCount ?? rows.length)} ${noun}`
     + (sortColumn ? `, sorted by ${sortColumn.csvLabel ?? labelText(sortColumn) ?? sortColumn.key} ${ARIA_SORT[sort.direction]}` : "");
   const [message, setMessage] = useState("");
-  const announced = useRef({ rows, sort });
+  const announced = useRef(summary);
   useEffect(() => {
-    if (!announce || (announced.current.rows === rows && announced.current.sort === sort)) return undefined;
-    announced.current = { rows, sort };
+    if (announce) watchReaders();
+  }, [announce]);
+  useEffect(() => {
+    if (!announce) return undefined;
+    const speak = shouldAnnounce({ previous: announced.current, next: summary, inputAt: readerInputAt, now: performance.now() });
+    announced.current = summary;
+    if (!speak) return undefined;
     const timer = setTimeout(() => setMessage(summary), ANNOUNCE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [announce, rows, sort, summary]);
+  }, [announce, summary]);
 
   const download = () => {
     const ordered = orderRows(exportRows ?? rows, columns, sort, pinLast);

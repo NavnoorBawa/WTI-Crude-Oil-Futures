@@ -69,7 +69,7 @@ after(async () => {
 
 /** A page at `viewport` with console errors, page errors and failed requests collected, and the first
  * screen's layout shifts summed from navigation on (shifts right after input do not count, as in CLS). */
-const openPage = async (viewport, { now = FRESH } = {}) => {
+const openPage = async (viewport, { now = FRESH, path = "/" } = {}) => {
   const context = await browser.newContext({
     viewport: { width: viewport.width, height: viewport.height }, locale: "en-US", timezoneId: "America/Chicago",
     reducedMotion: "reduce",
@@ -86,9 +86,13 @@ const openPage = async (viewport, { now = FRESH } = {}) => {
       for (const entry of list.getEntries()) if (!entry.hadRecentInput) window.__cls += entry.value;
     }).observe({ type: "layout-shift", buffered: true });
   });
-  await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+  await page.goto(`${origin}${path}`, { waitUntil: "networkidle" });
   return { context, page, problems };
 };
+
+// The canvas charts (lightweight-charts): they mount near the viewport or to print, never in the background.
+const CANVAS_SECTIONS = ["fcst", "risk", "mkt"];
+const busyIn = (page, id) => page.evaluate((section) => document.querySelector(`#${section} .lazy-mount`)?.getAttribute("aria-busy") ?? null, id);
 
 /** Scrolls to the bottom and back so every lazily mounted figure is drawn. */
 const mountEverything = async (page) => {
@@ -172,6 +176,74 @@ test("keyboard: the skip link comes first, and the jump palette opens, filters, 
     await page.keyboard.press("Escape");
     await dialog.waitFor({ state: "hidden" });
     assert.notEqual(await page.evaluate(() => document.activeElement?.tagName), "DIALOG");
+    assert.deepEqual(problems, []);
+  } finally {
+    await context.close();
+  }
+});
+
+test("phone: SVG figures mount in the background; canvas charts wait for the reader's scroll or for print", async () => {
+  const { context, page, problems } = await openPage(VIEWPORTS[1]);
+  try {
+    await page.waitForSelector("#verdict-title");
+    // The background queue starts 3 s after the load event and mounts one figure per idle period.
+    await page.waitForFunction((canvas) => [...document.querySelectorAll(".lazy-mount[aria-busy]")]
+      .every((node) => canvas.some((id) => node.closest(`#${id}`))), CANVAS_SECTIONS, { timeout: 20000 });
+    await page.waitForTimeout(1500);
+    for (const id of CANVAS_SECTIONS) assert.equal(await busyIn(page, id), "true", `${id} mounted with no reader near it`);
+    await page.locator("#risk .lazy-mount").scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => !document.querySelector("#risk .lazy-mount[aria-busy]"));
+    assert.equal(await busyIn(page, "mkt"), "true", "only the chart near the viewport mounts");
+    await page.evaluate(() => window.dispatchEvent(new Event("lazy:mount-all")));     // the Print button's path
+    await page.waitForFunction(() => !document.querySelector(".lazy-mount[aria-busy]"));
+    assert.deepEqual(problems, []);
+  } finally {
+    await context.close();
+  }
+});
+
+test("phone: a data.json refresh that returns the same snapshot leaves a panned chart where the reader put it", async () => {
+  const { context, page, problems } = await openPage(VIEWPORTS[1]);
+  let refetches = 0;
+  page.on("request", (request) => { if (new URL(request.url()).pathname === "/data.json") refetches += 1; });
+  try {
+    await page.waitForSelector("#verdict-title");
+    await page.locator("#fcst .lazy-mount").scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => !document.querySelector("#fcst .lazy-mount[aria-busy]"));
+    await page.waitForTimeout(500);
+    if (await page.locator("#fcst .reset-view").count()) await page.locator("#fcst .reset-view").click();
+    await page.waitForTimeout(300);
+    const box = await page.locator("#fcst .lw-host").boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 150, box.y + box.height / 2, { steps: 8 });
+    await page.mouse.up();
+    await page.mouse.move(2, 2);
+    await page.locator("#fcst .reset-view").waitFor();                      // the reader has moved off the preset
+    refetches = 0;
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));   // the 15-minute poll's path
+    await page.waitForTimeout(1500);
+    assert.equal(refetches, 1, "data.json was fetched again");
+    assert.equal(await page.locator("#fcst .reset-view").count(), 1, "the pan survived: the identical snapshot was not set again");
+    assert.deepEqual(problems, []);
+  } finally {
+    await context.close();
+  }
+});
+
+test("a ?table= link loads without an announcement; a reader's sort is announced", async () => {
+  const { context, page, problems } = await openPage(VIEWPORTS[0], { path: "/?table=fcst" });
+  const region = page.locator("#fcst .table-wrap p[aria-live]");
+  try {
+    await page.waitForSelector("#fcst table");
+    await page.waitForTimeout(1500);                                      // research.json lands, the rows change
+    assert.equal(await region.textContent(), "", "nothing is spoken on load");
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));   // a refresh, no reader input
+    await page.waitForTimeout(1000);
+    assert.equal(await region.textContent(), "");
+    await page.locator("#fcst th button.sort-button", { hasText: "QLIKE" }).click();
+    await page.waitForFunction(() => document.querySelector("#fcst .table-wrap p[aria-live]")?.textContent !== "");
+    assert.match(await region.textContent(), /^Showing 52 of [\d,]+ weeks, sorted by QLIKE descending$/);
     assert.deepEqual(problems, []);
   } finally {
     await context.close();

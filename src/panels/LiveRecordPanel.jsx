@@ -7,13 +7,17 @@ import LazyMount from "../components/LazyMount";
 import Panel from "../components/Panel";
 import { INTERVAL_LEVEL_PCT, liveAssertion, liveDetail, promotionDetail, promotionText } from "../lib/assertions";
 import {
-  DASH, ctWallTimeMs, fmtAge, fmtCT, fmtDate, fmtInt, fmtNum, fmtSigned, num, toMs, withCentralTime,
+  DASH, ctIsoDate, ctWallTimeMs, fmtAge, fmtCT, fmtDate, fmtInt, fmtNum, fmtSigned, num, toMs, withCentralTime,
 } from "../lib/format";
 import {
   LIVE_MIN_INDEPENDENT, asObject, asText, callScoring, getLab, getRoles, getVol, liveRecordSummary, modelLabels, shortLabel,
   withModelLabels,
 } from "../lib/research";
 import { Facts, Legend } from "./common";
+
+// Sessions a call waits for a missing settlement after its window before it expires: the record's
+// MAX_WAIT_SESSIONS (backend/vol_record.py; a test keeps the two equal).
+export const MAX_WAIT_SESSIONS = 10;
 
 const STATUS_LABEL = {
   pending: "pending",
@@ -22,15 +26,109 @@ const STATUS_LABEL = {
   expired: "expired",
   late_commit: "late commit",
 };
+// The statuses that are never scored, in the order the counts and the footnote list them.
+const UNSCORED_STATUSES = ["skipped_roll", "late_commit", "expired"];
 const STATUS_TITLE = {
-  skipped_roll: "The target window spans a contract roll; never scored",
+  skipped_roll: "The target window spans a contract roll: on the roll day CL=F's return measures the spread between two "
+    + "contracts, not a price move; never scored",
   late_commit: "Not sealed in time (less than five minutes before the settlement that opens its window, or never); never scored",
-  expired: "No settlement data arrived in time; never scored",
+  expired: `A settlement its window needs was still missing more than ${MAX_WAIT_SESSIONS} sessions after the window closed; `
+    + "never scored",
 };
 const statusLabel = (status) => STATUS_LABEL[status] ?? String(status ?? DASH);
 // A pending call whose window spans a contract roll (callScoring()): resolution will skip it.
 const PENDING_ROLL_NOTE = "spans roll";
 const PENDING_ROLL_TITLE = "The target window spans a contract roll; it will be closed as skipped, never scored";
+// A pending call whose window closed before the snapshot's date: a settlement it needs is missing.
+const OVERDUE_NOTE = "overdue";
+const overdueTitle = (since) => `Overdue since ${fmtDate(since)}: waiting for a missing settlement; it expires, never scored, `
+  + `if that is still missing more than ${MAX_WAIT_SESSIONS} sessions after its window closed`;
+const OVERDUE_FOOTNOTE = "Its window has closed, but a settlement it needs is missing from this snapshot. It is scored "
+  + `when the settlement arrives, or expires, never scored, if that is still missing more than ${MAX_WAIT_SESSIONS} sessions `
+  + "after the window closed.";
+
+/** The US Central calendar date the snapshot was frozen on ("YYYY-MM-DD"), or null. Pure. */
+export const snapshotDay = (data) => ctIsoDate(toMs(data?.frozen_at));
+
+/**
+ * The date a pending call's result has been overdue since (its window's last session), when that
+ * is before the snapshot's date and resolution would score the call; null otherwise. Such a call
+ * waits for a settlement missing from the snapshot. Pure.
+ */
+export const overdueSince = (row, day, record = null) => {
+  const end = asText(row?.target_end);
+  if (!day || !end || callScoring(row, record) !== "pending") return null;
+  return end.slice(0, 10) < day ? end.slice(0, 10) : null;
+};
+
+/**
+ * Every recorded call counted once, by state: resolved (with its independent weeks), pending, and
+ * never scored, with the reasons. Pure.
+ *
+ * @returns {string[]} e.g. ["26 resolved (6 independent weeks)", "2 pending",
+ *   "8 never scored: 5 skipped at a contract roll, 1 not sealed in time, 2 expired"]
+ */
+export const recordCounts = (summary) => {
+  const resolved = summary?.resolved ?? 0;
+  const weeks = summary?.independent;
+  const reasons = [
+    [summary?.skipped, "skipped at a contract roll"],
+    [summary?.lateCommit, "not sealed in time"],
+    [summary?.expired, "expired"],
+  ];
+  const present = reasons.filter(([count]) => count > 0);
+  const never = present.reduce((sum, [count]) => sum + count, 0);
+  const unscored = present.length === 1
+    ? `${fmtInt(present[0][0])} ${present[0][1]} (never scored)`
+    : present.length > 1
+      ? `${fmtInt(never)} never scored: ${present.map(([count, reason]) => `${fmtInt(count)} ${reason}`).join(", ")}`
+      : reasons.some(([count]) => count != null) ? "0 never scored" : null;
+  return [
+    `${fmtInt(resolved)} resolved${resolved > 0 && weeks != null ? ` (${fmtInt(weeks)} independent ${weeks === 1 ? "week" : "weeks"})` : ""}`,
+    `${fmtInt(summary?.pending ?? 0)} pending`,
+    unscored,
+  ].filter(Boolean);
+};
+
+/**
+ * The never-scored statuses the record holds, from its counts (calls older than the rows shown
+ * included) and from the rows themselves, in UNSCORED_STATUSES order. Pure.
+ */
+export const unscoredStatuses = (summary) => {
+  const counts = { skipped_roll: summary?.skipped, late_commit: summary?.lateCommit, expired: summary?.expired };
+  const inRows = new Set((summary?.recent ?? []).map((row) => row?.status));
+  return UNSCORED_STATUSES.filter((status) => counts[status] > 0 || inRows.has(status));
+};
+
+/**
+ * Why the promotion test holds fewer independent weeks than the record, while it accrues: its
+ * sample is taken in record order and stops at the first call of the pinned pair still pending, and
+ * resolved calls of another model version or challenger never enter it. Null without a gap. Pure.
+ */
+export const promotionGap = (summary) => {
+  const promotion = summary?.promotion;
+  const weeks = summary?.independent;
+  const paired = promotion?.paired;
+  if (promotion?.status !== "accruing" || weeks == null || paired == null || paired >= weeks) return null;
+  const gap = weeks - paired;
+  const { otherVersion, otherChallenger, noChallenger } = promotion.excluded ?? {};
+  const noneExcluded = [otherVersion, otherChallenger, noChallenger].every((count) => count === 0);
+  if (!noneExcluded) {
+    return `${fmtInt(gap)} of the record's ${fmtInt(weeks)} independent weeks are not in it: resolved calls left out of `
+      + "the pinned pair, or calls after one still pending, since the sample is taken in record order.";
+  }
+  // Every pending call is among the rows: the oldest pending one of the pair is where the sample stops.
+  const pending = summary.recent.filter((row) => row?.status === "pending");
+  const ofPair = pending.filter((row) => (!promotion.modelVersion || row.model_version === promotion.modelVersion)
+    && num(row.challenger_pct) != null);
+  const first = pending.length === summary.pending
+    ? ofPair.reduce((oldest, row) => (!oldest || row.as_of < oldest.as_of ? row : oldest), null)
+    : null;
+  const waiting = `${fmtInt(gap)} later independent ${gap === 1 ? "week waits" : "weeks wait"}`;
+  return first && typeof first.as_of === "string"
+    ? `${waiting} for the pending ${fmtDate(first.as_of, { year: false })} call: the sample is taken in record order.`
+    : `${waiting} for an earlier call still pending: the sample is taken in record order.`;
+};
 
 // The chart's reserved height, at or above 640px and below (LazyMount and LiveCalls both use it).
 const CALLS_HEIGHT = { wide: 200, narrow: 180 };
@@ -61,7 +159,7 @@ const exclusionText = (excluded) => {
   ].filter(Boolean);
   if (parts.length) return `Resolved calls left out of it: ${parts.join(", ")}.`;
   return [excluded.otherVersion, excluded.otherChallenger, excluded.noChallenger].every((value) => value === 0)
-    ? "No resolved call has been left out of it." : null;
+    ? "No resolved call was excluded for its model version or challenger." : null;
 };
 
 /** "yes" / "no" for a resolved call with a band, null otherwise. Pure. */
@@ -170,13 +268,22 @@ export default function LiveRecordPanel({ data, research }) {
   const versions = new Set(recent.map((row) => asText(row.model_version)));
   const oneVersion = versions.size === 1 ? [...versions][0] : null;
   const anySealed = recent.some((row) => toMs(row.sealed_at) != null);
-  const statuses = [...new Set(recent.map((row) => row.status))].filter((status) => STATUS_TITLE[status]);
+  // Every never-scored status in the record is explained, from its counts: the rows shown are only
+  // the latest calls.
+  const statuses = unscoredStatuses(summary);
+  const inRows = new Set(recent.map((row) => row.status));
   const spansRoll = (row) => callScoring(row, liveRecord) === "pending_roll";
   const anyPendingRoll = recent.some(spansRoll);
+  const day = snapshotDay(data);
+  const overdue = (row) => overdueSince(row, day, liveRecord);
+  const anyOverdue = recent.some(overdue);
   // next_result_due is dated only by pending calls resolution will score: with calls pending and
-  // none due, every pending window spans a contract roll.
+  // none due, every pending window spans a contract roll. A date before the snapshot's own has
+  // passed with a settlement missing.
   const pendingCount = summary.pending ?? 0;
   const noneDue = !summary.firstResult && pendingCount > 0;
+  const resultOverdue = Boolean(summary.firstResult && day && summary.firstResult < day);
+  const gapNote = promotionGap(summary);
   const comparable = summary.independent != null && summary.independent >= LIVE_MIN_INDEPENDENT;
   const coverage = coverageFact(summary);
   const changes = inputChanges(recent);
@@ -202,13 +309,15 @@ export default function LiveRecordPanel({ data, research }) {
     },
     {
       key: "status", label: "Status",
-      csv: (row) => `${statusLabel(row.status)}${spansRoll(row) ? ` (${PENDING_ROLL_NOTE})` : ""}`,
+      csv: (row) => `${statusLabel(row.status)}${spansRoll(row) ? ` (${PENDING_ROLL_NOTE})` : overdue(row) ? ` (${OVERDUE_NOTE})` : ""}`,
       render: (row) => (
         <>
-          <Chip tone={`status-${row.status ?? "unknown"}`} title={spansRoll(row) ? PENDING_ROLL_TITLE : STATUS_TITLE[row.status]}>
+          <Chip tone={`status-${row.status ?? "unknown"}`}
+            title={spansRoll(row) ? PENDING_ROLL_TITLE : overdue(row) ? overdueTitle(overdue(row)) : STATUS_TITLE[row.status]}>
             {statusLabel(row.status)}
           </Chip>
           {spansRoll(row) && <span className="cell-note">{PENDING_ROLL_NOTE}</span>}
+          {overdue(row) && <span className="cell-note">{`${OVERDUE_NOTE} since ${fmtDate(overdue(row), { year: false })}`}</span>}
           {sealLead(row) != null && (
             <span className="cell-note live-seal-note">
               {sealLead(row) >= 0 ? `sealed ${fmtAge(sealLead(row))} before its window` : `sealed ${fmtAge(-sealLead(row))} after it opened`}
@@ -289,7 +398,9 @@ export default function LiveRecordPanel({ data, research }) {
     value: promotion.status === "accruing"
       ? (promotion.paired != null && promotion.required != null ? `${fmtInt(promotion.paired)}/${fmtInt(promotion.required)}` : "accruing")
       : promotion.status === "promote" ? "Promote" : "Keep",
-    note: promotion.status === "accruing" ? "independent paired weeks; accruing" : promotionDetail(promotion),
+    note: promotion.status === "accruing"
+      ? `independent paired weeks; accruing${gapNote ? `. ${gapNote}` : ""}`
+      : promotionDetail(promotion),
   };
 
   return (
@@ -340,12 +451,9 @@ export default function LiveRecordPanel({ data, research }) {
       source={{ artifact: "data.json → vol_forecast.live_record", reproduce: null }}
       resetKey={data}
     >
+      {/* The one place the record's calls are counted by state; the meta line gives only the total. */}
       <p className="live-status sep-list">
-        <span>{`${fmtInt(resolved)} resolved${resolved > 0 && summary.independent != null ? ` (${fmtInt(summary.independent)} independent ${summary.independent === 1 ? "week" : "weeks"})` : ""}`}</span>
-        <span>{`${fmtInt(summary.pending ?? 0)} pending`}</span>
-        <span>{`${fmtInt(summary.skipped ?? 0)} skipped at rolls`}</span>
-        {summary.lateCommit != null && <span>{`${fmtInt(summary.lateCommit)} not sealed in time`}</span>}
-        {summary.expired != null && <span>{`${fmtInt(summary.expired)} expired`}</span>}
+        {recordCounts(summary).map((part) => <span key={part}>{part}</span>)}
       </p>
 
       <div className={`live-summary${resolved > 0 ? " has-scores" : ""}`}>
@@ -384,7 +492,9 @@ export default function LiveRecordPanel({ data, research }) {
         ) : !empty && (
           <p className="live-empty">
             {summary.firstResult
-              ? `Scores appear after the ${fmtDate(summary.firstResult)} settlement.`
+              ? (resultOverdue
+                ? `The first result is overdue since ${fmtDate(summary.firstResult)}: a settlement its window needs is missing from this snapshot.`
+                : `Scores appear after the ${fmtDate(summary.firstResult)} settlement.`)
               : noneDue
                 ? (pendingCount === 1
                   ? "No result is due: the pending call's window spans a contract roll, so it will not be scored."
@@ -412,7 +522,7 @@ export default function LiveRecordPanel({ data, research }) {
           </h3>
           <Legend items={legend} />
           <LazyMount minHeight={CALLS_HEIGHT} label="recorded calls">
-            <LiveCalls calls={recent} nextResultDue={summary.firstResult} bandLevel={INTERVAL_LEVEL_PCT}
+            <LiveCalls calls={recent} nextResultDue={summary.firstResult} overdue={resultOverdue} bandLevel={INTERVAL_LEVEL_PCT}
               challengerLabel={challengerLabel} statusLabel={statusLabel} heights={CALLS_HEIGHT} />
           </LazyMount>
           <div className="live-table">
@@ -424,10 +534,16 @@ export default function LiveRecordPanel({ data, research }) {
               exportName="live-record"
               columns={columns}
               rows={recent}
-              footnote={(statuses.length > 0 || anyPendingRoll) && (
+              footnote={(statuses.length > 0 || anyPendingRoll || anyOverdue) && (
                 <ul className="footnotes">
                   {anyPendingRoll && <li key="pending-roll"><b>{`${statusLabel("pending")}, ${PENDING_ROLL_NOTE}`}</b>: {PENDING_ROLL_TITLE}.</li>}
-                  {statuses.map((status) => <li key={status}><b>{statusLabel(status)}</b>: {STATUS_TITLE[status]}.</li>)}
+                  {anyOverdue && <li key="overdue"><b>{`${statusLabel("pending")}, ${OVERDUE_NOTE}`}</b>: {OVERDUE_FOOTNOTE}</li>}
+                  {statuses.map((status) => (
+                    <li key={status}>
+                      <b>{statusLabel(status)}</b>
+                      {inRows.has(status) ? "" : ` (none among the ${fmtInt(recent.length)} shown)`}: {STATUS_TITLE[status]}.
+                    </li>
+                  ))}
                 </ul>
               )}
             />

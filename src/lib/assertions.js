@@ -371,25 +371,13 @@ export const liveAssertion = (summary) => {
 };
 
 /**
- * LIVE meta: what was recorded and why some calls are never scored. Calls skipped at a contract
- * roll, not sealed in time (late_commit: sealed less than five minutes before the settlement that
- * opens their window, or never sealed) or expired are counted as such, never as "not resolved yet".
+ * LIVE meta: how many calls the record holds. The panel's status line, right under the meta line,
+ * counts them by state (resolved, pending, and never scored with the reasons), so the meta line
+ * gives the total only and no count is printed twice.
  */
 export const liveDetail = (summary) => {
   if (!summary?.started) return [];
-  const recorded = summary.recorded ?? 0;
-  const skipped = summary.skipped ?? 0;
-  const late = summary.lateCommit ?? 0;
-  const expired = summary.expired ?? 0;
-  const breakdown = [
-    summary.pending > 0 ? `${fmtInt(summary.pending)} pending` : null,
-    skipped > 0 ? `${fmtInt(skipped)} skipped at a contract roll` : null,
-    late > 0 ? `${fmtInt(late)} not sealed in time` : null,
-    expired > 0 ? `${fmtInt(expired)} expired` : null,
-  ].filter(Boolean);
-  const unscored = skipped + late + expired;
-  const never = unscored > 0 ? ` (${unscored === recorded ? "" : `${fmtInt(unscored)} `}never scored)` : "";
-  return [`${plural(recorded, "call")} recorded${breakdown.length ? `: ${breakdown.join(", ")}` : ""}${never}`];
+  return [`${plural(summary.recorded ?? 0, "call")} recorded`];
 };
 
 /**

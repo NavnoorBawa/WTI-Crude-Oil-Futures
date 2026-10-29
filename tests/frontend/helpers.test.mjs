@@ -700,7 +700,8 @@ test("LIVE counts unscored calls as such, and compares the two models on the sam
     recent: [{ status: "skipped_roll", target_end: "2026-10-27" }],
   });
   assert.equal(liveAssertion(skippedOnly), "No live forecast has resolved yet", "a call skipped at a roll dates nothing");
-  assert.deepEqual(liveDetail(skippedOnly), ["1 call recorded: 1 skipped at a contract roll (never scored)"]);
+  // The meta line gives the total only: the panel's status line counts the calls by state, once.
+  assert.deepEqual(liveDetail(skippedOnly), ["1 call recorded"]);
   const mixed = liveRecordSummary({
     started: record.started, n_recorded: 3, n_resolved: 0, n_pending: 1, n_skipped_roll: 1, n_expired: 0, n_late_commit: 1,
     next_result_due: null,
@@ -708,8 +709,7 @@ test("LIVE counts unscored calls as such, and compares the two models on the sam
     promotion: { status: "accruing", n_independent_paired: 0, required: 52, dm_stat: null, p_value: null, mean_qlike_difference: null },
   });
   assert.equal(mixed.lateCommit, 1);
-  assert.deepEqual(liveDetail(mixed), ["3 calls recorded: 1 pending, 1 skipped at a contract roll, 1 not sealed in time (2 never scored)"]);
-  assert.doesNotMatch(liveDetail(mixed).join(" "), /sealed after/, "a late commit may be sealed before its window opened");
+  assert.deepEqual(liveDetail(mixed), ["3 calls recorded"]);
   assert.equal(promotionText(mixed.promotion), "accruing 0/52 weeks");
   // The state only: the p-value is printed once, with the test's statistics (promotionDetail).
   assert.equal(promotionText({ status: "keep", p: 0.41 }), "keep the record");

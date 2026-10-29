@@ -16,10 +16,22 @@ export const num = (value) => {
   return null;
 };
 
+// Number formatters are built once and reused: Number#toLocaleString builds a new one on every
+// call, about 27 times slower, and the page formats thousands of table cells on load.
+const INTEGER_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+const groupedFormats = new Map();
+/** en-US thousands separators and exactly `digits` decimals ("1,082.70"), one formatter per digit count. */
+const grouped = (value, digits) => {
+  let format = groupedFormats.get(digits);
+  if (!format) {
+    format = new Intl.NumberFormat("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+    groupedFormats.set(digits, format);
+  }
+  return format.format(value);
+};
+
 // A magnitude with a fixed number of decimals; `group` adds en-US thousands separators ("1,082.7").
-const magnitude = (absolute, digits, group) => (group
-  ? absolute.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })
-  : absolute.toFixed(digits));
+const magnitude = (absolute, digits, group) => (group ? grouped(absolute, digits) : absolute.toFixed(digits));
 
 /**
  * A number with `digits` decimals and a real minus sign. Option `group` adds thousands separators,
@@ -50,8 +62,7 @@ export const fmtPct = (value, digits = 1) => {
 
 export const fmtSignedPct = (value, digits = 1) => fmtSigned(value, digits, "%");
 
-const usd = (n, digits) =>
-  `$${n.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+const usd = (n, digits) => `$${grouped(n, digits)}`;
 
 export const fmtUsd = (value, digits = 2) => {
   const n = num(value);
@@ -113,13 +124,17 @@ export const toMs = (value) => {
 // Every clock on the page is US Central (CME's exchange time), labelled "CT".
 export const CT_ZONE = "America/Chicago";
 const formatterCache = new Map();
-const formatter = (options) => {
-  const key = JSON.stringify(options);
-  if (!formatterCache.has(key)) formatterCache.set(key, new Intl.DateTimeFormat("en-US", options));
-  return formatterCache.get(key);
+/** The en-US date formatter for `options`, built once per `key`: each key names one option set. */
+const formatter = (key, options) => {
+  let format = formatterCache.get(key);
+  if (!format) {
+    format = new Intl.DateTimeFormat("en-US", options);
+    formatterCache.set(key, format);
+  }
+  return format;
 };
-const ctYear = (ms) => formatter({ timeZone: CT_ZONE, year: "numeric" }).format(ms);
-const ctHour = (ms) => Number(formatter({ timeZone: CT_ZONE, hour: "numeric", hourCycle: "h23" }).format(ms));
+const ctYear = (ms) => formatter("ct-year", { timeZone: CT_ZONE, year: "numeric" }).format(ms);
+const ctHour = (ms) => Number(formatter("ct-hour", { timeZone: CT_ZONE, hour: "numeric", hourCycle: "h23" }).format(ms));
 
 // Epoch ms of a whole hour of US Central wall time on a calendar date (YYYY-MM-DD), e.g. the
 // 17:00 CT end of a contract's last session. Chicago is UTC-5 (CDT) or UTC-6 (CST).
@@ -146,7 +161,18 @@ export const fmtCT = (ms, { date = true, time = true, seconds = false, year = "a
     options.minute = "2-digit";
     if (seconds) options.second = "2-digit";
   }
-  return `${formatter(options).format(ms)}${time ? " CT" : ""}`;
+  const key = `ct-${date ? 1 : 0}${date && showYear ? 1 : 0}${time ? 1 : 0}${time && seconds ? 1 : 0}`;
+  return `${formatter(key, options).format(ms)}${time ? " CT" : ""}`;
+};
+
+/** The US Central calendar date of an instant, "YYYY-MM-DD"; null without one. */
+export const ctIsoDate = (ms) => {
+  if (ms == null || !Number.isFinite(ms)) return null;
+  const parts = {};
+  for (const part of formatter("ct-iso", { timeZone: CT_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(ms)) {
+    parts[part.type] = part.value;
+  }
+  return `${parts.year}-${parts.month}-${parts.day}`;
 };
 
 // Calendar dates (YYYY-MM-DD) are not instants: format them as-is, never shifted into CT.
@@ -155,7 +181,7 @@ export const fmtDate = (value, { year = true } = {}) => {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     const options = { timeZone: "UTC", month: "short", day: "numeric" };
     if (year) options.year = "numeric";
-    return formatter(options).format(Date.parse(value));
+    return formatter(year ? "date-year" : "date", options).format(Date.parse(value));
   }
   const ms = toMs(value);
   return ms == null ? DASH : fmtCT(ms, { time: false, year: year ? true : "auto" });
@@ -166,7 +192,7 @@ export const fmtDate = (value, { year = true } = {}) => {
 /** Integer with thousands separators: 4370 -> "4,370". */
 export const fmtInt = (value) => {
   const n = num(value);
-  return n == null ? DASH : Math.round(n).toLocaleString("en-US");
+  return n == null ? DASH : INTEGER_FORMAT.format(Math.round(n));
 };
 
 /** A share held as a fraction (0.9988) shown as a percentage ("99.88%"). */
@@ -228,7 +254,7 @@ export const fmtAge = (ms) => {
 /** "2008-05-08" -> "May 2008" (calendar month, never shifted by time zone). */
 export const fmtMonthYear = (value) => {
   if (typeof value !== "string" || !/^\d{4}-\d{2}/.test(value)) return DASH;
-  return formatter({ timeZone: "UTC", month: "short", year: "numeric" }).format(Date.parse(value.slice(0, 10)));
+  return formatter("month-year", { timeZone: "UTC", month: "short", year: "numeric" }).format(Date.parse(value.slice(0, 10)));
 };
 
 /** "May 2008 – Oct 2026" from two ISO dates; a missing side degrades to the other. */

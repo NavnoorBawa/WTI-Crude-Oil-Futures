@@ -243,7 +243,7 @@ export default function ForecastPanel({ data, research }) {
       table={() => <ForecastTable rows={errorRows} modelName={modelName} />}
     >
       {rows.length ? (
-        <LazyMount minHeight={FIGURE_HEIGHTS} label="forecast chart">
+        <LazyMount minHeight={FIGURE_HEIGHTS} label="forecast chart" background={false}>
           <ForecastChart rows={rows} live={liveRow} range={chartRange} frameKey={frameKey} modelLabel={modelName} />
         </LazyMount>
       ) : (

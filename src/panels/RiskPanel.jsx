@@ -198,7 +198,7 @@ export default function RiskPanel({ data, research, researchStatus }) {
         />
       )}
     >
-      <LazyMount minHeight={VAR_HEIGHT} label="VaR chart">
+      <LazyMount minHeight={VAR_HEIGHT} label="VaR chart" background={false}>
         <VarChart rows={series} range={range.toUpperCase()} frameKey={frameKey} />
       </LazyMount>
       {/* The caption and notes describe the chart, so they sit under it, before the backtest table. */}

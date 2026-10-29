@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import { REQUEST_TIMEOUT_MS, RESEARCH_URL } from "./config";
 
 const isResearchPayload = (value) =>
@@ -13,6 +13,11 @@ const isResearchPayload = (value) =>
  * notice's Retry button). A retry never flips the status back to "loading", so the panels do not
  * flash placeholders while it runs. Panels that need it render a one-line note instead.
  *
+ * index.html preloads research.json beside data.json, so it often lands before the first snapshot
+ * has rendered and joins that render. Once the page is up, filling in the research panels
+ * re-renders all of it, so that update is a transition, which React can split to keep the page
+ * responsive.
+ *
  * @param {string|null} snapshotKey e.g. data.frozen_at
  * @returns {{research: object|null, status: "loading"|"ready"|"unavailable", retry: () => Promise<boolean>}}
  *   retry resolves to whether research.json is now loaded
@@ -25,21 +30,28 @@ export default function useResearch(snapshotKey) {
   const inFlightRef = useRef(null);
   const statusRef = useRef(state.status);
   statusRef.current = state.status;
+  const snapshotRef = useRef(snapshotKey);
+  snapshotRef.current = snapshotKey;
 
   loadRef.current = () => {
     if (inFlightRef.current) return inFlightRef.current;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     const keepOrFail = (previous) => (previous.research ? previous : { research: null, status: "unavailable" });
+    const settle = (update) => {
+      if (!aliveRef.current) return;
+      if (snapshotRef.current != null) startTransition(() => setState(update));
+      else setState(update);
+    };
     const request = fetch(RESEARCH_URL, { signal: controller.signal, cache: "no-cache", headers: { Accept: "application/json" } })
       .then((response) => (response.ok ? response.json() : null))
       .then((payload) => {
         const ok = isResearchPayload(payload);
-        if (aliveRef.current) setState(ok ? { research: payload, status: "ready" } : keepOrFail);
+        settle(ok ? { research: payload, status: "ready" } : keepOrFail);
         return ok;
       })
       .catch(() => {
-        if (aliveRef.current) setState(keepOrFail);
+        settle(keepOrFail);
         return false;
       })
       .finally(() => {
