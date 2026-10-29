@@ -7,9 +7,13 @@ const DEFAULT_HEIGHT = 240;
 // research.json arriving) has finished. Measured at 390px with the CPU throttled 4x (a phone-class
 // CPU), an SVG or text figure mounts in up to about 200 ms of React work, which a transition can
 // split; a canvas chart (lightweight-charts) takes a frame of about 240-400 ms, of which 115-240 ms
-// is the library's own requestAnimationFrame paint, which no transition can split. So only SVG and
-// text figures mount in the background; canvas charts wait for the reader (`background` false).
+// is the library's own requestAnimationFrame paint, which no transition can split. So canvas charts
+// (`background` false) mount near the viewport, and in the background only last, CANVAS_DELAY_MS
+// after the SVG and text figures, when the first screen is long done: a reader who prints with
+// Ctrl+P a few seconds after load still gets every chart, which a canvas mounted at "beforeprint"
+// would not (it paints in a later frame than the print snapshot).
 const SETTLE_MS = 3000;
+const CANVAS_DELAY_MS = 4000;
 // Browsers without requestIdleCallback (Safari) wait this long between background mounts instead.
 const IDLE_FALLBACK_MS = 1500;
 // A figure whose chunk never arrives (offline, a failed deploy) holds up the queue at most this long.
@@ -33,18 +37,21 @@ export const reservedHeights = (minHeight) => {
 };
 
 // ------------------------------------------------------------------------------- mount queue
-// SVG and text figures below the fold still mount without a scroll, so find-in-page and print see
-// them later: once the page has settled, one at a time, each in an idle period after the previous
-// one has mounted. A background mount renders as a transition, so React yields to input while it
-// renders. Canvas charts stay out of the queue: their first paint is one long task, and a canvas
-// holds no text for find-in-page. They mount near the viewport. The window events
-// "lazy:mount-all" (src/lib/print.js) and "beforeprint" mount every remaining figure at once.
+// Figures below the fold still mount without a scroll, so find-in-page and print see them later:
+// once the page has settled, one at a time, each in an idle period after the previous one has
+// mounted. A background mount renders as a transition, so React yields to input while it renders.
+// Canvas charts join the queue last, after a further delay: their first paint is one long task, and
+// a canvas holds no text for find-in-page. The window events "lazy:mount-all" (src/lib/print.js) and
+// "beforeprint" mount every remaining figure at once.
 const queue = [];             // {node, mount(urgent)} of figures not mounted yet, in document order
 const nearOnly = new Set();   // the same for figures that mount only near the viewport or to print
 let current = null;           // the entry mounting in the background; the next one waits for it
 let mountEverything = false;  // set once everything was asked for: later figures mount at once
 let draining = false;
 let listening = false;
+let canvasScheduled = false;
+
+const inDocumentOrder = (a, b) => (a.node.compareDocumentPosition(b.node) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
 
 const whenIdle = (callback) => {
   if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(callback);
@@ -56,6 +63,7 @@ const drainNext = () => {
   current = entry;
   if (!entry) {
     draining = false;
+    scheduleCanvas();
     return;
   }
   entry.mount(false);
@@ -67,7 +75,26 @@ function settled(entry) {
   if (!entry || entry !== current) return;
   current = null;
   if (queue.length) whenIdle(drainNext);
-  else draining = false;
+  else {
+    draining = false;
+    scheduleCanvas();
+  }
+}
+
+/** Once the queue is empty: the canvas charts not yet mounted join it, CANVAS_DELAY_MS later. */
+function scheduleCanvas() {
+  if (canvasScheduled || draining || queue.length || !nearOnly.size) return;
+  canvasScheduled = true;
+  window.setTimeout(() => whenIdle(() => {
+    canvasScheduled = false;
+    if (mountEverything || draining) return;
+    queue.push(...[...nearOnly].sort(inDocumentOrder));
+    nearOnly.clear();
+    if (queue.length) {
+      draining = true;
+      drainNext();
+    }
+  }), CANVAS_DELAY_MS);
 }
 
 const afterLoad = (callback) => {
@@ -101,7 +128,8 @@ const mountAll = (event) => {
 /**
  * Queues a figure's mount in document order (a figure that renders later, e.g. once research.json
  * arrives, still takes its place top to bottom); returns a function that takes it off the queue.
- * With `background` false the figure is only held for "lazy:mount-all" and "beforeprint".
+ * With `background` false the figure waits for "lazy:mount-all", "beforeprint" or, once the
+ * queue is empty, its own turn CANVAS_DELAY_MS later.
  *
  * @param {{node: Element, mount: (urgent: boolean) => void}} entry
  * @param {boolean} [background]
@@ -119,7 +147,14 @@ const enqueue = (entry, background = true) => {
   if (!background) {
     nearOnly.add(entry);
     preloadAfterLoad();
-    return () => { nearOnly.delete(entry); };
+    // With no other figure queued, the canvas charts' turn still comes once the page has settled.
+    afterLoad(() => window.setTimeout(scheduleCanvas, SETTLE_MS));
+    return () => {
+      nearOnly.delete(entry);
+      const index = queue.indexOf(entry);
+      if (index >= 0) queue.splice(index, 1);
+      if (!entry.node.isConnected) settled(entry);
+    };
   }
   const before = queue.findIndex((other) => entry.node.compareDocumentPosition(other.node) & Node.DOCUMENT_POSITION_FOLLOWING);
   queue.splice(before < 0 ? queue.length : before, 0, entry);
@@ -150,8 +185,8 @@ function MountSignal({ onMount }) {
  *   object, `narrow` applies at 640px and below
  * @param {string} [props.label]       what is loading ("chart")
  * @param {string} [props.rootMargin]  IntersectionObserver margin
- * @param {boolean} [props.background] also mount in the background once the page has settled
- *   (default); false for a canvas chart, which then mounts only near the viewport or to print
+ * @param {boolean} [props.background] mount in the background once the page has settled (default);
+ *   false for a canvas chart, which mounts near the viewport, to print, or last in the background
  */
 export default function LazyMount({
   minHeight = DEFAULT_HEIGHT, label = "chart", rootMargin = "600px 0px", background = true, children,

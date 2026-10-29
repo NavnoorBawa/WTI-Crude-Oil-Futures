@@ -90,7 +90,7 @@ const openPage = async (viewport, { now = FRESH, path = "/" } = {}) => {
   return { context, page, problems };
 };
 
-// The canvas charts (lightweight-charts): they mount near the viewport or to print, never in the background.
+// The canvas charts (lightweight-charts): they mount near the viewport, to print, or last in the background.
 const CANVAS_SECTIONS = ["fcst", "risk", "mkt"];
 const busyIn = (page, id) => page.evaluate((section) => document.querySelector(`#${section} .lazy-mount`)?.getAttribute("aria-busy") ?? null, id);
 
@@ -182,7 +182,7 @@ test("keyboard: the skip link comes first, and the jump palette opens, filters, 
   }
 });
 
-test("phone: SVG figures mount in the background; canvas charts wait for the reader's scroll or for print", async () => {
+test("phone: SVG figures mount in the background first; canvas charts wait for a scroll, print or the end of the queue", async () => {
   const { context, page, problems } = await openPage(VIEWPORTS[1]);
   try {
     await page.waitForSelector("#verdict-title");
@@ -190,12 +190,35 @@ test("phone: SVG figures mount in the background; canvas charts wait for the rea
     await page.waitForFunction((canvas) => [...document.querySelectorAll(".lazy-mount[aria-busy]")]
       .every((node) => canvas.some((id) => node.closest(`#${id}`))), CANVAS_SECTIONS, { timeout: 20000 });
     await page.waitForTimeout(1500);
-    for (const id of CANVAS_SECTIONS) assert.equal(await busyIn(page, id), "true", `${id} mounted with no reader near it`);
+    for (const id of CANVAS_SECTIONS) assert.equal(await busyIn(page, id), "true", `${id} mounted before the SVG figures were done`);
     await page.locator("#risk .lazy-mount").scrollIntoViewIfNeeded();
     await page.waitForFunction(() => !document.querySelector("#risk .lazy-mount[aria-busy]"));
-    assert.equal(await busyIn(page, "mkt"), "true", "only the chart near the viewport mounts");
+    assert.equal(await busyIn(page, "mkt"), "true", "only the chart near the viewport mounts at once");
     await page.evaluate(() => window.dispatchEvent(new Event("lazy:mount-all")));     // the Print button's path
     await page.waitForFunction(() => !document.querySelector(".lazy-mount[aria-busy]"));
+    assert.deepEqual(problems, []);
+  } finally {
+    await context.close();
+  }
+});
+
+test("phone: with no scroll, the canvas charts still mount last in the background, so Ctrl+P prints them", async () => {
+  const { context, page, problems } = await openPage(VIEWPORTS[1]);
+  try {
+    await page.waitForSelector("#verdict-title");
+    await page.waitForFunction(() => !document.querySelector(".lazy-mount[aria-busy]"), null, { timeout: 30000 });
+    await page.waitForTimeout(500);
+    // What a print snapshot captures: the canvases as they are painted when "beforeprint" returns.
+    const painted = await page.evaluate((ids) => {
+      window.dispatchEvent(new Event("beforeprint"));
+      const inked = (canvas) => {
+        const data = canvas.getContext("2d")?.getImageData(0, 0, canvas.width, canvas.height).data ?? [];
+        for (let i = 3; i < data.length; i += 4) if (data[i] !== 0) return true;
+        return false;
+      };
+      return ids.map((id) => [...document.querySelectorAll(`#${id} canvas`)].some(inked));
+    }, CANVAS_SECTIONS);
+    assert.deepEqual(painted, CANVAS_SECTIONS.map(() => true), "a canvas chart is blank when the print snapshot is taken");
     assert.deepEqual(problems, []);
   } finally {
     await context.close();
