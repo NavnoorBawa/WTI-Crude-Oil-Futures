@@ -44,5 +44,58 @@ class ReleaseMetadataTest(unittest.TestCase):
         self.assertEqual([line for line in above.splitlines() if line.startswith("## ")], [] if "## Unreleased" not in above else ["## Unreleased"])
 
 
+class ReleaseToolsTest(unittest.TestCase):
+    def test_bump_moves_every_file_together(self):
+        import shutil
+        import tempfile
+
+        from scripts import bump_version
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("package.json", "package-lock.json", "pyproject.toml", "CITATION.cff", "CHANGELOG.md"):
+                shutil.copy(ROOT / name, root / name)
+            changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+            if "\n## Unreleased\n" not in changelog:      # a released tree: open a work-in-progress section
+                first = changelog.index("\n## ")
+                (root / "CHANGELOG.md").write_text(changelog[:first] + "\n## Unreleased\n\n- A change.\n" + changelog[first:],
+                                                   encoding="utf-8")
+            before = json.loads((root / "package.json").read_text(encoding="utf-8"))["version"]
+            version = bump_version.bump(root, "patch", "2030-01-02")
+            major, minor, patch = (int(part) for part in before.split("."))
+            self.assertEqual(version, f"{major}.{minor}.{patch + 1}")
+            lock = json.loads((root / "package-lock.json").read_text(encoding="utf-8"))
+            self.assertEqual({lock["version"], lock["packages"][""]["version"],
+                              json.loads((root / "package.json").read_text(encoding="utf-8"))["version"],
+                              tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]},
+                             {version})
+            citation = (root / "CITATION.cff").read_text(encoding="utf-8")
+            self.assertIn(f"version: {version}\n", citation)
+            self.assertIn('date-released: "2030-01-02"', citation)
+            self.assertIn(f"\n## {version} — 2030-01-02\n", (root / "CHANGELOG.md").read_text(encoding="utf-8"))
+            with self.assertRaises(ValueError):
+                bump_version.bump(root, "patch", "2030-01-03")      # nothing left to release
+        with self.assertRaises(ValueError):
+            bump_version.next_version("2.2.0", "major")              # would move sealing, scoring or the pair
+
+    def test_release_notes_are_the_versions_changelog_section(self):
+        from scripts import release_notes
+
+        changelog = "# Changelog\n\n## 2.2.0 — 2026-10-29\n\nNew.\n\n### Fixed\n\n- x\n\n## 2.1.0 — 2026-10-27\n\nOld.\n"
+        self.assertEqual(release_notes.section(changelog, "2.2.0"), "New.\n\n### Fixed\n\n- x\n")
+        self.assertEqual(release_notes.section(changelog, "2.1.0"), "Old.\n")
+        with self.assertRaises(ValueError):
+            release_notes.section(changelog, "2.3.0")
+        version = versions()["package.json"]
+        self.assertTrue(release_notes.section((ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), version).strip())
+
+    def test_the_release_workflow_runs_on_version_tags_only_and_installs_nothing(self):
+        source = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        self.assertIn("tags:\n      - 'v[0-9]+.[0-9]+.[0-9]+'", source)
+        self.assertNotRegex(source, r"\n  (pull_request|schedule|workflow_dispatch):")
+        self.assertIn("python3 scripts/release_notes.py", source)
+        self.assertIn("xargs -0 sha256sum > SHA256SUMS", source)
+
+
 if __name__ == "__main__":
     unittest.main()
