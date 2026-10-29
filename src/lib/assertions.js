@@ -150,25 +150,43 @@ export const leaderboardDetail = (rows, { available = true, robustness = null } 
 };
 
 /**
- * MODL footnote: the Hansen SPA test of the model of record, read at the level its p-value
- * supports. A p between 5% and 10% is inconclusive, and is said to be.
+ * The ledger's verdict on a supported row that is also tested for multiplicity: "and after the
+ * ledger's Benjamini-Hochberg adjustment (q = …)" or "though not after …", or null when the row is
+ * not supported or carries no q-value. `row` is a researchLedger() row.
  */
-export const spaAssertion = (spa, { recordName = "the model of record", mcsLevel = null } = {}) => {
+export const ledgerAdjustmentNote = (row) => {
+  const q = num(row?.q);
+  if (row?.status !== "supported" || q == null) return null;
+  const where = `the ledger's Benjamini-Hochberg adjustment (q${NBSP}=${NBSP}${fmtPValue(q, { digits: 3 })})`;
+  return row.survives_bh === true ? `and after ${where}` : `though not after ${where}`;
+};
+
+/**
+ * MODL footnote: the Hansen SPA test of the model of record (studentized, as Hansen defines it),
+ * read at the level its p-value supports. A p between 5% and 10% is inconclusive, and is said to be;
+ * above 10% no alternative is shown to beat the record, which is not evidence that none does. A
+ * rejection carries the ledger's multiplicity verdict on the same row (`ledgerRow`) when it is known.
+ */
+export const spaAssertion = (spa, { recordName = "the model of record", mcsLevel = null, ledgerRow = null } = {}) => {
   const p = num(asObject(spa)?.p_consistent);
   if (p == null) return null;
   const count = asArray(spa.models).length;
   const lower = num(spa.p_lower);
   const upper = num(spa.p_upper);
-  const bounds = lower != null && upper != null ? ` (lower ${fmtPValue(lower)}, upper ${fmtPValue(upper)})` : "";
+  const bound = (value) => fmtPValue(value, { digits: 3 });
+  const bounds = lower != null && upper != null ? ` (lower ${bound(lower)}, upper ${bound(upper)})` : "";
   const mcsAlpha = mcsLevel != null ? 1 - mcsLevel / 100 : null;
   const loose = mcsAlpha != null && Math.abs(mcsAlpha - ALPHA_LOOSE) < 1e-9 ? `${pct(ALPHA_LOOSE)}% level the Model Confidence Set uses` : `${pct(ALPHA_LOOSE)}% level`;
   let reading;
-  if (p < ALPHA) reading = `some alternative beats ${recordName} at the ${pct(ALPHA)}% level`;
+  if (p < ALPHA) {
+    const note = ledgerAdjustmentNote(ledgerRow);
+    reading = `some alternative beats ${recordName} at the ${pct(ALPHA)}% level${note ? `, ${note}` : ""}`;
+  }
   else if (p < ALPHA_LOOSE) reading = `inconclusive: not significant at ${pct(ALPHA)}%, but it would reject at the ${loose}`;
-  else reading = `no alternative beats ${recordName} even at the ${pct(ALPHA_LOOSE)}% level`;
-  // Three decimals, as the hero prints it: the reading turns on thresholds this value sits near (0.072, not 0.07).
+  else reading = `no alternative is shown to beat ${recordName} even at the ${pct(ALPHA_LOOSE)}% level`;
+  // Three decimals, as the hero prints it: the reading turns on thresholds a value can sit near (0.052, not 0.05).
   const consistent = p < 0.001 ? fmtP(p) : `p${NBSP}=${NBSP}${fmtPValue(p, { digits: 3 })}`;
-  return `Hansen SPA test of ${recordName} against ${count ? plural(count, "alternative") : "the alternatives"}: consistent ${consistent}${bounds}; ${reading}.`;
+  return `Hansen SPA test (studentized) of ${recordName} against ${count ? plural(count, "alternative") : "the alternatives"}: consistent ${consistent}${bounds}; ${reading}.`;
 };
 
 /**

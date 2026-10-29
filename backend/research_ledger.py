@@ -537,10 +537,14 @@ def _vol_rows() -> list[Row]:
                "The challenger HAR-IV-range beats the model of record on MSE of variance.", POSITIVE),
         Row(id="vol_spa_beats_record", family="volatility forecast",
             hypothesis="Some benchmark model beats the model of record on QLIKE (Hansen SPA, data-snooping robust).",
-            test="Hansen (2005) SPA, consistent p-value, stationary bootstrap", source=LAB,
+            test="Hansen (2005) SPA, studentized, consistent p-value, stationary bootstrap", source=LAB,
             statistic=("SPA consistent p-value", "leaderboard.spa_qlike_vs_har_iv.p_consistent"),
             p=Field("leaderboard.spa_qlike_vs_har_iv.p_consistent"), sided="one",
-            context={"p_lower": "leaderboard.spa_qlike_vs_har_iv.p_lower"}),
+            note=("Studentized, as Hansen (2005) defines it and as the original call asked (studentize=True); "
+                  "arch 8.0.0 ignored the flag, and releases up to 2.1.0 published the non-studentized p-value "
+                  "(non_studentized_p; CHANGELOG errata)."),
+            context={"p_lower": "leaderboard.spa_qlike_vs_har_iv.p_lower",
+                     "non_studentized_p": "leaderboard.spa_qlike_vs_har_iv.non_studentized.p_consistent"}),
         Row(id="vol_mcs_excludes_record", family="volatility forecast",
             hypothesis=("The model of record is significantly worse than the best model on QLIKE (excluded from "
                         "the Model Confidence Set)."),

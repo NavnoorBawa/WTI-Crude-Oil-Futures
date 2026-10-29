@@ -179,7 +179,9 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
 - `vol_lab`: `data/vol_lab.json` (backend/vol_lab.py) with `var_backtest` reduced to `{grid0, summary}`.
   Key fields: `sample{n_days,n_weeks,first,last}`, `config{champion,challenger,...}`, `models[]`,
   `leaderboard{models[], mcs_qlike_included[], mcs_mse_included[], mcs_qlike_range_proxy_included[],
-  mcs_excludes[], mcs_note, spa_qlike_vs_har_iv{p_consistent,p_lower,p_upper,models[],note},
+  mcs_excludes[], mcs_note, spa_qlike_vs_har_iv{statistic,best_model|null,t_stats{},p_consistent,p_lower,p_upper,
+  non_studentized{p_lower,p_consistent,p_upper},models[],note},
+  spa_robustness_qlike{block_10,block_40,<years>{n_days,...}: {p_consistent,best_model|null,p_consistent_non_studentized}},
   realized_utility_max_pct, mcs_qlike_by_grid{}, mcs_robustness_qlike{}, n_days, base_rate_pct,
   mean_reversion_acc_pct}`. Each `leaderboard.models[]` row has `timing_control` (true for the
   timing control, `har_iv_sameday`, which `mcs_excludes` lists and `mcs_note` explains); for that

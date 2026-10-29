@@ -3,8 +3,8 @@
 // functions over data.json / research.json (no React, no panels), exported for the tests.
 import { SECTIONS } from "../app/sections";
 import {
-  ALPHA, ALPHA_LOOSE, calibrationAssertion, forecastAssertion, leaderboardAssertion, liveAssertion, riskAssertion,
-  stabilityAssertion, vrpAssertion,
+  ALPHA, ALPHA_LOOSE, calibrationAssertion, forecastAssertion, leaderboardAssertion, ledgerAdjustmentNote, liveAssertion,
+  riskAssertion, stabilityAssertion, vrpAssertion,
 } from "./assertions";
 import { mcsRobustness } from "./comparison";
 import { NBSP, fmtInt, fmtNum, fmtP, fmtPValue, fmtSigned, fmtSpan, num, toMs } from "./format";
@@ -554,7 +554,7 @@ export const changeAttribution = (entry, previous) => {
  * model of record, the search it was chosen from, the Hansen SPA reading (the same rule as
  * spaAssertion()) and the live promotion test. Missing data leaves its piece null.
  */
-export const challengerStanding = (lab, promotion) => {
+export const challengerStanding = (lab, promotion, spaRow = null) => {
   const rows = leaderboardRows(lab);
   const record = rows.find((row) => row.role === "record") ?? null;
   const row = rows.find((item) => item.role === "challenger") ?? null;
@@ -571,11 +571,14 @@ export const challengerStanding = (lab, promotion) => {
   let spaReading = null;
   if (p != null) {
     const level = (alpha) => `${fmtNum(alpha * 100, 0)}% level`;
-    // Three decimals near the thresholds this reading turns on (0.072, not 0.07).
+    // Three decimals near the thresholds this reading turns on (0.052, not 0.05).
     const pSpa = p < 0.001 ? fmtP(p) : `p${NBSP}=${NBSP}${fmtPValue(p, { digits: 3 })}`;
-    if (p < ALPHA) spaReading = { text: `Hansen SPA ${pSpa}: some alternative beats ${recordName} at the ${level(ALPHA)}`, keepsRecord: false };
+    if (p < ALPHA) {
+      const note = ledgerAdjustmentNote(spaRow);
+      spaReading = { text: `Hansen SPA ${pSpa}: some alternative beats ${recordName} at the ${level(ALPHA)}${note ? `, ${note}` : ""}`, keepsRecord: false };
+    }
     else if (p < ALPHA_LOOSE) spaReading = { text: `Hansen SPA ${pSpa} is inconclusive`, keepsRecord: true };
-    else spaReading = { text: `Hansen SPA ${pSpa} finds no alternative better than ${recordName} at the ${level(ALPHA_LOOSE)}`, keepsRecord: true };
+    else spaReading = { text: `Hansen SPA ${pSpa} shows no alternative better than ${recordName} at the ${level(ALPHA_LOOSE)}`, keepsRecord: true };
   }
   const paired = num(promotion?.paired);
   const required = num(promotion?.required);

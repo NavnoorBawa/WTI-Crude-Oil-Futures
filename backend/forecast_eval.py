@@ -10,6 +10,9 @@ two functions that need them), each checked against cases with a known answer in
                                 Harvey-Leybourne-Newbold (1997) small-sample correction.
   - mincer_zarnowitz            Unbiasedness regression with a HAC Wald test.
   - model_confidence_set        Hansen-Lunde-Nason (2011) MCS via arch.bootstrap.
+  - spa_test                    Hansen (2005) test of superior predictive ability, studentized, on
+                                arch's stationary bootstrap (arch 8.0.0's own SPA ignores its
+                                studentize flag; its p-value is kept as `non_studentized`).
   - kupiec / christoffersen /   VaR backtests: unconditional coverage (Kupiec 1995), independence and
     dq_test / basel_zone        conditional coverage (Christoffersen 1998), the Dynamic Quantile test
                                 (Engle-Manganelli 2004) and the Basel traffic light.
@@ -112,6 +115,74 @@ def model_confidence_set(losses: pd.DataFrame, *, block: int, size: float, reps:
     pvals = mcs.pvalues["Pvalue"].to_dict()
     return {"included": sorted(mcs.included, key=lambda m: -pvals[m]),
             "p_values": {m: round(float(p), 4) for m, p in pvals.items()}}
+
+
+def stationary_bootstrap_lrv(d: npt.ArrayLike, block: int) -> FloatArray:
+    """Long-run variance of each column of `d` (n x k), var(sqrt(n) * mean), with the kernel implied by
+    a stationary bootstrap of mean block length `block` (Politis and Romano 1994), as arch computes
+    it for its SPA test: gamma_0 + 2 sum_i kappa_i gamma_i, kappa_i = (1 - i/n)(1 - p)^i + (i/n)(1 - p)^(n - i),
+    p = 1/block."""
+    x = np.asarray(d, dtype=float)
+    n = x.shape[0]
+    demeaned = x - x.mean(axis=0)
+    p = 1.0 / block
+    variance = np.sum(demeaned ** 2, axis=0) / n
+    for i in range(1, n):
+        kappa = (1.0 - i / n) * (1.0 - p) ** i + (i / n) * (1.0 - p) ** (n - i)
+        variance += 2.0 * kappa * np.sum(demeaned[: n - i] * demeaned[i:], axis=0) / n
+    return cast("FloatArray", variance)
+
+
+def spa_test(benchmark: npt.ArrayLike, models: pd.DataFrame, *, block: int, reps: int, seed: int) -> dict[str, Any]:
+    """Hansen (2005) test of superior predictive ability: does any model in `models` (n x k losses) have
+    a lower expected loss than `benchmark` (n losses)? Small p: at least one does.
+
+    With d_k = benchmark - model_k (positive: model k better), dbar_k its mean and omega_k^2 its long-run
+    variance (stationary_bootstrap_lrv), the statistic is T = max(max_k sqrt(n) dbar_k / omega_k, 0).
+    The null distribution comes from a stationary bootstrap of d (mean block `block`, `reps` draws,
+    seeded): Z*_k = sqrt(n) (dbar*_k - g(dbar_k)) / omega_k with Hansen's three recentrings, g = max(x, 0)
+    (lower), x where x >= -omega_k sqrt(2 log log n / n) else 0 (consistent), and x (upper); each p-value
+    is the share of draws with max(max_k Z*_k, 0) >= T, so T = 0 (no model better on average) gives
+    p = 1. Studentizing matters when the models' loss differences have different variances: without
+    it the noisiest model sets the maximum.
+
+    `non_studentized` repeats the computation on raw means (max_k dbar_k against max_k (dbar*_k - g),
+    strict inequality), on the same draws: White's (2000) Reality Check with Hansen's recentring, which
+    is what arch.bootstrap.SPA 8.0.0 returns whatever its `studentize` flag says.
+    """
+    from arch.bootstrap import StationaryBootstrap
+
+    d = np.asarray(benchmark, dtype=float)[:, None] - models.to_numpy(dtype=float)
+    n = d.shape[0]
+    dbar = d.mean(axis=0)
+    omega = np.sqrt(stationary_bootstrap_lrv(d, block))
+    if not np.all(omega > 0):
+        raise ValueError("spa_test: a model's loss difference from the benchmark has no variance")
+    valid = dbar >= -omega * np.sqrt(2.0 * np.log(np.log(n)) / n)
+    centres = {"lower": np.maximum(dbar, 0.0), "consistent": np.where(valid, dbar, 0.0), "upper": dbar}
+    t_stats = np.sqrt(n) * dbar / omega
+    statistic = max(float(t_stats.max()), 0.0)
+    raw_statistic = float(dbar.max())
+    exceed = dict.fromkeys(centres, 0)
+    exceed_raw = dict.fromkeys(centres, 0)
+    bootstrap = StationaryBootstrap(block, d, seed=seed)
+    for data, _ in bootstrap.bootstrap(reps):
+        mean_star = data[0].mean(axis=0)
+        for name, centre in centres.items():
+            z = mean_star - centre
+            exceed[name] += max(float((np.sqrt(n) * z / omega).max()), 0.0) >= statistic
+            exceed_raw[name] += float(z.max()) > raw_statistic
+    best = int(np.argmax(t_stats))
+    return {
+        "statistic": round(statistic, 4),
+        # The model with the largest studentized gain; None when no model is better on average (T = 0).
+        "best_model": str(models.columns[best]) if statistic > 0 else None,
+        "t_stats": {str(name): round(float(t), 3) for name, t in zip(models.columns, t_stats)},
+        "p_consistent": round(exceed["consistent"] / reps, 4),
+        "p_lower": round(exceed["lower"] / reps, 4),
+        "p_upper": round(exceed["upper"] / reps, 4),
+        "non_studentized": {f"p_{name}": round(count / reps, 4) for name, count in exceed_raw.items()},
+    }
 
 
 def kupiec(exceed: npt.ArrayLike, p: float) -> dict[str, Any]:

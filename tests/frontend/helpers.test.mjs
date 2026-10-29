@@ -617,14 +617,21 @@ test("the SPA footnote reads an inconclusive p-value as inconclusive", () => {
   const spaAssertion = (...args) => spaced(m.assertions.spaAssertion(...args));
   const spa = { p_consistent: 0.072, p_lower: 0.0548, p_upper: 0.7048, models: ["a", "b", "c"] };
   const text = spaAssertion(spa, { recordName: "HAR-IV", mcsLevel: 90 });
-  assert.equal(text, "Hansen SPA test of HAR-IV against 3 alternatives: consistent p = 0.072 (lower 0.055, upper 0.70); "
+  assert.equal(text, "Hansen SPA test (studentized) of HAR-IV against 3 alternatives: consistent p = 0.072 (lower 0.055, upper 0.705); "
     + "inconclusive: not significant at 5%, but it would reject at the 10% level the Model Confidence Set uses.");
   assert.doesNotMatch(text, /no alternative significantly beats/);
   assert.match(spaAssertion({ ...spa, p_consistent: 0.03 }, { recordName: "HAR-IV" }), /some alternative beats HAR-IV at the 5% level\.$/);
-  assert.match(spaAssertion({ ...spa, p_consistent: 0.3 }, { recordName: "HAR-IV" }), /no alternative beats HAR-IV even at the 10% level\.$/);
+  assert.match(spaAssertion({ ...spa, p_consistent: 0.3 }, { recordName: "HAR-IV" }), /no alternative is shown to beat HAR-IV even at the 10% level\.$/);
   assert.match(spaAssertion({ ...spa, p_consistent: 0.08 }, { recordName: "HAR-IV", mcsLevel: 95 }), /would reject at the 10% level\.$/);
   const fixture = spaAssertion(research.vol_lab.leaderboard.spa_qlike_vs_har_iv, { mcsLevel: 90 });
-  assert.ok(fixture.includes(`lower ${spaced(m.format.fmtPValue(research.vol_lab.leaderboard.spa_qlike_vs_har_iv.p_lower))}`));
+  assert.ok(fixture.includes(`lower ${spaced(m.format.fmtPValue(research.vol_lab.leaderboard.spa_qlike_vs_har_iv.p_lower, { digits: 3 }))}`));
+  // A rejection carries the ledger's multiplicity verdict on the same row, whichever way it went.
+  const rejected = { ...spa, p_consistent: 0.0114, p_lower: 0.0104, p_upper: 0.012 };
+  assert.match(spaAssertion(rejected, { recordName: "HAR-IV", ledgerRow: { status: "supported", q: 0.09, survives_bh: false } }),
+    /\(lower 0\.0104, upper 0\.012\); some alternative beats HAR-IV at the 5% level, though not after the ledger's Benjamini-Hochberg adjustment \(q = 0\.090\)\.$/);
+  assert.match(spaAssertion(rejected, { recordName: "HAR-IV", ledgerRow: { status: "supported", q: 0.01, survives_bh: true } }),
+    /, and after the ledger's Benjamini-Hochberg adjustment \(q = 0\.010\)\.$/);
+  assert.match(spaAssertion(rejected, { recordName: "HAR-IV" }), /some alternative beats HAR-IV at the 5% level\.$/);
   assert.equal(m.assertions.spaAssertion(null), null);
 });
 

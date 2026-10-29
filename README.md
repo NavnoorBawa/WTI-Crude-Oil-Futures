@@ -3,9 +3,9 @@
 How well can next-week realized volatility of front-month NYMEX WTI crude oil be forecast from free,
 public data? This project answers with a field of fourteen forecasters judged by the losses and tests
 of the volatility-forecasting literature, rebuilt in CI from a hash-pinned data snapshot, and with a
-live forward record whose forecasts are sealed in git before the settlement that opens their scoring
-window. A public dashboard is refreshed from GitHub Actions every four hours, on GitHub's best-effort
-schedule.
+live forward record that scores a forecast only if it was sealed in git before the settlement that
+opens its scoring window. A public dashboard is refreshed from GitHub Actions every four hours, on
+GitHub's best-effort schedule.
 
 [![Tests](https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures/actions/workflows/tests.yml/badge.svg)](https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures/actions/workflows/tests.yml)
 [![Reproduce](https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures/actions/workflows/reproduce.yml/badge.svg)](https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures/actions/workflows/reproduce.yml)
@@ -22,9 +22,9 @@ schedule.
 
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("key_findings") ]]] -->
 
-- **Forecastable from free data.** Over 4,634 out-of-sample days (2008–2026), the model of record, HAR-IV (realized-volatility terms plus OVX lagged one session), has a QLIKE loss of 0.370 against 0.952 for a random-walk forecast, and is significantly better than all 6 models built from returns alone (Diebold-Mariano p < 0.05 each).
-- **Most of that skill is the options market's.** The forecast's elasticity to OVX is 1.03 (HAC t 13.2), and a log regression on OVX alone scores 0.368: statistically tied with the full model (DM p = 0.641).
-- **One variant may be better; that is not established.** HAR-IV-range, a range-based variant of the model of record, has the lowest loss of all 14 models (0.353; pairwise DM p = 0.002), but it was found by searching this sample. Hansen's SPA test, which accounts for that search, gives p = 0.072 (significant at 10% but not at 5%), so the edge is inconclusive. It runs live against the model of record under a promotion test fixed in advance: 52 independent weeks, one look.
+- **Forecastable from free data.** Over 4,634 out-of-sample days (2008–2026), the model of record, HAR-IV (realized-volatility terms plus OVX lagged one session), has a QLIKE loss of 0.370 against 0.952 for a random-walk forecast, and is significantly better than all 6 models built from close-to-close returns alone (Diebold-Mariano p < 0.05 each).
+- **OVX alone is statistically tied with it.** The forecast's elasticity to OVX is 1.03 (HAC t 13.2), and a log regression on OVX alone scores 0.368: statistically tied with the full model (DM p = 0.641). HAR-range, from daily price ranges without OVX, is also statistically tied with the model of record (QLIKE 0.366, DM p = 0.629), so these data do not show that OVX is needed to reach its loss.
+- **One variant beats it in sample, after the search; the live test decides.** HAR-IV-range, a range-based variant of the model of record, has the lowest loss of all 14 models (0.353; pairwise DM p = 0.002), but it was found by searching this sample. Hansen's SPA test, which accounts for the search over the 12 feasible alternatives, rejects the null that none of them beats the model of record (p = 0.011; HAR-IV-range has the largest studentized gain, t 2.91), though the rejection does not survive the ledger's Benjamini-Hochberg adjustment across the 75 hypotheses in its multiplicity family (q = 0.090). No test on this sample accounts for how the field was assembled. HAR-IV-range runs live against the model of record under a promotion test fixed in advance: 52 independent weeks, one look.
 - **Intervals on target; no claim about direction or returns.** The 80% adaptive conformal intervals cover 80.0% of 4,370 days, which the method steers to its target over the long run; by calendar year, 71.3% to 88.0%. Volatility-direction accuracy (74.4%) is not above what the same pipeline scores with nothing to forecast (75.2%), so it is not evidence of skill, and a volatility target sized on the forecast does not change the Sharpe ratio detectably (production run: difference −0.12 vs buy-and-hold, p = 0.408).
 <!-- [[[end]]] -->
 
@@ -42,11 +42,11 @@ production weekly grid. Log scale.*
 |---|---|---|---|
 | Is next-week WTI volatility forecastable from free data? | Yes | QLIKE 0.370 vs 0.952 for persistence (DM p < 0.001); 7 of the 12 feasible benchmarks significantly worse | lab |
 | Does it add to implied volatility? | Not detectably | OVX-only regression 0.368 (DM p = 0.641), Raw OVX 0.374 (DM p = 0.620); OVX elasticity 1.03 (HAC t 13.2) | lab |
-| Is anything better? | Possibly: HAR-IV-range | HAR-IV-range QLIKE 0.353 (pairwise DM p = 0.002, before the search is accounted for); model of record outside the 90% MCS (p = 0.037); SPA p = 0.072 after the search; challenger on the live record | lab |
+| Is anything better? | In sample, after the search: HAR-IV-range; the live test decides | HAR-IV-range QLIKE 0.353 (pairwise DM p = 0.002, before the search is accounted for); model of record outside the 90% MCS (p = 0.037); SPA p = 0.011 after the search (not after the ledger's Benjamini-Hochberg adjustment, q = 0.090); challenger on the live record | lab |
 | Are the forecasts calibrated? | Unbiasedness not rejected | Mincer-Zarnowitz slope 0.86 (joint p = 0.161); 80% intervals cover 80.0% (adaptive conformal: on target by construction) | lab |
 | Does it make a better weekly VaR? | Better than no volatility model, but so is raw OVX: the gain is from volatility scaling | Breach independence passes on 5/5 grids at 95% and 5/5 at 99%, vs 0/5 and 1/5 for historical simulation and 5/5 and 5/5 for raw OVX scaling; 99%: 14 breaches vs 8.8 expected on the production grid (Kupiec passes 5/5) | lab |
 | Does it make money as a vol target? | No; volatility scaling controls risk | Sharpe difference vs buy-and-hold −0.12 (p = 0.408), vs trailing-vol sizing +0.01 (p = 0.764); excess kurtosis 1.82, against 1.96 sized on trailing vol (difference not tested) and 58.18 for buy-and-hold | production run |
-| Is there a variance risk premium? | Not established: in vol points, not significantly above what a zero premium gives; in variance, not significant; as a short vol-swap return, not significant | IV above next-month RV in 73.5% of periods, vs 69.5% expected with zero premium (one-sided bootstrap p = 0.318); mean variance premium −263 (95% CI −1083 to 556); short vol-swap Sharpe 0.52 (one-sided p = 0.070 against a zero mean, though with no premium the vol-point gap would still average 1.5) | production run |
+| Is there a variance risk premium? | Not established: in vol points, not significantly above what a zero premium gives; in variance, not significant; as a short vol-swap return, inconclusive | IV above next-month RV in 73.5% of periods, vs 69.5% expected with zero premium (one-sided bootstrap p = 0.318); mean variance premium −263 (95% CI −1083 to 556); short vol-swap Sharpe 0.52 (one-sided p = 0.070 against a zero mean, though with no premium the vol-point gap would still average 1.5) | production run |
 | Is volatility-direction accuracy evidence of skill? | No | 74.4% observed vs 75.2% for HAR without OVX on simulated returns with nothing to forecast | production run |
 | Was the original direction model's Sharpe real? | No, a look-ahead leak | Leaked label agrees in sign with the test label 79.52% of the time on a random walk; purged, the Sharpe ratio is −0.98 | leak anatomy; recorded runs |
 
@@ -68,7 +68,7 @@ should print.
 
 | Claim | Check |
 |---|---|
-| The benchmark field reproduces from pinned inputs | The weekly [Reproduce](https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures/actions/workflows/reproduce.yml) workflow rebuilds `data/vol_lab.json` from the SHA-256-pinned snapshot and compares it with the committed file; locally, `python -m backend.vol_lab` (about four minutes) |
+| The benchmark field reproduces from pinned inputs | The weekly [Reproduce](https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures/actions/workflows/reproduce.yml) workflow rebuilds `data/vol_lab.json` from the SHA-256-pinned snapshot and compares it with the committed file; locally, `RUN_SLOW=1 PYTHONPATH=. python -m unittest tests.test_vol_lab.ArtifactContractTest.test_artifact_reproduces_from_the_snapshot` rebuilds it in memory and compares, within the published rounding (about four minutes; [reviewer guide, check 2](docs/REVIEWER_GUIDE.md#2-the-benchmark-field-reproduces-from-pinned-inputs-four-minutes)) |
 | Every number on the page comes from an artifact | `PYTHONPATH=. cog --check README.md docs/RESULTS.md`; on the dashboard, each section's source line names the payload fields it reads |
 | Each live forecast was committed before the prices it is scored on | `git show origin/live-data:runtime-state/vol_track_record.json \| python scripts/verify_record.py -` re-derives every entry's window, seal margin, realized volatility and loss from the record alone |
 | No result is stated beyond its test | The [research ledger](data/research_ledger.json) lists every hypothesis tested with Benjamini-Hochberg and Holm adjustments; the dashboard's LEDG section filters it |
@@ -100,17 +100,14 @@ should print.
 
 ## What it does not claim
 
-- **No price-direction or trading signal.** The direction model is retracted; volatility-direction
-  accuracy is reported only beside its noise floor.
-- **No demonstrated edge over the options market.** The model and a regression on OVX alone are
-  statistically indistinguishable, in either direction; most of the model's skill is implied
-  volatility's.
-- **No promotion before the test.** The challenger's historical edge is inconclusive after the
-  search that found it, and only the forward record can settle it.
-- **Daily data only.** Five daily returns make a noisy volatility proxy; OVX is computed from USO
-  options, not CL options; the sample and the field were chosen while looking at 2008–2026. All
-  limitations are in [section 9 of the full results](docs/RESULTS.md#9-limitations).
+<!-- [[[cog import scripts.readme_blocks as b; b.print_block("non_claims") ]]] -->
+
+- **No price-direction or trading signal.** The direction model is retracted; volatility-direction accuracy is reported only beside its noise floor.
+- **No demonstrated edge over the options market.** The model is statistically indistinguishable, in either direction, from the OVX-only regression (DM p = 0.641) and Raw OVX (DM p = 0.620); HAR-range, with no OVX, is statistically indistinguishable from it too (DM p = 0.629).
+- **No promotion before the test.** After the search, Hansen's SPA test rejects the null that no alternative beats the model of record (p = 0.011; the challenger has the largest studentized gain), though the rejection does not survive the ledger's Benjamini-Hochberg adjustment across the 75 hypotheses in its multiplicity family (q = 0.090). It was measured on the sample the field was built on; only the forward record can promote the challenger.
+- **Daily data only.** Five daily returns make a noisy volatility proxy; OVX is computed from USO options, not CL options; the sample and the field were chosen while looking at 2008–2026. All limitations are in [section 9 of the full results](docs/RESULTS.md#9-limitations).
 - **Not investment advice.**
+<!-- [[[end]]] -->
 
 ## Repository
 
