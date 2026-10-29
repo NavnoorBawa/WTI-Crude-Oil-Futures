@@ -533,3 +533,19 @@ test("the hero lists what moved the call since the previous one, in points that 
   assert.doesNotMatch(corrupt.html, /hero-attribution/);
   assert.match(corrupt.html, /pts since the Oct 19 call/);
 });
+
+test("the challenger note reads a rejecting SPA with the ledger's Benjamini-Hochberg verdict, and keeps the live test", () => {
+  const research = readFixture("research.json");
+  const lab = structuredClone(research.vol_lab);
+  Object.assign(lab.leaderboard.spa_qlike_vs_har_iv, { p_consistent: 0.0114, p_lower: 0.0104, p_upper: 0.012 });
+  const row = { status: "supported", q: 0.09, survives_bh: false };
+  const spaced = (text) => text.replace(/\u00a0/g, " ");
+  const standing = v.challengerStanding(lab, { required: 52, paired: 3, status: "accruing" }, row);
+  assert.equal(standing.spa.keepsRecord, false);
+  assert.match(spaced(standing.spa.text), /^Hansen SPA p = 0\.011: some alternative beats HAR-IV at the 5% level, though not after the ledger's Benjamini-Hochberg adjustment \(q = 0\.090\)$/);
+  const survives = v.challengerStanding(lab, null, { ...row, q: 0.01, survives_bh: true });
+  assert.match(spaced(survives.spa.text), /, and after the ledger's Benjamini-Hochberg adjustment \(q = 0\.010\)$/);
+  assert.match(spaced(v.challengerStanding(lab, null).spa.text), /at the 5% level$/, "without the ledger row, no multiplicity claim either way");
+  lab.leaderboard.spa_qlike_vs_har_iv.p_consistent = 0.3;
+  assert.match(spaced(v.challengerStanding(lab, null, row).spa.text), /shows no alternative better than HAR-IV at the 10% level$/);
+});

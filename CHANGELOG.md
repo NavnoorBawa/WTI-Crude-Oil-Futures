@@ -25,7 +25,7 @@ backs the new one.
   price ranges without OVX, is statistically tied with the model of record too, so these data do
   not show that OVX is needed to reach its loss. Every sentence that states the SPA rejection
   carries the ledger's Benjamini-Hochberg result. The README's "What it does not claim", the model
-  card's caveats (with the 99% VaR's breach counts, which may understate the 1% tail although
+  card's caveats (with the 99% VaR's breach counts: the VaR may understate the 1% tail, although
   Kupiec's test does not reject) and the limitation on risk use are now
   generated from the artifacts, like the rest of the results.
 
@@ -33,7 +33,7 @@ backs the new one.
 
 | Claim as published | Correction | Evidence |
 |---|---|---|
-| Hansen SPA, null that no model beats the model of record: p = 0.072 (artifact `p_lower` 0.045, `p_upper` 0.7048), "significant at 10% but not at 5%", so the challenger's edge was "inconclusive" after the search | That was the non-studentized test (White's Reality Check with Hansen's recentring); arch 8.0.0 returns it whatever its `studentize` flag says. The studentized test on the same draws gives p = 0.011 (lower 0.0104, upper 0.012), significant at 5%, with HAR-IV-range the model with the largest studentized gain (t 2.91); 0.005 to 0.027 across block lengths and sub-periods. It does not survive the ledger's Benjamini-Hochberg adjustment (q = 0.090), and the challenger still replaces the model of record only through the pinned 52-week live test | `data/vol_lab.json` `leaderboard.spa_qlike_vs_har_iv` (`p_consistent`, `non_studentized`, `t_stats`) and `leaderboard.spa_robustness_qlike`; `data/research_ledger.json` row `vol_spa_beats_record` |
+| Hansen SPA, null that no model beats the model of record: p = 0.072 (artifact `p_lower` 0.045, `p_upper` 0.7048), "significant at 10% but not at 5%", so the challenger's edge was "inconclusive" after the search | That was the non-studentized test (White's Reality Check with Hansen's recentring); arch 8.0.0 returns it whatever its `studentize` flag says. The studentized test on the same draws gives p = 0.011 (lower 0.0104, upper 0.012), significant at 5%, with HAR-IV-range the model with the largest studentized gain (t 2.91). The p-value for the same null is 0.005 to 0.027 across block lengths and sub-periods, though over 2008–2016 the largest gain is the Combination's. It does not survive the ledger's Benjamini-Hochberg adjustment (q = 0.090), and the challenger still replaces the model of record only through the pinned 52-week live test | `data/vol_lab.json` `leaderboard.spa_qlike_vs_har_iv` (`p_consistent`, `non_studentized`, `t_stats`) and `leaderboard.spa_robustness_qlike`; `data/research_ledger.json` row `vol_spa_beats_record` |
 
 ### Live record
 

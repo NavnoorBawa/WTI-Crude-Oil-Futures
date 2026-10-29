@@ -260,20 +260,21 @@ def _ranges_clause(lab: dict, ovx_tied: bool) -> str:
     detail = f"(QLIKE {_fmt(m['qlike'])}, DM {_peq(dm['p_value'])})"
     if not _sig(dm["p_value"]):
         return (f"{m['label']}, from daily price ranges without OVX, is {'also ' if ovx_tied else ''}statistically "
-                f"tied with it {detail}, so these data do not show that OVX is needed to reach its loss.")
+                f"tied with the model of record {detail}, so these data do not show that OVX is needed to reach its "
+                f"loss.")
     return (f"{m['label']}, from daily price ranges without OVX, is significantly "
-            f"{'better' if dm['stat'] > 0 else 'worse'} {detail}.")
+            f"{'better' if dm['stat'] > 0 else 'worse'} than the model of record {detail}.")
 
 
 def _spa_adjusted(ledger: dict) -> str:
-    """', and it survives ...' or ', though it does not survive ... (q = ...)': the SPA row against the
+    """', and the rejection survives ...' or ', though the rejection does not survive ... (q = ...)': the SPA row against the
     ledger's Benjamini-Hochberg adjustment over its multiplicity family, with the connective it needs."""
     row = _ledger_row(ledger, "vol_spa_beats_record")
     family = ledger["summary"]["rows_in_multiplicity_family"]
     where = f"the ledger's Benjamini-Hochberg adjustment across the {family} hypotheses in its multiplicity family"
     if row["id"] in ledger["summary"]["supported_surviving_bh_5pct"]:
-        return f", and it survives {where} (q = {_fmt(row['q_value_bh'])})"
-    return f", though it does not survive {where} (q = {_fmt(row['q_value_bh'])})"
+        return f", and the rejection survives {where} (q = {_fmt(row['q_value_bh'])})"
+    return f", though the rejection does not survive {where} (q = {_fmt(row['q_value_bh'])})"
 
 
 def _spa_leader(lab: dict) -> dict | None:
@@ -486,10 +487,10 @@ def key_findings() -> str:
                  f"t {_fmt(spa_board['t_stats'][leader['key']], 2)}" if leader else "")
         verdict = (f"Hansen's SPA test, which accounts for the search over the {field} feasible alternatives, rejects "
                    f"the null that none of them beats the model of record (p = {_fmt(spa)}{named})"
-                   f"{_spa_adjusted(_ledger())}, and no test on this sample accounts for how the field was assembled.")
+                   f"{_spa_adjusted(_ledger())}. No test on this sample accounts for how the field was assembled.")
         head = ("One variant beats it in sample, after the search; the live test decides." if leader
                 and leader["key"] == chall["key"] else
-                "Some alternative beats it in sample, after the search; the live test decides.")
+                "Some alternative beats it in sample, after the search.")
     elif spa < 0.10:
         verdict = (f"Hansen's SPA test, which accounts for the search over the {field} feasible alternatives, gives "
                    f"p = {_fmt(spa)}, so after the search the edge is inconclusive (not significant at 5%).")
@@ -500,7 +501,7 @@ def key_findings() -> str:
         head = "One variant looked better; after the search that is not shown."
     third = (f"- **{head}** {chall['label']}, {_gloss(lab, chall)}, {loss} ({_fmt(chall['qlike'])}; pairwise DM "
              f"{_peq(chall['dm_qlike_vs_har_iv']['p_value'])}), but it was found by searching this sample. {verdict} "
-             f"It runs live against the model of record under a promotion test fixed in advance: "
+             f"{chall['label']} runs live against the model of record under a promotion test fixed in advance: "
              f"{PROMOTION_WEEKS} independent weeks, one look.")
     c = lab["conformal"][lab["config"]["champion"]]
     by_year = list(c["coverage_by_year_pct"].values())
@@ -558,8 +559,9 @@ def results_at_a_glance() -> str:
     else:
         better = "Not shown after the search"
     spa_row = _ledger_row(ledger, "vol_spa_beats_record")
-    spa_bh = ("significant after the ledger's Benjamini-Hochberg adjustment" if spa_row["survives_bh_5pct"] else
-              "not after the ledger's Benjamini-Hochberg adjustment") + f", q = {_fmt(spa_row['q_value_bh'])}"
+    spa_bh = ((" (" + ("significant after the ledger's Benjamini-Hochberg adjustment" if spa_row["survives_bh_5pct"]
+                       else "not after the ledger's Benjamini-Hochberg adjustment")
+               + f", q = {_fmt(spa_row['q_value_bh'])})") if _sig(k["spa_p"]) else "")
     mz = champ["mincer_zarnowitz"]
     calibrated = "Unbiasedness not rejected" if not _sig(mz["p_unbiased"]) else "Biased (Mincer-Zarnowitz rejects)"
     clean = var95["independence_pass_grids"] == grids and var99["independence_pass_grids"] == grids
@@ -595,7 +597,7 @@ def results_at_a_glance() -> str:
     rows.append(f"| Is anything better? | {better} | {chall['label']} QLIKE {_fmt(k['chall_qlike'])} (pairwise DM "
                 f"{_peq(k['chall_dm_p'])}, before the search is accounted for); model of record "
                 f"{'inside' if champ['in_mcs_qlike'] else 'outside'} the {mcs_level} MCS "
-                f"(p = {_fmt(champ['mcs_qlike_p'])}); SPA p = {_fmt(k['spa_p'])} after the search ({spa_bh}); challenger on the "
+                f"(p = {_fmt(champ['mcs_qlike_p'])}); SPA p = {_fmt(k['spa_p'])} after the search{spa_bh}; challenger on the "
                 f"live record | lab |")
     rows.append(f"| Are the forecasts calibrated? | {calibrated} | Mincer-Zarnowitz slope {_fmt(mz['slope'], 2)} "
                 f"(joint p = {_p(mz['p_unbiased'])}); {_interval_level(lab)} intervals cover {k['coverage']}% "
@@ -706,8 +708,9 @@ def leaderboard_table() -> str:
                 f"(Newey-West, Harvey-Leybourne-Newbold), positive = better than the model of record; MCS = "
                 f"Hansen-Lunde-Nason Model Confidence Set over the {len(_feasible(lab))} feasible models (range "
                 f"statistic, stationary bootstrap, block {lab['config']['mcs']['block_daily']} days).{control_text} "
-                f"Hansen's SPA test of the null that no model beats the model of record, over the "
-                f"{len(spa['models'])} feasible alternatives: p = {_fmt(spa['p_consistent'])}. Realized utility: "
+                f"Hansen's SPA test (studentized) of the null that no model beats the model of record, over the "
+                f"{len(spa['models'])} feasible alternatives: p = {_fmt(spa['p_consistent'])}, read with the ledger's "
+                f"Benjamini-Hochberg result in section 2.1. Realized utility: "
                 f"Bollerslev, Hood, Huss and Pedersen (2018), maximum {board['realized_utility_max_pct']}. Source: lab.")
     return "\n".join(rows)
 
@@ -1609,9 +1612,17 @@ def ledger_reading() -> str:
             word = {"supported": "significant at 5%", "inconclusive": "inconclusive",
                     "not_supported": "not significant"}.get(spa["status"], spa["status"])
             bh = _spa_adjusted(led) if spa["status"] == "supported" else ""
-            verdict = (f" The search-adjusted test of the same question, Hansen's SPA, gives {_peq(spa['p_value'])}, "
-                       f"so after the search the edge is {word}{bh}; the live promotion test (section 3) decides "
-                       f"whether the challenger replaces the model of record.")
+            lab = _lab()
+            leader = _spa_leader(lab)
+            if spa["status"] == "supported" and not (leader and leader["key"] == lab["config"]["challenger"]):
+                named = f" (the largest studentized gain is {leader['label']}'s, not the challenger's)" if leader else ""
+                verdict = (f" The search-adjusted test, Hansen's SPA, asks whether any alternative beats the model of "
+                           f"record and gives {_peq(spa['p_value'])}: some alternative does at 5%{named}{bh}; the live "
+                           f"promotion test (section 3) decides whether the challenger replaces the model of record.")
+            else:
+                verdict = (f" The search-adjusted test of the same question, Hansen's SPA, gives "
+                           f"{_peq(spa['p_value'])}, so after the search the edge is {word}{bh}; the live promotion "
+                           f"test (section 3) decides whether the challenger replaces the model of record.")
         picked = ("The challenger is the lowest-loss model of the field on the same sample" if key == "vol_challenger_qlike"
                   else "The model it tests was picked as the best of a field on the same sample")
         text.append(f"One supported row is not in the table: \"{row['hypothesis'].rstrip('.')}\" "
@@ -1742,21 +1753,36 @@ def non_claims(root: str = "") -> str:
     lab, ledger = _lab(), _ledger()
     implied, tied = _implied_reading(lab)
     rng = _model(lab, "har_range")
+    years = f"{lab['sample']['first'][:4]}–{lab['sample']['last'][:4]}"
+    rdm = rng["dm_qlike_vs_har_iv"]
     if tied:
+        ranges = (f"{rng['label']}, with no OVX, is statistically indistinguishable from it too "
+                  f"(DM {_peq(rdm['p_value'])})" if not _sig(rdm["p_value"]) else
+                  f"{rng['label']}, with no OVX, is significantly {'better' if rdm['stat'] > 0 else 'worse'} "
+                  f"than it (DM {_peq(rdm['p_value'])})")
         edge = (f"- **No demonstrated edge over the options market.** The model is statistically indistinguishable, "
-                f"in either direction, from {implied}; {rng['label']}, with no OVX, is statistically "
-                f"indistinguishable from it too (DM {_peq(rng['dm_qlike_vs_har_iv']['p_value'])}).")
+                f"in either direction, from {implied}; {ranges}.")
     else:
-        edge = (f"- **No edge over the options market beyond this sample.** Against implied volatility alone: "
-                f"{implied}; any difference was measured on the sample the model was built on.")
+        models = [_model(lab, "ovx_only"), _model(lab, "raw_ovx")]
+
+        def versus(m: dict) -> str:
+            dm = m["dm_qlike_vs_har_iv"]            # stat > 0: the alternative has the lower loss
+            how = ("statistically tied with" if not _sig(dm["p_value"]) else
+                   "significantly worse than" if dm["stat"] > 0 else "significantly better than")
+            return f"{how} {'the ' if m['key'] == 'ovx_only' else ''}{m['label']} (DM {_peq(dm['p_value'])})"
+
+        beaten = any(_sig(m["dm_qlike_vs_har_iv"]["p_value"]) and m["dm_qlike_vs_har_iv"]["stat"] > 0 for m in models)
+        head = "No edge over the options market." if beaten else "No edge over the options market beyond this sample."
+        edge = (f"- **{head}** The model is {_join([versus(m) for m in models])}"
+                + ("." if beaten else ", on the sample it was built on."))
     spa = lab["leaderboard"]["spa_qlike_vs_har_iv"]["p_consistent"]
     if _sig(spa):
         leader = _spa_leader(lab)
         named = ("; the challenger has the largest studentized gain" if leader and
                  leader["key"] == lab["config"]["challenger"] else "")
         promotion = (f"- **No promotion before the test.** After the search, Hansen's SPA test rejects the null that no "
-                     f"alternative beats the model of record (p = {_fmt(spa)}{named}){_spa_adjusted(ledger)}, and it "
-                     f"was measured on the sample the field was built on; only the forward record can promote the "
+                     f"alternative beats the model of record (p = {_fmt(spa)}{named}){_spa_adjusted(ledger)}. It was "
+                     f"measured on the sample the field was built on; only the forward record can promote the "
                      f"challenger.")
     else:
         word = "inconclusive" if spa < 0.10 else "not significant"
@@ -1768,7 +1794,7 @@ def non_claims(root: str = "") -> str:
         edge,
         promotion,
         "- **Daily data only.** Five daily returns make a noisy volatility proxy; OVX is computed from USO options, "
-        "not CL options; the sample and the field were chosen while looking at 2008–2026. All limitations are in "
+        f"not CL options; the sample and the field were chosen while looking at {years}. All limitations are in "
         f"[section 9 of the full results]({root}docs/RESULTS.md#9-limitations).",
         "- **Not investment advice.**",
     ])
@@ -1798,8 +1824,10 @@ def model_card_caveats() -> str:
     above = sum(c > fhs["expected"] for c in counts)
     row = _ledger_row(_ledger(), "var_fhs_99_coverage")
     rejects = row["status"] == "supported"
-    head = ("The 1% tail is understated." if rejects else
-            "The 1% tail may be understated." if above == grids else "The 99% breach count is near nominal.")
+    over = row["statistic"]["value"] > fhs["expected"]           # the production grid's breach count
+    head = (("The 1% tail is understated." if over else "The 1% tail is overstated.") if rejects else
+            "The 1% tail may be understated." if above == grids else
+            "The 1% tail may be overstated." if above == 0 else "The 99% breach count is near nominal.")
     tail = (f"- **{head}** The weekly 99% Value-at-Risk (filtered historical simulation) "
             f"breaches {min(counts)} to {max(counts)} times per sampling grid against {fhs['expected']} expected, "
             f"above the expected count on {above} of {grids} grids; the grids are offsets of the same days, not "
@@ -1829,8 +1857,11 @@ def risk_limitation() -> str:
     counts = model["0.01"]["exceedances_by_grid"]
     above = sum(c > model["0.01"]["expected"] for c in counts)
     kupiec = model["0.01"]["kupiec_pass_grids"]
-    tail = (f"At 99% the filtered VaR breaches more often than expected on {above} of {grids} grids, though Kupiec's "
-            f"test passes on {kupiec}/{grids}" + (", so its 1% tail may be understated." if above == grids else "."))
+    if above:
+        tail = (f"At 99% the filtered VaR breaches more often than expected on {above} of {grids} grids, though "
+                f"Kupiec's test passes on {kupiec}/{grids}" + (", so its 1% tail may be understated." if above == grids else "."))
+    else:
+        tail = f"At 99% the filtered VaR breaches no more often than expected on any grid; Kupiec's test passes on {kupiec}/{grids}."
     return (f"- **{head}** The VaR and vol-target results show what scaling by a volatility estimate does: {lead} "
             f"({passes}); sizing on trailing realized volatility, with no forecast, gives a realized volatility of "
             f"{k['tr_realized_vol']}% against {k['fc_realized_vol']}% on the forecast for a {k['target_vol']:g}% target; "

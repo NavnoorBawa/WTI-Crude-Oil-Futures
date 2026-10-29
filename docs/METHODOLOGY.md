@@ -158,11 +158,14 @@ residuals understate its error.
   flag and returns the non-studentized test (White's Reality Check with Hansen's recentring); its
   p-values on the same bootstrap draws are kept in the artifact as `non_studentized`, and they are
   what releases up to 2.1.0 published as the SPA p-value (CHANGELOG, errata). Hansen's lower
-  p-value is a liberal bound and the upper one a conservative bound; the consistent one is between.
+  p-value is a liberal bound and the upper one a conservative bound; the consistent one is between,
+  and at the boundary of the null it is mildly liberal in samples of a few hundred (a size check is
+  in `tests/test_vol_lab.py`).
   Robustness: blocks of 10 and 40 days, and 2008–2016 and 2017 onward separately
   (`spa_robustness_qlike`). A rejection says that some alternative in the field beats the model of
   record; the model with the largest studentized gain (`best_model`) is the one whose t-statistic
-  sets the test statistic.
+  sets the test statistic, so its own null is rejected at the same family-wise level (the first
+  step of a stepwise SPA). Nothing is claimed about any other model.
 - **Forecasts as produced.** Diebold-Mariano, the Model Confidence Set and the SPA test compare the
   forecasts each method produced on its expanding window, treating them as given: the error in the
   estimated parameters is not accounted for (West 1996), so these are tests of forecasting methods
@@ -207,7 +210,8 @@ Kupiec (1995) unconditional coverage, Christoffersen (1998) independence and con
 Engle and Manganelli (2004) dynamic quantile, and the Basel traffic light on the last 250 weeks.
 The outcome `r₅` is the five-session log return of the `CL=F` continuous series, the series the
 forecast's own target (next-week realized volatility) is measured on; the vol-target overlay
-(section 11) uses same-contract returns instead. About a quarter of the windows contain a roll day, whose return
+(section 11) uses same-contract returns instead. A five-session window contains the monthly roll
+day in about one week in four (five of the roughly 21 sessions between rolls), and that day's return
 books the spread between the expiring and the next contract (section 2.7 of the full results
 measures that gap for the production run); a same-contract position would see slightly different
 outcomes in those windows. The VaR backtest does not rebuild them, because EIA's curve ends in April

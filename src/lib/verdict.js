@@ -578,7 +578,7 @@ export const challengerStanding = (lab, promotion, spaRow = null) => {
       spaReading = { text: `Hansen SPA ${pSpa}: some alternative beats ${recordName} at the ${level(ALPHA)}${note ? `, ${note}` : ""}`, keepsRecord: false };
     }
     else if (p < ALPHA_LOOSE) spaReading = { text: `Hansen SPA ${pSpa} is inconclusive`, keepsRecord: true };
-    else spaReading = { text: `Hansen SPA ${pSpa} finds no alternative better than ${recordName} at the ${level(ALPHA_LOOSE)}`, keepsRecord: true };
+    else spaReading = { text: `Hansen SPA ${pSpa} shows no alternative better than ${recordName} at the ${level(ALPHA_LOOSE)}`, keepsRecord: true };
   }
   const paired = num(promotion?.paired);
   const required = num(promotion?.required);

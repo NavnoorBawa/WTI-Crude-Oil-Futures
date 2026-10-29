@@ -355,6 +355,21 @@ class LossAndTestTest(unittest.TestCase):
             t_star = np.maximum((np.sqrt(n) * (means - centre) / omega).max(axis=1), 0.0)
             self.assertEqual(res[f"p_{name}"], round(float((t_star >= t_obs).mean()), 4), name)
 
+    def test_spa_size_at_the_boundary_of_the_null(self):
+        """Every model exactly as good as the benchmark on average, with dependent losses: the consistent
+        p-value rejects at 5% about 5% of the time (Hansen's test is mildly liberal at this boundary)."""
+        rng = np.random.default_rng(11)
+        rejections, sims, n = 0, 120, 300
+        for i in range(sims):
+            shocks = rng.normal(0, 1, (n + 5, 4))
+            common = np.convolve(rng.normal(0, 1, n + 5), np.ones(5) / 5, mode="same")   # serial dependence
+            losses = 1.0 + 0.3 * (shocks + common[:, None])[5:]
+            scales = np.array([0.5, 1.0, 2.0])                                         # unequal noise
+            models = pd.DataFrame(losses[:, :1] + (losses[:, 1:] - losses[:, :1]) * scales, columns=["a", "b", "c"])
+            res = fe.spa_test(losses[:, 0], models, block=5, reps=199, seed=i)
+            rejections += res["p_consistent"] < 0.05
+        self.assertLess(rejections / sims, 0.12)
+
     def test_spa_matches_arch_where_arch_is_right(self):
         """The variance kernel is arch's, and on raw means the p-values are arch.bootstrap.SPA's on the
         same draws (arch 8.0.0 computes the non-studentized test whatever its studentize flag says)."""

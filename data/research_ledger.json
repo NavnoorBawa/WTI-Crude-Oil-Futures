@@ -2171,7 +2171,8 @@
         "value": 0.0114
       },
       "context": {
-        "p_lower": 0.0104
+        "p_lower": 0.0104,
+        "non_studentized_p": 0.072
       },
       "p_value": 0.0114,
       "sided": "one",
@@ -2181,7 +2182,7 @@
       "status": "supported",
       "underpowered": null,
       "retraction_reason": null,
-      "note": "",
+      "note": "Studentized, as Hansen (2005) defines it and as the original call asked (studentize=True); arch 8.0.0 ignored the flag, and releases up to 2.1.0 published the non-studentized p-value (non_studentized_p; CHANGELOG errata).",
       "artifact": {
         "path": "data/vol_lab.json",
         "statistic_field": "leaderboard.spa_qlike_vs_har_iv.p_consistent",
@@ -2189,7 +2190,8 @@
           "leaderboard.spa_qlike_vs_har_iv.p_consistent": 0.0114
         },
         "context_fields": {
-          "p_lower": "leaderboard.spa_qlike_vs_har_iv.p_lower"
+          "p_lower": "leaderboard.spa_qlike_vs_har_iv.p_lower",
+          "non_studentized_p": "leaderboard.spa_qlike_vs_har_iv.non_studentized.p_consistent"
         },
         "name_fields": {}
       },
