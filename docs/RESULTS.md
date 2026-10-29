@@ -586,6 +586,8 @@ post-mortem runs.
 
 ![The first screen of the dashboard: the research question and its computed answer, this week's call as recorded, and the evidence tiles](figures/dashboard.png)
 
+*The dashboard's first screen, captured from one recorded snapshot by [`scripts/capture_figures.mjs`](../scripts/capture_figures.mjs); the live page's numbers move with each refresh.*
+
 *The first screen of the dashboard at [navnoorbawa.github.io/WTI-Crude-Oil-Futures](https://navnoorbawa.github.io/WTI-Crude-Oil-Futures/):
 the research question, with an answer computed from the benchmark lab's Diebold-Mariano tests and
 their sample; this week's call as recorded (its target window and 80% interval, how often past

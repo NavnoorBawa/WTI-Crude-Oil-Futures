@@ -98,6 +98,8 @@ should print.
 
 ![The first screen of the dashboard: the research question and its computed answer, this week's call as recorded, and the evidence tiles](docs/figures/dashboard.png)
 
+*The dashboard's first screen, captured from one recorded snapshot by [`scripts/capture_figures.mjs`](scripts/capture_figures.mjs); the live page's numbers move with each refresh.*
+
 ## What it does not claim
 
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("non_claims") ]]] -->
