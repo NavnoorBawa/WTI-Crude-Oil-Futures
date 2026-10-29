@@ -126,6 +126,7 @@ export const fitsInPlot = (chart, time, text) => {
  */
 export const installTickFormatter = (chart, format = formatTick) => {
   let frame = null;
+  let latest = null;            // the newest range of the frame: the one the view settles on
   const apply = (days) => {
     chart.applyOptions({
       timeScale: {
@@ -137,10 +138,11 @@ export const installTickFormatter = (chart, format = formatTick) => {
     });
   };
   const onRange = (range) => {
+    latest = range;
     if (frame != null) return;
     frame = requestAnimationFrame(() => {
       frame = null;
-      apply(spanDays(range));
+      apply(spanDays(latest));
     });
   };
   apply(null);

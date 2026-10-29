@@ -204,19 +204,24 @@ export default function Panel({
           {artifacts.length > 0 && (
             <span className="source-group source-files">
               <span className="micro">Source</span>
+              {/* Each entry is a span (the list item, which carries the dot gutter and the hanging indent)
+                  around its link, so the link's focus ring outlines its text only. */}
               <span className="sep-list">
-              {sourceLinks(artifacts).map(({ text, href }) => (href ? (
-                <a
-                  key={text}
-                  className="source-item"
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={`${text} (the data file, opens in a new tab)`}
-                >
-                  <code>{text}</code>
-                </a>
-              ) : <code key={text} className="source-item">{text}</code>))}
+                {sourceLinks(artifacts).map(({ text, href }) => (
+                  <span key={text}>
+                    {href ? (
+                      <a
+                        className="source-item"
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={`${text} (the data file, opens in a new tab)`}
+                      >
+                        <code>{text}</code>
+                      </a>
+                    ) : <code className="source-item">{text}</code>}
+                  </span>
+                ))}
               </span>
             </span>
           )}

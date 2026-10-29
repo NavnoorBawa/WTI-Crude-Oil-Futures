@@ -130,17 +130,20 @@ export default function VarChart({ rows, range = "ALL", frameKey = 0 }) {
         state.markers.setMarkers(marks);
         setNote(varAnnotationText(labelled));
       };
-      state.paint = (theme) => {
+      const onTimeRange = () => {
+        window.clearTimeout(state.annotateTimer);
+        state.annotateTimer = window.setTimeout(state.annotate, ANNOTATE_DELAY_MS);
+      };
+      // New data annotates once the view settles (the preset lands in the library's next frame), so
+      // the legend never first names the weeks of the library's default view and then jumps.
+      state.paint = (theme, { settle = false } = {}) => {
         state.theme = theme;
         const colors = barColors(theme);
         bars.setData(state.rows.map((row) => ({ time: row.date, value: row.ret, color: colors[breachOf(row)] })));
         var95.applyOptions({ color: theme.series.model });
         var99.applyOptions({ color: theme.series.model });
-        state.annotate();
-      };
-      const onTimeRange = () => {
-        window.clearTimeout(state.annotateTimer);
-        state.annotateTimer = window.setTimeout(state.annotate, ANNOTATE_DELAY_MS);
+        if (settle) onTimeRange();
+        else state.annotate();
       };
       chart.timeScale().subscribeVisibleTimeRangeChange(onTimeRange);
       const untick = installTickFormatter(chart);
@@ -168,7 +171,7 @@ export default function VarChart({ rows, range = "ALL", frameKey = 0 }) {
     state.rows = rows;
     state.var95.setData(rows.map((row) => (row.var95 != null ? { time: row.date, value: -row.var95 } : { time: row.date })));
     state.var99.setData(rows.map((row) => (row.var99 != null ? { time: row.date, value: -row.var99 } : { time: row.date })));
-    state.paint(state.theme);
+    state.paint(state.theme, { settle: true });
   }, [ready, rows]);
 
   // Re-frame on a new preset or a click on the pressed one (frameKey). New data re-frames too, unless

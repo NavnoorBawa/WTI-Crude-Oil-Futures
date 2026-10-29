@@ -8,12 +8,12 @@ const DEFAULT_HEIGHT = 240;
 // CPU), an SVG or text figure mounts in up to about 200 ms of React work, which a transition can
 // split; a canvas chart (lightweight-charts) takes a frame of about 240-400 ms, of which 115-240 ms
 // is the library's own requestAnimationFrame paint, which no transition can split. So canvas charts
-// (`background` false) mount near the viewport, and in the background only last, CANVAS_DELAY_MS
-// after the SVG and text figures, when the first screen is long done: a reader who prints with
-// Ctrl+P a few seconds after load still gets every chart, which a canvas mounted at "beforeprint"
-// would not (it paints in a later frame than the print snapshot).
+// (`background` false) mount near the viewport, and in the background only last, one idle period
+// after the SVG and text figures: about 4 s after load (5-7 s on a phone-class CPU). From then a
+// plain Ctrl+P prints every chart; before it, a canvas mounted at "beforeprint" paints in a later
+// frame than the print snapshot, so only the Print button (src/lib/print.js), which mounts and
+// waits, prints them that early.
 const SETTLE_MS = 3000;
-const CANVAS_DELAY_MS = 4000;
 // Browsers without requestIdleCallback (Safari) wait this long between background mounts instead.
 const IDLE_FALLBACK_MS = 1500;
 // A figure whose chunk never arrives (offline, a failed deploy) holds up the queue at most this long.
@@ -81,11 +81,11 @@ function settled(entry) {
   }
 }
 
-/** Once the queue is empty: the canvas charts not yet mounted join it, CANVAS_DELAY_MS later. */
+/** Once the queue is empty: the canvas charts not yet mounted join it, in the next idle period. */
 function scheduleCanvas() {
   if (canvasScheduled || draining || queue.length || !nearOnly.size) return;
   canvasScheduled = true;
-  window.setTimeout(() => whenIdle(() => {
+  whenIdle(() => {
     canvasScheduled = false;
     if (mountEverything || draining) return;
     queue.push(...[...nearOnly].sort(inDocumentOrder));
@@ -94,7 +94,7 @@ function scheduleCanvas() {
       draining = true;
       drainNext();
     }
-  }), CANVAS_DELAY_MS);
+  });
 }
 
 const afterLoad = (callback) => {
@@ -129,7 +129,7 @@ const mountAll = (event) => {
  * Queues a figure's mount in document order (a figure that renders later, e.g. once research.json
  * arrives, still takes its place top to bottom); returns a function that takes it off the queue.
  * With `background` false the figure waits for "lazy:mount-all", "beforeprint" or, once the
- * queue is empty, its own turn CANVAS_DELAY_MS later.
+ * queue is empty, its own turn in the next idle period.
  *
  * @param {{node: Element, mount: (urgent: boolean) => void}} entry
  * @param {boolean} [background]

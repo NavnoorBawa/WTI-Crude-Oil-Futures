@@ -446,14 +446,12 @@ button { font: inherit; color: inherit; }
 .panel-source .source-command { display: inline-flex; align-items: last baseline; gap: var(--sp-2); min-width: 0; max-width: 100%; }
 .panel-source .source-command > .source-item { min-width: 0; overflow-wrap: anywhere; }
 .panel-source code { color: var(--text-2); overflow-wrap: anywhere; }
-/* Source entries are links to the payload files in a .sep-list, so no wrapped line starts or ends
-   with a dot (an inline-block pseudo-element is not underlined with its link). Each command is
+/* Source entries are links to the payload files, each in an item of a .sep-list, so no wrapped line
+   starts or ends with a dot. The label stays on the first line; the list takes the rest of the row
+   and wraps inside itself (nowrap overrides the wrap of `.panel-source > span`). Each command is
    followed by its copy button, which separates the commands. */
-/* The label stays on the first line; the list takes the rest of the row and wraps inside it (below
-   the label only when less than 12rem is left beside it). */
-.panel-source > .source-files { display: flex; align-items: first baseline; }
-.panel-source .source-files > .sep-list { flex: 1 1 0; min-width: min(100%, 12rem); --sep-w: 16px; }
-.panel-source .source-files .source-item::before { text-decoration: none; }
+.panel-source > .source-files { display: flex; flex-wrap: nowrap; align-items: first baseline; }
+.panel-source .source-files > .sep-list { flex: 1 1 0; min-width: 0; --sep-w: 16px; }
 .panel-source .micro { line-height: inherit; }
 
 .figure-title {

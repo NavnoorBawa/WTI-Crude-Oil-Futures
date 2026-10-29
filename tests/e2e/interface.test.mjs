@@ -201,6 +201,39 @@ test("separator lists: no text is clipped at a wrap, and no wrapped line starts 
   }
 });
 
+test("source footers keep their label on the first line; tiles keep their height when research.json is late", async () => {
+  for (const width of [1440, 1024, 768, 390]) {
+    const context = await browser.newContext({ viewport: { width, height: 900 }, locale: "en-US", timezoneId: "America/Chicago" });
+    const page = await context.newPage();
+    await page.clock.setFixedTime(new Date(FRESH));
+    // Hold research.json until the pending tiles have rendered, then let it through.
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    await page.route("**/research.json", async (route) => { await held; await route.continue(); });
+    await page.goto(`${origin}/`);
+    await page.waitForSelector(".kpi-grid.is-pending");
+    const pending = await page.evaluate(() => [...document.querySelectorAll(".kpi-grid > .kpi")].map((kpi) => kpi.getBoundingClientRect().height));
+    release();
+    await page.waitForSelector(".kpi-grid:not(.is-pending)");
+    await page.waitForTimeout(300);
+    const ready = await page.evaluate(() => [...document.querySelectorAll(".kpi-grid > .kpi")].map((kpi) => kpi.getBoundingClientRect().height));
+    // Each row of tiles takes its tallest tile; a row may not grow when the lab text arrives.
+    const rows = (heights) => [0, 3].map((start) => Math.max(...heights.slice(start, start + 3)));
+    if (width > 640) {
+      rows(ready).forEach((height, row) => assert.ok(height <= rows(pending)[row] + 1,
+        `${width}px: tile row ${row + 1} grew from ${rows(pending)[row]} to ${height}px when research.json arrived`));
+    }
+    await page.evaluate(() => window.dispatchEvent(new Event("lazy:mount-all")));
+    const misplaced = await page.evaluate(() => [...document.querySelectorAll(".panel-source > .source-files")].filter((group) => {
+      const label = group.querySelector(".micro")?.getBoundingClientRect();
+      const first = group.querySelector(".sep-list > *")?.getBoundingClientRect();
+      return label && first && Math.abs(first.top - label.top) > 4;
+    }).map((group) => group.closest("section")?.id));
+    assert.deepEqual(misplaced, [], `${width}px: a source list dropped below its label`);
+    await context.close();
+  }
+});
+
 test("a stale snapshot's notice does not shift the page when the data arrives", async () => {
   const { context, page, problems } = await openPage(VIEWPORTS[1], { now: null });
   try {
@@ -247,10 +280,21 @@ test("phone: SVG figures mount in the background first; canvas charts wait for a
   const { context, page, problems } = await openPage(VIEWPORTS[1]);
   try {
     await page.waitForSelector("#verdict-title");
-    // The background queue starts 3 s after the load event and mounts one figure per idle period.
+    // The background queue starts 3 s after the load event and mounts one figure per idle period; the
+    // canvas charts come last. Each wrapper's mount time is recorded as it loses aria-busy.
+    await page.evaluate(() => {
+      window.__mounted = new Map();
+      new MutationObserver((records) => {
+        for (const record of records) {
+          const node = record.target;
+          if (node.classList?.contains("lazy-mount") && !node.hasAttribute("aria-busy") && !window.__mounted.has(node)) {
+            window.__mounted.set(node, performance.now());
+          }
+        }
+      }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ["aria-busy"] });
+    });
     await page.waitForFunction((canvas) => [...document.querySelectorAll(".lazy-mount[aria-busy]")]
       .every((node) => canvas.some((id) => node.closest(`#${id}`))), CANVAS_SECTIONS, { timeout: 20000 });
-    await page.waitForTimeout(1500);
     for (const id of CANVAS_SECTIONS) assert.equal(await busyIn(page, id), "true", `${id} mounted before the SVG figures were done`);
     await page.locator("#risk .lazy-mount").scrollIntoViewIfNeeded();
     await page.waitForFunction(() => !document.querySelector("#risk .lazy-mount[aria-busy]"));

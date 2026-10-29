@@ -176,6 +176,41 @@ test("a tick label or marker text that the plot's edge would cut is left out", (
   stop();
 });
 
+test("the tick formatter applies the range a frame settles on, not the first one it saw", () => {
+  const { installTickFormatter, formatTick, spanDays } = lw;
+  let formatter = null;
+  let onRange = null;
+  const chart = {
+    timeScale: () => ({
+      width: () => 2000,
+      timeToCoordinate: (time) => (Date.parse(`${time}T00:00:00Z`) - Date.parse("2026-01-01T00:00:00Z")) / 86400000 * 3,
+      subscribeVisibleTimeRangeChange: (handler) => { onRange = handler; },
+      unsubscribeVisibleTimeRangeChange: () => {},
+    }),
+    applyOptions: (options) => { formatter = options.timeScale.tickMarkFormatter; },
+  };
+  const frames = [];
+  const saved = [globalThis.requestAnimationFrame, globalThis.cancelAnimationFrame];
+  globalThis.requestAnimationFrame = (callback) => frames.push(callback);
+  globalThis.cancelAnimationFrame = () => {};
+  try {
+    const stop = installTickFormatter(chart);
+    // The library reports its default view first, then the preset, both before the next frame.
+    const first = { from: "2026-10-20", to: "2026-10-27" };
+    const settled = { from: "2023-10-27", to: "2026-10-30" };
+    onRange(first);
+    onRange(settled);
+    assert.equal(frames.length, 1, "one apply per frame");
+    frames.shift()();
+    const expected = formatTick("2026-06-01", TickMarkType.Month, spanDays(settled));
+    assert.equal(formatter("2026-06-01", TickMarkType.Month), expected);
+    assert.notEqual(expected, formatTick("2026-06-01", TickMarkType.Month, spanDays(first)), "the two spans label months differently");
+    stop();
+  } finally {
+    [globalThis.requestAnimationFrame, globalThis.cancelAnimationFrame] = saved;
+  }
+});
+
 test("keyboard reading: arrows step one row (four with Shift), Home/End jump, Escape clears", () => {
   const { nextReadIndex, visibleRows, isOffFrame, frameFor, READ_STEP } = lw;
   const visible = visibleRows({ from: 9.5, to: 104 }, 100);

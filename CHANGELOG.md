@@ -91,8 +91,9 @@ backs the new one.
   figure and its row titles keep their year count; README Figure 1 spans every plotted value.
 - **Wrapped lines.** No meta line, source footer or tile footnote starts or ends a wrapped line
   with a separator dot, and text that wraps inside an item starts at the line's edge.
-- **Print.** Printing keeps every leaderboard column (the tablet column hides apply to screens), and
-  a Ctrl+P a few seconds after load prints every chart.
+- **Print.** Printing keeps every leaderboard column (the tablet column hides apply to screens); the
+  Print button prints every chart at any time, and a plain Ctrl+P does once the background queue has
+  drawn the canvas charts (about 4 s after load).
 - **Links.** The full results and the reviewer guide are linked from METH and the footer.
 
 ### Engineering
