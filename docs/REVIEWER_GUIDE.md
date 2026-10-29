@@ -24,7 +24,7 @@ PYTHONPATH=. python -m cogapp --check README.md docs/RESULTS.md docs/MODEL_CARD.
 
 Passing: one `Checking <file>` line per page and exit status 0. The sentences are written in
 [`scripts/readme_blocks.py`](../scripts/readme_blocks.py) conditional on the data, so "statistically
-tied" or "significant at 10% but not at 5%" follows from the p-value in the artifact, not from the
+tied" or "inconclusive: not significant at 5%" follows from the p-value in the artifact, not from the
 prose. On the dashboard, each section's source line names the payload fields it reads.
 
 ## 2. The benchmark field reproduces from pinned inputs (four minutes)

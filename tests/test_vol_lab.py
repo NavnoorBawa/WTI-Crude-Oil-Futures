@@ -307,6 +307,82 @@ class LossAndTestTest(unittest.TestCase):
         self.assertIn("good", res["included"])
         self.assertNotIn("bad", res["included"])
 
+    @staticmethod
+    def _spa_case(seed: int) -> tuple[np.ndarray, pd.DataFrame]:
+        """A benchmark, a model that is better by a little on every draw, and a noisy model that is worse."""
+        rng = np.random.default_rng(seed)
+        bench = rng.normal(1.0, 0.3, 400)
+        return bench, pd.DataFrame({"quiet": bench - 0.02 + rng.normal(0, 0.05, 400),
+                                    "noisy": bench + 0.02 + rng.normal(0, 1.5, 400)})
+
+    def test_spa_studentized_finds_a_quiet_better_model_the_raw_test_misses(self):
+        bench, models = self._spa_case(0)
+        res = fe.spa_test(bench, models, block=10, reps=1000, seed=lab.SEED)
+        self.assertEqual(res["best_model"], "quiet")
+        self.assertLess(res["p_consistent"], 0.01)
+        # On raw means the noisy model's bootstrap swings set the maximum and hide the quiet one.
+        self.assertGreater(res["non_studentized"]["p_consistent"], 0.10)
+
+    def test_spa_does_not_reject_when_the_benchmark_is_best(self):
+        rng = np.random.default_rng(3)
+        bench = rng.normal(1.0, 0.3, 400)
+        worse = pd.DataFrame({"a": bench + 0.2 + rng.normal(0, 0.1, 400), "b": bench + 0.1 + rng.normal(0, 0.3, 400)})
+        res = fe.spa_test(bench, worse, block=10, reps=500, seed=lab.SEED)
+        self.assertEqual(res["statistic"], 0.0)
+        self.assertIsNone(res["best_model"])                       # nothing beats it, so nothing leads
+        self.assertEqual((res["p_lower"], res["p_consistent"], res["p_upper"]), (1.0, 1.0, 1.0))
+        with self.assertRaises(ValueError):                    # a copy of the benchmark has nothing to test
+            fe.spa_test(bench, worse.assign(a=bench), block=10, reps=10, seed=lab.SEED)
+
+    def test_spa_studentized_p_matches_a_second_implementation(self):
+        """Hansen's p-values written again, vectorized over the draws, with arch's own variance kernel
+        (SPA._compute_variance) and arch's stationary-bootstrap draws for the same seed."""
+        from arch.bootstrap import SPA, StationaryBootstrap
+
+        bench, models = self._spa_case(2)
+        models = models.assign(mid=bench - 0.005 + np.random.default_rng(4).normal(0, 0.4, 400))
+        res = fe.spa_test(bench, models, block=10, reps=400, seed=lab.SEED)
+        d = bench[:, None] - models.to_numpy()
+        n = len(d)
+        spa = SPA(bench, models, block_size=10, reps=400, bootstrap="stationary", seed=lab.SEED)
+        spa._compute_variance()
+        omega = np.sqrt(spa._loss_diff_var)
+        means = np.array([data[0].mean(axis=0) for data, _ in StationaryBootstrap(10, d, seed=lab.SEED).bootstrap(400)])
+        dbar = d.mean(axis=0)
+        t_obs = max((np.sqrt(n) * dbar / omega).max(), 0.0)
+        keep = dbar >= -omega * np.sqrt(2 * np.log(np.log(n)) / n)
+        for name, centre in (("lower", np.maximum(dbar, 0)), ("consistent", np.where(keep, dbar, 0)), ("upper", dbar)):
+            t_star = np.maximum((np.sqrt(n) * (means - centre) / omega).max(axis=1), 0.0)
+            self.assertEqual(res[f"p_{name}"], round(float((t_star >= t_obs).mean()), 4), name)
+
+    def test_spa_size_at_the_boundary_of_the_null(self):
+        """Every model exactly as good as the benchmark on average, with dependent losses: the consistent
+        p-value rejects at 5% about 5% of the time (Hansen's test is mildly liberal at this boundary)."""
+        rng = np.random.default_rng(11)
+        rejections, sims, n = 0, 120, 300
+        for i in range(sims):
+            shocks = rng.normal(0, 1, (n + 5, 4))
+            common = np.convolve(rng.normal(0, 1, n + 5), np.ones(5) / 5, mode="same")   # serial dependence
+            losses = 1.0 + 0.3 * (shocks + common[:, None])[5:]
+            scales = np.array([0.5, 1.0, 2.0])                                         # unequal noise
+            models = pd.DataFrame(losses[:, :1] + (losses[:, 1:] - losses[:, :1]) * scales, columns=["a", "b", "c"])
+            res = fe.spa_test(losses[:, 0], models, block=5, reps=199, seed=i)
+            rejections += res["p_consistent"] < 0.05
+        self.assertLess(rejections / sims, 0.12)
+
+    def test_spa_matches_arch_where_arch_is_right(self):
+        """The variance kernel is arch's, and on raw means the p-values are arch.bootstrap.SPA's on the
+        same draws (arch 8.0.0 computes the non-studentized test whatever its studentize flag says)."""
+        from arch.bootstrap import SPA
+
+        bench, models = self._spa_case(1)
+        res = fe.spa_test(bench, models, block=10, reps=500, seed=lab.SEED)
+        spa = SPA(bench, models, block_size=10, reps=500, bootstrap="stationary", seed=lab.SEED)
+        spa.compute()
+        self.assertEqual(res["non_studentized"], {f"p_{k}": round(float(v), 4) for k, v in spa.pvalues.items()})
+        lrv = fe.stationary_bootstrap_lrv(bench[:, None] - models.to_numpy(), 10)
+        np.testing.assert_allclose(lrv, spa._loss_diff_var, rtol=1e-12)          # arch's private kernel
+
     def test_delayed_aci_uses_only_matured_errors_and_covers(self):
         rng = np.random.default_rng(9)
         e = rng.normal(0, 1, 3000) * np.r_[np.full(1500, 0.3), np.full(1500, 0.9)]
@@ -424,6 +500,8 @@ class ArtifactContractTest(unittest.TestCase):
                 *(v["included"] if isinstance(v, dict) else v for v in robustness.values())]
         for members in sets:
             self.assertFalse(set(members) & set(lab.TIMING_CONTROLS), members)
+        for check in board["spa_robustness_qlike"].values():
+            self.assertNotIn(check["best_model"], lab.TIMING_CONTROLS)
         self.assertNotIn(self.report["config"]["challenger"], lab.TIMING_CONTROLS)
         for row in board["models"]:
             if row["timing_control"]:
@@ -449,7 +527,7 @@ class ArtifactContractTest(unittest.TestCase):
                 self.assertTrue(lab.compare_reports(committed, {**committed, key: value})["violations"])
         self.assertTrue(lab.compare_reports(committed, {**committed, "extra": 1})["violations"])
 
-    @unittest.skipUnless(os.environ.get("RUN_SLOW") == "1", "set RUN_SLOW=1 to rebuild the artifact (~3 min)")
+    @unittest.skipUnless(os.environ.get("RUN_SLOW") == "1", "set RUN_SLOW=1 to rebuild the artifact (~4 min)")
     def test_artifact_reproduces_from_the_snapshot(self):
         rebuilt = json.loads(json.dumps(lab._jsonable(lab.build_report(md.load_snapshot()))))
         if os.environ.get("VOL_LAB_REBUILT"):                                # kept for the CI job summary

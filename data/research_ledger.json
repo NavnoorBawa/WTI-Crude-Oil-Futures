@@ -7,10 +7,10 @@
     "rows_with_p_value": 76,
     "rows_in_multiplicity_family": 75,
     "by_status": {
-      "supported": 18,
+      "supported": 19,
       "not_supported": 44,
       "retracted": 9,
-      "inconclusive": 5
+      "inconclusive": 4
     },
     "pre_specified_rows": 3,
     "selected_after_search": [
@@ -32,6 +32,7 @@
       "vol_ovx_gain_qlike",
       "vol_same_day_ovx",
       "vol_challenger_qlike",
+      "vol_spa_beats_record",
       "vol_mcs_excludes_record",
       "vol_ovx_coefficient",
       "var_normal_99_coverage",
@@ -72,6 +73,7 @@
       "carry_spread_pre2007",
       "carry_sign_split_full",
       "carry_rank_changed_after_2007",
+      "vol_spa_beats_record",
       "vol_mcs_excludes_record",
       "var_normal_99_coverage",
       "var_hs_95_clustering",
@@ -128,10 +130,10 @@
       "volatility forecast": {
         "rows": 18,
         "by_status": {
-          "supported": 6,
+          "supported": 7,
           "not_supported": 8,
           "retracted": 2,
-          "inconclusive": 2
+          "inconclusive": 1
         },
         "supported_surviving_bh_5pct": 4,
         "supported_clearing_hlz_t3": 4
@@ -455,7 +457,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.32867647058823524,
+      "q_value_bh": 0.3253591475644193,
       "p_holm": 1.0,
       "t_equivalent": 1.51,
       "survives_bh_5pct": false,
@@ -784,7 +786,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.12571428571428572,
+      "q_value_bh": 0.12000000000000001,
       "p_holm": 1.0,
       "t_equivalent": 2.11,
       "survives_bh_5pct": false,
@@ -820,7 +822,7 @@
         "context_fields": {},
         "name_fields": {}
       },
-      "q_value_bh": 0.12886363636363637,
+      "q_value_bh": 0.1232608695652174,
       "p_holm": 1.0,
       "t_equivalent": 2.08,
       "survives_bh_5pct": false,
@@ -900,7 +902,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.31138888888888894,
+      "q_value_bh": 0.30026785714285714,
       "p_holm": 1.0,
       "t_equivalent": 1.59,
       "survives_bh_5pct": false,
@@ -1018,7 +1020,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.32867647058823524,
+      "q_value_bh": 0.32578125,
       "p_holm": 1.0,
       "t_equivalent": 1.48,
       "survives_bh_5pct": false,
@@ -1266,7 +1268,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.11447368421052632,
+      "q_value_bh": 0.10875000000000001,
       "p_holm": 1.0,
       "t_equivalent": 2.18,
       "survives_bh_5pct": false,
@@ -1559,7 +1561,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.32867647058823524,
+      "q_value_bh": 0.32578125,
       "p_holm": 1.0,
       "t_equivalent": 1.48,
       "survives_bh_5pct": false,
@@ -1899,7 +1901,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.32867647058823524,
+      "q_value_bh": 0.31955263816454427,
       "p_holm": 1.0,
       "t_equivalent": 1.54,
       "survives_bh_5pct": false,
@@ -2163,37 +2165,39 @@
       "date": "2026-10-20",
       "family": "volatility forecast",
       "hypothesis": "Some benchmark model beats the model of record on QLIKE (Hansen SPA, data-snooping robust).",
-      "test": "Hansen (2005) SPA, consistent p-value, stationary bootstrap",
+      "test": "Hansen (2005) SPA, studentized, consistent p-value, stationary bootstrap",
       "statistic": {
         "name": "SPA consistent p-value",
-        "value": 0.072
+        "value": 0.0114
       },
       "context": {
-        "p_lower": 0.045
+        "p_lower": 0.0104,
+        "non_studentized_p": 0.072
       },
-      "p_value": 0.072,
+      "p_value": 0.0114,
       "sided": "one",
-      "p_two_sided": 0.144,
+      "p_two_sided": 0.0228,
       "pre_specified": false,
       "selected_after_search": false,
-      "status": "inconclusive",
+      "status": "supported",
       "underpowered": null,
       "retraction_reason": null,
-      "note": "",
+      "note": "Studentized, as Hansen (2005) defines it and as the original call asked (studentize=True); arch 8.0.0 ignored the flag, and releases up to 2.1.0 published the non-studentized p-value (non_studentized_p; CHANGELOG errata).",
       "artifact": {
         "path": "data/vol_lab.json",
         "statistic_field": "leaderboard.spa_qlike_vs_har_iv.p_consistent",
         "p_value_fields": {
-          "leaderboard.spa_qlike_vs_har_iv.p_consistent": 0.072
+          "leaderboard.spa_qlike_vs_har_iv.p_consistent": 0.0114
         },
         "context_fields": {
-          "p_lower": "leaderboard.spa_qlike_vs_har_iv.p_lower"
+          "p_lower": "leaderboard.spa_qlike_vs_har_iv.p_lower",
+          "non_studentized_p": "leaderboard.spa_qlike_vs_har_iv.non_studentized.p_consistent"
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.32867647058823524,
+      "q_value_bh": 0.09,
       "p_holm": 1.0,
-      "t_equivalent": 1.46,
+      "t_equivalent": 2.28,
       "survives_bh_5pct": false,
       "survives_holm_5pct": false,
       "clears_hlz_t3": false
@@ -2238,7 +2242,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.24,
+      "q_value_bh": 0.22999999999999998,
       "p_holm": 1.0,
       "t_equivalent": 1.79,
       "survives_bh_5pct": false,
@@ -2479,7 +2483,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.29625,
+      "q_value_bh": 0.28527777777777774,
       "p_holm": 1.0,
       "t_equivalent": 1.64,
       "survives_bh_5pct": false,
@@ -2649,7 +2653,7 @@
           "group": "groups[key=supply_lost].name"
         }
       },
-      "q_value_bh": 0.29625,
+      "q_value_bh": 0.28527777777777774,
       "p_holm": 1.0,
       "t_equivalent": 1.63,
       "survives_bh_5pct": false,
@@ -2784,7 +2788,7 @@
           "group": "groups[key=opec_cut].name"
         }
       },
-      "q_value_bh": 0.280625,
+      "q_value_bh": 0.26940000000000003,
       "p_holm": 1.0,
       "t_equivalent": 1.7,
       "survives_bh_5pct": false,
@@ -3318,7 +3322,7 @@
           "threat": "groups[key=threat_only].name"
         }
       },
-      "q_value_bh": 0.11587499999999999,
+      "q_value_bh": 0.11035714285714285,
       "p_holm": 1.0,
       "t_equivalent": 2.16,
       "survives_bh_5pct": false,

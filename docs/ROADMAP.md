@@ -60,7 +60,7 @@ These never finish; every session checks them first.
    release gets a DOI; put it in `CITATION.cff` and METH. Generate `docs/PREREGISTRATION.md` by
    cog from the `PROMOTION_*` constants in `backend/vol_record.py` (the pair, the sample
    definition, the one-sided DM with Student t, alpha, the exclusion rules, `student_t_sf`), add
-   the power table (`promotion_power` already produces the README's figure) and a "what happens
+   the power table (`promotion_power` already produces the figure in `docs/RESULTS.md` section 3) and a "what happens
    next" section: on keep, the model of record stays and any second test is declared by new
    constants with a start date before its first entry; on promote, the swap is a maintainer PR;
    no interim decisions. Add the file to the cog gate. The rule itself never changes (house
@@ -199,7 +199,7 @@ strength its test supports. Nothing here re-selects the challenger: the pair is 
    the turnover per year, Sharpe by cost over {0, 2.5, 5, 10, 20} bp, the breakeven cost at which
    any forecast advantage over trailing-22-day sizing vanishes (null if never positive), and the
    realized-utility gain over trailing sizing with a DM test and a stationary-bootstrap CI; a
-   ledger row; one computed sentence in README section 2.4. Fields are additive and optional in
+   ledger row; one computed sentence in `docs/RESULTS.md` section 2.4. Fields are additive and optional in
    the validator, since the production validation is a recorded run on downloaded data. Keep the
    existing conclusion (risk control, not return) unless the test says otherwise.
 9. **Per-call attribution.** Store the fit's coefficients and smearing factor in new record
@@ -240,7 +240,7 @@ strength its test supports. Nothing here re-selects the challenger: the pair is 
     day's rows with at least two expiries; a schema test; terms of use stated in the datasheet.
 15. **A specification curve over the lab's fixed design choices.** The sample start, window
     type, purge length, HAR lags, retransformation and OVX lag were set while looking at the
-    data, as README section 9 says. `scripts/build_specification_curve.py` reruns the walk-forward
+    data, as `docs/RESULTS.md` section 9 says. `scripts/build_specification_curve.py` reruns the walk-forward
     over a grid declared in its docstring before the first run (training start, expanding vs
     rolling window, purge 4 or 9, three lag sets, smearing vs normal vs none, OVX lag 1 or 2) into
     `data/vol_lab_specifications.json`, a robustness artifact beside the pinned one, and STAB
