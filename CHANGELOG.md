@@ -70,12 +70,47 @@ backs the new one.
   zone and the focused table row use the system colours; printed SVG figures scale to their column
   and code blocks wrap.
 
+- **Numbers as recorded.** A value the record stores at two decimals is never rounded again to one
+  (the hero and CONE showed 48.6% for a stored 48.65 whose one-decimal value is 48.7%); the model
+  card's mean is the hero's own arithmetic (it printed 47.5% × √1.413 ≈ 56.5% against a 56.4%
+  call); its 72.6% is labelled as vol-direction accuracy beside its noise floor, not "price
+  direction"; LIVE's call-to-call input moves print at the two decimals the record stores.
+- **Titles name their samples.** CALB's title and coverage heading name the years and the 4,370
+  days with a band; STDY's title is one framing claim (two descriptive studies, with their
+  samples) and no longer says supply removal "beat" placebo dates on the peak alone; without
+  research.json its supply-shock title carries the ordinary-date baseline; the carry column shows
+  its unit.
+- **The live record, whatever its state.** The footnote explains every never-scored status the
+  record holds (a contract roll, a late seal, an expired window), from its counts; the counts
+  print once; a promotion test behind the independent-week count says the later weeks wait for a
+  pending call; a result due before the snapshot's date reads "overdue since" in the chart, the
+  row, the footnote, the title, the evidence list and the tile.
+- **Charts.** FCST no longer offers "Reset view" before it is touched; a poll that returns the same
+  snapshot keeps a reader's pan; dashed legend keys are drawn as dashes; RISK has keys for its
+  breach colours and keeps its rounding note in the method notes; the STAB caption sits under its
+  figure and its row titles keep their year count; README Figure 1 spans every plotted value.
+- **Wrapped lines.** No meta line, source footer or tile footnote starts or ends a wrapped line
+  with a separator dot, and text that wraps inside an item starts at the line's edge.
+- **Print.** Printing keeps every leaderboard column (the tablet column hides apply to screens), and
+  a Ctrl+P a few seconds after load prints every chart.
+- **Links.** The full results and the reviewer guide are linked from METH and the footer.
+
 ### Engineering
 
 - **Browser checks in CI.** A new "Interface" job renders the built site against the fixtures at
   1440 and 390px, fresh and stale, and requires no console error, no sideways page scroll, every
   scroll region keyboard-reachable, no serious axe violation, layout shift under 0.02, the skip link
-  and jump palette by keyboard, and the first screen's scripts within budget.
+  and jump palette by keyboard, and the first screen's scripts within budget; it also checks that
+  an untouched chart offers no "Reset view", the lazy-mount order and print, that an identical poll
+  keeps a pan, the table announcements, and the separator lists (no clipped text, no dangling dot).
+- **A lighter first load.** research.json is preloaded with data.json, and late research and polls
+  render as transitions: largest contentful paint on a throttled phone (390px, 4x CPU) went from
+  3.8-4.4 s to 2.6-2.8 s. Canvas charts mount near the viewport, or last in the background, which
+  cut background long tasks there from 3.2-3.6 s to about 0.5 s; an identical poll is not rendered
+  again; the number formatters are cached; a `?table=` link no longer announces on load.
+- **Code health.** One breach rule (`src/lib/var.js`), one character-width constant, and no dead CSS
+  or JS.
+- `scripts/capture_figures.mjs` regenerates the README screenshot from a build and a snapshot.
 - eslint ignores the in-repository `.venv` the cloud session's hook creates.
 
 ### Documentation and verification
