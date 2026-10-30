@@ -111,8 +111,21 @@ and its CI run is the test.
 - Repository Settings → Secrets and variables → Actions: keep `EIA_API_KEY`, and delete secrets the
   old pipeline used (`NEWSAPI_KEY`, `FINNHUB_API_KEY` and similar). Nothing reads them now.
 - Enable the Zenodo-GitHub integration (ROADMAP 1.2) so each release gets a DOI.
-- GitHub Releases for the older tags `v2.0.0` and `v2.1.0`: the release workflow only runs on tags
-  whose commit has it, so those two have tags but no Release page; create them by hand if wanted.
+- **Push the version tags.** A session's git access can push branches but not tags (the push of
+  `refs/tags` returns HTTP 403), so the tags wait for the owner. From a clone of `main`:
+
+  ```bash
+  git fetch origin
+  git tag -a v2.0.0 48138bc -m "2.0.0"
+  git tag -a v2.1.0 d637f1f -m "2.1.0"
+  git tag -a v2.2.0 c0166ea -m "2.2.0"
+  git push origin v2.0.0 v2.1.0 v2.2.0
+  ```
+
+  Pushing `v2.2.0` runs `.github/workflows/release.yml`, which publishes the 2.2.0 GitHub Release
+  with its changelog section and `SHA256SUMS`. `v2.0.0` and `v2.1.0` predate the workflow, so they
+  get tags but no Release page; create those by hand if wanted. Later releases: run
+  `scripts/bump_version.py`, merge, then tag the merge commit the same way.
 
 ## The working loop (repeat every session)
 

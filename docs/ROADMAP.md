@@ -22,7 +22,7 @@ Each line below is a property with a test; the project is "there" when every lin
 | Every number on the page is computed from the payloads | `tests/frontend` render tests; no statistic literal in copy | holds |
 | The main result reproduces bit for bit from pinned inputs | Reproduce workflow on `data/vol_lab.json` | holds (on every change to the pipeline, its inputs or its pins, and weekly) |
 | The forward record cannot be back-filled, and that is provable to an outsider | git seal before the window, plus an independent timestamp anchor | partial: sealed in git and checked from the file alone (`scripts/verify_record.py`); no external anchor |
-| The promotion test was fixed before any result arrived | a pre-registered, citable document with a persistent identifier | partial: pinned in code and docs, in tagged releases; no DOI |
+| The promotion test was fixed before any result arrived | a pre-registered, citable document with a persistent identifier | partial: pinned in code and docs; release tags wait for the owner's push (`HANDOFF.md` section 6); no DOI |
 | Forecast quality is judged with the right losses, at the right horizons, conditionally | QLIKE, MSE, MCS, SPA, DM today; density and conditional tests, several horizons | partial: SPA studentized with robustness; density, conditional tests and horizons to do |
 | The model is specified, bounded and attributable | model card, elasticities, hand-checkable arithmetic; per-call attribution | holds from 2026-10-28: each new call stores its fit and the hero splits the change between two such calls; the six earlier sealed calls have no stored fit |
 | The interface is correct at every width and for every reader | 0 overflow, 0 console errors, axe clean, keyboard complete, print | partial: the Interface job checks overflow, console errors, serious and critical axe violations, keyboard and print at 1440 and 390 px; open gaps (placeholders at 320 px, hash landings at about 600 px, the hero's median dot at some widths, separators for screen readers) are in `HANDOFF.md` section 4 |
@@ -376,10 +376,10 @@ These stay out, whatever a review suggests, unless the owner changes the rules:
 Tick items here with the PR number and date when they ship, and move any new finding into
 `HANDOFF.md`'s backlog.
 
-- **1.1 Tag and release every version, with checksums** (#75, 2026-10-30): `v2.0.0`, `v2.1.0` and
-  `v2.2.0` tags; `scripts/bump_version.py`; `tests/test_release_metadata.py`;
-  `.github/workflows/release.yml` publishes each tag's Release with `SHA256SUMS` from 2.2.0 on
-  (`v2.0.0` and `v2.1.0` predate the workflow and are tags only).
+- **1.1 Tag and release every version, with checksums** (#75, 2026-10-30), except the tags:
+  `scripts/bump_version.py`; `tests/test_release_metadata.py`; `.github/workflows/release.yml`
+  publishes each tag's Release with `SHA256SUMS` from 2.2.0 on. A session cannot push tags, so
+  `v2.0.0`, `v2.1.0` and `v2.2.0` wait for the owner (`HANDOFF.md` section 6, with the commands).
 - **2.9 Per-call attribution** (#71, 2026-10-28): new entries store their coefficients and smearing
   factor; the hero splits the change between calls.
 - **2.10 Basel traffic light**: already computed before 2.1.0 (`basel_zone_last_250` at 99%); the
