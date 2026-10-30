@@ -4,7 +4,16 @@ All notable changes. Research results are versioned like code: when a published 
 the correction is listed under **Errata** with the old and the new value, and the artifact that
 backs the new one.
 
-## Unreleased
+## 2.2.0 — 2026-10-30
+
+A minor release: one research result changed. Hansen's SPA test was not studentized (arch 8.0.0
+ignores the flag); studentized as Hansen defines it, the search-adjusted test rejects "no
+alternative beats the model of record" (p = 0.011, 0.072 before), though not after the ledger's
+Benjamini-Hochberg adjustment (see Errata). The model of record, the pinned 52-week promotion test
+and the sealed live record are unchanged; the first two live windows have resolved, both inside
+their band. Each call now stores its fit; the dashboard fixes the confirmed findings of an
+eight-lens audit and two independent verification rounds; the README is a two-minute landing page with a
+reviewer guide; releases are tagged, with a GitHub Release and artifact digests per tag.
 
 ### Research
 
@@ -98,6 +107,11 @@ backs the new one.
 
 ### Engineering
 
+- **Releases.** Every version is a `vX.Y.Z` tag (2.0.0 and 2.1.0 tagged on their merge commits).
+  `scripts/bump_version.py` moves the version in every file together and dates the changelog;
+  `.github/workflows/release.yml` publishes the tag's GitHub Release with its changelog section and
+  `SHA256SUMS` of every committed artifact under `data/`; `tests/test_release_metadata.py` fails
+  when one file's version is edited alone.
 - **Browser checks in CI.** A new "Interface" job renders the built site against the fixtures at
   1440 and 390px, fresh and stale, and requires no console error, no sideways page scroll, every
   scroll region keyboard-reachable, no serious axe violation, layout shift under 0.02, the skip link

@@ -17,16 +17,16 @@ artifact.
 A top quant research team relies on a tool when it can verify it without trusting its author.
 Each line below is a property with a test; the project is "there" when every line holds.
 
-| Property | Test a reviewer can run | Status at 2.1.0 |
+| Property | Test a reviewer can run | Status at 2.2.0 |
 | --- | --- | --- |
 | Every number on the page is computed from the payloads | `tests/frontend` render tests; no statistic literal in copy | holds |
-| The main result reproduces bit for bit from pinned inputs | Reproduce workflow on `data/vol_lab.json` | holds (weekly) |
-| The forward record cannot be back-filled, and that is provable to an outsider | git seal before the window, plus an independent timestamp anchor | partial: sealed in git, no external anchor |
-| The promotion test was fixed before any result arrived | a pre-registered, citable document with a persistent identifier | partial: pinned in code and README, no DOI, no release tag |
-| Forecast quality is judged with the right losses, at the right horizons, conditionally | QLIKE, MSE, MCS, SPA, DM today; density and conditional tests, several horizons | partial |
-| The model is specified, bounded and attributable | model card, elasticities, hand-checkable arithmetic; per-call attribution | partial: no per-call coefficients yet |
-| The interface is correct at every width and for every reader | 0 overflow, 0 console errors, axe clean, keyboard complete, print | holds; not yet enforced in CI |
-| A reviewer can evaluate the project in ten minutes | a guide that says what to check and in what order | missing |
+| The main result reproduces bit for bit from pinned inputs | Reproduce workflow on `data/vol_lab.json` | holds (on every PR and weekly) |
+| The forward record cannot be back-filled, and that is provable to an outsider | git seal before the window, plus an independent timestamp anchor | partial: sealed in git and checked from the file alone (`scripts/verify_record.py`); no external anchor |
+| The promotion test was fixed before any result arrived | a pre-registered, citable document with a persistent identifier | partial: pinned in code and docs, in tagged releases; no DOI |
+| Forecast quality is judged with the right losses, at the right horizons, conditionally | QLIKE, MSE, MCS, SPA, DM today; density and conditional tests, several horizons | partial: SPA studentized with robustness; density, conditional tests and horizons to do |
+| The model is specified, bounded and attributable | model card, elasticities, hand-checkable arithmetic; per-call attribution | holds: each call stores its fit; the hero splits each change |
+| The interface is correct at every width and for every reader | 0 overflow, 0 console errors, axe clean, keyboard complete, print | holds; enforced in CI (the Interface job) |
+| A reviewer can evaluate the project in ten minutes | a guide that says what to check and in what order | holds: README landing page and `docs/REVIEWER_GUIDE.md` |
 | Nothing depends on a paid service or a person remembering to run something | GitHub Actions only, with failures that announce themselves | partial: failures are silent |
 
 ## Stage 0: always on
@@ -376,4 +376,19 @@ These stay out, whatever a review suggests, unless the owner changes the rules:
 Tick items here with the PR number and date when they ship, and move any new finding into
 `HANDOFF.md`'s backlog.
 
-- (none yet beyond 2.1.0)
+- **1.1 Tag and release every version, with checksums** (#75, 2026-10-30): `v2.0.0`, `v2.1.0` and
+  `v2.2.0` tags; `scripts/bump_version.py`; `tests/test_release_metadata.py`;
+  `.github/workflows/release.yml` publishes each tag's Release with `SHA256SUMS`.
+- **2.9 Per-call attribution** (#71, 2026-10-28): new entries store their coefficients and smearing
+  factor; the hero splits the change between calls.
+- **2.10 Basel traffic light**: already computed before 2.1.0 (`basel_zone_last_250` at 99%); the
+  backlog item was stale.
+- **SPA correction** (#74, 2026-10-29, not a roadmap item): Hansen's SPA studentized, with
+  robustness and an errata entry; two independent verification rounds.
+- **3.6 Interface checks in CI** (#73, 2026-10-30): the Interface job (13 Playwright checks: axe,
+  layout shift, overflow, keyboard, print, lazy-mount order, separator lists, script budget).
+  Property assertions rather than pixel screenshots (font rasterization differs between machines).
+- **3.7 The remaining interface follow-ups** (#73): every item of the 2.1.0 list, and the
+  eight-lens audit's confirmed findings; what remains is in `HANDOFF.md` section 4.
+- **4.1 `docs/REVIEWER_GUIDE.md`** and **4.5 README as a research note** (#72, 2026-10-28).
+- **5.6 Capture scripts in the repo** (#73): `scripts/capture_figures.mjs`.

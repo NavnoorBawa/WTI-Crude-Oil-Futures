@@ -5,8 +5,8 @@ title: "WTI Crude Oil Volatility Research: a benchmarked, reproducible next-week
 authors:
   - family-names: Bawa
     given-names: Navnoor
-version: 2.1.0
-date-released: "2026-10-27"
+version: 2.2.0
+date-released: "2026-10-30"
 license: MIT
 repository-code: "https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures"
 url: "https://navnoorbawa.github.io/WTI-Crude-Oil-Futures/"
