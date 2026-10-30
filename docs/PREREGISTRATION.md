@@ -2,10 +2,13 @@
 
 This file states, in one citable place, the only test that can replace the model of record: what it
 compares, on which sample, with which statistic and level, and what happens after it. The rule
-itself lives in code (`backend/vol_record.py`), and every value below that the code fixes is
-generated from it by [cog](https://nedbatchelder.com/code/cog) (`scripts/readme_blocks.py`), so this
-text cannot drift from the test that runs. CI fails if they disagree. The file was written on
-2026-10-30; the rule it describes was fixed on 2026-10-21 and has not changed.
+itself lives in code (`backend/vol_record.py`). The rule's text, the design table, the scoring
+window, the earliest completion date, the backtest's dependence figures, the power and sections 7
+and 9 are generated from that code and from `data/vol_lab.json` by
+[cog](https://nedbatchelder.com/code/cog) (`scripts/readme_blocks.py`); the values and names the
+hand-written sections quote are checked against the code by `tests/test_preregistration.py`. CI
+fails if either disagrees. The file was written on 2026-10-30; the rule it describes was fixed on
+2026-10-21 and has not changed.
 
 ## 1. Registration
 
@@ -16,15 +19,20 @@ text cannot drift from the test that runs. CI fails if they disagree. The file w
 
 - **Fixed in:** commit `48138bc` ("2.0.0", pull request #54). GitHub records the merge at
   2026-10-21 05:02:56 UTC.
-- **Before any live evidence:** the first record entry (the forecast as of 2026-10-20) was sealed
-  at 05:04:20 UTC the same morning, after the merge, and the first window resolved on 2026-10-29.
+- **Before any live evidence:** the first record entry (the forecast as of 2026-10-20) was made by
+  Refresh run [39547366346](https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures/actions/runs/39547366346),
+  which GitHub started for the merge commit itself at 05:02:59 UTC and which finished at 05:04:25
+  UTC. The entry's own `sealed_at` is 05:04:20 UTC and its push to `live-data` is commit `1562c29`.
+  The first window resolved on 2026-10-29.
 - **Unchanged since:** the four constants that define the test (`PROMOTION_MODEL_VERSION`,
   `PROMOTION_CHALLENGER`, `PROMOTION_WEEKS`, `PROMOTION_ALPHA`) have one commit in their history,
   and `tests/test_vol_record.py` fails if the rule's text, which names all four, changes.
 
 A git commit's date is set by its author, so the times that count are GitHub's: the merge time of
-pull request #54 and the push events that delivered each entry to the `live-data` branch. To check
-them:
+pull request #54 and the Actions run that made and pushed the first entry. A run started for the
+merge commit cannot predate the merge. GitHub keeps run logs and push events for a limited period,
+not indefinitely; an independent timestamp anchor ([`docs/ROADMAP.md`](ROADMAP.md), Stage 1, item 3)
+would make the order checkable for good. To check them:
 
 ```bash
 git log --format='%h %cI %s' -G '^PROMOTION_(MODEL_VERSION|CHALLENGER|WEEKS|ALPHA) = ' -- backend/vol_record.py
@@ -32,6 +40,10 @@ git log --format='%h %cI %s' -G '^PROMOTION_(MODEL_VERSION|CHALLENGER|WEEKS|ALPH
 
 ```bash
 curl -s https://api.github.com/repos/NavnoorBawa/WTI-Crude-Oil-Futures/pulls/54 | grep '"merged_at"'
+```
+
+```bash
+curl -s 'https://api.github.com/repos/NavnoorBawa/WTI-Crude-Oil-Futures/actions/runs/39547366346' | grep -E '"(name|head_sha|created_at|updated_at)"'
 ```
 
 ```bash
@@ -85,33 +97,45 @@ Each forecast's window is fixed when it is recorded:
   version `har-iv/2` with a challenger forecast from `har_iv_range`.
 - **Independence.** Daily forecasts of five-session windows overlap. In record order, an entry is
   taken only if its window starts after the window of the last entry taken (greedy), so the sample's
-  windows never overlap and the plain sample variance is the right one.
+  windows never overlap. The statistic then treats the selected weeks as serially uncorrelated
+  (section 5).
 - **Stopping.** The scan stops at the first entry of the pair that is still pending, because it may
   still resolve and its window comes before those of later entries. The sample is the first 52
   entries taken. It only grows, and once full it never changes, so there is one look and no
   optional stopping.
 - **Kept out, by rules fixed in code:** an entry whose window spans a front-month roll
-  (`skipped_roll`, it would measure the calendar spread), an entry whose closes never arrive
-  (`expired`), and an entry not sealed in time (`late_commit`) are never scored. An entry of
-  another model version (such as the plain-HAR forecast published when no lagged OVX print is
-  available), with another challenger or with no challenger forecast is recorded and counted by
-  reason (`promotion.n_excluded_*` in the record summary) but never enters the sample, so it can
-  neither hold the sample back nor restart it.
-- **How long.** At least 52 non-overlapping five-session windows, so about a year of sessions, and
-  more where windows are skipped or a session publishes no challenger forecast. The record summary
-  publishes `n_independent_paired` against `required` as it accrues.
+  (`skipped_roll`, it would measure the calendar spread), an entry whose closes are still missing
+  more than 10 sessions after its window ends (`expired`, `vol_record.MAX_WAIT_SESSIONS`), and an
+  entry not sealed in time (`late_commit`) are never scored. An entry of another model version
+  (such as the plain-HAR forecast published when no lagged OVX print is available), with another
+  challenger or with no challenger forecast is recorded and never enters the sample, so it can
+  neither hold the sample back nor restart it; once resolved, it is counted by reason
+  (`promotion.n_excluded_*` in the record summary).
+
+How long the sample takes, under the record's own rules:
+
+<!-- [[[cog import scripts.readme_blocks as b; b.print_block("prereg_duration") ]]] -->
+
+At the earliest, the sample is full when the window ending 2028-01-05 resolves: 303 sessions after the first window opened on 2026-10-22 (about 14 months), not 52 × 5 = 260. That is the case in which every session from the first entry on is recorded, sealed in time and paired; windows that cross the monthly contract roll are never scored, so every roll costs the greedy selection one to five sessions. Each missed, unpaired or expired session delays it further. The record summary publishes `n_independent_paired` against `required` as the sample accrues.
+<!-- [[[end]]] -->
 
 ## 5. Analysis and decision
 
 On the full sample, compute the mean of d, its standard error from the sample variance with an
-n − 1 denominator, and their ratio. Because the windows do not overlap, there are no
-autocovariance terms; for one-step forecasts this statistic equals Harvey, Leybourne and Newbold's
-(1997) corrected Diebold-Mariano statistic, and, as they recommend, its p-value is from Student's t
-with n − 1 = 51 degrees of freedom (`vol_record.student_t_sf`, a closed-form series, standard
-library only).
+n − 1 denominator, and their ratio. The statistic has no autocovariance terms: it treats the
+loss differences of non-overlapping weeks as serially uncorrelated. For one-step forecasts it
+equals Harvey, Leybourne and Newbold's (1997) corrected Diebold-Mariano statistic, and, as they
+recommend, its p-value is from Student's t with n − 1 = 51 degrees of freedom
+(`vol_record.student_t_sf`, a closed-form series, standard library only).
+
+<!-- [[[cog import scripts.readme_blocks as b; b.print_block("prereg_dependence") ]]] -->
+
+That is an assumption, and the backtest does not fully support it. On its weekly series (927 non-overlapping weeks, 2008–2026, forecasts rounded to 0.1 vol points), the same loss difference d has a lag-1 autocorrelation of 0.19, and its Newey-West long-run variance (6 lags) is 1.36 times the plain variance. If live weeks behave alike, the plain standard error understates the uncertainty, and the test's actual size need not equal its nominal 10%. The rule was fixed with this statistic and is applied as registered; the backtest's own Diebold-Mariano tests (sections 6 and 7) use Newey-West standard errors.
+<!-- [[[end]]] -->
 
 - **promote** if the mean of d is positive and the p-value is below 0.10;
-- **keep** otherwise, including when every d is identical (zero variance: nothing to test);
+- **keep** otherwise, including when the sample variance of d is exactly zero (no statistic can be
+  formed);
 - **accruing** until the sample is full.
 
 The record summary publishes the status, the statistic, its p-value and the mean difference
@@ -134,10 +158,10 @@ The challenger was not chosen blind. On the historical sample it has the lowest 
 
 ## 8. What happens next
 
-- **Keep.** The model of record stays, and the record goes on. No later look at this pair changes
-  the verdict. A test of any other pair, or of this pair on a new sample, is a new test: it is
-  declared by new constants in a commit made before its first entry, and it gets its own
-  pre-registration.
+- **Keep.** The model of record stays, and the record goes on. A keep is final for this pair:
+  the sample is the first 52 weeks, no later look changes the verdict, and this registration
+  provides no second test of the same pair. A test of another pair is a new test: it is declared by
+  new constants in a commit made before its first entry, and it gets its own pre-registration.
 - **Promote.** A maintainer's pull request makes the challenger the model of record in code. The
   record keeps every entry as sealed; nothing recorded is changed or deleted.
 - **Either way,** there are no interim decisions: until the sample is full, the status is
@@ -145,9 +169,10 @@ The challenger was not chosen blind. On the historical sample it has the lowest 
 
 ## 9. Deviations
 
-None. Since the rule was fixed, the backtest's SPA p-value was corrected (2.2.0: 0.072 published,
-0.011 studentized; section 7). That result was never an input to the live test, and the test, its
-pair, its sample and its level are unchanged.
+<!-- [[[cog import scripts.readme_blocks as b; b.print_block("prereg_deviations") ]]] -->
+
+None to the test. Since the rule was fixed, one backtest result it does not use was corrected: in 2.2.0 the SPA p-value was published studentized (p = 0.011) in place of the non-studentized 0.072 (section 7). The test's pair, sample, statistic and level are unchanged.
+<!-- [[[end]]] -->
 
 ## 10. Citation
 

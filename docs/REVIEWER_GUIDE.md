@@ -109,8 +109,8 @@ was chosen by searching the same sample; Hansen's SPA test is its search-adjuste
 promotion rule, fixed before the first live forecast and pinned in code, is quoted in
 [section 3 of the full results](RESULTS.md#3-live-record-and-governance), with the power the single
 test has. [`PREREGISTRATION.md`](PREREGISTRATION.md) states it as a pre-registration (hypotheses,
-sample and stopping rule, analysis, what was known when it was fixed, deviations), generated from
-the same constants, with the commands that date it.
+sample and stopping rule, analysis, what was known when it was fixed, deviations), with its tables
+and figures generated from the same constants and the commands that date it.
 
 ## What would change the conclusions
 

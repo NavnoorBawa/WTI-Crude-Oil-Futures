@@ -12,8 +12,6 @@ from pathlib import Path
 from backend import vol_record as vr
 
 ROOT = Path(__file__).resolve().parents[1]
-WORDS = {5: "five"}
-
 
 def _text() -> str:
     """The page with its line wraps undone, so a phrase matches wherever the paragraph breaks."""
@@ -26,7 +24,7 @@ class PreregistrationTest(unittest.TestCase):
         for phrase in (
             f"version `{vr.PROMOTION_MODEL_VERSION}` with a challenger forecast from `{vr.PROMOTION_CHALLENGER}`",
             f"The sample is the first {vr.PROMOTION_WEEKS} entries taken",
-            f"At least {vr.PROMOTION_WEEKS} non-overlapping {WORDS[vr.HORIZON_SESSIONS]}-session windows",
+            f"closes are still missing more than {vr.MAX_WAIT_SESSIONS} sessions after its window ends",
             f"Student's t with n − 1 = {vr.PROMOTION_WEEKS - 1} degrees of freedom",
             f"the p-value is below {vr.PROMOTION_ALPHA:.2f}",
         ):
@@ -40,6 +38,15 @@ class PreregistrationTest(unittest.TestCase):
         for name in sorted(cited):
             with self.subTest(name=name):
                 self.assertTrue(hasattr(vr, name), f"docs/PREREGISTRATION.md cites vol_record.{name}, which does not exist")
+
+    def test_the_summary_fields_it_cites_are_the_promotion_results(self):
+        text = _text()
+        fields = set(vr.promotion_test([]))
+        for field in ("n_independent_paired", "required"):
+            self.assertIn(f"`{field}`", text)
+            self.assertIn(field, fields)
+        self.assertIn("`promotion.n_excluded_*`", text)
+        self.assertTrue({f for f in fields if f.startswith("n_excluded_")})
 
     def test_the_statuses_it_names_are_the_records(self):
         text = _text()
