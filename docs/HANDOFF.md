@@ -24,7 +24,8 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   model of record" at p = 0.011 (0.005 to 0.027 across blocks and halves; the 2008–2016 leader is
   the Combination), but not after the ledger's Benjamini-Hochberg adjustment (q = 0.090). The
   challenger runs live under the pinned 52-week, one-look promotion test. `data/vol_lab.json`
-  rebuilds bit for bit (Reproduce workflow, on every PR and weekly).
+  rebuilds bit for bit (Reproduce workflow: on every PR or push to `main` that touches the pipeline,
+  its inputs or its pins, and weekly).
 - **Live record.** Daily calls are recorded and sealed in git on the `live-data` branch before their
   window opens; each call since 2026-10-28 also stores its fit, so it recomputes from its own entry.
   The first windows resolved on 2026-10-29 and 2026-10-30: the Oct 20 call (47.3%, band
@@ -33,15 +34,16 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   `scripts/verify_record.py` passes on the record.
 - **Dashboard (2.2.0).** 2.1.0's research terminal, plus: the hero splits each change between calls
   into its inputs, refit and smearing; the hand arithmetic shows again; titles name their samples;
-  the live record explains every never-scored status and an overdue result; charts keep their
-  frame and a reader's pan; no wrapped line starts or ends with a separator dot; print keeps every
-  column and chart; first load is lighter (LCP 2.6–2.8 s on a throttled phone, from 3.8–4.4 s).
-  Two independent verification rounds; every confirmed finding is fixed.
-- **Tests.** 485 Python (unittest), 260 frontend (node --test) and 13 browser checks (Playwright,
+  the live record explains every never-scored status and an overdue result; charts keep their frame
+  and a reader's pan; no meta line, source footer or tile footnote starts or ends a wrapped line
+  with a separator dot; print keeps every column and chart; first load is lighter (LCP 2.6–2.8 s on
+  a throttled phone, from 3.8–4.4 s). Two independent verification rounds; every confirmed finding
+  is fixed.
+- **Tests.** 486 Python (unittest), 260 frontend (node --test) and 13 browser checks (Playwright,
   the "Interface" CI job: axe, layout shift, overflow, keyboard, print, script budget). CI also runs
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
   Reproduce rebuild. Releases: `scripts/bump_version.py`, and `.github/workflows/release.yml`
-  publishes a GitHub Release with `SHA256SUMS` on each `vX.Y.Z` tag.
+  publishes a GitHub Release with `SHA256SUMS` on each `vX.Y.Z` tag from 2.2.0 on.
 - **Cloud sessions.** `.claude/hooks/session-start.sh` builds `.venv` (Python 3.12, pinned
   requirements) and installs `node_modules`, so every gate runs from the first command.
 
@@ -59,8 +61,10 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
 Dependabot opens these PRs once each release is old enough. Merge them when CI, including the
 Reproduce rebuild, is green: react and react-dom 19.3.1 (eligible since 2026-10-28; no PR yet),
 eslint 10.13.0 (2026-10-30), vite 8.3.5 (2026-11-04), actions/setup-python v7.1.0 (2026-11-05),
-pandas 3.1.0, coverage 7.17.0, and newer ruff and hypothesis (2026-11-05). All were tested in
-scratch environments and pass, including a bit-for-bit rebuild under pandas 3.1.0.
+pandas 3.1.0 and coverage 7.17.0. Those were tested in scratch environments and pass, including
+a bit-for-bit rebuild under pandas 3.1.0. Newer ruff (pinned 0.17.0) and hypothesis (pinned
+6.169.0) releases are already old enough; Dependabot's weekly run proposes the newest eligible one,
+and its CI run is the test.
 
 ### 3. Research depth (each change goes through the ledger and the reproduce test)
 - **Stability of the challenger's edge.** The SPA rejection holds in each half, but the leader

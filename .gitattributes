@@ -7,3 +7,7 @@
 *.json text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+
+# Research artifacts check out exactly as committed on every platform (no CRLF on Windows),
+# so a release's SHA256SUMS and data/market/MANIFEST.json verify on any checkout.
+data/** -text

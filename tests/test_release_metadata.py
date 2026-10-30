@@ -6,6 +6,7 @@ import json
 import re
 import tomllib
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,9 +15,11 @@ RELEASE_HEADING = re.compile(r"^## (\d+\.\d+\.\d+) — (\d{4}-\d{2}-\d{2})$", re
 
 def versions() -> dict[str, str]:
     citation = (ROOT / "CITATION.cff").read_text(encoding="utf-8")
+    lock = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))
     return {
         "package.json": json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"],
-        "package-lock.json": json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))["version"],
+        "package-lock.json": lock["version"],
+        "package-lock.json packages['']": lock["packages"][""]["version"],
         "pyproject.toml": tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"],
         "CITATION.cff": re.search(r"^version: (\S+)$", citation, re.MULTILINE).group(1),
     }
@@ -36,6 +39,7 @@ class ReleaseMetadataTest(unittest.TestCase):
         self.assertEqual(version, versions()["package.json"])
         citation = (ROOT / "CITATION.cff").read_text(encoding="utf-8")
         self.assertEqual(re.search(r'^date-released: "(\S+)"$', citation, re.MULTILINE).group(1), date)
+        datetime.strptime(date, "%Y-%m-%d")      # a real calendar date, as CFF requires
         # Released versions only grow, newest first.
         numbers = [tuple(int(part) for part in v.split(".")) for v, _ in releases]
         self.assertEqual(numbers, sorted(numbers, reverse=True))
@@ -77,6 +81,9 @@ class ReleaseToolsTest(unittest.TestCase):
                 bump_version.bump(root, "patch", "2030-01-03")      # nothing left to release
         with self.assertRaises(ValueError):
             bump_version.next_version("2.2.0", "major")              # would move sealing, scoring or the pair
+        for bad in ("2026-10-32", "2026-13-01", "2026-1-5", "20261030"):
+            with self.assertRaises(SystemExit, msg=bad):             # rejected before any file is touched
+                bump_version.main(["patch", "--date", bad])
 
     def test_release_notes_are_the_versions_changelog_section(self):
         from scripts import release_notes
@@ -94,7 +101,17 @@ class ReleaseToolsTest(unittest.TestCase):
         self.assertIn("tags:\n      - 'v[0-9]+.[0-9]+.[0-9]+'", source)
         self.assertNotRegex(source, r"\n  (pull_request|schedule|workflow_dispatch):")
         self.assertIn("python3 scripts/release_notes.py", source)
-        self.assertIn("xargs -0 sha256sum > SHA256SUMS", source)
+        self.assertIn("xargs -0 -r sha256sum > SHA256SUMS", source)
+        # The digest step stops on any failed command in a pipeline and checks the digest count.
+        step = source[source.index("- name: Write the notes and the artifact digests"):source.index("- name: Publish the release")]
+        self.assertIn("shell: bash", step)
+        self.assertIn("set -euo pipefail", step)
+        self.assertIn('test "$(wc -l < SHA256SUMS)" -eq "${files}"', step)
+
+    def test_artifacts_check_out_exactly_as_committed(self):
+        # Without this, Git for Windows (core.autocrlf=true) writes CRLF into the CSVs and
+        # `sha256sum -c SHA256SUMS` reports them as changed.
+        self.assertIn("\ndata/** -text\n", (ROOT / ".gitattributes").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

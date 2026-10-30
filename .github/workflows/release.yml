@@ -36,11 +36,16 @@ jobs:
           grep -q "^version: ${version}$" CITATION.cff
 
       - name: Write the notes and the artifact digests
+        shell: bash
         run: |
+          set -euo pipefail
           python3 scripts/release_notes.py "${GITHUB_REF_NAME}" > release-notes.md
-          git ls-files -z data | sort -z | xargs -0 sha256sum > SHA256SUMS
+          git ls-files -z data | sort -z | xargs -0 -r sha256sum > SHA256SUMS
           test -s release-notes.md
-          test -s SHA256SUMS
+          # One digest per committed file under data/, and at least one file.
+          files="$(git ls-files data | wc -l)"
+          test "${files}" -gt 0
+          test "$(wc -l < SHA256SUMS)" -eq "${files}"
 
       - name: Publish the release
         env:

@@ -77,8 +77,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("kind", choices=["minor", "patch"])
     parser.add_argument("--date", default=datetime.now(timezone.utc).date().isoformat(), help="release date, YYYY-MM-DD")
     args = parser.parse_args(argv)
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.date):
-        parser.error("--date must be YYYY-MM-DD")
+    try:
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.date):
+            raise ValueError(args.date)
+        datetime.strptime(args.date, "%Y-%m-%d")
+    except ValueError:
+        parser.error("--date must be a real date, YYYY-MM-DD")
     print(bump(ROOT, args.kind, args.date))
     return 0
 
