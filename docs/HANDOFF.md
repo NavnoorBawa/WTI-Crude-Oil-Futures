@@ -29,7 +29,8 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   window opens; each call since 2026-10-28 also stores its fit, so it recomputes from its own entry.
   The first windows resolved on 2026-10-29 and 2026-10-30: the Oct 20 call (47.3%, band
   23.1–63.6%) against a realized 40.95% and the Oct 21 call (49.6%, band 24.3–66.6%) against
-  37.76%, both inside their band. `scripts/verify_record.py` passes on the record.
+  37.76%, both inside their band. The windows overlap, so the page counts one independent week.
+  `scripts/verify_record.py` passes on the record.
 - **Dashboard (2.2.0).** 2.1.0's research terminal, plus: the hero splits each change between calls
   into its inputs, refit and smearing; the hand arithmetic shows again; titles name their samples;
   the live record explains every never-scored status and an overdue result; charts keep their

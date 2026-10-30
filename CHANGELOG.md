@@ -10,10 +10,11 @@ A minor release: one research result changed. Hansen's SPA test was not studenti
 ignores the flag); studentized as Hansen defines it, the search-adjusted test rejects "no
 alternative beats the model of record" (p = 0.011, 0.072 before), though not after the ledger's
 Benjamini-Hochberg adjustment (see Errata). The model of record, the pinned 52-week promotion test
-and the sealed live record are unchanged; the first two live windows have resolved, both inside
-their band. Each call now stores its fit; the dashboard fixes the confirmed findings of an
-eight-lens audit and two independent verification rounds; the README is a two-minute landing page with a
-reviewer guide; releases are tagged, with a GitHub Release and artifact digests per tag.
+and the sealed live record are unchanged; the first two live calls have resolved, both inside their
+band (their windows overlap: one independent week). Each call now stores its fit; the dashboard
+fixes the confirmed findings of an eight-lens audit and two independent verification rounds; the
+README is a two-minute landing page with a reviewer guide; releases are tagged, with a GitHub
+Release and artifact digests per tag.
 
 ### Research
 
