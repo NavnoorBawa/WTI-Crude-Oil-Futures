@@ -5,6 +5,7 @@ import { scaleLinear, scaleLog, scaleUtc } from "d3-scale";
 import { area, line } from "d3-shape";
 import useMeasure from "../lib/useMeasure";
 import { fmtDate, fmtNum, fmtSigned, fmtSignedUsd, fmtSpan } from "../lib/format";
+import { MONO_CHAR_PX } from "../theme/chartTheme";
 
 const MARGIN = { top: 12, right: 16, bottom: 26, left: 44 };
 
@@ -46,8 +47,6 @@ export const extent = (values) => {
   return finite.length ? [Math.min(...finite), Math.max(...finite)] : [0, 1];
 };
 
-// 11px JetBrains Mono advances about 6.6px per character.
-const MONO_CHAR_PX = 6.6;
 /** Shortens a row label to fit `px`, with an ellipsis; the full text goes in a <title>. */
 export const fitLabel = (text, px) => {
   const max = Math.max(4, Math.floor(px / MONO_CHAR_PX));
@@ -173,7 +172,7 @@ export function ConeChart({ windows, marks = [], ovx = null, forecast = null, ke
         const oy = ovx ? y(ovx.value) : null;
         const labelY = fy == null ? null : oy != null && Math.abs(fy - oy) < 10 ? (fy >= oy ? oy + 11 : oy - 11) : fy;
         return (
-          <svg width={width} height={height} className="svg-chart" role="img"
+          <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart" role="img"
             aria-label={summary ?? `Volatility cone over ${rows.length} windows from ${first.window} to ${last.window} trading days`}>
             <YAxis scale={y} ticks={y.ticks(5)} format={(t) => `${t}%`} left={m.left} right={width - m.right} />
             <path d={band("p5", "p95")} className="fill-cone-outer"><title>{`5th–95th percentile of ${span} realized vol`}</title></path>
@@ -275,7 +274,7 @@ export function DmGridStrip({ rows, critical = 1.96 }) {
         const bottom = (placed.length ? placed[placed.length - 1].cy + placed[placed.length - 1].height / 2 : 0) + 6;
         const height = bottom + 26;
         return (
-          <svg width={width} height={height} className="svg-chart" role="img"
+          <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart" role="img"
             aria-label="Diebold-Mariano statistics versus the model of record by 5-session sampling grid">
             <rect x={x(-critical)} width={x(critical) - x(-critical)} y={0} height={bottom} className="fill-noise-zone" />
             {[-critical, 0, critical].map((value) => (
@@ -380,7 +379,7 @@ export function CoverageByYear({ series, target }) {
         const yearTicks = [];
         for (let year = years[0]; year <= years[1]; year += step) yearTicks.push(year);
         return (
-          <svg width={width} height={height} className="svg-chart" role="img"
+          <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart" role="img"
             aria-label={`Interval coverage by year, ${years[0]}–${years[1]}, against a ${target}% target`}>
             <YAxis scale={y} ticks={y.ticks(5)} format={(t) => `${t}%`} left={MARGIN.left} right={width - MARGIN.right} />
             <line className="stroke-target" x1={MARGIN.left} x2={width - MARGIN.right} y1={y(target)} y2={y(target)} />
@@ -458,7 +457,7 @@ export function MzForest({ rows }) {
         const bottom = (placed.length ? placed[placed.length - 1].cy + placed[placed.length - 1].height / 2 : 0) + 6;
         const height = bottom + 24;
         return (
-          <svg width={width} height={height} className="svg-chart" role="img" aria-label="Mincer-Zarnowitz slopes on every out-of-sample day, with 95% intervals">
+          <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart" role="img" aria-label="Mincer-Zarnowitz slopes on every out-of-sample day, with 95% intervals">
             <line className="stroke-target" x1={x(1)} x2={x(1)} y1={0} y2={bottom} />
             {placed.map(({ row, lines, tagged, cy }) => {
               return (
@@ -510,7 +509,7 @@ export function VrpScatter({ points }) {
           + `realized volatility, log scales; ${below} weeks (${fmtNum((below / Math.max(1, points.length)) * 100, 1)}%) fall below `
           + `the diagonal, where implied exceeded realized${latest ? `. Latest week, ${fmtDate(latest.date)}: OVX ${fmtNum(latest.ovx, 1)}, realized ${fmtNum(latest.actual, 1)}` : ""}`;
         return (
-          <svg width={size} height={height} className="svg-chart" role="img" aria-label={summary}>
+          <svg width={size} height={height} viewBox={`0 0 ${size} ${height}`} className="svg-chart" role="img" aria-label={summary}>
             <title>{summary}</title>
             {ticks.map((t) => (
               <g key={t}>
@@ -572,7 +571,7 @@ export function EquityChart({ leaked, purged }) {
         const placed = labels.map((item) => ({ ...item, ly: y(end(item.series).pnl) })).sort((a, b) => a.ly - b.ly);
         for (let i = 1; i < placed.length; i += 1) placed[i].ly = Math.max(placed[i].ly, placed[i - 1].ly + 26);
         return (
-          <svg width={width} height={height} className="svg-chart" role="img"
+          <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart" role="img"
             aria-label={`Cumulative P&L on one contract, leaked ${fmtSignedUsd(end(leaked)?.pnl)} vs purged ${fmtSignedUsd(end(purged)?.pnl)}`}>
             <YAxis scale={y} ticks={y.ticks(5)} format={fmtK} left={m.left} right={width - m.right} />
             <text className="axis-note" x={4} y={9}>USD, 1 contract</text>
@@ -610,7 +609,7 @@ export function SignAgreementLadder({ rows }) {
         const x = scaleLinear().domain([50, Math.ceil((top + 5) / 5) * 5]).range([labelWidth + 8, width - 48]);
         const bottom = rows.length * rowHeight + 4;
         return (
-          <svg width={width} height={height} className="svg-chart" role="img"
+          <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart" role="img"
             aria-label={`Sign agreement of training and test labels: ${rows.map((row) => `${row.row} ${fmtNum(row.agree, 1)}%`).join(", ")}`}>
             {x.ticks(4).map((tick) => (
               <line key={tick} className="grid-line" x1={x(tick)} x2={x(tick)} y1={0} y2={bottom} />
@@ -661,7 +660,7 @@ export function LeakDumbbell({ rows, reference }) {
         const bottom = rows.length * rowHeight + 18;
         const noteFits = x(50) + note.length * MONO_CHAR_PX <= width;
         return (
-          <svg width={width} height={height} className="svg-chart" role="img"
+          <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart" role="img"
             aria-label="Direction accuracy without and with the purge, by experiment and model; no skill is 50% on the random walk and each run's base rate on CL=F returns">
             {x.ticks(5).map((tick) => <line key={tick} className="grid-line" x1={x(tick)} x2={x(tick)} y1={14} y2={bottom} />)}
             <line className="stroke-axis" x1={x(50)} x2={x(50)} y1={14} y2={bottom} />
@@ -717,7 +716,7 @@ export function PurgeDiagram({ purgeRows, horizon, shown = 8 }) {
         const cell = Math.max(2, x(1) - x(0));
         const tY = shown * rowHeight + m.top;
         return (
-          <svg width={width} height={height} className="svg-chart" role="img"
+          <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart" role="img"
             aria-label={`Purge diagram: the ${purgeRows} training rows whose ${horizon}-day labels end after the forecast time are dropped`}>
             <line className="stroke-ink dashed" x1={x(0)} x2={x(0)} y1={m.top - 4} y2={tY + rowHeight} />
             {rows.map((offset, index) => {

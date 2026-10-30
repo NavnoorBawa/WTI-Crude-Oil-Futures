@@ -183,7 +183,10 @@ test("source and command parsing are pure and conservative", () => {
   assert.equal(config.codeUrl("backend/x.py"), `${config.REPO_URL}/blob/main/backend/x.py`, "no build SHA in tests: main");
   assert.equal(config.RECORD_HISTORY_URL, `${config.REPO_URL}/commits/live-data/runtime-state/vol_track_record.json`);
   assert.equal(config.DATA_HISTORY_URL, `${config.REPO_URL}/commits/gh-pages/data.json`);
-  assert.deepEqual(Object.keys(config.DOCS).sort(), ["changelog", "citation", "datasheet", "license", "methodology", "modelCard"]);
+  assert.deepEqual(Object.keys(config.DOCS).sort(),
+    ["changelog", "citation", "datasheet", "license", "methodology", "modelCard", "results", "reviewerGuide"]);
+  assert.equal(config.DOCS.results, `${config.REPO_URL}/blob/main/docs/RESULTS.md`);
+  assert.equal(config.DOCS.reviewerGuide, `${config.REPO_URL}/blob/main/docs/REVIEWER_GUIDE.md`);
   for (const url of Object.values(config.DOCS)) assert.ok(url.startsWith(`${config.REPO_URL}/blob/main/`), url);
 });
 
@@ -329,6 +332,58 @@ test("fmtNum and fmtSigned group thousands on request only", () => {
   assert.equal(f.fmtNum(-0.04, 1, { group: true }), "0.0", "a value that rounds to zero is unsigned");
 });
 
+test("the cached number formatters print what Number#toLocaleString printed, without building one per value", () => {
+  const f = m.format;
+  for (const value of [0, 7, 999.5, 4370, -4370.4, 1234567.89, 1e21]) {
+    assert.equal(f.fmtInt(value), Math.round(value).toLocaleString("en-US"), String(value));
+    for (const digits of [0, 1, 2]) {
+      const grouped = Math.abs(Number(value.toFixed(digits)))
+        .toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+      assert.equal(f.fmtNum(Math.abs(value), digits, { group: true }), grouped, `${value}, ${digits}`);
+      assert.equal(f.fmtUsd(value, digits), `$${value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`);
+    }
+  }
+  assert.equal(f.fmtInt("x"), "—");
+  const source = readSource("src/lib/format.js");
+  assert.doesNotMatch(source, /\.toLocaleString\(|JSON\.stringify\(/, "no formatter is built per call, nor keyed by a JSON string");
+  // DataTable's counts use the same cached formatter.
+  assert.doesNotMatch(readSource("src/components/DataTable.jsx"), /\.toLocaleString\(/);
+  // A date formatter per option set: the year and no-year forms of a date never share one.
+  assert.equal(f.fmtDate("2026-12-03"), "Dec 3, 2026");
+  assert.equal(f.fmtDate("2026-12-03", { year: false }), "Dec 3");
+  assert.equal(f.fmtCT(Date.parse("2026-12-03T19:30:00Z"), { year: true }), "Dec 3, 2026, 1:30 PM CT");
+  assert.equal(f.fmtCT(Date.parse("2026-12-03T19:30:00Z"), { date: false }), "1:30 PM CT");
+  assert.equal(f.ctIsoDate(Date.parse("2026-12-04T05:59:00Z")), "2026-12-03", "11:59 PM CST is still Dec 3");
+  assert.equal(f.ctIsoDate(Date.parse("2026-12-04T06:00:00Z")), "2026-12-04");
+  assert.equal(f.ctIsoDate(null), null);
+});
+
+test("a table speaks its row count after a reader's sort, filter or Show all, never for a data change", () => {
+  const { shouldAnnounce, READER_WINDOW_MS } = m.table;
+  const before = "Showing 52 of 156 weeks";
+  const after = "Showing 52 of 928 weeks";
+  // research.json landing on a ?table= link: the rows change with no input from the reader.
+  assert.equal(shouldAnnounce({ previous: before, next: after, inputAt: Number.NEGATIVE_INFINITY, now: 4000 }), false);
+  assert.equal(shouldAnnounce({ previous: before, next: after, inputAt: 1000, now: 1000 + READER_WINDOW_MS + 1 }), false,
+    "a refresh long after the reader's last input");
+  // A sort or Show all, right after the click or key press that asked for it.
+  assert.equal(shouldAnnounce({ previous: before, next: `${before}, sorted by QLIKE descending`, inputAt: 1000, now: 1012 }), true);
+  // Rows re-created by a re-render with the same counts say nothing new.
+  assert.equal(shouldAnnounce({ previous: before, next: before, inputAt: 1000, now: 1012 }), false);
+  assert.ok(READER_WINDOW_MS >= 500 && READER_WINDOW_MS <= 2000);
+});
+
+test("a data.json refresh that returns the snapshot already shown is not set again", async () => {
+  const { isSameSnapshot } = await m.load("/src/app/useDashboardData.js");
+  const text = JSON.stringify(data);
+  assert.equal(isSameSnapshot(text, JSON.stringify(data)), true, "byte-identical: skipped, so nothing re-renders");
+  assert.equal(isSameSnapshot(text, JSON.stringify({ ...data, frozen_at: "2026-10-20T16:20:05Z" })), false, "a new snapshot is set");
+  assert.equal(isSameSnapshot(null, text), false, "the first snapshot is always set");
+  const source = readSource("src/app/useDashboardData.js");
+  // Only a changed snapshot is set, and a refresh renders as a transition; the check time always moves.
+  assert.match(source, /if \(!isSameSnapshot\(shownText, result\.text\)\) \{[\s\S]*?startTransition\(\(\) => setData\(payload\)\)[\s\S]*?\}\s*setLastUpdate\(Date\.now\(\)\);\s*setError\(null\);/);
+});
+
 // ------------------------------------------------------------------------ research.json missing
 test("without research.json one notice under the verdict names the sections, and the panels point to it", () => {
   const { html, text, errors } = renderDashboard(null, "unavailable");
@@ -375,4 +430,41 @@ test("without research.json STDY is named in the notice, says so in place, and n
   assert.equal(m.assertions.supplyPlaybookAssertion(wide), "Median 20-session peak +12.1% after supply removal, +14.1% after threats; no placebo test");
   const wider = { distributions: { supply_lost: { peak: { median: 112.14 } }, threat_only: { peak: { median: 104.05 } } } };
   assert.ok(m.assertions.supplyPlaybookAssertion(wider).length <= 90);
+});
+
+test("without research.json STDY sets the two playbook medians beside data.json's ordinary-date baseline", () => {
+  const payload = structuredClone(data);
+  const playbook = payload.supply_shock_playbook;
+  playbook.placebo = { n: 7352, median_peak_pct: 5.4, median_settle_pct: 0.7, share_peak_positive_pct: 86.9 };
+  const f = m.format;
+  const lost = f.fmtSigned(playbook.distributions.supply_lost.peak.median, 1, "%");
+  const threat = f.fmtSigned(playbook.distributions.threat_only.peak.median, 1, "%");
+  const title = m.assertions.supplyPlaybookAssertion(playbook, { researchLoaded: false });
+  assert.equal(title, `Median 20-session peak: supply removal ${lost}, threats ${threat}, an ordinary date +5.4%`);
+  assert.ok(title.length <= 90, title);
+  assert.doesNotMatch(title, /placebo/, "the placebo study exists in research.json; nothing is said about it");
+  // Longer medians keep the baseline in a shorter wording rather than drop it, within 90 characters.
+  const wide = { ...playbook, placebo: { median_peak_pct: -115.42 },
+    distributions: { supply_lost: { peak: { median: -112.14 } }, threat_only: { peak: { median: -104.05 } } } };
+  const short = m.assertions.supplyPlaybookAssertion(wide, { researchLoaded: false });
+  assert.ok(short.length <= 90 && short.endsWith("ordinary date −115.4%"), short);
+  // The page: the h3 and an ordinary-date row in the playbook table, both from data.json.
+  const original = console.error;
+  const errors = [];
+  console.error = (...args) => errors.push(args.join(" "));
+  let html;
+  try {
+    html = renderToStaticMarkup(createElement(m.dashboard.default, {
+      data: payload, research: null, researchStatus: "unavailable", quote: m.quote.resolveQuote(null, payload),
+    }));
+  } finally {
+    console.error = original;
+  }
+  assert.deepEqual(errors, []);
+  const stdy = section(html, "stdy");
+  assert.ok(visibleText(stdy).replace(/\s+/g, " ").includes(title), visibleText(stdy));
+  const row = stdy.match(/<tr class="is-reference"[^>]*>[\s\S]*?<\/tr>/)?.[0] ?? "";
+  const cells = visibleText(row).replace(/\s+/g, " ").trim();
+  assert.ok(cells.startsWith("Ordinary date (placebo) 7,352 dates +5.4%"), cells);
+  assert.ok(cells.endsWith("+0.7%"), cells);
 });

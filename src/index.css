@@ -28,7 +28,6 @@ body {
   font-family: var(--font-sans);
   font-size: var(--fs-14);
   line-height: 1.45;
-  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -46,13 +45,38 @@ button { font: inherit; color: inherit; }
   outline-offset: 2px;
 }
 
-.num { font-variant-numeric: tabular-nums; }
+/* Tabular figures only where numbers line up (values, tables, chart text). Inter's tnum also swaps the
+   hyphen, comma and period for figure-width forms, which spaces out "HAR-IV" and "4,634" in prose. */
+.num, table, svg text { font-variant-numeric: tabular-nums; }
 .muted { color: var(--text-3); }
 .nowrap { white-space: nowrap; }
 
-/* Inline lists separated by a middle dot that trails each item, so a wrapped line never starts with one. */
-.sep-list { display: flex; flex-wrap: wrap; align-items: baseline; row-gap: 2px; }
-.sep-list > :not(:last-child)::after { content: "·"; margin: 0 var(--sp-2); color: var(--text-4); }
+/* Inline lists separated by a middle dot, with no dot at either end of a wrapped line. Each item
+   carries its dot in front, in a --sep-w box that a negative margin pulls into the gap before it;
+   the item that starts a line puts its dot left of the list, where the clip cuts it off (the clip
+   keeps 4px there and 8px elsewhere, for focus rings). */
+.sep-list {
+  --sep-w: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--sep-w);
+  clip-path: inset(-8px -8px -8px -4px);
+}
+/* A hanging indent: an item that wraps inside itself starts its later lines at the list's edge, not in
+   the clipped gutter where its dot sits; text-indent is inherited, so nested boxes and the dot reset it. */
+.sep-list > * {
+  margin-left: calc(-1 * var(--sep-w));
+  padding-left: var(--sep-w);
+  text-indent: calc(-1 * var(--sep-w));
+}
+.sep-list > * * { text-indent: 0; }
+.sep-list > ::before,
+.sep-list.has-dots > * > .sep {
+  content: "·"; display: inline-block; width: var(--sep-w); text-indent: 0; text-align: center; color: var(--text-4);
+}
+/* A list whose dots are text (`.sep` spans, so a copy keeps them) draws no generated dot. */
+.sep-list.has-dots > ::before { content: none; }
 
 .micro {
   font-size: var(--fs-11);
@@ -183,7 +207,6 @@ button { font: inherit; color: inherit; }
   font-size: var(--fs-12);
 }
 .notice.is-warn { border-left-color: var(--warn); }
-.app > .notice { max-width: 1392px; margin: var(--sp-3) auto 0; width: calc(100% - 48px); }
 
 .section-error {
   grid-column: 1 / -1;
@@ -303,7 +326,9 @@ button { font: inherit; color: inherit; }
 .kpi-label { font-size: var(--fs-12); font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text-3); line-height: 16px; }
 .kpi-link { color: inherit; text-decoration: none; }
 .kpi-link:hover { color: var(--text-1); text-decoration: underline; }
-.kpi-value { font-size: var(--fs-28); line-height: 1.1; font-weight: 500; letter-spacing: -0.01em; color: var(--text-1); margin-top: var(--sp-2); }
+/* One line always ("4/13 models", "71.3–88.0%"): between the phone and desktop sizes the value scales
+   with the viewport, so three tiles to a row at 641-700px do not wrap it. */
+.kpi-value { font-size: clamp(var(--fs-20), 2.6vw + 4px, var(--fs-28)); white-space: nowrap; line-height: 1.1; font-weight: 500; letter-spacing: -0.01em; color: var(--text-1); margin-top: var(--sp-2); }
 .kpi-unit { font-size: var(--fs-12); font-weight: 400; color: var(--text-3); margin-left: 6px; letter-spacing: 0; }
 .kpi-base { font-size: var(--fs-12); color: var(--text-2); margin-top: var(--sp-1); line-height: 1.45; }
 .kpi-base b { color: var(--text-1); font-weight: 500; }
@@ -344,7 +369,6 @@ button { font: inherit; color: inherit; }
 .sparkline { display: inline-flex; align-items: center; }
 .sparkline path { fill: none; stroke: var(--s-truth); stroke-width: 1.25; stroke-linejoin: round; }
 .sparkline.is-muted path { stroke: var(--text-4); stroke-dasharray: 2 2; }
-.ms-name { color: var(--text-3); }
 .ms-price { font-size: var(--fs-14); font-weight: 600; color: var(--text-1); }
 /* Price direction is context on a volatility page: an arrow, not a saturated colour. */
 .ms-change { color: var(--text-2); }
@@ -421,11 +445,13 @@ button { font: inherit; color: inherit; }
    line; only the command's own text may break, and the button sits level with its last line. */
 .panel-source .source-command { display: inline-flex; align-items: last baseline; gap: var(--sp-2); min-width: 0; max-width: 100%; }
 .panel-source .source-command > .source-item { min-width: 0; overflow-wrap: anywhere; }
-.panel-source code { color: var(--text-2); }
-/* Source entries are links to the payload files, separated by a dot that trails each entry (so a
-   wrapped line never starts with one; an inline-block pseudo-element is not underlined with its
-   link). Each command is followed by its copy button, which separates the commands. */
-.panel-source .source-files .source-item:not(:last-child)::after { content: "·"; display: inline-block; margin-left: var(--sp-2); color: var(--text-4); text-decoration: none; }
+.panel-source code { color: var(--text-2); overflow-wrap: anywhere; }
+/* Source entries are links to the payload files, each in an item of a .sep-list, so no wrapped line
+   starts or ends with a dot. The label stays on the first line; the list takes the rest of the row
+   and wraps inside itself (nowrap overrides the wrap of `.panel-source > span`). Each command is
+   followed by its copy button, which separates the commands. */
+.panel-source > .source-files { display: flex; flex-wrap: nowrap; align-items: first baseline; }
+.panel-source .source-files > .sep-list { flex: 1 1 0; min-width: 0; --sep-w: 16px; }
 .panel-source .micro { line-height: inherit; }
 
 .figure-title {
@@ -471,7 +497,8 @@ button { font: inherit; color: inherit; }
 .prose-note.is-muted { color: var(--text-3); }
 /* A long note in a full-width panel: two columns at the usual line length instead of one beside a blank half. */
 @container (min-width: 880px) {
-  .prose-note.is-wide { max-width: calc(2 * var(--measure) + var(--sp-8)); columns: 2 40ch; column-gap: var(--sp-8); }
+  .prose-note.is-wide:has(> p + p) { max-width: calc(2 * var(--measure) + var(--sp-8)); columns: 2 40ch; column-gap: var(--sp-8); }
+  .prose-note.is-wide > p { break-inside: avoid; }
 }
 .callout {
   display: flex;
@@ -550,9 +577,10 @@ button { font: inherit; color: inherit; }
 }
 .segmented-button + .segmented-button { border-left: 1px solid var(--rule-strong); }
 .segmented-button:hover, .toggle-button:hover { color: var(--text-1); }
-.segmented-button[aria-pressed="true"] { background: var(--bg-2); color: var(--text-1); }
+/* Pressed: a 2px bar under the label, not only a shade (bg-2 against bg-1 is 1.07:1). */
+.segmented-button[aria-pressed="true"] { background: var(--bg-2); color: var(--text-1); box-shadow: inset 0 -2px 0 var(--s-model); }
 .toggle-button { border: 1px solid var(--rule-strong); border-radius: var(--radius); }
-.toggle-button[aria-pressed="true"] { background: var(--bg-2); color: var(--text-1); border-color: var(--text-4); }
+.toggle-button[aria-pressed="true"] { background: var(--bg-2); color: var(--text-1); border-color: var(--text-4); box-shadow: inset 0 -2px 0 var(--s-model); }
 .button { border: 1px solid var(--rule-strong); color: var(--text-1); min-height: 32px; margin-top: var(--sp-4); }
 
 /* ------------------------------------------------------------------------------------- tables */
@@ -595,6 +623,12 @@ button { font: inherit; color: inherit; }
 .data-table:not(.is-cards) tbody tr:focus-visible > * { box-shadow: inset 0 2px 0 var(--s-model), inset 0 -2px 0 var(--s-model); }
 .data-table:not(.is-cards) tbody tr:focus-visible > :first-child { box-shadow: inset 2px 0 0 var(--s-model), inset 0 2px 0 var(--s-model), inset 0 -2px 0 var(--s-model); }
 .data-table:not(.is-cards) tbody tr:focus-visible > :last-child { box-shadow: inset -2px 0 0 var(--s-model), inset 0 2px 0 var(--s-model), inset 0 -2px 0 var(--s-model); }
+/* Forced colors drop box-shadow: the focused row (a palette jump lands on one) keeps an outline,
+   and a pressed range or table toggle reads as selected. */
+@media (forced-colors: active) {
+  .data-table:not(.is-cards) tbody tr:focus-visible > * { outline: 2px solid Highlight; outline-offset: -2px; }
+  .segmented-button[aria-pressed="true"], .toggle-button[aria-pressed="true"] { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+}
 /* The whole header cell is the target (at least 28px tall), aligned like its column. */
 .sort-button {
   display: inline-flex;
@@ -637,7 +671,6 @@ button { font: inherit; color: inherit; }
 .model-cell { display: inline-flex; align-items: center; gap: var(--sp-2); }
 .model-name { color: var(--text-1); }
 .stat-cell { display: inline-flex; align-items: baseline; gap: 6px; }
-.stat-cell.is-stacked { flex-direction: column; align-items: flex-end; gap: 0; }
 .stat-range { font-size: var(--fs-11); color: var(--text-3); }
 /* QLIKE strip (MODL): a 7px dot on a 1px rule, on one scale for every row with no zero baseline
    (lib/comparison.js qlikeScale); a value beyond the scale is a "›" at the track's end. */
@@ -698,13 +731,11 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 .select {
   min-height: 28px;
   padding: 0 28px 0 var(--sp-2);
-  border: 1px solid var(--rule-strong);
+  border: 1px solid var(--text-4);  /* 3.22:1 on bg-1 (WCAG 1.4.11) */
   border-radius: var(--radius);
   background: var(--bg-1);
   color: var(--text-2);
   font: 500 var(--fs-11) / 1 var(--font-mono);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   max-width: 100%; /* a long option never widens its control past its row */
 }
 .select:hover { color: var(--text-1); }
@@ -725,22 +756,20 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 .swatch-truth { --c: var(--s-truth); }
 .swatch-model { --c: var(--s-model); }
 .swatch-implied { --c: var(--s-implied); }
-.swatch-bench { --c: var(--s-bench); }
 .swatch-alt { --c: var(--s-alt); }
 .swatch-alt2 { --c: var(--s-alt2); }
 .swatch-neutral { --c: var(--text-2); }
 .swatch-median { --c: var(--text-3); }
-/* Soft fills carry a 1px edge of at least 3:1 on --bg-1, as the plots do (theme.test.mjs checks the alphas). */
-.swatch-cone-inner { --c: rgb(201 209 217 / 0.32); border: 1px solid rgb(201 209 217 / 0.45); }
-.swatch-cone-outer { --c: rgb(201 209 217 / 0.14); border: 1px solid rgb(201 209 217 / 0.45); }
+/* A soft fill carries a 1px edge of at least 3:1 on --bg-1, as the plot does (theme.test.mjs checks the alpha). */
 .swatch-band { --c: rgb(57 135 229 / 0.35); height: 8px; border: 1px solid rgb(57 135 229 / 0.7); }
 .swatch-bar { --c: var(--text-3); width: 4px; height: 10px; }
 .swatch.is-dot { width: 8px; height: 8px; border-radius: 50%; }
 .swatch.is-ring { width: 8px; height: 8px; border-radius: 50%; background: transparent; border: 1.5px solid var(--c); }
-.swatch.is-band { height: 8px; }
 .swatch.is-tick { width: 2px; height: 10px; }
 .swatch.is-diamond { width: 7px; height: 7px; transform: rotate(45deg); margin-left: 2px; }
-.swatch.is-dash, .swatch.is-dashed { background: transparent; border-top: 2px dashed var(--c); height: 0; }
+/* Dashes painted as dashes (a dashed border this short is drawn as one solid bar): three 4px dashes
+   with 3px gaps, as the SVG figures' dashed strokes (.dashed). */
+.swatch.is-dash, .swatch.is-dashed { width: 18px; height: 2px; background: repeating-linear-gradient(90deg, var(--c) 0 4px, transparent 4px 7px); }
 .swatch.is-line { height: 2px; }
 .fact dt .swatch { margin-right: 6px; vertical-align: 1px; }
 
@@ -807,20 +836,28 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 /* A label drawn over data: a stroke in the panel colour behind the glyphs keeps it legible. */
 .has-halo { paint-order: stroke; stroke: var(--bg-1); stroke-width: 4px; stroke-linejoin: round; }
 .value-label { fill: var(--text-2); }
+/* Forced colors force no SVG fill or stroke: text, halos, the noise zone and neutral marks take the
+   system colours, so labels keep their contrast; series hues stay, each paired with a shape or label. */
+@media (forced-colors: active) {
+  /* !important: per-label tints (.row-label.is-strong, .label-*) and the halo rule in a later sheet out-rank a plain override. */
+  .svg-chart text { fill: CanvasText !important; }
+  .svg-chart .has-halo, .svg-chart text.halo { stroke: Canvas !important; }
+  .fill-noise-zone { fill: Canvas; stroke: GrayText; stroke-dasharray: 2 3; }
+  .svg-chart :is(.fill-ink, .fill-neutral, .fill-muted, .fill-grid-dot, .bar-train) { fill: CanvasText; }
+  .svg-chart :is(.stroke-axis, .stroke-reference, .stroke-range, .thin-range, .grid-line, .stroke-target, .stroke-median, .stroke-neutral) { stroke: GrayText; }
+  .svg-chart :is(.ring-model, .ring-alt) { fill: Canvas; }
+}
 
 .fill-truth { fill: var(--s-truth); }
 .fill-model { fill: var(--s-model); }
 .fill-implied { fill: var(--s-implied); }
-.fill-bench { fill: var(--s-bench); }
 .fill-alt { fill: var(--s-alt); }
 .fill-alt2 { fill: var(--s-alt2); }
 .fill-neutral { fill: var(--text-3); }
 .fill-muted { fill: var(--text-3); }
-.fill-neg { fill: var(--neg); }
 .stroke-truth { stroke: var(--s-truth); stroke-width: 1.5; }
 .stroke-model { stroke: var(--s-model); stroke-width: 1.5; }
 .stroke-implied { stroke: var(--s-implied); stroke-width: 1.5; }
-.stroke-bench { stroke: var(--s-bench); stroke-width: 1.5; }
 .stroke-alt { stroke: var(--s-alt); stroke-width: 1.5; }
 .stroke-alt2 { stroke: var(--s-alt2); stroke-width: 1.5; }
 .stroke-neutral { stroke: var(--text-3); stroke-width: 1.5; }
@@ -832,13 +869,12 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 .label-truth { fill: var(--s-truth); color: var(--s-truth); }
 .label-model { fill: var(--s-model); color: var(--s-model); }
 .label-implied { fill: var(--s-implied); color: var(--s-implied); }
-.label-bench { fill: var(--s-bench); color: var(--s-bench); }
 .label-alt { fill: var(--s-alt); color: var(--s-alt); }
 .label-alt2 { fill: var(--s-alt2); color: var(--s-alt2); }
 .label-neutral { fill: var(--text-2); color: var(--text-2); }
 
 /* -------------------------------------------------------------------------------- methodology */
-.method-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-6); }
+.method-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-6); align-items: start; }
 @container (min-width: 880px) {
   .method-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-6) var(--sp-8); }
   .method-block--wide { grid-column: 1 / -1; }
@@ -848,6 +884,7 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 .reference-list { display: grid; font-size: var(--fs-12); }
 .reference-list li { display: flex; justify-content: space-between; gap: var(--sp-4); padding: 5px 0; border-bottom: 1px solid var(--rule); color: var(--text-2); }
 .reference-list li .muted { text-align: right; }
+.code-block:focus-visible { outline-offset: -2px; }
 .code-block {
   margin: 0;
   padding: var(--sp-3) var(--sp-4);
@@ -949,7 +986,6 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
   .lw-host--forecast { height: 260px; }
   .lw-host--var { height: 240px; }
   .lw-host--price { height: 260px; }
-  .app > .notice { width: 100%; }
   .brand-title { font-size: var(--fs-13); }
   .snapshot-chip { font-size: var(--fs-11); }
   /* "3h old": the short age keeps its word. */

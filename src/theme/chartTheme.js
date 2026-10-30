@@ -70,6 +70,10 @@ export const withAlpha = (hex, alpha) => {
 };
 
 export const MONO_FONT = '"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace';
+/** Advance of one character of the charts' 11px monospace text (0.6 em; 6.600 px measured in Chromium). */
+export const MONO_CHAR_PX = 6.6;
+/** The page's sans-serif stack (tokens.css --font-sans), for measuring sans text drawn in a chart. */
+export const SANS_FONT = '"Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
 /** The screen palette, grouped as PRINT_THEME is. */
 export const SCREEN_THEME = { surface: SURFACE, text: TEXT, series: SERIES, status: STATUS };

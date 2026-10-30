@@ -34,9 +34,8 @@
 }
 .hero-call, .hero-detail { min-width: 0; }
 .hero-more { display: flex; flex-direction: column; min-width: 0; }
-.hero-more > .hero-model { margin-top: auto; }
-/* Whatever sits last above the model line keeps the usual gap, since that line is pushed down. */
-.hero-more > :has(+ .hero-model) { margin-bottom: var(--sp-4); }
+/* The model line follows the notes above it (pushed to the column's foot it left a blank band). */
+.hero-more > .hero-model:not(:first-child) { margin-top: var(--sp-4); }
 
 /* The version is an identifier: it keeps its case inside the capitalised label. */
 .verdict-label .mono { text-transform: none; letter-spacing: 0; }
@@ -50,7 +49,12 @@
 .hero-calls { margin-top: 2px; font-size: var(--fs-12); color: var(--text-3); }
 .hero-calls b { font-weight: 500; color: var(--text-2); }
 .hero-calls .is-current b { color: var(--text-1); }
-.hero-calls > .hero-calls-label::after { content: ":"; margin: 0 6px 0 0; color: var(--text-3); }
+/* The label's colon stands in for the first dot: the next item keeps its empty dot box (cut off at a
+   line start), and the colon's margin takes that box back, leaving 6px. The label never wraps: the
+   negative margin would otherwise break it after its own (cut-off) dot. */
+.hero-calls > .hero-calls-label { white-space: nowrap; }
+.hero-calls > .hero-calls-label::after { content: ":"; margin: 0 calc(6px - var(--sep-w)) 0 0; color: var(--text-3); }
+.hero-calls > .hero-calls-label + ::before { content: ""; }
 
 /* The region outside the band is drawn (hatched), so it reads as possible rather than empty. */
 .rb-tail {

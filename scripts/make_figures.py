@@ -19,6 +19,7 @@ mpl.use("Agg")
 import matplotlib.dates as mdates  # noqa: E402
 import matplotlib.patches as mpatches  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
@@ -72,10 +73,14 @@ def forecast_vs_realized() -> None:
     ax.plot(x, _arr(s["har_iv"]), color=MODEL, linewidth=1.1, label="HAR-IV forecast (model of record)")
     ax.plot(x, _arr(s["ovx"]), color=IMPLIED, linewidth=0.8, linestyle=(0, (3, 2)), label="OVX (implied)")
     ax.set_yscale("log")
-    ax.set_yticks([10, 20, 40, 80, 160])
-    ax.set_yticklabels(["10%", "20%", "40%", "80%", "160%"])
+    # The axis spans every plotted value (2020's spike and 2014's calm included), with ticks doubling from 2.5%.
+    plotted = np.concatenate([_arr(s[k]) for k in ("actual", "lo80", "hi80", "har_iv", "ovx")])
+    low, high = np.nanmin(plotted) / 1.15, np.nanmax(plotted) * 1.15
+    ticks = [t for t in 2.5 * 2.0 ** np.arange(12) if low <= t <= high]
+    ax.set_yticks(ticks)
+    ax.set_yticklabels([f"{t:g}%" for t in ticks])
     ax.yaxis.set_minor_locator(mpl.ticker.NullLocator())
-    ax.set_ylim(5, 260)
+    ax.set_ylim(low, high)
     ax.set_ylabel("annualized volatility (log scale)")
     ax.xaxis.set_major_locator(mdates.YearLocator(2))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))

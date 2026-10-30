@@ -7,10 +7,11 @@ import {
   riskAssertion, stabilityAssertion, vrpAssertion,
 } from "./assertions";
 import { mcsRobustness } from "./comparison";
+import { realizedShown } from "./cone";
 import { NBSP, fmtInt, fmtNum, fmtP, fmtPValue, fmtSigned, fmtSpan, num, toMs } from "./format";
 import {
   OVX_ONLY_KEY, asArray, asObject, asText, coverageByYear, getLab, getRoles, getVol, hasMcsResults, leaderboardRows,
-  liveRecordSummary, mcsLevel, modelLabels, ovxOnlyLabel, shortLabel, varRows, varSeries, yearlyQlike,
+  liveRecordSummary, mcsLevel, modelLabels, ovxOnlyLabel, shortLabel, snapshotDay, varRows, varSeries, yearlyQlike,
 } from "./research";
 
 /** Two payload values within this many points are the same figure (they print alike at one decimal). */
@@ -49,8 +50,9 @@ export const pAtMost = (p) => {
 // ------------------------------------------------------------------------------------- the answer
 
 /**
- * The lab's comparison behind the answer: the model of record against the eligible models that use
- * returns only, and against OVX on its own (the OVX-only regression and raw OVX).
+ * The lab's comparison behind the answer: the model of record against the eligible models built
+ * from close-to-close returns alone (no OVX, no intraday range), and against OVX on its own (the
+ * OVX-only regression and raw OVX).
  */
 const labComparison = (lab) => {
   const rows = leaderboardRows(lab);
@@ -64,28 +66,35 @@ const labComparison = (lab) => {
 
 const significant = (row) => row.dmStat != null && row.dmP != null && row.dmP < ALPHA;
 
+/** The models the answer is about, as the page names them: built from close-to-close returns alone. */
+const RETURNS_MODELS = "models on close-to-close returns";
+
 /**
  * The page's answer from the benchmark lab, or null when the lab cannot support one: the record
- * beats every returns-only model (Diebold-Mariano on QLIKE, every one significant at ALPHA), then
- * how it stands against OVX alone. Positive DM t = lower loss than the record.
+ * beats every model built from close-to-close returns alone (Diebold-Mariano on QLIKE, every one
+ * significant at ALPHA), then how it stands against OVX alone. Positive DM t = lower loss than the
+ * record. The OVX clause has a shorter wording that is used when the longer one would take the
+ * title past TITLE_MAX, so the caveat is kept rather than dropped.
  */
 const labAnswer = (comparison) => {
   if (!comparison) return null;
   const { recordName, returnsOnly, ovxAlone } = comparison;
   const n = returnsOnly.length;
   if (!n || !returnsOnly.every((row) => significant(row) && row.dmStat < 0)) return null;
-  const head = `${recordName} beats ${n === 1 ? "the one returns-only model" : `all ${fmtInt(n)} returns-only models`}`;
+  const head = `${recordName} beats ${n === 1 ? "the one model on close-to-close returns" : `all ${fmtInt(n)} ${RETURNS_MODELS}`}`;
   if (!ovxAlone.length || ovxAlone.some((row) => row.dmStat == null || row.dmP == null)) return head;
-  let full = head;
+  let clauses = [];
   if (ovxAlone.every((row) => row.dmP >= ALPHA)) {
     // A p-value between 5% and 10% is inconclusive, and is said to be.
-    full = ovxAlone.some((row) => row.dmP < ALPHA_LOOSE)
-      ? `${head}; the comparison with OVX alone is inconclusive`
-      : `${head}; it is not distinguishable from OVX alone`;
+    clauses = ovxAlone.some((row) => row.dmP < ALPHA_LOOSE)
+      ? ["; the comparison with OVX alone is inconclusive", "; inconclusive against OVX alone"]
+      : ["; it is not distinguishable from OVX alone", "; not distinguishable from OVX alone"];
   }
-  else if (ovxAlone.some((row) => significant(row) && row.dmStat > 0)) full = `${head} but loses to OVX alone`;
-  else if (ovxAlone.every((row) => significant(row) && row.dmStat < 0)) full = `${head} and OVX alone`;
-  return full.length <= TITLE_MAX ? full : head.length <= TITLE_MAX ? head : null;
+  else if (ovxAlone.some((row) => significant(row) && row.dmStat > 0)) clauses = [" but loses to OVX alone"];
+  else if (ovxAlone.every((row) => significant(row) && row.dmStat < 0)) clauses = [" and OVX alone"];
+  const full = clauses.map((clause) => `${head}${clause}`).find((text) => text.length <= TITLE_MAX);
+  if (full) return full;
+  return head.length <= TITLE_MAX ? head : null;
 };
 
 /** The supporting statistics of the lab answer, with their sample. */
@@ -101,7 +110,7 @@ const labDetail = (lab, comparison) => {
   const worstP = Math.max(...returnsOnly.map((row) => row.dmP));
   const pText = returnsOnly.length === 1 ? fmtP(worstP) : `all p ${pAtMost(worstP)}`;
   const parts = [
-    `returns-only models ${range} (${pText})`,
+    `${RETURNS_MODELS} ${range} (${pText})`,
     ...ovxAlone.filter((row) => row.dmStat != null).map((row) => `${shortLabel(row.label)} ${fmtSigned(row.dmStat, 2)}${row.dmP != null ? ` (${fmtP(row.dmP)})` : ""}`),
   ];
   // No-break spaces: a wrapped line never starts with "= lower loss".
@@ -182,7 +191,7 @@ export const evidenceRows = (data, research) => {
     calb: coverageByYear(lab, champion).length || coverageByYear(lab, challenger).length ? calibrationAssertion(lab, champion) : null,
     risk: methods.length && varSeries(lab).length ? riskAssertion(methods, labels, champion) : null,
     vrp: vrpAssertion(asObject(economic?.variance_risk_premium)),
-    live: summary ? liveAssertion(summary) : null,
+    live: summary ? liveAssertion(summary, snapshotDay(data)) : null,
   };
   return SECTIONS
     .filter((section) => titles[section.id])
@@ -201,6 +210,8 @@ const liveValues = (block) => ({
 
 /** The fields a recomputation is compared on, in the order its note lists them. */
 export const RECOMPUTE_FIELDS = ["forecast", "lo", "hi", "challenger"];
+
+const shownOrEmpty = (shown) => shown ?? { value: null, digits: 1 };
 
 /**
  * This week's call as the live record holds it. `entry` is the first live_record.recent row with
@@ -240,7 +251,8 @@ export const forecastOfRecord = (live, liveRecord) => {
       inputs,
       recompute: null,
       fromLive: false,
-      realized: { value: num(inputs?.rv5_pct), recomputed: false },
+      // The snapshot is from an older close, so its one-decimal realized vol is not this call's.
+      realized: { ...shownOrEmpty(realizedShown(inputs?.rv5_pct)), recomputed: false },
       ovx: { value: num(inputs?.ovx), recomputed: false },
       ovxSession: asText(inputs?.ovx_session),
       olderSnapshot: { asOf, issuedAt: asText(block.issued_at) },
@@ -255,7 +267,9 @@ export const forecastOfRecord = (live, liveRecord) => {
     return {
       source: "live", entry: null, ...current, asOf, issuedAt: asText(block.issued_at), sealedAt: null,
       targetStart: null, targetEnd: null, prob: num(block.prob_vol_rises_pct), inputs: blockInputs, recompute: null,
-      realized: { value: num(block.current_realized_vol_5d_annualized_pct), recomputed: false },
+      realized: {
+        ...shownOrEmpty(realizedShown(blockInputs?.rv5_pct, block.current_realized_vol_5d_annualized_pct)), recomputed: false,
+      },
       ovx: { value: num(block.implied_vol_ovx_pct), recomputed: false },
       ovxSession: asText(blockInputs?.ovx_session),
     };
@@ -281,6 +295,13 @@ export const forecastOfRecord = (live, liveRecord) => {
   const pick = (entryValue, blockValue) => (entryValue != null
     ? { value: entryValue, recomputed: false }
     : { value: blockValue, recomputed: blockValue != null && recompute != null });
+  // The recorded 5-session realized vol, at its stored two decimals; when the live block is this
+  // very issuance, its one-decimal figure (rounded once, from the unrounded value) instead.
+  const recordedRealized = num(inputs?.rv5_pct);
+  const blockRealized = num(block.current_realized_vol_5d_annualized_pct);
+  const realized = recordedRealized != null
+    ? { ...shownOrEmpty(realizedShown(recordedRealized, useLive ? blockRealized : null)), recomputed: false }
+    : { ...shownOrEmpty(realizedShown(null, blockRealized)), recomputed: blockRealized != null && recompute != null };
   const value = (key) => (useLive ? current[key] ?? recorded[key] : recorded[key]);
   // The same issuance without a challenger says why (challenger_error); without a reason, the record's stands.
   const challenger = useLive && (current.challenger != null || asText(block.challenger_error))
@@ -303,7 +324,7 @@ export const forecastOfRecord = (live, liveRecord) => {
     inputs,
     recompute,
     fromLive: useLive,
-    realized: pick(num(inputs?.rv5_pct), num(block.current_realized_vol_5d_annualized_pct)),
+    realized,
     ovx: pick(num(inputs?.ovx), num(block.implied_vol_ovx_pct)),
     ovxSession: asText(inputs?.ovx_session) ?? asText(blockInputs?.ovx_session),
   };
@@ -332,7 +353,9 @@ export const liveOfRecord = (live, liveRecord) => {
     interval_80: { ...(asObject(block.interval_80) ?? {}), low_pct: call.lo, high_pct: call.hi },
     prob_vol_rises_pct: call.prob,
     direction: null,
-    current_realized_vol_5d_annualized_pct: call.realized.value,
+    // Only a figure rounded once to one decimal goes in the one-decimal field; the recorded
+    // two-decimal input stays in inputs.rv5_pct, where it is printed at its own two decimals.
+    current_realized_vol_5d_annualized_pct: call.realized.digits === 1 ? call.realized.value : null,
     implied_vol_ovx_pct: call.ovx.value,
     inputs: { ...(call.inputs ?? {}) },
     challenger: challenger
@@ -435,14 +458,20 @@ export const plainNumber = (value, digits = 4) => {
   return text.startsWith("-") ? `−${text.slice(1)}` : text;
 };
 
-const COEFFICIENT_DIGITS = 4;
+/** Coefficient decimals in the hand arithmetic: all six the payload stores, so the chain is exact. */
+const COEFFICIENT_DIGITS = 6;
+/** The printed chain's own rounding: the two-decimal median carried through √smearing (0.005·√s < 0.01). */
+const CHAIN_ROUNDING = 0.01;
 
 /**
  * The live HAR-IV forecast by hand: median = 100 × exp(b0 + b1 ln(rv5/100) + b2 ln(rv22/100) +
  * b3 ln(rv66/100) + b4 ln(ovx)) and mean = median × sqrt(smearing), as backend/vol_forecast.py
  * computes them (realized vols in decimals, OVX in index points). `median`/`mean` use the payload's
- * precision; `printed` repeats the arithmetic with the numbers as printed, so a reader with a
- * calculator gets the same answer. Null unless five coefficients and every input are usable.
+ * precision; `printedMedian` repeats the arithmetic with the numbers as printed (coefficients at the
+ * payload's six decimals), so a reader with a calculator gets the same answer, and `printedMean`
+ * chains from that median shown to two decimals (`shownMedian`): a one-decimal median times √smearing
+ * can miss the one-decimal forecast by more than rounding (47.5 × √1.4128 = 56.46 against 56.4), so
+ * the hand arithmetic carries two. Null unless five coefficients and every input are usable.
  */
 export const forecastDecomposition = (coefs, inputs, smearing) => {
   const b = asArray(coefs).map(num);
@@ -455,10 +484,13 @@ export const forecastDecomposition = (coefs, inputs, smearing) => {
   const median = 100 * Math.exp(b[0] + values.reduce((sum, value, k) => sum + b[k + 1] * Math.log(value), 0));
   const round = (value) => Number(value.toFixed(COEFFICIENT_DIGITS));
   const printedMedian = 100 * Math.exp(round(b[0])) * values.reduce((product, value, k) => product * value ** round(b[k + 1]), 1);
+  const shownMedian = Number(printedMedian.toFixed(2));
   return {
     median,
     mean: median * Math.sqrt(smear),
     printedMedian,
+    shownMedian,
+    printedMean: shownMedian * Math.sqrt(Number(smear.toFixed(4))),
     smearing: smear,
     intercept: plainNumber(b[0], COEFFICIENT_DIGITS),
     factors: values.map((value, k) => ({
@@ -469,15 +501,41 @@ export const forecastDecomposition = (coefs, inputs, smearing) => {
 };
 
 /**
- * Whether a decomposition reproduces the displayed median and expected forecast (one decimal),
- * both at the payload's precision and with the printed numbers (expected = printed median ×
- * √smearing), each within TOLERANCE.
+ * Whether a decomposition reproduces the displayed median and expected forecast (one decimal): at
+ * the payload's precision and with the printed numbers, each within the one-decimal rounding
+ * (TOLERANCE); the printed expected value, which chains from the two-decimal median, also within
+ * that median's own rounding (CHAIN_ROUNDING).
  */
 export const reproduces = (decomposition, median, mean) => {
   if (!decomposition || median == null || mean == null) return false;
-  const printedMean = Number(median.toFixed(1)) * Math.sqrt(decomposition.smearing);
   return close(decomposition.median, median) && close(decomposition.mean, mean)
-    && close(decomposition.printedMedian, median) && close(printedMean, mean);
+    && close(decomposition.printedMedian, median)
+    && Math.abs(decomposition.printedMean - mean) < TOLERANCE + CHAIN_ROUNDING;
+};
+
+/**
+ * The hand arithmetic of a call (forecastOfRecord()) as the page prints it, in the hero and on the
+ * model card alike: the fit the entry recorded (coefficients and smearing factor) when it stored
+ * one, else the live block's, applied to the call's recorded inputs; when those do not reproduce
+ * the call (reproduces()), the live block's inputs, and `inputsFrom` is then the time of the later
+ * computation they come from (null when they are the call's own). `math` is null when neither
+ * reproduces the call. `ownFit` says whether the fit is the entry's own.
+ * @returns {{math: ReturnType<typeof forecastDecomposition>, ownFit: boolean, coefficients: unknown,
+ *   inputsFrom: number|null}}
+ */
+export const callArithmetic = (call, live) => {
+  const ownFit = asArray(call?.entry?.coefficients).length > 0;
+  const coefficients = ownFit ? call.entry.coefficients : live?.coefficients;
+  const smearing = num(call?.entry?.smearing_factor) ?? num(live?.smearing_factor);
+  if (!call) return { math: null, ownFit, coefficients, inputsFrom: null };
+  let math = forecastDecomposition(coefficients, call.inputs, smearing);
+  let inputsFrom = null;
+  if (!reproduces(math, call.median, call.forecast)) {
+    math = forecastDecomposition(coefficients, live?.inputs, smearing);
+    if (!reproduces(math, call.median, call.forecast)) math = null;
+    else if (call.source === "record" && toMs(live?.issued_at) !== toMs(call.issuedAt)) inputsFrom = toMs(live?.issued_at);
+  }
+  return { math, ownFit, coefficients, inputsFrom };
 };
 
 /**

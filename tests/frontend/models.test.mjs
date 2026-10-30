@@ -173,7 +173,9 @@ test("the leaderboard keeps model, QLIKE, DM t and MCS columns on a phone, and i
   for (const key of ["label", "qlike", "dmStat", "mcsP", "inMcs"]) {
     assert.equal(columns.find((column) => column.key === key).hideBelow, undefined, key);
   }
-  assert.ok(columns.filter((column) => column.hideBelow === 640).length >= 4);
+  assert.ok(columns.filter((column) => column.hideBelow === 640).length >= 3);
+  // The descriptive columns give way first, below 1000px; every statistic stays to 640px.
+  assert.deepEqual(columns.filter((column) => column.hideBelow === 1000).map((column) => column.key), ["inputs", "family"]);
   const csv = m.table.csvColumns(columns);
   const value = (name, row) => csv.find((column) => column.label === name).value(row);
   const rows = m.research.leaderboardRows(lab);
@@ -236,6 +238,25 @@ test("the yearly gap rows draw one bar per year and model with both values, the 
   const stab = section(renderDashboard(), "stab");
   assert.match(stab, new RegExp(`--lazy-h:${height}px;--lazy-h-narrow:${height}px`), "the STAB placeholder");
   function count(a, b) { return lab.yearly.filter((year) => year[`${a}_qlike`] < year[`${b}_qlike`]).length; }
+});
+
+test("a STAB row title keeps its count whole and shortens only the model name", () => {
+  const { fitTitleName, titleWidth } = stabilityCharts;
+  const measure = (text) => text.length * 7;  // a stand-in font: 7 px a character
+  const suffix = " · HAR-IV lower in 16/19";
+  assert.equal(fitTitleName("GJR-GARCH(1,1)-t", suffix, 400, measure), "GJR-GARCH(1,1)-t", "fits: unchanged");
+  const cut = fitTitleName("GJR-GARCH(1,1)-t", suffix, 200, measure);
+  assert.ok(cut.endsWith("…") && "GJR-GARCH(1,1)-t".startsWith(cut.slice(0, -1)), cut);
+  assert.ok(measure(`${cut}${suffix}`) <= 200 && measure(`${cut.slice(0, -1)}x…${suffix}`) > 200, "the longest name that fits");
+  assert.equal(fitTitleName("OVX-only regression", suffix, 10, measure), "O…", "never less than a letter");
+  // On the server there is no canvas: each character counts at least as wide as the sans title measures.
+  assert.ok(titleWidth("GJR-GARCH(1,1)-t · HAR-IV lower in 16/19") / 40 >= 7);
+  // The drawn title: the whole count after the (possibly shortened) name; the full title in <title>.
+  const rows = [{ key: "gjr", label: "GJR-GARCH(1,1)-t", tone: "ink", wins: 16, total: 19, gaps: [{ year: 2020, value: 0.01, model: 1, record: 0.99 }] }];
+  const markup = html(createElement(stabilityCharts.YearlyGapSvg, { rows, recordLabel: "HAR-IV", limit: 0.05, width: 240 }));
+  const drawn = markup.match(/<text class="multiple-title[^"]*"[^>]*><title>([^<]*)<\/title>([^<]*)<\/text>/);
+  assert.equal(drawn?.[1], `GJR-GARCH(1,1)-t${suffix}`);
+  assert.ok(drawn[2].endsWith(suffix) && drawn[2].length < drawn[1].length, drawn[2]);
 });
 
 test("without the OVX-only regression the STAB title states the challenger's count on its own", () => {

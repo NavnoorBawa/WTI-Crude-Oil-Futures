@@ -199,7 +199,9 @@ test("unscored statuses are explained in visible text under the table", () => {
   // visibleText puts a space after every tag, so "<b>late commit</b>:" reads "late commit :".
   const footnote = visibleText(live.match(/<div class="table-footnote">([\s\S]*?)<\/div>/)[1]).replace(/ :/g, ":");
   assert.ok(footnote.includes("late commit: Not sealed in time (less than five minutes before the settlement that opens its window, or never); never scored."));
-  assert.ok(footnote.includes("skipped: roll: The target window spans a contract roll; never scored."));
+  // Why a roll prevents scoring, in words.
+  assert.ok(footnote.includes("skipped: roll: The target window spans a contract roll: on the roll day CL=F's return measures"
+    + " the spread between two contracts, not a price move; never scored."), footnote);
   assert.doesNotMatch(text, /late_commit|skipped_roll/, "labels, never keys");
   const scorable = structuredClone(data);
   Object.assign(scorable.vol_forecast.live_record, { next_result_due: scorable.vol_forecast.live_record.recent[0].target_end });
@@ -262,9 +264,14 @@ test("the phone table keeps As of, Forecast with its band, Realized with its ver
   assert.match(live, /<span class="live-date">Oct 19, 2026<\/span><span class="live-date-short">Oct 19<\/span>/);
   const resolved = render(scored({ resolved: 1, independent: 1, recent: [resolvedRow("2026-11-06", 70.0)] })).live;
   assert.match(resolved, /70\.0<span class="cell-note live-inband-note live-outside">outside band<\/span>/);
+  // The seal's lead, the record's evidence, moves under the status where the Sealed column is hidden.
+  const sealed = data.vol_forecast.live_record.recent[0];
+  const lead = panel.sealLead(sealed);
+  assert.ok(lead > 0);
+  assert.ok(live.includes(`<span class="cell-note live-seal-note">sealed ${m.format.fmtAge(lead)} before its window</span>`), "seal note");
   const css = readSource("src/styles/live-record.css");
-  assert.match(css, /\.live-band-note, \.live-inband-note, \.live-date-short \{ display: none; \}/);
-  assert.match(css, /@media \(max-width: 640px\) \{\s*\.live-band-note, \.live-inband-note \{ display: block; \}/);
+  assert.match(css, /\.live-band-note, \.live-inband-note, \.live-seal-note, \.live-date-short \{ display: none; \}/);
+  assert.match(css, /@media \(max-width: 640px\) \{\s*\.live-band-note, \.live-inband-note, \.live-seal-note \{ display: block; \}/);
 });
 
 test("Status follows As of, so a tablet that scrolls the table sideways starts on each call's state", () => {
@@ -290,7 +297,7 @@ test("method notes hold the rule and the input changes, without an attribution c
   const latest = { as_of: "2026-10-23", forecast_pct: 53.4, inputs: { ovx: 55.6, rv5_pct: 50.6, rv22_pct: 38.9, rv66_pct: 47.6, ovx_session: "2026-10-22" } };
   const previous = { as_of: "2026-10-22", forecast_pct: 50.8, inputs: { ovx: 53.2, rv5_pct: 48.9, rv22_pct: 37.6, rv66_pct: 47.2, ovx_session: "2026-10-21" } };
   assert.equal(inputChanges([latest, previous]),
-    "Since the Oct 22 call: forecast +2.6; OVX +2.4, 5-day RV +1.7, 22-day RV +1.3, 66-day RV +0.4 (vol points, as recorded).");
+    "Since the Oct 22 call: forecast +2.6; OVX +2.40, 5-day RV +1.70, 22-day RV +1.30, 66-day RV +0.40 (vol points, as recorded).");
   assert.equal(inputChanges([latest, { ...previous, inputs: null }]), null, "an entry recorded without inputs");
   assert.equal(inputChanges([latest]), null);
   const payload = structuredClone(data);
@@ -310,7 +317,7 @@ test("before any result: one empty line for the scores, the promotion fact, and 
   const view = render(payload);
   assert.ok(view.text.includes("Scores appear after the Oct 28, 2026 settlement."));
   assert.ok(view.text.includes("Promotion test 0/52 independent paired weeks; accruing"));
-  assert.ok(view.text.includes("0 resolved 1 pending 0 skipped at rolls 0 not sealed in time 0 expired"));
+  assert.ok(view.text.includes("0 resolved 1 pending 0 never scored"), view.text);
   assert.doesNotMatch(view.text, /QLIKE, same calls|Mean fcst/, "no row of dashes before any result");
   assert.match(view.live, /<div class="live-strip" aria-hidden="true" style="--cells:52">(<i><\/i>){52}<\/div>/);
   assert.ok(view.live.includes('class="lazy-mount"'), "the chart mounts lazily");
@@ -341,4 +348,137 @@ test("LiveCalls draws one forecast dot and one band per recorded call, and each 
   const xs = [...html.matchAll(/<circle cx="([\d.]+)"[^>]*class="live-forecast/g)].map((match) => Number(match[1]));
   assert.deepEqual(xs, [...xs].sort((a, b) => a - b));
   assert.equal(renderToStaticMarkup(createElement(chart.LiveCallsPlot, { calls: [], width: 640, height: 200 })), "");
+});
+
+/**
+ * A record past its first weeks, frozen Dec 18 (US Central): 36 calls, of which the latest rows are
+ * only pending or resolved, the never-scored ones are older than them, and the oldest pending call
+ * (window Nov 27 – Dec 3) waits for a settlement the snapshot lacks. The promotion sample stops at it.
+ */
+const longRecord = () => {
+  const payload = structuredClone(data);
+  payload.frozen_at = "2026-12-18T21:00:00+00:00";
+  const record = payload.vol_forecast.live_record;
+  const call = (asOf, start, end, status, realized = null) => ({
+    ...record.recent[0], as_of: asOf, target_start: start, target_end: end, status, realized_pct: realized, spans_roll: false,
+  });
+  record.recent = [
+    call("2026-12-10", "2026-12-14", "2026-12-18", "pending"),
+    call("2026-12-09", "2026-12-11", "2026-12-17", "resolved", 24.0),
+    call("2026-12-04", "2026-12-08", "2026-12-14", "resolved", 47.1),
+    call("2026-11-25", "2026-11-30", "2026-12-04", "resolved", 19.2),
+    call("2026-11-24", "2026-11-27", "2026-12-03", "pending"),
+  ];
+  Object.assign(record, {
+    n_recorded: 36, n_resolved: 26, n_pending: 2, n_skipped_roll: 5, n_expired: 2, n_late_commit: 1, n_independent: 6,
+    next_result_due: "2026-12-03",
+    champion: { ...record.champion, n: 26, qlike: 0.3601, interval_80_coverage_pct: 69.2, mean_forecast_pct: 46.07, mean_realized_pct: 33.35 },
+    challenger: { ...record.challenger, n: 26, qlike: 0.391, champion_qlike: 0.3601 },
+    promotion: { ...record.promotion, n_independent_paired: 4 },
+  });
+  return payload;
+};
+
+test("every never-scored status in the record is explained under the table, from the counts, and each count prints once", () => {
+  const view = render(longRecord());
+  assert.deepEqual(view.errors, []);
+  const footnote = visibleText(view.live.match(/<div class="table-footnote">([\s\S]*?)<\/div>/)[1]).replace(/ :/g, ":");
+  // None of these calls is among the five rows shown, yet each status is explained.
+  assert.ok(footnote.includes("skipped: roll (none among the 5 shown): The target window spans a contract roll"), footnote);
+  assert.ok(footnote.includes("late commit (none among the 5 shown): Not sealed in time"), footnote);
+  assert.ok(footnote.includes("expired (none among the 5 shown): A settlement its window needs was still missing more than"
+    + ` ${panel.MAX_WAIT_SESSIONS} sessions after the window closed; never scored.`), footnote);
+  // The meta line gives the total; the status line counts by state, once.
+  assert.ok(view.meta.includes("36 calls recorded"), view.meta);
+  assert.doesNotMatch(view.meta, /pending|skipped|expired|never scored/, view.meta);
+  assert.ok(view.text.includes("26 resolved (6 independent weeks) 2 pending 8 never scored: 5 skipped at a contract roll,"
+    + " 1 not sealed in time, 2 expired"), view.text);
+  for (const count of ["5 skipped", "1 not sealed", "2 expired", "2 pending"]) {
+    assert.equal(view.text.split(count).length - 1, 1, `"${count}" printed once`);
+  }
+  // A status the rows do show is explained without the note.
+  const shown = longRecord();
+  shown.vol_forecast.live_record.recent.push({ ...shown.vol_forecast.live_record.recent[1], as_of: "2026-11-20", status: "expired" });
+  assert.match(visibleText(render(shown).live).replace(/ :/g, ":"), /expired: A settlement its window needs/);
+
+  const { recordCounts, unscoredStatuses } = panel;
+  const summary = (fields) => m.research.liveRecordSummary({ ...data.vol_forecast.live_record, ...fields });
+  assert.deepEqual(recordCounts(summary({ n_resolved: 0, n_pending: 1, n_skipped_roll: 0, n_late_commit: 1, n_expired: 0 })),
+    ["0 resolved", "1 pending", "1 not sealed in time (never scored)"]);
+  assert.deepEqual(recordCounts(summary({ n_skipped_roll: null, n_late_commit: null, n_expired: null })), ["0 resolved", "1 pending"],
+    "no count, no claim");
+  assert.doesNotMatch(recordCounts(summary({ n_late_commit: 2 })).join(" "), /sealed after/, "a late commit may be sealed before its window opened");
+  assert.deepEqual(unscoredStatuses(summary({ n_skipped_roll: 0, n_late_commit: 0, n_expired: 3 })), ["expired"]);
+  assert.deepEqual(unscoredStatuses(summary({ recent: [{ status: "late_commit" }] })), ["late_commit"], "or from a row");
+});
+
+test("a promotion test with fewer weeks than the record says why: its sample is taken in record order", () => {
+  const view = render(longRecord());
+  assert.equal(view.title, "6 independent weeks resolved (26 calls); too few to compare the two models");
+  assert.ok(view.text.includes("Promotion test 4/52 independent paired weeks; accruing. 2 later independent weeks wait for"
+    + " the pending Nov 24 call: the sample is taken in record order."), view.text);
+  const notes = visibleText(view.live.match(/<details class="disclosure panel-notes">([\s\S]*?)<\/details>/)[1]);
+  assert.ok(notes.includes("No resolved call was excluded for its model version or challenger."), notes);
+  assert.doesNotMatch(notes, /has been left out/);
+
+  const { promotionGap } = panel;
+  const summary = (payload) => m.research.liveRecordSummary(payload.vol_forecast.live_record);
+  assert.equal(promotionGap(summary(longRecord())),
+    "2 later independent weeks wait for the pending Nov 24 call: the sample is taken in record order.");
+  // A pending call older than the rows shown: the page cannot name it.
+  const older = longRecord();
+  older.vol_forecast.live_record.n_pending = 3;
+  assert.equal(promotionGap(summary(older)),
+    "2 later independent weeks wait for an earlier call still pending: the sample is taken in record order.");
+  // With calls left out of the pair, the gap is not all waiting.
+  const excluded = longRecord();
+  excluded.vol_forecast.live_record.promotion.n_excluded_no_challenger = 3;
+  assert.match(promotionGap(summary(excluded)), /^2 of the record's 6 independent weeks are not in it: resolved calls left out/);
+  const level = longRecord();
+  level.vol_forecast.live_record.promotion.n_independent_paired = 6;
+  assert.equal(promotionGap(summary(level)), null, "no gap, no sentence");
+  assert.equal(promotionGap(summary(scored({ resolved: 300, independent: 60, promotion: KEEP }))), null, "decided: the sample is fixed");
+});
+
+test("a result due before the snapshot's date reads as overdue, waiting for a missing settlement", () => {
+  const view = render(longRecord());
+  assert.doesNotMatch(view.text, /next result due/);
+  const rows = [...view.live.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((match) => match[1]);
+  const stuck = rows.find((row) => row.includes("Nov 24, 2026"));
+  assert.ok(stuck.includes('title="Overdue since Dec 3, 2026: waiting for a missing settlement; it expires, never scored, if that is'
+    + ` still missing more than ${panel.MAX_WAIT_SESSIONS} sessions after its window closed"`), stuck);
+  assert.match(visibleText(stuck), /pending overdue since Dec 3 /);
+  // The newest call's window ends on the snapshot's own date: not overdue.
+  assert.doesNotMatch(visibleText(rows.find((row) => row.includes("Dec 10, 2026"))), /overdue/);
+  const footnote = visibleText(view.live.match(/<div class="table-footnote">([\s\S]*?)<\/div>/)[1]).replace(/ :/g, ":");
+  assert.ok(footnote.includes("pending, overdue: Its window has closed, but a settlement it needs is missing from this snapshot."), footnote);
+
+  const html = renderToStaticMarkup(createElement(chart.LiveCallsPlot, {
+    calls: longRecord().vol_forecast.live_record.recent, width: 640, height: 200, nextResultDue: "2026-12-03", overdue: true,
+  }));
+  assert.ok(html.includes(">result overdue since Dec 3, 2026<"), html);
+  assert.match(html, /aria-label="[^"]*; result overdue since Dec 3, 2026, waiting for a missing settlement"/);
+  assert.doesNotMatch(html, /next result due/);
+
+  const { overdueSince, snapshotDay } = panel;
+  assert.equal(snapshotDay({ frozen_at: "2026-12-19T03:00:00Z" }), "2026-12-18", "9 PM CT is still Dec 18 in Chicago");
+  assert.equal(snapshotDay({}), null);
+  const row = { status: "pending", target_end: "2026-12-03", spans_roll: false };
+  assert.equal(overdueSince(row, "2026-12-04"), "2026-12-03");
+  assert.equal(overdueSince(row, "2026-12-03"), null, "due on the snapshot's date is not overdue");
+  assert.equal(overdueSince({ ...row, spans_roll: true }, "2026-12-18"), null, "a call that spans a roll is never scored");
+  assert.equal(overdueSince({ ...row, status: "resolved" }, "2026-12-18"), null);
+  assert.equal(overdueSince(row, null), null);
+  // Before any result, the empty line says so too.
+  const first = longRecord();
+  Object.assign(first.vol_forecast.live_record, { n_resolved: 0, n_independent: 0 });
+  const page = render(first);
+  assert.ok(page.text.includes("The first result is overdue since Dec 3, 2026: a settlement its window needs is missing from this snapshot."));
+  // The title, the evidence list and the verdict tile say overdue too, not "due".
+  assert.equal(page.title, "No live forecast has resolved yet; the first is overdue since Dec 3, 2026");
+  assert.match(page.foot, /^first result overdue since Dec 3, 2026 · promotion test /);
+  assert.doesNotMatch(visibleText(page.html), /the first is due Dec 3/);
+  // The page's wait is the record's own.
+  const backend = readSource("backend/vol_record.py").match(/^MAX_WAIT_SESSIONS = (\d+)/m);
+  assert.equal(Number(backend?.[1]), panel.MAX_WAIT_SESSIONS);
 });

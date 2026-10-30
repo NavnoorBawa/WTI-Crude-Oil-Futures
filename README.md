@@ -1,7 +1,7 @@
 # Forecasting WTI Crude Oil Volatility with Free Data
 
 How well can next-week realized volatility of front-month NYMEX WTI crude oil be forecast from free,
-public data? This project answers with a field of fourteen forecasters judged by the losses and tests
+public data? This project answers with a field of benchmark forecasters judged by the losses and tests
 of the volatility-forecasting literature, rebuilt in CI from a hash-pinned data snapshot, and with a
 live forward record that scores a forecast only if it was sealed in git before the settlement that
 opens its scoring window. A public dashboard is refreshed from GitHub Actions every four hours, on
@@ -32,7 +32,7 @@ GitHub's best-effort schedule.
 
 *Figure 1. Out-of-sample forecasts of the model of record (blue) with its 80% adaptive conformal
 interval, realized next-week volatility (grey) and the OVX implied-volatility index (orange), on the
-production weekly grid. Log scale.*
+production weekly grid (every fifth session). Log scale; the axis spans every plotted value.*
 
 ## Results at a glance
 
@@ -97,6 +97,8 @@ should print.
   download as CSV ([architecture](docs/ARCHITECTURE.md)).
 
 ![The first screen of the dashboard: the research question and its computed answer, this week's call as recorded, and the evidence tiles](docs/figures/dashboard.png)
+
+*The dashboard's first screen, captured from one recorded snapshot by [`scripts/capture_figures.mjs`](scripts/capture_figures.mjs); the live page's numbers move with each refresh.*
 
 ## What it does not claim
 

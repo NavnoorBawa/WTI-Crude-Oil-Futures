@@ -4,6 +4,7 @@ import DataTable from "../components/DataTable";
 import keepHyphenated from "../components/keepHyphenated";
 import LazyMount from "../components/LazyMount";
 import Panel from "../components/Panel";
+import { withTerms } from "../components/Term";
 import { stabilityAssertion } from "../lib/assertions";
 import { gapLimit, recentWindows, rollingGap, weeklyPairs, yearlyGaps } from "../lib/comparison";
 import { fmtInt, fmtNum, fmtSpan } from "../lib/format";
@@ -94,6 +95,17 @@ export default function StabilityPanel({ research, researchStatus }) {
   // Years with markedly fewer days than a full one (the sample's first and last), named in the notes.
   const fullYear = Math.max(0, ...years.map((row) => row.nDays ?? 0));
   const partial = years.filter((row) => row.nDays != null && row.nDays < (9 / 10) * fullYear);
+  // The yearly-gap caption sits under its figure, and the notes follow; one set explains each
+  // glossary term once in the panel, at its first use (the caption, then the notes).
+  const seen = new Set();
+  const gapCaption = gapRows.length ? withTerms(`Each bar is one model's QLIKE minus ${recordName}'s in one calendar year, on one scale for every row, so a bar above its line is a year ${recordName} had the lower loss${cut ? `; ${fmtInt(scale.clipped)} bars beyond ±${fmtNum(scale.limit, 3)} are cut at the edge and marked with a break` : ""}.`, seen) : null;
+  const notes = [
+    `The yearly bars use every out-of-sample day of each calendar year (overlapping 5-session targets), as the leaderboard does${partial.length ? `; partial years: ${partial.map((row) => `${row.year} (${fmtInt(row.nDays)} days)`).join(", ")}, against up to ${fmtInt(fullYear)} in a full one` : ""}. Each bar's two QLIKE values are in its tooltip and in the table view.`,
+    pairs.length
+      ? `Recent windows and the rolling gap use the weekly series instead: one forecast a week on the first 5-session sampling grid (grid 0), ${fmtInt(pairs.length)} weeks (${fmtSpan(pairs[0].date, pairs[pairs.length - 1].date)}), each scored with the same QLIKE, so their values differ from the every-day figures in the leaderboard.`
+      : null,
+    "DM t by sampling grid: the Diebold-Mariano t of each model against the record over the full sample (large dot) and on each 5-session sampling grid (small dots); each grid scores every fifth session, starting on a different day. The shaded band is |t| < 1.96, where the difference is not significant at 5%.",
+  ].filter(Boolean).map((note, index) => <p key={index}>{withTerms(note, seen)}</p>);
   return (
     <Panel
       id="stab"
@@ -108,14 +120,7 @@ export default function StabilityPanel({ research, researchStatus }) {
         "QLIKE per calendar year",
         ...wins.map((model) => `vs ${model.label}: ${model.wins}/${model.total} years`),
       ]}
-      caption={gapRows.length ? `Each bar is one model's QLIKE minus ${recordName}'s in one calendar year, on one scale for every row, so a bar above its line is a year ${recordName} had the lower loss${cut ? `; ${fmtInt(scale.clipped)} bars beyond ±${fmtNum(scale.limit, 3)} are cut at the edge and marked with a break` : ""}.` : null}
-      notes={[
-        `The yearly bars use every out-of-sample day of each calendar year (overlapping 5-session targets), as the leaderboard does${partial.length ? `; partial years: ${partial.map((row) => `${row.year} (${fmtInt(row.nDays)} days)`).join(", ")}, against up to ${fmtInt(fullYear)} in a full one` : ""}. Each bar's two QLIKE values are in its tooltip and in the table view.`,
-        pairs.length
-          ? `Recent windows and the rolling gap use the weekly series instead: one forecast a week on the first 5-session sampling grid (grid 0), ${fmtInt(pairs.length)} weeks (${fmtSpan(pairs[0].date, pairs[pairs.length - 1].date)}), each scored with the same QLIKE, so their values differ from the every-day figures in the leaderboard.`
-          : null,
-        "DM t by sampling grid: the Diebold-Mariano t of each model against the record over the full sample (large dot) and on each 5-session sampling grid (small dots); each grid scores every fifth session, starting on a different day. The shaded band is |t| < 1.96, where the difference is not significant at 5%.",
-      ].filter(Boolean)}
+      notes={notes}
       source={{ artifact: ["research.json → vol_lab.yearly", "vol_lab.series", "vol_lab.leaderboard"] }}
       resetKey={research}
       table={() => (
@@ -145,6 +150,7 @@ export default function StabilityPanel({ research, researchStatus }) {
           <LazyMount minHeight={{ wide: gapRows.length * 52 + 22, narrow: gapRows.length * 52 + 22 }} label="yearly comparison">
             <YearlyGapRows rows={gapRows} recordLabel={recordName} limit={scale.limit} />
           </LazyMount>
+          <p className="panel-caption">{gapCaption}</p>
         </>
       )}
       {recent.length > 0 && (

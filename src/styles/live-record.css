@@ -32,11 +32,14 @@
 }
 .live-empty { max-width: var(--measure); font-size: var(--fs-body); line-height: 1.55; color: var(--text-2); }
 
-/* Recorded calls on a phone: the band moves under the forecast and the in-band verdict under the
-   realized value, where their own columns are hidden, and the date drops its year. */
-.live-band-note, .live-inband-note, .live-date-short { display: none; }
+/* Recorded calls on a phone: the band moves under the forecast, the in-band verdict under the realized
+   value and the seal's lead under the status, where their own columns are hidden, and the date drops
+   its year. */
+.live-band-note, .live-inband-note, .live-seal-note, .live-date-short { display: none; }
 @media (max-width: 640px) {
-  .live-band-note, .live-inband-note { display: block; }
+  .live-band-note, .live-inband-note, .live-seal-note { display: block; }
+  /* The seal note wraps under the status chip instead of widening the column past a 390px screen. */
+  .live-seal-note { white-space: normal; }
   .live-date-short { display: inline; }
   .live-date { display: none; }
   /* The short date needs none of the room a phone's sticky row header reserves. */

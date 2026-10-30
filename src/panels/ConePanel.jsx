@@ -6,7 +6,7 @@ import LazyMount from "../components/LazyMount";
 import Panel, { REPRODUCE } from "../components/Panel";
 import { withTerms } from "../components/Term";
 import { coneAssertion } from "../lib/assertions";
-import { LIVE_WINDOWS, coneView } from "../lib/cone";
+import { LIVE_WINDOWS, coneView, markPct } from "../lib/cone";
 import { DASH, fmtDate, fmtNum, fmtPct, num, ordinal } from "../lib/format";
 import { getLab, getVol } from "../lib/research";
 import { liveOfRecord } from "../lib/verdict";
@@ -63,7 +63,7 @@ export default function ConePanel({ data, research, researchStatus }) {
   const nearMonth = view.marks.reduce((best, mark) => (best == null
     || Math.abs(mark.window - IMPLIED_HORIZON_SESSIONS) < Math.abs(best.window - IMPLIED_HORIZON_SESSIONS) ? mark : best), null);
   const factMarks = view.marks.filter((mark) => shownWindows.includes(mark.window) || mark === nearMonth);
-  const markTitle = (mark) => `Realized ${mark.window}-day vol, ${fmtDate(mark.date)}: ${fmtPct(mark.value)}`
+  const markTitle = (mark) => `Realized ${mark.window}-day vol, ${fmtDate(mark.date)}: ${markPct(mark)}`
     + `${markNote(mark) ? ` (${markNote(mark)})` : ""}`;
   const ovxLabel = view.ovx ? `OVX, ${day(view.ovx.date) ?? "latest"} close` : null;
   const ovxTitle = view.ovx
@@ -72,14 +72,14 @@ export default function ConePanel({ data, research, researchStatus }) {
   const forecastLabel = `forecast${view.liveDate ? `, ${day(view.liveDate)}` : ""}`;
   const summary = `Volatility cone of ${plural(view.windows.length, "window")} from ${view.windows[0].window} to `
     + `${view.windows[view.windows.length - 1].window} trading days; realized vol on ${fmtDate(marksDate)}: `
-    + view.marks.filter((mark) => !older(mark)).map((mark) => `${fmtPct(mark.value)} over ${mark.window} days`).join(", ")
+    + view.marks.filter((mark) => !older(mark)).map((mark) => `${markPct(mark)} over ${mark.window} days`).join(", ")
     + `${view.ovx ? `; OVX ${fmtNum(view.ovx.value, 1)}` : ""}${forecast != null ? `; forecast ${fmtPct(forecast)}` : ""}`;
 
   const caption = "Percentiles of rolling close-to-close realized vol, annualized; windows in trading days.";
   const notes = [
     view.ovx && nearMonth
       ? `OVX is a 30-calendar-day implied vol, about ${IMPLIED_HORIZON_SESSIONS} sessions: it closed at ${fmtNum(view.ovx.value, 1)} on `
-        + `${fmtDate(view.ovx.date)}, against realized vol of ${fmtPct(nearMonth.value)} over the last ${nearMonth.window} trading days `
+        + `${fmtDate(view.ovx.date)}, against realized vol of ${markPct(nearMonth)} over the last ${nearMonth.window} trading days `
         + `on ${fmtDate(nearMonth.date)}${markNote(nearMonth) ? ` (${markNote(nearMonth)})` : ""}, so the two horizons are close but not equal.`
       : null,
     isLive
@@ -100,7 +100,8 @@ export default function ConePanel({ data, research, researchStatus }) {
 
   const tableRows = view.windows.map((row) => {
     const mark = isLive ? view.marks.find((item) => item.window === row.window && item.source === "live") : null;
-    return { ...row, now: mark?.value ?? null, band: mark?.bracket?.label ?? null };
+    // Printed as stored: the 5-day value at one decimal, the recorded two-decimal inputs at two.
+    return { ...row, now: mark?.shown ?? null, nowDigits: mark?.digits ?? 1, band: mark?.bracket?.label ?? null };
   });
 
   return (
@@ -133,7 +134,7 @@ export default function ConePanel({ data, research, researchStatus }) {
             { key: "latest", label: `Lab latest${view.labDate ? `, ${day(view.labDate)}` : ""}`, align: "right", render: (row) => fmtNum(row.latest, 1), hideBelow: isLive ? 640 : undefined },
             { key: "percentile", label: "Lab pctile", align: "right", render: (row) => ordinal(row.percentile), hideBelow: isLive ? 640 : undefined },
             ...(isLive ? [
-              { key: "now", label: day(view.liveDate), title: `Realized vol on ${fmtDate(view.liveDate)} (data.json)`, csvLabel: `Realized, ${view.liveDate}`, align: "right", render: (row) => (row.now != null ? fmtNum(row.now, 1) : DASH) },
+              { key: "now", label: day(view.liveDate), title: `Realized vol on ${fmtDate(view.liveDate)} (data.json)`, csvLabel: `Realized, ${view.liveDate}`, align: "right", render: (row) => (row.now != null ? fmtNum(row.now, row.nowDigits) : DASH) },
               { key: "band", label: "Band", align: "right", render: (row) => row.band ?? DASH },
             ] : []),
           ]}
@@ -162,7 +163,7 @@ export default function ConePanel({ data, research, researchStatus }) {
         <div className="split-side cone-side">
           <Facts className="facts--stack" items={[
             ...factMarks.map((mark) => ({
-              label: `Realized ${mark.window}d${mark.date ? `, ${day(mark.date)}` : ""}`, value: fmtPct(mark.value), note: markNote(mark),
+              label: `Realized ${mark.window}d${mark.date ? `, ${day(mark.date)}` : ""}`, value: markPct(mark), note: markNote(mark),
             })),
             view.ovx && { label: ovxLabel, value: fmtNum(view.ovx.value, 1) },
             forecast != null && {

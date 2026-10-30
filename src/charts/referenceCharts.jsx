@@ -5,10 +5,8 @@ import { scaleLinear, scaleUtc } from "d3-scale";
 import { line } from "d3-shape";
 import { fmtDate, fmtNum } from "../lib/format";
 import { ledgerStripLabel } from "../lib/reference";
+import { MONO_CHAR_PX } from "../theme/chartTheme";
 import { Frame, XAxis, YAxis, extent } from "./svgCharts.jsx";
-
-// 11px JetBrains Mono advances about this many px per character (as in svgCharts.jsx).
-const CHAR_PX = 6.6;
 
 // ------------------------------------------------------------------------------- ledger strip
 
@@ -76,7 +74,7 @@ export function LedgerStripSvg({ strip, width }) {
   const labels = groups.map((group) => {
     const words = groupWords(group);
     const text = `${words.count}${words.label}${words.survivors}`;
-    return { group, words, start: cellX(group.start, group.key), width: KEY + KEY_GAP + text.length * CHAR_PX };
+    return { group, words, start: cellX(group.start, group.key), width: KEY + KEY_GAP + text.length * MONO_CHAR_PX };
   });
   const placed = placeStripLabels(labels, width);
   const lines = Math.max(1, ...placed.map((item) => item.line + 1));
@@ -84,7 +82,7 @@ export function LedgerStripSvg({ strip, width }) {
   const baseline = (lineIndex) => STRIP_H + LABEL_TOP + lineIndex * LABEL_LINE + 9;
   const keyKind = (key) => key.replace(/_/g, "-");
   return (
-    <svg width={width} height={height} className="svg-chart ledger-strip" role="img" aria-label={ledgerStripLabel(groups)}>
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart ledger-strip" role="img" aria-label={ledgerStripLabel(groups)}>
       {cells.map((cell, index) => {
         const x = cellX(index, cell.status);
         // The survivor's outline is drawn inside its cell, so neighbouring cells keep their gap.
@@ -174,7 +172,7 @@ export function ElasticityPathSvg({ path, width }) {
     .defined((point) => point[key] != null)
     .x((point) => x(parseDay(point.date)))
     .y((point) => y(point[key]))(path.points);
-  const clampX = (value, text) => Math.min(Math.max(value, m.left + (text.length * CHAR_PX) / 2), right - (text.length * CHAR_PX) / 2);
+  const clampX = (value, text) => Math.min(Math.max(value, m.left + (text.length * MONO_CHAR_PX) / 2), right - (text.length * MONO_CHAR_PX) / 2);
   const polyline = (key) => path.points.map((point) => (point[key] != null ? { px: x(parseDay(point.date)), py: y(point[key]) } : null));
   const lines = [polyline("ovx"), ...(path.rv ? [polyline("rv")] : [])];
   const marks = (path.ovx ? [
@@ -184,7 +182,7 @@ export function ElasticityPathSvg({ path, width }) {
     const label = `${mark.key} ${fmtNum(mark.value, 2)}`;
     const cx = x(parseDay(mark.date));
     const lx = clampX(cx, label);
-    const half = (label.length * CHAR_PX) / 2;
+    const half = (label.length * MONO_CHAR_PX) / 2;
     const baseline = y(mark.value) + mark.dy;
     // The label's box at the 11px font, its halo and a line's half-width included.
     const box = { x0: lx - half - 3, x1: lx + half + 3, y0: baseline - 12, y1: baseline + 5 };
@@ -200,7 +198,7 @@ export function ElasticityPathSvg({ path, width }) {
     ends[index].y = Math.max(ends[index].y, ends[index - 1].y + 26 + 13 * ends[index - 1].notes.length);
   }
   return (
-    <svg width={width} height={height} className="svg-chart" role="img" aria-label={elasticityLabel(path)}>
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart" role="img" aria-label={elasticityLabel(path)}>
       <YAxis scale={y} ticks={y.ticks(4)} format={(tick) => fmtNum(tick, 1)} left={m.left} right={right} />
       <line className="stroke-axis" x1={m.left} x2={right} y1={y(0)} y2={y(0)} />
       {path.rv && <path d={draw("rv")} className="stroke-ink" fill="none" />}

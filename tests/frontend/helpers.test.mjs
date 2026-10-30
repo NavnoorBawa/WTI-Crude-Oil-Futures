@@ -35,8 +35,6 @@ test("format helpers handle ages, spans, ordinals and p-value cells", () => {
   assert.equal(f.fmtPValue(null), "—");
   assert.equal(f.fmtInt(4370), "4,370");
   assert.equal(f.fmtShare(0.9988, 2), "99.88%");
-  assert.equal(f.shortHash("2e0c57f697484b466eac5945c755a76c"), "2e0c57f69748");
-  assert.equal(f.shortHash("not-a-hash"), "—");
   assert.equal(f.humanizeKey("supply_lost"), "Supply lost");
 });
 
@@ -495,9 +493,14 @@ test("assertion titles state one claim each, and only what the numbers support",
   assert.equal(a.vrpAssertion({ ...noCi, zero_premium_null: null }), null, "without the null the share supports no title");
 
   const champion = research.vol_lab.config.champion;
-  const years = m.research.coverageByYear(research.vol_lab, champion).map((row) => row.coverage);
-  assert.equal(keep(a.calibrationAssertion(research.vol_lab, champion)),
-    `In every year the 80% interval covered between ${f.fmtPct(Math.min(...years))} and ${f.fmtPct(Math.max(...years))} of days`);
+  const byYear = m.research.coverageByYear(research.vol_lab, champion);
+  const years = byYear.map((row) => row.coverage);
+  // The title names its sample: the calendar years and the days with a band.
+  const calb = keep(a.calibrationAssertion(research.vol_lab, champion));
+  assert.equal(calb, `Each year ${byYear[0].year}–${byYear[byYear.length - 1].year}, the 80% interval covered `
+    + `${f.fmtPct(Math.min(...years))} to ${f.fmtPct(Math.max(...years))} of the `
+    + `${f.fmtInt(research.vol_lab.conformal[champion].n_days)} days with a band`);
+  assert.ok(calb.length <= 90, calb);
   const conformal = research.vol_lab.conformal[champion];
   assert.deepEqual(a.calibrationDetail(research.vol_lab, champion),
     [`overall ${f.fmtPct(conformal.coverage_pct)} of ${f.fmtInt(conformal.n_days)} days, targeted by construction`]);
@@ -513,13 +516,31 @@ test("assertion titles state one claim each, and only what the numbers support",
     `supply removal: ${spaced(f.fmtP(lost.peakP))} vs placebo, ${spaced(f.fmtPValue(lost.peakPYear))} year-matched`,
     `threat-only: ${spaced(f.fmtP(threat.peakP))} vs placebo, ${spaced(f.fmtPValue(threat.peakPYear))} year-matched`,
   ]);
-  const studies = keep(a.studiesAssertion(research.carry, study));
-  assert.match(studies, /; supply removal beat placebo dates$/);
+  // STDY's panel title frames the two studies with their samples; each study's result is its own h3,
+  // so the panel title states no result of either (and never joins two results in one title).
+  const playbook = data.supply_shock_playbook;
+  const carryYears = research.carry.full_sample.span.split("..").map((day) => day.slice(0, 4));
+  const eventYears = [playbook.first_event_year, playbook.last_event_year].map(String);
+  const sameYears = carryYears.join() === eventYears.join();
+  const studies = keep(a.studiesAssertion({ carry: research.carry, playbook, study }));
+  assert.equal(studies, sameYears
+    ? `Two descriptive studies, not traded: carry timing and ${playbook.event_count} supply shocks, ${carryYears.join("–")}`
+    : `Two descriptive studies, not traded: carry timing (${carryYears.join("–")}) and ${playbook.event_count} supply shocks (${eventYears.join("–")})`);
+  assert.doesNotMatch(studies, /;|beat|placebo|sorted|significant/, "no study's result in the panel title");
+  // Two spans: each named; the shorter wording keeps the title within 90 characters (the meta then says "not traded").
+  const lateEvents = { ...playbook, last_event_year: 2025 };
+  const twoSpans = a.studiesAssertion({ carry: research.carry, playbook: lateEvents, study });
+  assert.equal(twoSpans,
+    `Two descriptive studies: carry timing (${carryYears.join("–")}) and ${playbook.event_count} supply shocks (${playbook.first_event_year}–2025)`);
+  assert.ok(twoSpans.length <= 90, twoSpans);
+  assert.equal(a.studiesAssertion({ playbook }), `${playbook.event_count} supply shocks, ${eventYears.join("–")}: a descriptive study, not traded`,
+    "without research.json: the playbook alone, and nothing said about the carry study");
+  assert.equal(a.studiesAssertion({ carry: research.carry }), `Carry timing, ${carryYears.join("–")}: a descriptive study, not traded`);
+  assert.equal(a.studiesAssertion({}), null);
   // A group that passes only the unmatched placebo does not pass the rule.
   const oneSided = structuredClone(research);
   oneSided.supply_study.groups.find((group) => group.key === "supply_lost").p_value_vs_year_matched_placebo.peak = 0.2;
   const oneStudy = m.research.supplyStudy(oneSided);
-  assert.match(a.studiesAssertion(research.carry, oneStudy), /; supply removal beat only one placebo$/);
   assert.match(a.supplyStudyAssertion(oneStudy), /^Supply removal peaks .*, significant against only one placebo; /);
   assert.equal(a.placeboVerdict(0.01, 0.02), "both");
   assert.equal(a.placeboVerdict(0.01, 0.2), "one");
@@ -689,7 +710,8 @@ test("LIVE counts unscored calls as such, and compares the two models on the sam
     recent: [{ status: "skipped_roll", target_end: "2026-10-27" }],
   });
   assert.equal(liveAssertion(skippedOnly), "No live forecast has resolved yet", "a call skipped at a roll dates nothing");
-  assert.deepEqual(liveDetail(skippedOnly), ["1 call recorded: 1 skipped at a contract roll (never scored)"]);
+  // The meta line gives the total only: the panel's status line counts the calls by state, once.
+  assert.deepEqual(liveDetail(skippedOnly), ["1 call recorded"]);
   const mixed = liveRecordSummary({
     started: record.started, n_recorded: 3, n_resolved: 0, n_pending: 1, n_skipped_roll: 1, n_expired: 0, n_late_commit: 1,
     next_result_due: null,
@@ -697,8 +719,7 @@ test("LIVE counts unscored calls as such, and compares the two models on the sam
     promotion: { status: "accruing", n_independent_paired: 0, required: 52, dm_stat: null, p_value: null, mean_qlike_difference: null },
   });
   assert.equal(mixed.lateCommit, 1);
-  assert.deepEqual(liveDetail(mixed), ["3 calls recorded: 1 pending, 1 skipped at a contract roll, 1 not sealed in time (2 never scored)"]);
-  assert.doesNotMatch(liveDetail(mixed).join(" "), /sealed after/, "a late commit may be sealed before its window opened");
+  assert.deepEqual(liveDetail(mixed), ["3 calls recorded"]);
   assert.equal(promotionText(mixed.promotion), "accruing 0/52 weeks");
   // The state only: the p-value is printed once, with the test's statistics (promotionDetail).
   assert.equal(promotionText({ status: "keep", p: 0.41 }), "keep the record");

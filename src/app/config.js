@@ -31,8 +31,11 @@ export const codeUrl = (path) => `${REPO_URL}/blob/${GIT_SHA ?? "main"}/${String
 // deploy commits data.json to gh-pages.
 export const RECORD_HISTORY_URL = `${REPO_URL}/commits/live-data/runtime-state/vol_track_record.json`;
 export const DATA_HISTORY_URL = `${REPO_URL}/commits/gh-pages/data.json`;
-// The written documentation, always the current version on main.
+// The written documentation, always the current version on main. The full write-up and the
+// reviewer's checks come first wherever the page lists them.
 export const DOCS = {
+  results: `${REPO_URL}/blob/main/docs/RESULTS.md`,
+  reviewerGuide: `${REPO_URL}/blob/main/docs/REVIEWER_GUIDE.md`,
   modelCard: `${REPO_URL}/blob/main/docs/MODEL_CARD.md`,
   methodology: `${REPO_URL}/blob/main/docs/METHODOLOGY.md`,
   datasheet: `${REPO_URL}/blob/main/docs/DATASHEET.md`,

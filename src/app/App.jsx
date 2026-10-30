@@ -99,8 +99,12 @@ export default function App() {
     <div className="app" id="top">
       <a className="skip-link" href="#main">Skip to content</a>
       <TopBar frozenAtMs={frozenAtMs} lastUpdate={lastUpdate} hasData={Boolean(data)} data={data} research={research} />
-      {STATIC_DATA_MODE && frozenAtMs != null && <StaleSnapshotBanner frozenAtMs={frozenAtMs} />}
-      <main id="main" className="main" tabIndex={-1}>{body}</main>
+      <main id="main" className="main" tabIndex={-1}>
+        {/* Inside <main>, rendered with the dashboard it qualifies: placed above <main> it pushed the whole
+            page down once data.json arrived (a layout shift on every stale load). */}
+        {STATIC_DATA_MODE && frozenAtMs != null && data && !data.error && <StaleSnapshotBanner frozenAtMs={frozenAtMs} />}
+        {body}
+      </main>
       <SiteFooter data={data} />
     </div>
   );

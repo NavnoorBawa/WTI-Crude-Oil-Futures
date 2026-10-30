@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use this research or software, please cite it as below."
 type: software
-title: "WTI Crude Oil Volatility Research: a look-ahead-leak post-mortem and a benchmarked, reproducible next-week volatility forecaster"
+title: "WTI Crude Oil Volatility Research: a benchmarked, reproducible next-week volatility forecaster and a look-ahead-leak post-mortem"
 authors:
   - family-names: Bawa
     given-names: Navnoor

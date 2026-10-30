@@ -95,7 +95,7 @@
 .disclosure-summary::before { content: "▸"; display: inline-block; width: 1em; color: var(--text-3); font-size: var(--fs-11); }
 .disclosure[open] > .disclosure-summary::before { content: "▾"; }
 .disclosure-summary:hover { color: var(--text-1); }
-.disclosure-body { display: grid; gap: var(--sp-2); margin-top: var(--sp-1); font-size: var(--fs-12); line-height: 1.55; color: var(--text-2); }
+.disclosure-body { display: grid; gap: var(--sp-2); margin-top: var(--sp-1); line-height: 1.55; color: var(--text-2); }
 .panel-notes { margin-top: var(--sp-3); max-width: var(--measure); }
 @media (pointer: coarse) {
   .disclosure-summary { min-height: 44px; }
@@ -186,6 +186,13 @@
 .data-table .group-row > * { padding-bottom: 2px; border-bottom: 1px solid var(--rule); vertical-align: bottom; }
 .data-table .group-start:not(:first-child) { border-left: 1px solid var(--rule); padding-left: var(--sp-3); }
 
+/* Mid-width breakpoints (DataTable hideBelow 900, 1000, 1100): a tablet drops the secondary columns
+   instead of scrolling the table sideways; the CSV keeps every column. Screens only: a printed page
+   is about 725 CSS px wide, and paper has no CSV, so print keeps every column (cells wrap there). */
+@media screen and (max-width: 1099px) { .data-table .col-hide-1100 { display: none; } }
+@media screen and (max-width: 999px) { .data-table .col-hide-1000 { display: none; } }
+@media screen and (max-width: 899px) { .data-table .col-hide-900 { display: none; } }
+
 @media (max-width: 640px) {
   .data-table .col-wide { display: none; }
 
@@ -234,6 +241,11 @@
     text-align: left;
   }
   .data-table.is-cards tbody td.empty-cell::before { content: none; }
+
+  /* LEDG: twenty cards ran to about nine phone screens, one line per statistic. Under the hypothesis,
+     the status takes a line and the five statistics sit two to a line. */
+  #ledg .data-table.is-cards tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--sp-4); }
+  #ledg .data-table.is-cards tbody tr > :is(th[scope="row"], .status-cell) { grid-column: 1 / -1; }
 }
 
 /* --------------------------------------------------------------------- research availability */

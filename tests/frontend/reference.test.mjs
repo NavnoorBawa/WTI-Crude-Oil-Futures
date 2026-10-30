@@ -18,6 +18,7 @@ let glossary;
 let studies;
 let market;
 let footer;
+let verdict;
 before(async () => {
   m = await loadDashboard();
   reference = await m.load("/src/lib/reference.js");
@@ -26,6 +27,7 @@ before(async () => {
   studies = await m.load("/src/panels/StudiesPanel.jsx");
   market = await m.load("/src/panels/MarketPanel.jsx");
   footer = await m.load("/src/app/SiteFooter.jsx");
+  verdict = await m.load("/src/lib/verdict.js");
 });
 after(() => m.close());
 
@@ -94,9 +96,10 @@ test("search 'ovx' narrows the ledger to rows that mention it; every term must m
   const display = (text) => m.research.ledgerText(text, { labels });
   const range = reference.filterLedgerRows(rows, { query: "HAR-IV-range" }, display);
   assert.ok(range.some((row) => row.id === "vol_challenger_qlike"));
-  // Combined with the filters, as the panel's export of filterLedger does.
-  const family = rows[0].family;
-  assert.ok(m.ledger.filterLedger(rows, family, "all", "ovx").every((row) => row.family === family));
+  // Combined with the filters, as LedgerPanel calls it.
+  const family = hits[0].family;
+  const filtered = reference.filterLedgerRows(rows, { family, status: "all", query: "ovx" }, display);
+  assert.ok(filtered.length > 0 && filtered.every((row) => row.family === family));
 });
 
 test("a #ledg-<id> link reveals its row: search and filters cleared, every row shown", () => {
@@ -213,8 +216,17 @@ test("METH opens with a model card whose values come from the payloads", () => {
   assert.ok(text.includes("An expanding window of every matured row"), "the window the backend fits on");
   const floor = research.vol_lab.noise_floor.har_direction_acc_pct_mean;
   assert.ok(text.includes(`${floor.toFixed(1)}% noise floor`));
-  const mean = live.forecast_median_pct * Math.sqrt(live.smearing_factor);
-  assert.ok(text.includes(`${live.forecast_median_pct.toFixed(1)}% × √${live.smearing_factor.toFixed(3)} ≈ ${mean.toFixed(1)}%`));
+  // The accuracy is of the direction of volatility, never of price: the model makes no price forecast.
+  const record = research.vol_lab.leaderboard.models.find((model) => model.key === research.vol_lab.config.champion);
+  const notFor = text.match(/Not intended for (.*?) \(see MODL ?\)/)?.[1] ?? "";
+  assert.ok(notFor.startsWith("Price direction: it forecasts the level of volatility, not price. Nor the direction of volatility: "), notFor);
+  assert.ok(notFor.includes(`vol-direction accuracy ${record.direction_acc_pct.toFixed(1)}% on every out-of-sample day (benchmark lab), `
+    + `${record.direction_acc_pct < floor ? "below" : "against"} a ${floor.toFixed(1)}% noise floor`), notFor);
+  assert.doesNotMatch(notFor, /Price direction: direction accuracy/, "the vol-direction figure is never put under price direction");
+  // The mean is the hero's own chain: the fitted median at two decimals times √smearing at four.
+  const chain = verdict.forecastDecomposition(live.coefficients, live.inputs, live.smearing_factor);
+  assert.ok(text.includes(`Median × √smearing (Duan): ${chain.shownMedian.toFixed(2)}% × √${verdict.plainNumber(live.smearing_factor, 4)} = `
+    + `${chain.printedMean.toFixed(2)}% for this call`), text);
   const persistence = research.vol_lab.leaderboard.models.find((model) => model.key === "persistence");
   assert.ok(text.includes(`DM ${m.format.fmtSigned(persistence.dm_qlike_vs_har_iv.stat, 2)}`));
   assert.ok(text.includes("not distinguishable from the OVX-only regression"));
@@ -371,6 +383,26 @@ test("the corrections list holds one item per retracted row, each linked to its 
   assert.match(meth, /<a href="[^"]*research\.json" download="research\.json">Download research\.json<\/a>/);
 });
 
+test("METH and the footer link the full results and the reviewer guide first", async () => {
+  const config = await m.load("/src/app/config.js");
+  const hrefs = (html) => [...html.matchAll(/<a href="(https:\/\/github\.com\/[^"]+\.md)"/g)].map((match) => match[1]);
+  const meth = section(renderPage().html, "meth");
+  const card = meth.match(/<div class="card-row"><dt>Documents<\/dt>[\s\S]*?<\/div>/)[0];
+  assert.deepEqual(hrefs(card).slice(0, 2), [config.DOCS.results, config.DOCS.reviewerGuide], "model card's documents row");
+  const docs = meth.match(/<div class="method-block appendix-block" id="meth-docs">[\s\S]*?<\/div>/)[0];
+  assert.deepEqual(hrefs(docs).slice(0, 2), [config.DOCS.results, config.DOCS.reviewerGuide], "the Docs block");
+  assert.ok(visibleText(card).includes("Full results") && visibleText(card).includes("Reviewer guide"));
+  const page = renderToStaticMarkup(createElement(footer.default, { data }));
+  const nav = page.match(/<nav class="footer-links"[\s\S]*?<\/nav>/)[0];
+  const links = [...nav.matchAll(/<a href="([^"]+)"[^>]*>([^<]+)/g)].map((match) => [match[1], match[2]]);
+  assert.deepEqual(links.slice(0, 2), [[config.DOCS.results, "Full results"], [config.DOCS.reviewerGuide, "Reviewer guide"]]);
+  assert.match(nav, /target="_blank" rel="noopener noreferrer">Full results<span class="sr-only"> \(opens in a new tab\)<\/span>/);
+  // Before data.json loads the write-up is still reachable; the appendix anchors are not rendered yet.
+  const empty = renderToStaticMarkup(createElement(footer.default, { data: null }));
+  assert.ok(empty.includes(`href="${config.DOCS.results}"`) && empty.includes(`href="${config.DOCS.reviewerGuide}"`));
+  assert.doesNotMatch(empty, /href="#meth-/);
+});
+
 test("the footer links to the METH appendix anchors and prints the page", () => {
   const html = renderToStaticMarkup(createElement(footer.default, { data }));
   const meth = section(renderPage().html, "meth");
@@ -424,6 +456,33 @@ test("STDY's supply table has a column-group header row and an interval glyph on
   assert.doesNotMatch(visibleText(stdy), /p_value_vs_placebo|mann_whitney|overlapping_events/, "no payload keys in the notes");
 });
 
+test("STDY's title frames both studies in one claim; each h3 carries its own study's result", () => {
+  const stdy = section(renderPage().html, "stdy");
+  const h2 = visibleText(stdy.match(/<h2[^>]*>([\s\S]*?)<\/h2>/)[1]).trim();
+  const study = m.research.supplyStudy(research);
+  const playbook = data.supply_shock_playbook;
+  assert.equal(h2, m.assertions.studiesAssertion({ carry: research.carry, playbook, study }));
+  assert.ok(h2.length <= 90, h2);
+  assert.ok(h2.startsWith("Two descriptive studies, not traded: carry timing and "), h2);
+  assert.ok(h2.includes(`${playbook.event_count} supply shocks`), h2);
+  assert.doesNotMatch(h2, /;|beat|placebo|sorted/, "one framing claim, no study's result");
+  const h3s = [...stdy.matchAll(/<h3[^>]*>([\s\S]*?)<\/h3>/g)].map((match) => visibleText(match[1]).trim());
+  assert.deepEqual(h3s.slice(0, 2), [m.assertions.carryAssertion(research.carry), m.assertions.supplyStudyAssertion(study)]);
+  // The meta keeps the samples; "descriptive; not traded" is already the title's.
+  const meta = visibleText(stdy.match(/<p class="panel-meta[^"]*">([\s\S]*?)<\/p>/)[1]);
+  assert.doesNotMatch(meta, /not traded/);
+  assert.ok(meta.includes(`${playbook.event_count} events`), meta);
+});
+
+test("STDY's carry table puts the unit in the Above / below column's label", () => {
+  const stdy = section(renderPage().html, "stdy");
+  const carryTable = stdy.match(/<table[\s\S]*?<\/table>/)[0];
+  const headers = [...carryTable.matchAll(/<th[^>]*scope="col"[^>]*>([\s\S]*?)<\/th>/g)].map((match) => visibleText(match[1]).trim());
+  assert.ok(headers.includes("Above / below, %/month"), headers.join(" | "));
+  const full = research.carry.full_sample;
+  assert.ok(visibleText(carryTable).includes(`${m.format.fmtNum(full.mean_ret_above_median_carry_pct, 2)} / ${m.format.fmtNum(full.mean_ret_below_median_carry_pct, 2)}`));
+});
+
 test("STDY's supply CSV holds the 95% interval and the shared-window pairs the table shows", () => {
   const study = m.research.supplyStudy(research);
   const csv = m.table.csvColumns(studies.SUPPLY_CSV_COLUMNS);
@@ -451,7 +510,7 @@ test("MKT keeps its range in the URL's figure controls and shows the closes as a
   assert.match(mkt, /<div class="figure-controls"><div class="segmented" role="group" aria-label="Price chart range">/);
   assert.match(mkt, /aria-pressed="true"[^>]*>ALL<\/button>/, "the default range");
   assert.match(mkt, />Closes<span class="sr-only"> view of Market<\/span><\/button>/);
-  assert.match(mkt, /style="--lazy-h:368px;--lazy-h-narrow:312px"/);
+  assert.match(mkt, /style="--lazy-h:368px;--lazy-h-narrow:288px"/);
   const rows = market.closeRows(data);
   const closes = data.vol_forecast.recent_closes;
   assert.equal(rows.length, closes.date.length);

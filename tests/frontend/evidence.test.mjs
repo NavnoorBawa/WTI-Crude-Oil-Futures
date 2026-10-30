@@ -81,9 +81,11 @@ test("with data.json newer than the cone, the title reads the live 5-day value, 
     "above the 95th percentile": window5.p95 * 2,
   };
   for (const [phrase, rv5] of Object.entries(values)) {
-    const payload = withLiveOn(asOf, { rv5_pct: rv5 });
+    // Only the recorded two-decimal input, no one-decimal field: it prints at its two decimals.
+    const payload = withLiveOn(asOf, { rv5_pct: Number(rv5.toFixed(2)) });
+    delete payload.vol_forecast.live.current_realized_vol_5d_annualized_pct;
     const title = m.assertions.coneAssertion(lab.vol_cone, payload.vol_forecast.live);
-    assert.equal(title, `5-day realized vol (${f.fmtPct(rv5)}, ${f.fmtDate(asOf, { year: false })}) is ${phrase} of its history`);
+    assert.equal(title, `5-day realized vol (${f.fmtPct(rv5, 2)}, ${f.fmtDate(asOf, { year: false })}) is ${phrase} of its history`);
     assert.ok(title.length <= 90, title);
     const { html, errors } = render(payload);
     assert.deepEqual(errors, []);
@@ -109,8 +111,11 @@ test("the cone's meta names both dates and the day gap, and every fact carries i
   assert.ok(meta.includes(`cone ${gap} days older than the forecast`), meta);
   const body = visibleText(section(html, "cone"));
   const live = payload.vol_forecast.live;
-  for (const [window, field] of [[5, "rv5_pct"], [22, "rv22_pct"], [66, "rv66_pct"]]) {
-    assert.ok(body.includes(`Realized ${window}d, ${f.fmtDate(asOf, { year: false })} ${f.fmtPct(live.inputs[field])}`), `${window}d fact`);
+  // The 5-day value is the live block's one-decimal field; the 22- and 66-day ones are the stored
+  // two-decimal inputs, printed at two decimals.
+  assert.ok(body.includes(`Realized 5d, ${f.fmtDate(asOf, { year: false })} ${f.fmtPct(live.current_realized_vol_5d_annualized_pct)}`), "5d fact");
+  for (const [window, field] of [[22, "rv22_pct"], [66, "rv66_pct"]]) {
+    assert.ok(body.includes(`Realized ${window}d, ${f.fmtDate(asOf, { year: false })} ${f.fmtPct(live.inputs[field], 2)}`), `${window}d fact`);
   }
   assert.ok(body.includes(`OVX, ${f.fmtDate(live.inputs.ovx_session, { year: false })} close ${f.fmtNum(live.implied_vol_ovx_pct, 1)}`), "OVX fact");
   assert.ok(body.includes(`realized, ${f.fmtDate(lab.vol_cone.as_of, { year: false })}`), "the lab's older marks keep their own date");
@@ -187,6 +192,17 @@ test("CALB keeps the mechanism in the notes and the by-construction caveat in vi
   assert.ok(notes.includes("delayed feedback") && notes.includes("Mincer-Zarnowitz regresses realized on forecast variance"), notes);
 });
 
+test("CALB's coverage-by-year heading names the sample it plots: the days with a band, and their years", () => {
+  const html = section(render(data).html, "calb");
+  const conformal = lab.conformal[champion];
+  const years = Object.keys(conformal.coverage_by_year_pct).map(Number).sort((x, y) => x - y);
+  const sample = `${m.format.fmtInt(conformal.n_days)} out-of-sample days with a band (${years[0]}–${years.at(-1)})`;
+  const headings = [...html.matchAll(/<h3 class="figure-title">([\s\S]*?)<\/h3>/g)].map((match) => visibleText(match[1]).trim());
+  assert.ok(headings.includes(`Coverage by year, ${sample}`), headings.join(" | "));
+  assert.ok(conformal.n_days < lab.sample.n_days, "the band starts later than the first out-of-sample day");
+  assert.ok(!headings.some((text) => text.startsWith("Coverage by year, every out-of-sample day")), "not the full out-of-sample sample");
+});
+
 // ------------------------------------------------------------------------------------------- RISK
 test("RISK: the caption's breach counts are the backtest's Kupiec counts at both levels", () => {
   const grid0 = lab.var_backtest.grid0;
@@ -260,8 +276,10 @@ test("VRP prints its interval with thousands separators and keeps the method in 
   assert.ok(reading.includes(`(${ci})`), "the reading quotes the same interval");
 });
 
-test("RISK: the caption gives the Kupiec counts, and says so when the rounded chart series colours fewer", async () => {
-  const { riskCaption, drawnBreachCounts } = await m.load("/src/panels/RiskPanel.jsx");
+test("RISK: the caption gives the Kupiec counts; the method notes say when the rounded chart series colours fewer", async () => {
+  const { riskCaption, riskCaptionCounts, roundingNote } = await m.load("/src/panels/RiskPanel.jsx");
+  // The rule VarChart colours by and the panel counts by, from one module.
+  const { breachOf, drawnBreachCounts } = await m.load("/src/lib/var.js");
   const counts = { n: 875, e99: 14, e95: 46, quantileLabel: "Filtered hist. sim." };
   // A tie after rounding: ret equals -var95, so the chart does not colour it.
   const series = [
@@ -271,11 +289,24 @@ test("RISK: the caption gives the Kupiec counts, and says so when the rounded ch
     { ret: -25.0, var95: 10.9, var99: 20.6 },
     { ret: -30.0, var95: null, var99: null },
   ];
+  assert.deepEqual(series.map(breachOf), ["var95", "ok", "ok", "var99", "none"]);
   assert.deepEqual(drawnBreachCounts(series), { n: 4, e99: 1, e95: 2 });
-  const same = riskCaption(counts, { n: 875, e99: 14, e95: 46 }, "HAR-IV");
-  assert.equal(same, "On grid 0, 14 of 875 weeks breached the 99% VaR and 46 the 95% (Kupiec counts, HAR-IV filtered hist. sim.).");
-  const differ = riskCaption(counts, { n: 875, e99: 14, e95: 45 }, "HAR-IV");
-  assert.ok(differ.startsWith(same), differ);
-  assert.ok(differ.includes("rounded to 0.1 pt, so it colours 14 and 45"), differ);
-  assert.equal(riskCaption(null, null, "HAR-IV"), null);
+  const caption = riskCaption(counts, "HAR-IV");
+  assert.equal(caption, "On grid 0, 14 of 875 weeks breached the 99% VaR and 46 the 95% (Kupiec counts, HAR-IV filtered hist. sim.).");
+  assert.equal(riskCaption(null, "HAR-IV"), null);
+  assert.equal(roundingNote(counts, { n: 875, e99: 14, e95: 46 }), null, "the chart agrees: no note");
+  const note = roundingNote(counts, { n: 875, e99: 14, e95: 45 });
+  assert.ok(note.includes("rounded to 0.1 pt, so it colours 14 weeks below the 99% line and 45 below the 95% line"), note);
+  assert.ok(note.includes("Kupiec counts are 14 and 46"), note);
+  assert.equal(roundingNote(null, null), null);
+
+  // On the page: the caption is the Kupiec sentence alone; the notes carry the rounding sentence
+  // exactly when the fixture's rounded series colours other counts.
+  const html = section(render(data).html, "risk");
+  const shown = visibleText(html.match(/<p class="panel-caption">([\s\S]*?)<\/p>/)?.[1] ?? "").trim();
+  assert.ok(shown.startsWith("On grid 0, "), shown);
+  assert.doesNotMatch(shown, /rounded/, shown);
+  const expected = roundingNote(riskCaptionCounts(m.research.varRows(lab)), drawnBreachCounts(m.research.varSeries(lab)));
+  const notes = visibleText(html.match(/<div class="disclosure-body">([\s\S]*?)<\/div>/)?.[1] ?? "");
+  assert.equal(notes.includes("rounded to 0.1 pt"), expected != null, notes);
 });

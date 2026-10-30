@@ -4,7 +4,7 @@ import { BandSeries } from "./bandSeries";
 import ChartFigure from "./ChartFigure";
 import { SCREEN_THEME, SURFACE, baseChartOptions, fontsReady, withAlpha } from "../theme/chartTheme";
 import { DASH, fmtDate, fmtInt, fmtNum, fmtSpan } from "../lib/format";
-import { ANNOTATION_MIN_PX, fmtAxisPercent, frameRange, installTickFormatter, timeKey, useChartReader } from "./lwUtil";
+import { ANNOTATION_MIN_PX, fitsInPlot, fmtAxisPercent, frameRange, installTickFormatter, timeKey, useChartReader } from "./lwUtil";
 
 export const FORECAST_RANGES = { "1Y": 365, "3Y": 3 * 365, ALL: null };
 // The legend names the pipeline behind the hovered week's band (forecastRows() `source`).
@@ -160,7 +160,7 @@ export default function ForecastChart({ rows, live, range = "3Y", frameKey = 0, 
     },
     paint: (theme) => stateRef.current?.paint(theme),
   });
-  const { connect, reframe } = reader;
+  const { connect, reframe, offFrame } = reader;
 
   useEffect(() => {
     let disposed = false;
@@ -175,8 +175,10 @@ export default function ForecastChart({ rows, live, range = "3Y", frameKey = 0, 
         width: host.clientWidth || 600,
         height: host.clientHeight || 320,
         grid: { ...baseChartOptions().grid, vertLines: { visible: false } },
+        // Headroom over the highest week, and no tick label drawn half outside the pane (as RISK).
         rightPriceScale: {
-          borderColor: SURFACE.rule, mode: PriceScaleMode.Logarithmic, scaleMargins: { top: 0.06, bottom: 0.04 },
+          borderColor: SURFACE.rule, mode: PriceScaleMode.Logarithmic, entireTextOnly: true,
+          scaleMargins: { top: 0.08, bottom: 0.04 },
         },
         timeScale: { borderColor: SURFACE.rule, rightOffset: 5, fixLeftEdge: true, minBarSpacing: 0.2 },
         localization: {
@@ -237,13 +239,16 @@ export default function ForecastChart({ rows, live, range = "3Y", frameKey = 0, 
           ? largestMiss(current.rows, timeKey(visible.from), timeKey(visible.to))
           : null;
         const above = miss ? miss.actual > miss.forecast : false;
+        const missText = miss ? `largest miss ${fmtNum(miss.actual, 1)} vs ${fmtNum(miss.forecast, 1)}` : "";
         const marker = miss ? [{
           time: miss.date,
           position: above ? "aboveBar" : "belowBar",
           shape: above ? "arrowDown" : "arrowUp",
           color: theme.series.truth,
           size: 0.6,
-          text: `largest miss ${fmtNum(miss.actual, 1)} vs ${fmtNum(miss.forecast, 1)}`,
+          // The library centres the text on the week and clips it at the plot's edges: near an edge
+          // the arrow stands alone (the reading and the table give the week's numbers).
+          text: fitsInPlot(chart, miss.date, missText) ? missText : "",
         }] : [];
         const outside = miss ? isOutsideBand(miss) : false;
         state.outsideMarkers.setMarkers(outside ? marker : []);
@@ -307,11 +312,16 @@ export default function ForecastChart({ rows, live, range = "3Y", frameKey = 0, 
     state.annotate();
   }, [ready, model]);
 
-  // Re-frame on a new preset, a click on the pressed preset (frameKey) or new data.
+  // Re-frame on a new preset or a click on the pressed one (frameKey). New data re-frames too, unless
+  // the reader has dragged or pinched away from the preset (as PriceChart does).
+  const framed = useRef(null);
   useEffect(() => {
     if (!ready || !times.length) return;
+    const key = `${range}|${String(frameKey)}`;
+    if (framed.current === key && offFrame) return;
+    framed.current = key;
     reframe();
-  }, [ready, range, frameKey, times, reframe]);
+  }, [ready, range, frameKey, times, offFrame, reframe]);
 
   const shown = (reader.activeKey && model.lookup.get(reader.activeKey)) || model.live || model.rows[model.rows.length - 1] || null;
   const { label, summary } = useMemo(() => {

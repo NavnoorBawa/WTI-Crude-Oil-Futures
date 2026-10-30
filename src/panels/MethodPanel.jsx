@@ -2,6 +2,7 @@ import citationSource from "../../CITATION.cff?raw";
 import { DATA_HISTORY_URL, DOCS, GIT_SHA, RECORD_HISTORY_URL, REPO_URL, RESEARCH_URL, STATIC_DATA_URL } from "../app/config";
 import { SECTIONS } from "../app/sections";
 import { getElasticityPath } from "../charts/lazy";
+import CodeBlock from "../components/CodeBlock";
 import CopyButton from "../components/CopyButton";
 import DataTable from "../components/DataTable";
 import LazyMount from "../components/LazyMount";
@@ -14,6 +15,7 @@ import {
 } from "../lib/reference";
 import { asArray, asObject, asText, getLab, getVol, ledgerText, liveRecordSummary, modelLabels, researchLedger, supplyStudy } from "../lib/research";
 import { snapshotDate } from "../lib/csv";
+import { plainNumber } from "../lib/verdict";
 import { Facts, ResearchUnavailable } from "./common";
 
 /**
@@ -103,9 +105,12 @@ function ModelCard({ data, research }) {
           The level of realized volatility over the next {card.horizon != null ? `${card.horizon} sessions` : "week"}, for risk sizing
         </CardRow>
         <CardRow label="Not intended for">
-          Price direction: {card.direction
-            ? <>direction accuracy {fmtNum(card.direction.accuracy, 1)}% on every out-of-sample day (benchmark lab), against a {fmtNum(card.direction.floor, 1)}% noise floor on simulated returns with nothing to forecast</>
-            : "direction accuracy is not evidence of skill"} (see <SectionLink id="modl" />)
+          Price direction: it forecasts the level of volatility, not price. Nor the direction of volatility:{" "}
+          {card.direction
+            ? <>vol-direction accuracy {fmtNum(card.direction.accuracy, 1)}% on every out-of-sample day (benchmark lab),{" "}
+              {card.direction.accuracy < card.direction.floor ? "below" : "against"} a {fmtNum(card.direction.floor, 1)}% noise
+              floor on simulated returns with nothing to forecast</>
+            : "vol-direction accuracy is not evidence of skill"} <span className="nowrap">(see <SectionLink id="modl" />)</span>
         </CardRow>
         <CardRow label="Specification"><code className="model-equation">{card.equation}</code>, OLS</CardRow>
         <CardRow label="Estimation">
@@ -118,7 +123,7 @@ function ModelCard({ data, research }) {
         </CardRow>
         <CardRow label="Mean forecast">
           Median × √smearing (Duan){card.mean
-            ? <>: <span className="num">{fmtNum(card.mean.median, 1)}% × √{fmtNum(card.mean.smearing, 3)} ≈ {fmtNum(card.mean.mean, 1)}%</span>{" "}
+            ? <>: <span className="num">{fmtNum(card.mean.median, 2)}% × √{plainNumber(card.mean.smearing, 4)} = {fmtNum(card.mean.mean, 2)}%</span>{" "}
               {card.mean.superseded
                 ? `for the ${fmtDate(card.mean.asOf, { year: false })} snapshot computation, not the call recorded from the ${fmtDate(card.mean.superseded, { year: false })} close`
                 : "for this call"}</>
@@ -147,11 +152,13 @@ function ModelCard({ data, research }) {
         </CardRow>
         {card.challenger && (
           <CardRow label="Challenger">
-            {card.challenger}{promotion ? `; promotion test: ${promotionText(promotion)}` : ""} (see <SectionLink id="live" />)
+            {card.challenger}{promotion ? `; promotion test: ${promotionText(promotion)}` : ""} <span className="nowrap">(see <SectionLink id="live" />)</span>
           </CardRow>
         )}
         <CardRow label="Documents">
           <span className="link-list">
+            <OutLink href={DOCS.results}>Full results</OutLink>
+            <OutLink href={DOCS.reviewerGuide}>Reviewer guide</OutLink>
             <OutLink href={DOCS.modelCard}>Model card</OutLink>
             <OutLink href={DOCS.methodology}>Methodology</OutLink>
           </span>
@@ -387,7 +394,7 @@ function Corrections({ research }) {
       {timing && (
         <p className="prose-note">
           {timing}. The lower loss came from a close published after the decision, so the leaderboard keeps v1 only as a timing
-          control (see <SectionLink id="modl" />).
+          control <span className="nowrap">(see <SectionLink id="modl" />).</span>
         </p>
       )}
       {retracted.length > 0 && (
@@ -438,6 +445,8 @@ function Docs() {
     <div className="method-block appendix-block" id={APPENDIX.docs}>
       <h3 className="study-title" tabIndex={-1}>Docs</h3>
       <p className="link-list">
+        <OutLink href={DOCS.results}>Full results</OutLink>
+        <OutLink href={DOCS.reviewerGuide}>Reviewer guide</OutLink>
         <OutLink href={DOCS.modelCard}>Model card</OutLink>
         <OutLink href={DOCS.methodology}>Methodology</OutLink>
         <OutLink href={DOCS.datasheet}>Datasheet</OutLink>
@@ -503,7 +512,7 @@ export default function MethodPanel({ data, research, researchStatus }) {
         <div className="method-block">
           <h3 className="study-title">Reproduce</h3>
           <div className="code-copy">
-            <pre className="code-block"><code>{reproduceLines()}</code></pre>
+            <CodeBlock label="Reproduce commands">{reproduceLines()}</CodeBlock>
             <CopyButton label="Copy the reproduce commands" text={reproduceLines()} done="Commands copied" />
           </div>
           <p className="prose-note is-muted">

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import {
   CONFIGURED_API_BASE,
   INITIAL_LOADING_MESSAGE,
@@ -23,12 +23,24 @@ const getApiBaseCandidates = () => {
 };
 
 /**
+ * Whether a fetched payload is, byte for byte, the snapshot already shown. Such a refresh changes
+ * nothing on the page, so it is not set again: every panel would recompute and every chart would
+ * re-frame for nothing. Pure.
+ *
+ * @param {string|null} shownText    the text of the payload on the page
+ * @param {string|null} fetchedText  the text just fetched
+ */
+export const isSameSnapshot = (shownText, fetchedText) => typeof shownText === "string" && shownText === fetchedText;
+
+/**
  * Loads data.json (or the dev backend) and keeps it fresh.
  *
  * Startup: up to MAX_INITIAL_FETCH_ATTEMPTS tries with the loading screen showing the count; after
  * that the error screen shows but retries continue in the background with capped backoff, so a
  * backend still warming up, or a data.json blip at page load, never needs a reload. Once data is
- * loaded it is re-polled every POLL_INTERVAL_MS; a failed refresh keeps the last good snapshot.
+ * loaded it is re-polled every POLL_INTERVAL_MS; a failed refresh keeps the last good snapshot. A
+ * refresh that returns the snapshot already shown only marks the time of the check; a new one is
+ * rendered as a transition, so React can split that whole-page render and keep the page responsive.
  *
  * @returns {{data: object|null, loading: boolean, error: string|null, loadingMessage: string,
  *   lastUpdate: number|null, retryNow: () => void}}
@@ -50,6 +62,7 @@ export default function useDashboardData() {
     let retryPending = false;
     let initialAttemptCount = 0;
     let retryTimeoutId = null;
+    let shownText = null;       // the text of the payload last set, to recognise an identical refresh
     const activeControllers = new Set();
 
     const clearRetryTimeout = () => {
@@ -125,10 +138,12 @@ export default function useDashboardData() {
               headers: { Accept: "application/json" },
             });
 
+            let responseText = null;
             let responsePayload = null;
             let responseParseError = null;
             try {
-              responsePayload = await attempt.json();
+              responseText = await attempt.text();
+              responsePayload = JSON.parse(responseText);
             } catch (parseError) {
               responseParseError = parseError;
             }
@@ -162,7 +177,7 @@ export default function useDashboardData() {
               throw invalidError;
             }
 
-            result = responsePayload;
+            result = { payload: responsePayload, text: responseText };
             break;
           } catch (attemptErr) {
             if (isDisposed) return;
@@ -185,7 +200,13 @@ export default function useDashboardData() {
         clearRetryTimeout();
         retryPending = false;
         initialAttemptCount = 0;
-        setData(result);
+        if (!isSameSnapshot(shownText, result.text)) {
+          shownText = result.text;
+          const { payload } = result;
+          // The first snapshot renders at once; a newer one re-renders every panel, as a transition.
+          if (latestDataRef.current) startTransition(() => setData(payload));
+          else setData(payload);
+        }
         setLastUpdate(Date.now());
         setError(null);
         setLoading(false);

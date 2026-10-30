@@ -63,11 +63,14 @@ const contentSecurityPolicyPlugin = (isDevelopment, env) => {
   }
 }
 
-// The first screen needs data.json and both fonts, but the browser would only discover them after
-// the main script has run (data.json) or the stylesheet has been parsed (fonts). Preload hints let
-// it fetch them in parallel with the script. research.json and price.json are left alone: they are
-// not needed for the first screen and would compete with the main script for bandwidth. The hint
-// matches the app's own request (same URL, CORS mode, same-origin credentials), so it is reused.
+// The first screen needs data.json, research.json and both fonts, but the browser would only
+// discover them after the main script has run (the payloads) or the stylesheet has been parsed
+// (fonts). Preload hints let it fetch them in parallel with the script. research.json fills in the
+// verdict's detail, the first screen's largest element: fetched only once the script had run, it
+// arrived after the first render and the whole page rendered twice. It is the site's own file in
+// either data mode; data.json is one only in static mode. price.json is left alone: the first
+// screen does not need it. Each hint matches the app's own request (same URL, CORS mode,
+// same-origin credentials), so it is reused.
 const preloadPlugin = (staticDataMode) => {
   let base = '/'
   return {
@@ -88,6 +91,11 @@ const preloadPlugin = (staticDataMode) => {
           attrs: { rel: 'preload', as: 'font', type: 'font/woff2', href: `${base}${fileName}`, crossorigin: '' },
           injectTo: 'head',
         }))
+        tags.push({
+          tag: 'link',
+          attrs: { rel: 'preload', as: 'fetch', href: `${base}research.json`, crossorigin: '' },
+          injectTo: 'head',
+        })
         if (staticDataMode === 'true') {
           tags.unshift({
             tag: 'link',

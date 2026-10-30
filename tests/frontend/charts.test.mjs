@@ -149,6 +149,68 @@ test("month ticks name their year when the view spans more than 400 days", () =>
   assert.equal(spanDays(null), null);
 });
 
+test("a tick label or marker text that the plot's edge would cut is left out", () => {
+  const { fitsInPlot, installTickFormatter } = lw;
+  const { MONO_CHAR_PX } = m.theme;
+  // A 600 px plot with one day every 10 px from 2026-01-01.
+  let formatter = null;
+  const chart = {
+    timeScale: () => ({
+      width: () => 600,
+      timeToCoordinate: (time) => (Date.parse(`${time}T00:00:00Z`) - Date.parse("2026-01-01T00:00:00Z")) / 86400000 * 10,
+      subscribeVisibleTimeRangeChange: () => {},
+      unsubscribeVisibleTimeRangeChange: () => {},
+    }),
+    applyOptions: (options) => { formatter = options.timeScale.tickMarkFormatter; },
+  };
+  const half = (text) => (text.length * MONO_CHAR_PX) / 2;
+  assert.equal(fitsInPlot(chart, "2026-01-01", "Jan"), false, "at x = 0 half the label is outside");
+  assert.equal(fitsInPlot(chart, "2026-01-02", "Jan"), 10 >= half("Jan"));
+  assert.equal(fitsInPlot(chart, "2026-01-30", "Jan"), true);
+  assert.equal(fitsInPlot(chart, "2026-03-01", "Mar ’26"), false, "x = 590: the right edge cuts it");
+  const stop = installTickFormatter(chart);
+  assert.equal(formatter("2026-01-01", TickMarkType.Month), "", "cut at the left edge");
+  assert.equal(formatter("2026-01-30", TickMarkType.Month), "Jan");
+  assert.equal(formatter("2026-03-02", TickMarkType.Month), "", "x = 600: cut at the right edge");
+  assert.equal(formatter("2026-01-30", TickMarkType.Time), null, "clock times still fall back to the library");
+  stop();
+});
+
+test("the tick formatter applies the range a frame settles on, not the first one it saw", () => {
+  const { installTickFormatter, formatTick, spanDays } = lw;
+  let formatter = null;
+  let onRange = null;
+  const chart = {
+    timeScale: () => ({
+      width: () => 2000,
+      timeToCoordinate: (time) => (Date.parse(`${time}T00:00:00Z`) - Date.parse("2026-01-01T00:00:00Z")) / 86400000 * 3,
+      subscribeVisibleTimeRangeChange: (handler) => { onRange = handler; },
+      unsubscribeVisibleTimeRangeChange: () => {},
+    }),
+    applyOptions: (options) => { formatter = options.timeScale.tickMarkFormatter; },
+  };
+  const frames = [];
+  const saved = [globalThis.requestAnimationFrame, globalThis.cancelAnimationFrame];
+  globalThis.requestAnimationFrame = (callback) => frames.push(callback);
+  globalThis.cancelAnimationFrame = () => {};
+  try {
+    const stop = installTickFormatter(chart);
+    // The library reports its default view first, then the preset, both before the next frame.
+    const first = { from: "2026-10-20", to: "2026-10-27" };
+    const settled = { from: "2023-10-27", to: "2026-10-30" };
+    onRange(first);
+    onRange(settled);
+    assert.equal(frames.length, 1, "one apply per frame");
+    frames.shift()();
+    const expected = formatTick("2026-06-01", TickMarkType.Month, spanDays(settled));
+    assert.equal(formatter("2026-06-01", TickMarkType.Month), expected);
+    assert.notEqual(expected, formatTick("2026-06-01", TickMarkType.Month, spanDays(first)), "the two spans label months differently");
+    stop();
+  } finally {
+    [globalThis.requestAnimationFrame, globalThis.cancelAnimationFrame] = saved;
+  }
+});
+
 test("keyboard reading: arrows step one row (four with Shift), Home/End jump, Escape clears", () => {
   const { nextReadIndex, visibleRows, isOffFrame, frameFor, READ_STEP } = lw;
   const visible = visibleRows({ from: 9.5, to: 104 }, 100);
@@ -171,6 +233,30 @@ test("keyboard reading: arrows step one row (four with Shift), Home/End jump, Es
   assert.equal(isOffFrame({ from: 1.7, to: 7.2 }, frame), false, "within half a bar");
   assert.equal(isOffFrame({ from: 0.5, to: 6 }, frame), true, "dragged a bar to the left");
   assert.equal(isOffFrame(null, frame), false);
+
+  // A narrower or wider plot moves one edge (the library keeps the right one, or the left one at the
+  // first bar), which re-applies the preset; a drag moves both, which leaves the frame.
+  const { isWidthShift } = lw;
+  assert.equal(isWidthShift({ from: 2.8, to: 7 }, frame), true, "the axis widened: only the left edge moved");
+  assert.equal(isWidthShift({ from: 1.5, to: 8.3 }, frame), true, "scrolled to the start: only the right edge moved");
+  assert.equal(isWidthShift({ from: 0.5, to: 6 }, frame), false, "dragged a bar: both edges moved");
+  assert.equal(isWidthShift(null, frame), false);
+});
+
+test("one mono character width, from the chart theme, in every chart module", () => {
+  assert.equal(m.theme.MONO_CHAR_PX, 6.6);
+  for (const file of ["lwUtil.js", "svgCharts.jsx", "referenceCharts.jsx", "stabilityCharts.jsx"]) {
+    const source = readSource(`src/charts/${file}`);
+    assert.match(source, /import \{[^}]*\bMONO_CHAR_PX\b[^}]*\} from "\.\.\/theme\/chartTheme"/, file);
+    assert.doesNotMatch(source, /CHAR_PX = 6\.6/, `${file} defines no width of its own`);
+  }
+});
+
+test("the canvas charts keep a reader's pan through a data refresh, as PriceChart does", () => {
+  for (const file of ["ForecastChart.jsx", "VarChart.jsx", "PriceChart.jsx"]) {
+    const source = readSource(`src/charts/${file}`);
+    assert.match(source, /if \(framed\.current === key && offFrame\) return;/, `${file} re-frames on new data only while on the preset`);
+  }
 });
 
 test("the print palette mirrors the print stylesheet's light tokens", () => {

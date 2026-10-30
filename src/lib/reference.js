@@ -5,7 +5,7 @@
 import { ALPHA, shortModelName } from "./assertions";
 import { NBSP, fmtNum, fmtP, fmtPValue, fmtSigned, num } from "./format";
 import { asArray, asObject, asText, getLab, getRoles, getVol, leaderboardRows, mcsLevel, mcsSummary, postmortemWindow, varSeries } from "./research";
-import { TOLERANCE, liveOfRecord } from "./verdict";
+import { callArithmetic, forecastDecomposition, forecastOfRecord, liveOfRecord, reproduces } from "./verdict";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}/;
 const isoDate = (value) => (typeof value === "string" && ISO_DATE.test(value) ? value.slice(0, 10) : null);
@@ -315,21 +315,23 @@ export const modelCard = (data, research) => {
   const terms = coefficientTerms(lab) ?? DEFAULT_TERMS;
   const record = leaderboardRows(lab).find((row) => row.key === getRoles(lab, live).champion);
   const floor = num(lab?.noise_floor?.har_direction_acc_pct_mean);
-  // Median × √smearing for the call of record; for a snapshot from an older close whose fit does
-  // not give the recorded call's mean, the snapshot's own, with `superseded` naming the call it is not.
-  const call = liveOfRecord(live, liveRecord);
-  const meanOf = (block) => {
-    const smearing = num(block?.smearing_factor);
-    const median = num(block?.forecast_median_pct);
-    return smearing != null && median != null ? { median, smearing, mean: median * Math.sqrt(smearing), asOf: isoDate(block?.as_of) } : null;
-  };
-  let mean = meanOf(call);
-  if (call !== live && mean) {
-    const forecast = num(call?.forecast_next_week_vol_annualized_pct);
-    if (forecast == null || Math.abs(mean.mean - forecast) >= TOLERANCE) {
-      const own = meanOf(live);
-      mean = own ? { ...own, superseded: mean.asOf } : null;
-    }
+  // Median × √smearing for the call of record, as the hero's arithmetic prints it (callArithmetic()):
+  // the fitted median at two decimals and the smearing factor at four, so the chain is exact and
+  // lands on the call's one-decimal forecast. The recorded one-decimal median is never the factor: it
+  // can miss (47.5 × √1.4128 = 56.46, which prints 56.5, for a call of 56.4). A chain that does not
+  // land on the forecast at one decimal is not printed. For a snapshot from an older close whose fit
+  // does not reproduce the recorded call, the snapshot's own chain, with `superseded` naming the call
+  // it is not.
+  const chain = (math, forecast, asOf) => (math && forecast != null && fmtNum(math.printedMean, 1) === fmtNum(forecast, 1)
+    ? { median: math.shownMedian, smearing: math.smearing, mean: math.printedMean, forecast, asOf }
+    : null);
+  const call = forecastOfRecord(live, liveRecord);
+  let mean = call ? chain(callArithmetic(call, live).math, call.forecast, isoDate(call.asOf)) : null;
+  if (!mean && call?.olderSnapshot) {
+    const own = forecastDecomposition(live?.coefficients, live?.inputs, live?.smearing_factor);
+    const forecast = num(live?.forecast_next_week_vol_annualized_pct);
+    const snapshot = reproduces(own, num(live?.forecast_median_pct), forecast) ? chain(own, forecast, isoDate(live?.as_of)) : null;
+    mean = snapshot ? { ...snapshot, superseded: isoDate(call.asOf) } : null;
   }
   const sample = asObject(lab?.sample);
   return {

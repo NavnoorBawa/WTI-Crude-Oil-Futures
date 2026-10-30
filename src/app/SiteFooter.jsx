@@ -1,7 +1,13 @@
 import { fmtCT, toMs } from "../lib/format";
 import { printPage } from "../lib/print";
 import { METH_APPENDIX } from "../lib/reference";
-import { GIT_SHA, REPO_URL } from "./config";
+import { DOCS, GIT_SHA, REPO_URL } from "./config";
+
+// The full write-up and the reviewer's checks, first: a reader who starts on the page reaches them here.
+const DOC_LINKS = [
+  { href: DOCS.results, label: "Full results" },
+  { href: DOCS.reviewerGuide, label: "Reviewer guide" },
+];
 
 // The METH appendix, linked from the footer of every page.
 const APPENDIX_LINKS = [
@@ -24,14 +30,20 @@ export default function SiteFooter({ data }) {
           <span>data snapshot {frozenMs != null ? fmtCT(frozenMs) : "not loaded"}</span>
           <a href={REPO_URL} target="_blank" rel="noopener noreferrer">source and history on GitHub</a>
         </p>
-        {data && (
-          <nav className="footer-links" aria-label="Cite, corrections and reuse">
-            <ul className="sep-list">
-              {APPENDIX_LINKS.map((link) => <li key={link.href}><a href={link.href}>{link.label}</a></li>)}
-            </ul>
-            <button type="button" className="footer-print" onClick={() => { printPage(); }}>Print / save PDF</button>
-          </nav>
-        )}
+        <nav className="footer-links" aria-label={data ? "Write-up, cite, corrections and reuse" : "Write-up"}>
+          <ul className="sep-list">
+            {DOC_LINKS.map((link) => (
+              <li key={link.href}>
+                <a href={link.href} target="_blank" rel="noopener noreferrer">
+                  {link.label}<span className="sr-only"> (opens in a new tab)</span>
+                </a>
+              </li>
+            ))}
+            {/* The appendix anchors exist only once data.json has rendered the page. */}
+            {data && APPENDIX_LINKS.map((link) => <li key={link.href}><a href={link.href}>{link.label}</a></li>)}
+          </ul>
+          {data && <button type="button" className="footer-print" onClick={() => { printPage(); }}>Print / save PDF</button>}
+        </nav>
         <p className="footer-disclaimer">
           Research project, not investment advice. Forecasts describe volatility, not price direction, and
           past out-of-sample results do not guarantee future accuracy.

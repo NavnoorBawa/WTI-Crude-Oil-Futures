@@ -5,7 +5,7 @@
   width: 220px;
   min-height: 28px;
   padding: 0 var(--sp-2);
-  border: 1px solid var(--rule-strong);
+  border: 1px solid var(--text-4);
   border-radius: var(--radius);
   background: var(--bg-1);
   color: var(--text-1);
@@ -124,7 +124,8 @@ a.ledger-id:hover { color: var(--text-1); text-decoration: underline; text-decor
 .link-list { display: flex; flex-wrap: wrap; gap: 0 var(--sp-4); margin-top: var(--sp-2); font-size: var(--fs-12); }
 .link-list a { display: inline-flex; align-items: center; min-height: 24px; }
 
-/* ----------------------------------------------------------------- LEAK: the purged run in ink */
+/* -------------------------------------------------- ink keys: LEAK's purged run, STAB's dots */
+/* A line key matches .stroke-ink (text-2), a dot key .fill-ink (text-1). */
 .swatch-ink { --c: var(--text-2); }
 .swatch-ink.is-dot { --c: var(--text-1); }
 

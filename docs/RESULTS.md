@@ -9,7 +9,7 @@ and the limitations. The [README](../README.md) is the short version, and the
 
 *Figure 1. Out-of-sample forecasts of the model of record (blue) with its 80% adaptive conformal
 interval, realized next-week volatility (grey) and the OVX implied-volatility index (orange), on the
-production weekly grid. Log scale.*
+production weekly grid (every fifth session). Log scale; the axis spans every plotted value.*
 
 ## Abstract
 
@@ -585,6 +585,8 @@ post-mortem runs.
 ## 8. System
 
 ![The first screen of the dashboard: the research question and its computed answer, this week's call as recorded, and the evidence tiles](figures/dashboard.png)
+
+*The dashboard's first screen, captured from one recorded snapshot by [`scripts/capture_figures.mjs`](../scripts/capture_figures.mjs); the live page's numbers move with each refresh.*
 
 *The first screen of the dashboard at [navnoorbawa.github.io/WTI-Crude-Oil-Futures](https://navnoorbawa.github.io/WTI-Crude-Oil-Futures/):
 the research question, with an answer computed from the benchmark lab's Diebold-Mariano tests and

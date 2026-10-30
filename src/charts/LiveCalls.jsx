@@ -46,11 +46,13 @@ export const orderedMarks = (calls) =>
 /**
  * The plot at a known size (the default export measures its container and renders this).
  *
- * @param {{calls: object[], width: number, height: number, nextResultDue?: string|null, bandLevel?: number,
- *   challengerLabel?: string|null, statusLabel?: (status: string|null) => string}} props
+ * @param {{calls: object[], width: number, height: number, nextResultDue?: string|null, overdue?: boolean,
+ *   bandLevel?: number, challengerLabel?: string|null, statusLabel?: (status: string|null) => string}} props
+ *   `overdue`: the date due is before the snapshot's own, so that call waits for a missing settlement.
  */
 export function LiveCallsPlot({
-  calls, width, height, nextResultDue = null, bandLevel = 80, challengerLabel = null, statusLabel = (s) => s ?? "",
+  calls, width, height, nextResultDue = null, overdue = false, bandLevel = 80, challengerLabel = null,
+  statusLabel = (s) => s ?? "",
 }) {
   const marks = orderedMarks(calls);
   if (!marks.length || !(width > 0)) return null;
@@ -63,13 +65,16 @@ export function LiveCallsPlot({
   const room = Math.max(1, Math.floor((width - m.left - m.right) / TICK_PX));
   const step = Math.max(1, Math.ceil(marks.length / room));
   const due = typeof nextResultDue === "string" ? fmtDate(nextResultDue) : null;
+  // A date in the past is not "due": the call is overdue, waiting for a settlement the snapshot lacks.
+  const dueNote = due ? (overdue ? `result overdue since ${due}` : `next result due ${due}`) : null;
   const resolvedCount = marks.filter((c) => c.realized != null).length;
   const challengerName = challengerLabel ?? "challenger";
   const label = `${marks.length} recorded ${marks.length === 1 ? "call" : "calls"} from ${fmtDate(marks[0].asOf)} to `
     + `${fmtDate(marks[marks.length - 1].asOf)}: forecast and ${bandLevel}% band per call`
-    + `${resolvedCount ? `, ${resolvedCount} with the realized vol` : ", none resolved yet"}${due ? `; next result due ${due}` : ""}`;
+    + `${resolvedCount ? `, ${resolvedCount} with the realized vol` : ", none resolved yet"}`
+    + `${dueNote ? `; ${dueNote}${overdue ? ", waiting for a missing settlement" : ""}` : ""}`;
   return (
-    <svg width={width} height={height} className="svg-chart live-calls" role="img" aria-label={label}>
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart live-calls" role="img" aria-label={label}>
       <g className="axis axis-y">
         {y.ticks(4).map((tick) => (
           <g key={tick} transform={`translate(0,${y(tick)})`}>
@@ -78,8 +83,8 @@ export function LiveCallsPlot({
           </g>
         ))}
       </g>
-      {due && (
-        <text className="axis-note live-due" x={width - m.right} y={m.top - 10} textAnchor="end">{`next result due ${due}`}</text>
+      {dueNote && (
+        <text className="axis-note live-due" x={width - m.right} y={m.top - 10} textAnchor="end">{dueNote}</text>
       )}
       {marks.map((c, index) => {
         const cx = x(index);
@@ -122,8 +127,9 @@ export function LiveCallsPlot({
 }
 
 /**
- * @param {{calls: object[], nextResultDue?: string|null, bandLevel?: number, challengerLabel?: string|null,
- *   statusLabel?: (status: string|null) => string, heights?: {wide: number, narrow: number}}} props
+ * @param {{calls: object[], nextResultDue?: string|null, overdue?: boolean, bandLevel?: number,
+ *   challengerLabel?: string|null, statusLabel?: (status: string|null) => string,
+ *   heights?: {wide: number, narrow: number}}} props
  *   `calls` are live_record.recent rows in any order. `heights` must match the LazyMount
  *   placeholder's, so nothing shifts when the chart mounts.
  */

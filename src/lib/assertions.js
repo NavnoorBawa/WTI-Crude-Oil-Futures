@@ -9,7 +9,7 @@ import {
   LIVE_MIN_INDEPENDENT, OVX_ONLY_KEY, asArray, asObject, asText, coverageByYear, ovxOnlyBenchmark, recordVar, shortLabel, vrpSummary,
   yearsBetter,
 } from "./research";
-import { coneView } from "./cone";
+import { coneView, markPct } from "./cone";
 
 /** The nominal coverage of the contract's interval_80 fields (a design level, not a statistic). */
 export const INTERVAL_LEVEL_PCT = 80;
@@ -222,7 +222,13 @@ export const calibrationAssertion = (lab, champion) => {
   if (coverage == null) return null;
   const years = coverageByYear(lab, champion).map((row) => row.coverage);
   if (years.length > 1) {
-    return `In every year the ${fmtNum(target, 0)}% interval covered between ${fmtPct(Math.min(...years))} and ${fmtPct(Math.max(...years))} of days`;
+    // The sample in the title: the calendar years and the days with a band (the first year has none).
+    const span = coverageByYear(lab, champion).map((row) => row.year);
+    const days = num(conformal?.n_days);
+    const title = `Each year ${span[0]}–${span[span.length - 1]}, the ${fmtNum(target, 0)}% interval covered `
+      + `${fmtPct(Math.min(...years))} to ${fmtPct(Math.max(...years))}`;
+    const full = days != null ? `${title} of the ${fmtInt(days)} days with a band` : `${title} of days`;
+    return full.length <= 90 ? full : `${title} of days`;
   }
   return `The ${fmtNum(target, 0)}% interval covered ${fmtPct(coverage)} of days, as adaptive conformal targets by construction`;
 };
@@ -292,7 +298,7 @@ export const coneAssertion = (cone, live = null) => {
   const view = coneView(cone, live);
   const short = view.marks[0];
   if (view.lagDays != null && view.lagDays > 0 && short?.source === "live" && short.bracket) {
-    const head = `${short.window}-day realized vol (${fmtPct(short.value)}, ${fmtDate(short.date, { year: false })})`;
+    const head = `${short.window}-day realized vol (${markPct(short)}, ${fmtDate(short.date, { year: false })})`;
     const { low, high } = short.bracket;
     if (low == null) return `${head} is below the ${ordinal(high)} percentile of its history`;
     if (high == null) return `${head} is above the ${ordinal(low)} percentile of its history`;
@@ -354,14 +360,16 @@ const LIVE_TITLE_MAX = 90;
  * The comparison itself uses the same calls for both models (liveRecordSummary().paired); the
  * record's QLIKE over all its resolved calls is a different sample, shown only labelled as such.
  */
-export const liveAssertion = (summary) => {
+export const liveAssertion = (summary, day = null) => {
   if (!summary) return null;
   const resolved = summary.resolved ?? 0;
   if (resolved <= 0) {
     // The start date is in the meta line (liveDetail's neighbour), so the title keeps to one claim.
-    return summary.firstResult
-      ? `No live forecast has resolved yet; the first is due ${fmtDate(summary.firstResult)}`
-      : "No live forecast has resolved yet";
+    // `day` is the snapshot's own date: a first result due before it is overdue, not due.
+    if (!summary.firstResult) return "No live forecast has resolved yet";
+    return day && summary.firstResult < day
+      ? `No live forecast has resolved yet; the first is overdue since ${fmtDate(summary.firstResult)}`
+      : `No live forecast has resolved yet; the first is due ${fmtDate(summary.firstResult)}`;
   }
   const promotion = summary.promotion;
   if (promotion && promotion.status !== "accruing") {
@@ -389,25 +397,13 @@ export const liveAssertion = (summary) => {
 };
 
 /**
- * LIVE meta: what was recorded and why some calls are never scored. Calls skipped at a contract
- * roll, not sealed in time (late_commit: sealed less than five minutes before the settlement that
- * opens their window, or never sealed) or expired are counted as such, never as "not resolved yet".
+ * LIVE meta: how many calls the record holds. The panel's status line, right under the meta line,
+ * counts them by state (resolved, pending, and never scored with the reasons), so the meta line
+ * gives the total only and no count is printed twice.
  */
 export const liveDetail = (summary) => {
   if (!summary?.started) return [];
-  const recorded = summary.recorded ?? 0;
-  const skipped = summary.skipped ?? 0;
-  const late = summary.lateCommit ?? 0;
-  const expired = summary.expired ?? 0;
-  const breakdown = [
-    summary.pending > 0 ? `${fmtInt(summary.pending)} pending` : null,
-    skipped > 0 ? `${fmtInt(skipped)} skipped at a contract roll` : null,
-    late > 0 ? `${fmtInt(late)} not sealed in time` : null,
-    expired > 0 ? `${fmtInt(expired)} expired` : null,
-  ].filter(Boolean);
-  const unscored = skipped + late + expired;
-  const never = unscored > 0 ? ` (${unscored === recorded ? "" : `${fmtInt(unscored)} `}never scored)` : "";
-  return [`${plural(recorded, "call")} recorded${breakdown.length ? `: ${breakdown.join(", ")}` : ""}${never}`];
+  return [`${plural(summary.recorded ?? 0, "call")} recorded`];
 };
 
 /**
@@ -432,13 +428,14 @@ export const promotionDetail = (promotion) => {
  * test's progress. After: calls resolved and independent weeks, the two models' QLIKE on the same
  * calls once there are LIVE_MIN_INDEPENDENT independent weeks, and the promotion verdict once decided.
  */
-export const liveTileFoot = (summary) => {
+export const liveTileFoot = (summary, day = null) => {
   if (!summary) return null;
   const resolved = summary.resolved ?? 0;
   const promotion = summary.promotion;
   if (resolved <= 0) {
+    const overdue = day && summary.firstResult && summary.firstResult < day;
     const status = summary.firstResult
-      ? `first result ${fmtDate(summary.firstResult)}`
+      ? `first result ${overdue ? "overdue since " : ""}${fmtDate(summary.firstResult)}`
       : `${plural(summary.recorded ?? 0, "call")} recorded, no result due`;
     const progress = promotion?.paired != null && promotion?.required != null
       ? `promotion test ${fmtInt(promotion.paired)}/${fmtInt(promotion.required)} weeks`
@@ -633,29 +630,63 @@ export const supplyPlaybookAssertion = (playbook, { researchLoaded = true } = {}
   const threatPeak = num(threat?.peak?.median);
   if (lostPeak == null || threatPeak == null) return null;
   const head = `Median 20-session peak ${fmtSigned(lostPeak, 1, "%")} after supply removal, ${fmtSigned(threatPeak, 1, "%")} after threats`;
-  if (!researchLoaded) return head;
-  const full = `${head}; no placebo comparison`;
-  const short = `${head}; no placebo test`;
-  if (full.length <= TITLE_MAX) return full;
-  return short.length <= TITLE_MAX ? short : head;
+  // The ordinary-date baseline beside the two medians when data.json carries it: a 20-session
+  // maximum is positive on most dates, so the two medians alone invite a misleading comparison.
+  const ordinary = num(asObject(playbook?.placebo)?.median_peak_pct);
+  const withBaseline = ordinary != null ? [
+    `Median 20-session peak: supply removal ${fmtSigned(lostPeak, 1, "%")}, threats ${fmtSigned(threatPeak, 1, "%")}, `
+      + `an ordinary date ${fmtSigned(ordinary, 1, "%")}`,
+    `Median 20-session peak: supply removal ${fmtSigned(lostPeak, 1, "%")}, threats ${fmtSigned(threatPeak, 1, "%")}, `
+      + `ordinary date ${fmtSigned(ordinary, 1, "%")}`,
+  ].find((text) => text.length <= TITLE_MAX) : null;
+  if (!researchLoaded) return withBaseline ?? head;
+  // The ordinary-date baseline is worth more than the caveat: keep it when only one fits.
+  const candidates = [
+    withBaseline ? `${withBaseline}; no placebo test` : null,
+    withBaseline,
+    `${head}; no placebo comparison`,
+    `${head}; no placebo test`,
+  ];
+  return candidates.find((text) => text && text.length <= TITLE_MAX) ?? withBaseline ?? head;
 };
 
-/** STDY: the two side studies, one short clause each. */
-export const studiesAssertion = (carry, study) => {
-  const pre = num(carry?.pre_2007?.spread_p_value_one_sided);
-  const post = num(carry?.post_2007?.spread_p_value_one_sided);
-  let carryPart = null;
-  if (pre != null && post != null) {
-    if (pre < ALPHA && post >= ALPHA) carryPart = "Carry sorted returns before 2007, not detectably after";
-    else carryPart = pre < ALPHA && post < ALPHA ? "Carry sorted returns in both halves" : "Carry did not reliably sort returns";
+/** "1990-02-21..2024-02-21" (or a [first, last] pair) -> "1990–2024"; null without both years. */
+const yearSpan = (span) => {
+  const [first, last] = Array.isArray(span) ? span : (asText(span) ?? "").split("..");
+  const years = [first, last].map((value) => (typeof value === "string" ? value.match(/^(\d{4})/)?.[1] : null));
+  if (!years[0] || !years[1]) return null;
+  return years[0] === years[1] ? years[0] : `${years[0]}–${years[1]}`;
+};
+
+/**
+ * STDY: one framing claim for the panel, built from the payloads: which side studies it holds,
+ * their samples, and that they are descriptive and not traded. Each study's result is its own h3
+ * (carryAssertion(), supplyStudyAssertion()), so the panel title does not restate either.
+ * `carry` is research.json carry; `playbook` is data.json supply_shock_playbook (its event count
+ * and years); `study` is supplyStudy(research), whose all-events group counts the events when the
+ * playbook does not.
+ */
+export const studiesAssertion = ({ carry = null, playbook = null, study = null } = {}) => {
+  const carryStats = asObject(carry?.full_sample);
+  const carrySpan = carryStats ? yearSpan(carryStats.span) : null;
+  const events = num(playbook?.event_count) ?? num(study?.groups?.find((group) => group.key === "all_events")?.n);
+  const first = num(playbook?.first_event_year);
+  const last = num(playbook?.last_event_year);
+  const supplySpan = first != null && last != null ? (first === last ? String(first) : `${first}–${last}`) : null;
+  const hasSupply = events != null && events > 0;
+  const shocks = hasSupply ? `${fmtInt(events)} supply shock${events === 1 ? "" : "s"}` : null;
+  let candidates = [];
+  if (carryStats && hasSupply) {
+    const both = carrySpan && carrySpan === supplySpan
+      ? `carry timing and ${shocks}, ${carrySpan}`
+      : `carry timing${carrySpan ? ` (${carrySpan})` : ""} and ${shocks}${supplySpan ? ` (${supplySpan})` : ""}`;
+    candidates = [`Two descriptive studies, not traded: ${both}`, `Two descriptive studies: ${both}`];
+  } else if (carryStats) {
+    candidates = [`Carry timing${carrySpan ? `, ${carrySpan}` : ""}: a descriptive study, not traded`];
+  } else if (hasSupply) {
+    candidates = [`${capitalize(shocks)}${supplySpan ? `, ${supplySpan}` : ""}: a descriptive study, not traded`];
   }
-  const lost = study?.groups.find((group) => group.key === "supply_lost");
-  const supplyPart = {
-    both: "supply removal beat placebo dates",
-    one: "supply removal beat only one placebo",
-    neither: "supply removal did not beat placebo dates",
-  }[placeboVerdict(lost?.peakP, lost?.peakPYear)] ?? null;
-  return capitalize(join([carryPart, supplyPart]));
+  return candidates.find((text) => text.length <= TITLE_MAX) ?? null;
 };
 
 /**
