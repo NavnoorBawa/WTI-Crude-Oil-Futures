@@ -36,7 +36,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   frame and a reader's pan; no wrapped line starts or ends with a separator dot; print keeps every
   column and chart; first load is lighter (LCP 2.6–2.8 s on a throttled phone, from 3.8–4.4 s).
   Two independent verification rounds; every confirmed finding is fixed.
-- **Tests.** 480 Python (unittest), 260 frontend (node --test) and 13 browser checks (Playwright,
+- **Tests.** 485 Python (unittest), 260 frontend (node --test) and 13 browser checks (Playwright,
   the "Interface" CI job: axe, layout shift, overflow, keyboard, print, script budget). CI also runs
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
   Reproduce rebuild. Releases: `scripts/bump_version.py`, and `.github/workflows/release.yml`
