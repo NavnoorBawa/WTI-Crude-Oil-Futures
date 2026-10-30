@@ -22,7 +22,8 @@ import json
 import math
 from pathlib import Path
 
-from backend.vol_record import PROMOTION_ALPHA, PROMOTION_RULE, PROMOTION_WEEKS, student_t_sf
+from backend.vol_record import (HORIZON_SESSIONS, PROMOTION_ALPHA, PROMOTION_CHALLENGER, PROMOTION_MODEL_VERSION,
+                                 PROMOTION_RULE, PROMOTION_WEEKS, WINDOW_NOTE, student_t_sf)
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
@@ -1727,6 +1728,74 @@ def promotion_power(min_weeks: int = PROMOTION_WEEKS, alpha: float = PROMOTION_A
             f"probability {p52 * 100:.0f}%, and a fixed-sample test with 80% power would need {weeks_80}. This treats the weekly loss differences as normal, so the statistic is "
             f"noncentral t with {min_weeks - 1} degrees of freedom, compared with the test's own critical value, "
             f"t({min_weeks - 1})'s {crit:.3f}. {size} {reading}")
+
+
+# --------------------------------------------------------------------------- the pre-registration
+# docs/PREREGISTRATION.md: the promotion test as registered, read from vol_record's constants and the
+# lab's artifact, so the citable text cannot drift from the code that runs the test.
+
+def _short_label(model: dict) -> str:
+    """A model's label without the role the leaderboard appends to it ("HAR-IV (model of record)" -> "HAR-IV")."""
+    return model["label"].split(" (")[0]
+
+
+def prereg_design() -> str:
+    """The registered design as a table: each element, its value and where the code fixes it."""
+    from statistics import NormalDist
+
+    lab = _lab()
+    df = PROMOTION_WEEKS - 1
+    crit = _t_critical(PROMOTION_ALPHA, df)
+    normal = NormalDist().inv_cdf(1 - PROMOTION_ALPHA)
+    rows = [
+        ("Model of record", f"{_short_label(_champ(lab))}, model version `{PROMOTION_MODEL_VERSION}`",
+         "`vol_record.PROMOTION_MODEL_VERSION`"),
+        ("Challenger", f"{_short_label(_chall(lab))}, key `{PROMOTION_CHALLENGER}`", "`vol_record.PROMOTION_CHALLENGER`"),
+        ("Loss", "QLIKE on variances: r − ln r − 1, with r the realized over the forecast variance",
+         "`vol_record.qlike`"),
+        ("Loss difference", "d = QLIKE(model of record) − QLIKE(challenger); positive favours the challenger",
+         "`vol_record.promotion_test`"),
+        ("Unit", f"one recorded forecast, scored on the realized volatility of the next {HORIZON_SESSIONS} "
+                 f"settlement-to-settlement returns", "`vol_record.HORIZON_SESSIONS`"),
+        ("Sample", f"the first {PROMOTION_WEEKS} resolved entries of the pair whose windows do not overlap, in "
+                   f"record order", "`vol_record.PROMOTION_WEEKS`, `promotion_sample`"),
+        ("Statistic", f"mean of d over its standard error (sample variance, n − 1 denominator, no autocovariance "
+                      f"terms); one-sided p from Student's t with {df} degrees of freedom",
+         "`vol_record.promotion_test`, `student_t_sf`"),
+        ("Level", f"{PROMOTION_ALPHA:.2f}, one-sided: promote when the statistic exceeds t({df})'s upper "
+                  f"{PROMOTION_ALPHA * 100:.0f}% point, {crit:.4f}", "`vol_record.PROMOTION_ALPHA`"),
+        ("Looks", "one, when the sample is full; later entries never change the verdict", "`vol_record.promotion_sample`"),
+    ]
+    table = "| Element | Registered value | Fixed in |\n| --- | --- | --- |\n" + "\n".join(
+        f"| {name} | {value} | {where} |" for name, value, where in rows)
+    size = student_t_sf(normal, df)
+    return (f"{table}\n\nThe Student t reference matters at this sample size: the standard normal's upper "
+            f"{PROMOTION_ALPHA * 100:.0f}% point is {normal:.4f}, and rejecting above it would have a size of "
+            f"{size * 100:.1f}% under t({df}), not {PROMOTION_ALPHA * 100:.0f}%.")
+
+
+def prereg_window() -> str:
+    """The scoring window as the record states it (vol_record.WINDOW_NOTE)."""
+    return f"> {WINDOW_NOTE}"
+
+
+def prereg_selection() -> str:
+    """What the backtest said about the pair when the rule was fixed, and what it says now; neither enters the test."""
+    lab, ledger = _lab(), _ledger()
+    champ, chall = _champ(lab), _chall(lab)
+    spa = lab["leaderboard"]["spa_qlike_vs_har_iv"]
+    dm = chall["dm_qlike_vs_har_iv"]
+    first = spa["non_studentized"]["p_consistent"]
+    now = spa["p_consistent"]
+    return (f"The challenger was not chosen blind. On the historical sample it has the lowest QLIKE of the "
+            f"{len(spa['models'])} alternatives to the model of record ({_fmt(chall['qlike'])} against "
+            f"{_fmt(champ['qlike'])}; pairwise Diebold-Mariano {_peq(dm['p_value'])}), and it was picked for that "
+            f"reason, so its pairwise p-value overstates the evidence. The test that accounts for the search is "
+            f"Hansen's SPA over all {len(spa['models'])} alternatives. When the rule was fixed it was published as "
+            f"p = {_fmt(first)}; that value was the non-studentized test (the 2.2.0 errata in CHANGELOG.md). "
+            f"Studentized as Hansen defines it, the test gives {_peq(now)} ({_level(now)}){_spa_adjusted(ledger)}. "
+            f"None of these numbers enters the live test. They are why the challenger runs live instead of "
+            f"replacing the model of record, and why only forecasts recorded after the rule was fixed decide.")
 
 
 def print_block(name: str, **options: str) -> None:

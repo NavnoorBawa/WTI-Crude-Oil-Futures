@@ -322,7 +322,8 @@ branch ([`backend/vol_record.py`](../backend/vol_record.py)):
   push event that delivered the record to `live-data`, both timestamped by GitHub (which keeps them
   for a limited period, not indefinitely).
 
-The promotion rule was fixed before the first live forecast. It is stated in code
+The promotion rule was fixed before the first live forecast ([`PREREGISTRATION.md`](PREREGISTRATION.md)
+states it as a pre-registration, with the commands that date it). It is stated in code
 (`vol_record.PROMOTION_RULE`), computed by `vol_record.promotion_test` and published with every
 record summary:
 
@@ -544,7 +545,7 @@ python -m backend.vol_forecast                  # data/vol_forecast_validation.j
 python -m backend.backtest_walk_forward --help  # the direction post-mortem; each data/wf_*.json records its config
 
 # The README, this page, the model card, the datasheet and the figures
-PYTHONPATH=. cog -r README.md docs/RESULTS.md docs/MODEL_CARD.md docs/DATASHEET.md
+PYTHONPATH=. cog -r README.md docs/RESULTS.md docs/MODEL_CARD.md docs/DATASHEET.md docs/PREREGISTRATION.md
 python scripts/make_figures.py
 
 # The test suite (network-free)
