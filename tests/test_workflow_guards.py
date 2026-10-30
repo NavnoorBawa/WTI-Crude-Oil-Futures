@@ -458,6 +458,22 @@ class WorkflowGuardTest(unittest.TestCase):
         self.assertNotRegex(deploy, r"push\b[^\n]*(--force|\s-f\b|\+HEAD)")
         self.assertIn("http.followRedirects=false", deploy)
 
+    def test_health_writes_its_issue_and_nothing_else(self):
+        # health.yml can write issues: it reads copies of the record and the payload through gh, runs
+        # the standard-library check, and never pushes, seals, or writes anything but its scratch files.
+        source = (WORKFLOW_DIRECTORY / "health.yml").read_text(encoding="utf-8")
+        top_level = source[:source.index("\njobs:")]
+        self.assertEqual(" ".join(_permissions(top_level, 0).split()), "contents: read issues: write actions: read")
+        jobs = _jobs(source)
+        self.assertEqual(list(jobs), ["health"])
+        self.assertIsNone(_permissions(jobs["health"], 4))
+        self.assertIn("persist-credentials: false", jobs["health"])
+        commands = "\n".join(re.sub(r"\\\s*\n\s*", " ", block) for block in _shell_run_blocks(jobs["health"]))
+        self.assertNotRegex(commands, r"\bgit\s+(push|commit)\b|--seal\b|vol_record\.py")
+        self.assertEqual(re.findall(r"\bpython3?\s+(\S+\.py)", commands), ["scripts/record_health.py"])
+        self.assertEqual(set(re.findall(r">>?\s*\"?([^\s\"]+)", commands)),
+                         {"record.json", "data.json", "refresh.json", "reproduce.json", "${GITHUB_OUTPUT}", "/dev/null"})
+
     def test_dependabot_groups_leave_majors_to_their_own_prs(self):
         # A major bump (e.g. one half of the upload/download-artifact pair) must not ride along in
         # a routine grouped PR. Only the react group takes majors: its packages move in lockstep.

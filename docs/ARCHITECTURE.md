@@ -116,6 +116,14 @@ flowchart TB
   dashboard dates what it displays rather than assuming a cadence: the top bar gives the snapshot's
   age and turns amber once a refresh is overdue, the quote carries its exchange time, and each
   section names its sample.
+- **Failures announce themselves.** `.github/workflows/health.yml` runs daily and after every
+  Refresh and Reproduce run. `scripts/record_health.py` reads copies of the record on `live-data`
+  and of `data.json` on `gh-pages`, fetched with `gh`, and the latest runs, and reports a session
+  with no entry once it was due, a recent `late_commit` or `expired` entry, an overdue result, a
+  site more than 12 hours old, two failed refreshes in a row or a failed rebuild. While anything is
+  reported, one issue labelled `health` stays open and the workflow fails (its README badge turns
+  red); the first healthy run closes the issue. The job can write issues only, installs nothing,
+  and never pushes or seals (`tests/test_workflow_guards.py`).
 
 ## Code map
 
@@ -133,6 +141,7 @@ flowchart TB
 | `backend/leak_anatomy.py`, `backend/carry_signal_test.py`, `backend/supply_shock_playbook.py` | The leak demonstration and the side studies |
 | `backend/research_ledger.py` | Every hypothesis tested, with multiplicity adjustments |
 | `scripts/validate_frozen_payload.py` | Deploy gate (stdlib only) |
+| `scripts/record_health.py` | The Health workflow's check of the record, the site and the last runs (stdlib only) |
 | `scripts/build_research_bundle.py`, `scripts/readme_blocks.py`, `scripts/make_figures.py` | research.json, the generated docs and the figures, from the artifacts |
 | `src/` | Dashboard (below) |
 | `docs/DATA_CONTRACT.md` | The data.json / research.json schema |

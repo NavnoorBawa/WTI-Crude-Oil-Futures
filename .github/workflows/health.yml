@@ -1,0 +1,96 @@
+name: Health
+
+# Says when the live pipeline needs a person (docs/ROADMAP.md, Stage 1, item 5). scripts/record_health.py
+# reads copies of the record on live-data and of the deployed data.json on gh-pages, and the latest
+# Refresh and Reproduce runs. While it reports a problem, one issue labelled "health" stays open
+# (its description updated, with a comment, only when the problems change) and this workflow fails,
+# so its badge and GitHub's failure notice show it; the first healthy run closes the issue. The job
+# can write issues, so it runs only GitHub's checkout, the preinstalled gh CLI and this repository's
+# standard-library script: nothing is installed, nothing is pushed, and data/ is never touched.
+
+on:
+  schedule:
+    - cron: '41 13 * * *'
+  workflow_run:
+    workflows: ["Refresh frozen dashboard", "Reproduce research artifact"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      now:
+        description: "Check as of this UTC time (ISO 8601) instead of the clock, as a drill; leave empty for a real check"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+concurrency:
+  group: health
+  cancel-in-progress: false
+
+jobs:
+  health:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout the scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the live record, the site and the last runs
+        id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DRILL_NOW: ${{ inputs.now }}
+        run: |
+          set -euo pipefail
+          # A copy that cannot be fetched is left empty, and the script reports it as unreadable.
+          gh api -H "Accept: application/vnd.github.raw" \
+            "repos/${GH_REPO}/contents/runtime-state/vol_track_record.json?ref=live-data" > record.json || : > record.json
+          gh api -H "Accept: application/vnd.github.raw" \
+            "repos/${GH_REPO}/contents/data.json?ref=gh-pages" > data.json || : > data.json
+          gh run list --workflow refresh.yml --branch main --status completed --limit 5 \
+            --json conclusion,url,createdAt > refresh.json
+          gh run list --workflow reproduce.yml --branch main --status completed --limit 1 \
+            --json conclusion,url,createdAt > reproduce.json
+          args=(--record record.json --payload data.json --refresh-runs refresh.json \
+                --reproduce-runs reproduce.json --markdown health.md)
+          if [ -n "${DRILL_NOW}" ]; then args+=(--now "${DRILL_NOW}"); fi
+          status=0
+          python3 scripts/record_health.py "${args[@]}" || status=$?
+          if [ "${status}" -gt 1 ]; then exit "${status}"; fi
+          echo "status=${status}" >> "${GITHUB_OUTPUT}"
+
+      - name: Open, update or close the health issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          STATUS: ${{ steps.check.outputs.status }}
+        run: |
+          set -euo pipefail
+          label=health
+          gh label create "${label}" --color B60205 \
+            --description "The live pipeline needs a person (.github/workflows/health.yml)" 2> /dev/null || true
+          number="$(gh issue list --label "${label}" --state open --limit 1 --json number --jq '.[0].number // empty')"
+          if [ "${STATUS}" = "0" ]; then
+            if [ -n "${number}" ]; then gh issue close "${number}" --comment "$(cat health.md)"; fi
+            exit 0
+          fi
+          digest="$(grep -o 'health-digest: [0-9a-f]*' health.md)"
+          title="Live pipeline needs attention"
+          if [ -z "${number}" ]; then
+            gh issue create --title "${title}" --label "${label}" --assignee "${GITHUB_REPOSITORY_OWNER}" \
+              --body-file health.md || gh issue create --title "${title}" --label "${label}" --body-file health.md
+          elif ! gh issue view "${number}" --json body --jq .body | grep -qF "${digest}"; then
+            gh issue edit "${number}" --body-file health.md
+            gh issue comment "${number}" --body "The problems changed; the description lists the current ones."
+          fi
+          echo "::error title=Live pipeline needs attention::$(grep -c '^- ' health.md) problem(s); see the open issue labelled ${label}."
+          exit 1
