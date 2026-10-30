@@ -47,7 +47,7 @@ each tag gets a GitHub Release with artifact digests.
 
 ### Live record
 
-- **Each call stores its fit.** New record entries also store the coefficients and the smearing
+- **Each new call stores its fit.** New record entries also store the coefficients and the smearing
   factor that produced the forecast (additive, optional fields; the entries already sealed are
   untouched, and recording, sealing, resolution and scoring never read them). A sealed call can now
   be recomputed from its own entry: median = 100·exp(b0 + Σ bk·ln xk), forecast = median·√smearing.
@@ -73,7 +73,8 @@ each tag gets a GitHub Release with artifact digests.
   tile values and a parenthesis after a section chip no longer break across lines; ledger cards on a
   phone set their statistics two to a line (about 1,800px shorter); LIVE shows each call's seal
   margin under its status on a phone; chart time labels and the largest-miss note are left out
-  where the plot's edge would cut them; deep-link placeholders match the mounted charts.
+  where the plot's edge would cut them; deep-link placeholders match the mounted charts at 390 px
+  and on desktop (at 320 and about 600 px some still differ by 14 to 62 px; HANDOFF lists them).
 - **Accessibility.** Every sideways-scrolling region is a keyboard stop, including METH's
   reproduce commands; pressed range and table toggles carry a mark, not only a shade; inputs have a
   3:1 border; MODL and RISK announce their sort; in forced-colors mode SVG text, halos, the noise
@@ -109,11 +110,12 @@ each tag gets a GitHub Release with artifact digests.
 ### Engineering
 
 - **Releases.** Every version is a `vX.Y.Z` tag (2.0.0 and 2.1.0 tagged on their merge commits).
-  `scripts/bump_version.py` moves the version in every file together and dates the changelog;
-  from 2.2.0 on, `.github/workflows/release.yml` publishes the tag's GitHub Release with its
-  changelog section and `SHA256SUMS` of every committed file under `data/` (2.0.0 and 2.1.0 predate
-  it and have no Release); `tests/test_release_metadata.py` fails when one file's version is edited
-  alone. `data/**` checks out byte for byte on every platform, so the digests verify on Windows too.
+  `scripts/bump_version.py` moves the version in every file together and dates the changelog; from
+  2.2.0 on, `.github/workflows/release.yml` publishes the tag's GitHub Release with its changelog
+  section and `SHA256SUMS` of every committed file under `data/` (2.0.0 and 2.1.0 predate it and
+  have no Release); `tests/test_release_metadata.py` fails when one file's version is edited alone.
+  `data/**` checks out byte for byte on every platform, so the digests verify on a fresh Windows
+  checkout too (an older one refreshes with `git rm -r -q --cached data && git reset -q --hard`).
 - **Browser checks in CI.** A new "Interface" job renders the built site against the fixtures at
   1440 and 390px, fresh and stale, and requires no console error, no sideways page scroll, every
   scroll region keyboard-reachable, no serious axe violation, layout shift under 0.02, the skip link

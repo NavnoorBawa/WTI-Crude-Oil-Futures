@@ -25,7 +25,7 @@ Each line below is a property with a test; the project is "there" when every lin
 | The promotion test was fixed before any result arrived | a pre-registered, citable document with a persistent identifier | partial: pinned in code and docs, in tagged releases; no DOI |
 | Forecast quality is judged with the right losses, at the right horizons, conditionally | QLIKE, MSE, MCS, SPA, DM today; density and conditional tests, several horizons | partial: SPA studentized with robustness; density, conditional tests and horizons to do |
 | The model is specified, bounded and attributable | model card, elasticities, hand-checkable arithmetic; per-call attribution | holds from 2026-10-28: each new call stores its fit and the hero splits the change between two such calls; the six earlier sealed calls have no stored fit |
-| The interface is correct at every width and for every reader | 0 overflow, 0 console errors, axe clean, keyboard complete, print | holds at the widths CI checks (1440 and 390 px, the Interface job); small gaps at 320 and about 600 px and for screen readers are in `HANDOFF.md` section 4 |
+| The interface is correct at every width and for every reader | 0 overflow, 0 console errors, axe clean, keyboard complete, print | partial: the Interface job checks overflow, console errors, serious and critical axe violations, keyboard and print at 1440 and 390 px; open gaps (placeholders at 320 px, hash landings at about 600 px, the hero's median dot at some widths, separators for screen readers) are in `HANDOFF.md` section 4 |
 | A reviewer can evaluate the project in ten minutes | a guide that says what to check and in what order | holds: README landing page and `docs/REVIEWER_GUIDE.md` |
 | Nothing depends on a paid service or a person remembering to run something | GitHub Actions only, with failures that announce themselves | partial: failures are silent |
 
@@ -389,8 +389,10 @@ Tick items here with the PR number and date when they ship, and move any new fin
 - **3.6 Interface checks in CI** (#73, 2026-10-30): the Interface job (13 Playwright checks: axe,
   layout shift, overflow, keyboard, print, lazy-mount order, separator lists, script budget).
   Property assertions rather than pixel screenshots (font rasterization differs between machines).
-- **3.7 The remaining interface follow-ups** (#73): the 2.1.0 list except the 600 px hash-landing
-  shift on `#vrp` and `#ledg` and two polish items, and the eight-lens audit's confirmed findings;
-  what remains is in `HANDOFF.md` section 4.
+- **3.7 The remaining interface follow-ups** (#73, partly): most of the 2.1.0 list and the
+  eight-lens audit's confirmed findings. Still open, in `HANDOFF.md` section 4: the 600 px
+  hash-landing shift on `#vrp` and `#ledg`, the 320 px placeholder shortfall, the line-count
+  load-shift reservations (re-measured and guarded by a browser check, not replaced), the
+  largest-QLIKE marker question and two polish items.
 - **4.1 `docs/REVIEWER_GUIDE.md`** and **4.5 README as a research note** (#72, 2026-10-28).
 - **5.6 Capture scripts in the repo** (#73): `scripts/capture_figures.mjs`.

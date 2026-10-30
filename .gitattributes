@@ -9,5 +9,7 @@
 *.yaml text eol=lf
 
 # Research artifacts check out exactly as committed on every platform (no CRLF on Windows),
-# so a release's SHA256SUMS and data/market/MANIFEST.json verify on any checkout.
+# so a release's SHA256SUMS and data/market/MANIFEST.json verify on a fresh checkout. A checkout
+# made before this line keeps its CRLF copies until refreshed:
+#   git rm -r -q --cached data && git reset -q --hard
 data/** -text

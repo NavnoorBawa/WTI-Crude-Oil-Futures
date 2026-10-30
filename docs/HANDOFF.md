@@ -93,6 +93,11 @@ and its CI run is the test.
   boundary (about 3% of calls) the card shows no worked example while the hero does; share one
   predicate.
 - A double click restores a chart's preset but leaves a week pinned.
+- The load-shift reservations in `src/styles/verdict-lede.css` and `verdict-tiles.css` are line
+  counts, re-measured on the 2.2.0 text and guarded by the tile-height browser check; they can still
+  drift by a line when copy changes. Prefer a measured or intrinsic reservation.
+- FCST's "largest miss" uses |ln(actual/forecast)|; consider marking the largest-QLIKE week instead
+  (the loss the page ranks models by). Undecided since 2.1.0.
 - Polish only: at 1280 px and wider, VRP's reading column and LEAK's P&L column leave space beside
   taller neighbours; the price chart's log axis uses library tick positions.
 

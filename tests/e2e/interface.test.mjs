@@ -281,26 +281,43 @@ test("phone: SVG figures mount in the background first; canvas charts wait for a
   try {
     await page.waitForSelector("#verdict-title");
     // The background queue starts 3 s after the load event and mounts one figure per idle period; the
-    // canvas charts come last. Each wrapper's mount time is recorded as it loses aria-busy.
-    await page.evaluate(() => {
+    // canvas charts join it only once it is empty. Each wrapper's mount time is recorded as it loses
+    // aria-busy, and the page is read in the same callback in which #risk mounts, so the queue cannot
+    // race the check.
+    await page.evaluate((canvas) => {
       window.__mounted = new Map();
+      window.__atRisk = null;
+      const isCanvas = (node) => canvas.some((id) => node.closest(`#${id}`));
       new MutationObserver((records) => {
         for (const record of records) {
           const node = record.target;
-          if (node.classList?.contains("lazy-mount") && !node.hasAttribute("aria-busy") && !window.__mounted.has(node)) {
-            window.__mounted.set(node, performance.now());
+          if (!node.classList?.contains("lazy-mount") || node.hasAttribute("aria-busy") || window.__mounted.has(node)) continue;
+          window.__mounted.set(node, performance.now());
+          if (!window.__atRisk && node.closest("#risk")) {
+            window.__atRisk = {
+              mkt: document.querySelector("#mkt .lazy-mount")?.getAttribute("aria-busy") ?? null,
+              figuresQueued: [...document.querySelectorAll(".lazy-mount[aria-busy]")].some((other) => !isCanvas(other)),
+            };
           }
         }
       }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ["aria-busy"] });
-    });
-    await page.waitForFunction((canvas) => [...document.querySelectorAll(".lazy-mount[aria-busy]")]
-      .every((node) => canvas.some((id) => node.closest(`#${id}`))), CANVAS_SECTIONS, { timeout: 20000 });
-    for (const id of CANVAS_SECTIONS) assert.equal(await busyIn(page, id), "true", `${id} mounted before the SVG figures were done`);
+    }, CANVAS_SECTIONS);
+    // Scrolled to while SVG figures are still queued, a canvas chart mounts at once; the others wait.
     await page.locator("#risk .lazy-mount").scrollIntoViewIfNeeded();
-    await page.waitForFunction(() => !document.querySelector("#risk .lazy-mount[aria-busy]"));
-    assert.equal(await busyIn(page, "mkt"), "true", "only the chart near the viewport mounts at once");
-    await page.evaluate(() => window.dispatchEvent(new Event("lazy:mount-all")));     // the Print button's path
-    await page.waitForFunction(() => !document.querySelector(".lazy-mount[aria-busy]"));
+    await page.waitForFunction(() => window.__atRisk);
+    const atRisk = await page.evaluate(() => window.__atRisk);
+    assert.ok(atRisk.figuresQueued, "the SVG queue was done before #risk mounted, so this run cannot tell a scroll mount from a background one");
+    assert.equal(atRisk.mkt, "true", "only the chart near the viewport mounts at once");
+    // Left alone, the rest mount in the background: every SVG figure before any canvas chart.
+    await page.waitForFunction(() => !document.querySelector(".lazy-mount[aria-busy]"), null, { timeout: 30000 });
+    const mounts = await page.evaluate((canvas) => [...window.__mounted.entries()]
+      .filter(([node]) => !node.closest("#risk"))
+      .map(([node, time]) => ({ canvas: canvas.some((id) => node.closest(`#${id}`)), time })), CANVAS_SECTIONS);
+    const canvasTimes = mounts.filter((mount) => mount.canvas).map((mount) => mount.time);
+    const lastFigure = Math.max(...mounts.filter((mount) => !mount.canvas).map((mount) => mount.time));
+    assert.equal(canvasTimes.length, CANVAS_SECTIONS.length - 1, "a canvas chart did not mount in the background");
+    assert.ok(Math.min(...canvasTimes) > lastFigure,
+      `a canvas chart mounted at ${Math.round(Math.min(...canvasTimes))} ms, before the last SVG figure (${Math.round(lastFigure)} ms)`);
     assert.deepEqual(problems, []);
   } finally {
     await context.close();

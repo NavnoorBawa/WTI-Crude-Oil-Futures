@@ -2,11 +2,14 @@
 CHANGELOG's newest released heading is that version, and CITATION.cff's release date is that
 heading's date. Editing one file's version alone fails here (docs/ROADMAP.md, Stage 1.1)."""
 
+import contextlib
+import io
 import json
 import re
 import tomllib
 import unittest
 from datetime import datetime
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,8 +85,11 @@ class ReleaseToolsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             bump_version.next_version("2.2.0", "major")              # would move sealing, scoring or the pair
         for bad in ("2026-10-32", "2026-13-01", "2026-1-5", "20261030"):
-            with self.assertRaises(SystemExit, msg=bad):             # rejected before any file is touched
-                bump_version.main(["patch", "--date", bad])
+            # Rejected before any file is touched; were it not, the stub stops the bump of this tree.
+            with self.subTest(date=bad), mock.patch.object(bump_version, "bump", side_effect=AssertionError("bumped")) as bumped:
+                with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                    bump_version.main(["patch", "--date", bad])
+                bumped.assert_not_called()
 
     def test_release_notes_are_the_versions_changelog_section(self):
         from scripts import release_notes
