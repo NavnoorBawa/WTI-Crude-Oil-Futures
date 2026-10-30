@@ -17,16 +17,16 @@ artifact.
 A top quant research team relies on a tool when it can verify it without trusting its author.
 Each line below is a property with a test; the project is "there" when every line holds.
 
-| Property | Test a reviewer can run | Status at 2.1.0 |
+| Property | Test a reviewer can run | Status at 2.2.0 |
 | --- | --- | --- |
 | Every number on the page is computed from the payloads | `tests/frontend` render tests; no statistic literal in copy | holds |
-| The main result reproduces bit for bit from pinned inputs | Reproduce workflow on `data/vol_lab.json` | holds (weekly) |
-| The forward record cannot be back-filled, and that is provable to an outsider | git seal before the window, plus an independent timestamp anchor | partial: sealed in git, no external anchor |
-| The promotion test was fixed before any result arrived | a pre-registered, citable document with a persistent identifier | partial: pinned in code and README, no DOI, no release tag |
-| Forecast quality is judged with the right losses, at the right horizons, conditionally | QLIKE, MSE, MCS, SPA, DM today; density and conditional tests, several horizons | partial |
-| The model is specified, bounded and attributable | model card, elasticities, hand-checkable arithmetic; per-call attribution | partial: no per-call coefficients yet |
-| The interface is correct at every width and for every reader | 0 overflow, 0 console errors, axe clean, keyboard complete, print | holds; not yet enforced in CI |
-| A reviewer can evaluate the project in ten minutes | a guide that says what to check and in what order | missing |
+| The main result reproduces bit for bit from pinned inputs | Reproduce workflow on `data/vol_lab.json` | holds (on every change to the pipeline, its inputs or its pins, and weekly) |
+| The forward record cannot be back-filled, and that is provable to an outsider | git seal before the window, plus an independent timestamp anchor | partial: sealed in git and checked from the file alone (`scripts/verify_record.py`); no external anchor |
+| The promotion test was fixed before any result arrived | a pre-registered, citable document with a persistent identifier | partial: pinned in code and docs, in tagged releases; no DOI |
+| Forecast quality is judged with the right losses, at the right horizons, conditionally | QLIKE, MSE, MCS, SPA, DM today; density and conditional tests, several horizons | partial: SPA studentized with robustness; density, conditional tests and horizons to do |
+| The model is specified, bounded and attributable | model card, elasticities, hand-checkable arithmetic; per-call attribution | holds from 2026-10-28: each new call stores its fit and the hero splits the change between two such calls; the six earlier sealed calls have no stored fit |
+| The interface is correct at every width and for every reader | 0 overflow, 0 console errors, axe clean, keyboard complete, print | partial: the Interface job checks overflow, console errors, serious and critical axe violations, keyboard and print at 1440 and 390 px; open gaps (placeholders at 320 px, hash landings at about 600 px, the hero's median dot at some widths, separators for screen readers) are in `HANDOFF.md` section 4 |
+| A reviewer can evaluate the project in ten minutes | a guide that says what to check and in what order | holds: README landing page and `docs/REVIEWER_GUIDE.md` |
 | Nothing depends on a paid service or a person remembering to run something | GitHub Actions only, with failures that announce themselves | partial: failures are silent |
 
 ## Stage 0: always on
@@ -376,4 +376,23 @@ These stay out, whatever a review suggests, unless the owner changes the rules:
 Tick items here with the PR number and date when they ship, and move any new finding into
 `HANDOFF.md`'s backlog.
 
-- (none yet beyond 2.1.0)
+- **1.1 Tag and release every version, with checksums** (#75, 2026-10-30): `v2.0.0`, `v2.1.0` and
+  `v2.2.0` tags; `scripts/bump_version.py`; `tests/test_release_metadata.py`;
+  `.github/workflows/release.yml` publishes each tag's Release with `SHA256SUMS` from 2.2.0 on
+  (`v2.0.0` and `v2.1.0` predate the workflow and are tags only).
+- **2.9 Per-call attribution** (#71, 2026-10-28): new entries store their coefficients and smearing
+  factor; the hero splits the change between calls.
+- **2.10 Basel traffic light**: already computed before 2.1.0 (`basel_zone_last_250` at 99%); the
+  backlog item was stale.
+- **SPA correction** (#74, 2026-10-29, not a roadmap item): Hansen's SPA studentized, with
+  robustness and an errata entry; two independent verification rounds.
+- **3.6 Interface checks in CI** (#73, 2026-10-30): the Interface job (13 Playwright checks: axe,
+  layout shift, overflow, keyboard, print, lazy-mount order, separator lists, script budget).
+  Property assertions rather than pixel screenshots (font rasterization differs between machines).
+- **3.7 The remaining interface follow-ups** (#73, partly): most of the 2.1.0 list and the
+  eight-lens audit's confirmed findings. Still open, in `HANDOFF.md` section 4: the 600 px
+  hash-landing shift on `#vrp` and `#ledg`, the 320 px placeholder shortfall, the line-count
+  load-shift reservations (re-measured and guarded by a browser check, not replaced), the
+  largest-QLIKE marker question and two polish items.
+- **4.1 `docs/REVIEWER_GUIDE.md`** and **4.5 README as a research note** (#72, 2026-10-28).
+- **5.6 Capture scripts in the repo** (#73): `scripts/capture_figures.mjs`.

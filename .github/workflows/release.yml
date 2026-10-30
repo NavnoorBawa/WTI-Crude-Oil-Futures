@@ -1,0 +1,56 @@
+name: Release
+
+# On a version tag (v2.2.0), publishes the GitHub Release: its notes are the CHANGELOG's section
+# for that version (scripts/release_notes.py) and it carries SHA256SUMS, the digests of every
+# committed research artifact under data/, so a reader can check a later checkout against the
+# release. The job holds a write token, so it runs only GitHub's checkout, git, coreutils, the
+# preinstalled gh CLI and this repository's standard-library script: nothing is installed.
+# (docs/ROADMAP.md, Stage 1.1; tests/test_workflow_guards.py.)
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout the tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the tag names the released version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          grep -q "\"version\": \"${version}\"" package.json
+          grep -q "^version: ${version}$" CITATION.cff
+
+      - name: Write the notes and the artifact digests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/release_notes.py "${GITHUB_REF_NAME}" > release-notes.md
+          git ls-files -z data | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          test -s release-notes.md
+          # One digest per committed file under data/, and at least one file.
+          files="$(git ls-files data | wc -l)"
+          test "${files}" -gt 0
+          test "$(wc -l < SHA256SUMS)" -eq "${files}"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" SHA256SUMS \
+            --repo "${GITHUB_REPOSITORY}" --verify-tag \
+            --title "${GITHUB_REF_NAME}" --notes-file release-notes.md
