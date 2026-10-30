@@ -109,14 +109,14 @@ Each forecast's window is fixed when it is recorded:
   entry not sealed in time (`late_commit`) are never scored. An entry of another model version
   (such as the plain-HAR forecast published when no lagged OVX print is available), with another
   challenger or with no challenger forecast is recorded and never enters the sample, so it can
-  neither hold the sample back nor restart it; once resolved, it is counted by reason
+  neither stop the scan nor restart it; once resolved, it is counted by reason
   (`promotion.n_excluded_*` in the record summary).
 
 How long the sample takes, under the record's own rules:
 
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("prereg_duration") ]]] -->
 
-At the earliest, the sample is full when the window ending 2028-01-05 resolves: 303 sessions after the first window opened on 2026-10-22 (about 14 months), not 52 × 5 = 260. That is the case in which every session from the first entry on is recorded, sealed in time and paired; windows that cross the monthly contract roll are never scored, so every roll costs the greedy selection one to five sessions. Each missed, unpaired or expired session delays it further. The record summary publishes `n_independent_paired` against `required` as the sample accrues.
+At the earliest, the sample is full when the window ending 2028-01-05 resolves: 303 sessions after the 2026-10-21 settlement that opened the first window (about 14 months), not 52 × 5 = 260. That is the case in which every session from the first entry on is recorded, sealed in time and paired; windows that cross the monthly contract roll are never scored, so every roll costs the greedy selection one to five sessions. A missed, unpaired or expired session can delay it, if it is one the selection would have taken; the next roll often absorbs a single such loss. The record summary publishes `n_independent_paired` against `required` as the sample accrues.
 <!-- [[[end]]] -->
 
 ## 5. Analysis and decision

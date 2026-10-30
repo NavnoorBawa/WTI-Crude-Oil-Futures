@@ -12,6 +12,7 @@ from pathlib import Path
 from backend import vol_record as vr
 
 ROOT = Path(__file__).resolve().parents[1]
+WORDS = {5: "five", 10: "ten"}
 
 def _text() -> str:
     """The page with its line wraps undone, so a phrase matches wherever the paragraph breaks."""
@@ -27,6 +28,8 @@ class PreregistrationTest(unittest.TestCase):
             f"closes are still missing more than {vr.MAX_WAIT_SESSIONS} sessions after its window ends",
             f"Student's t with n − 1 = {vr.PROMOTION_WEEKS - 1} degrees of freedom",
             f"the p-value is below {vr.PROMOTION_ALPHA:.2f}",
+            f"Daily forecasts of {WORDS[vr.HORIZON_SESSIONS]}-session windows overlap",
+            f"the sample is the first {vr.PROMOTION_WEEKS} weeks",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)

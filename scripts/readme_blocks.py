@@ -1734,10 +1734,11 @@ def promotion_power(min_weeks: int = PROMOTION_WEEKS, alpha: float = PROMOTION_A
 # docs/PREREGISTRATION.md: the promotion test as registered, read from vol_record's constants and the
 # lab's artifact, so its tables and figures cannot drift from the code that runs the test. Two facts
 # are history, not data, and are pinned here: the record's first session (live-data; the first row
-# scripts/verify_record.py prints) and the SPA p-value published when the rule was fixed (commit
-# 48138bc's README and data/vol_lab.json, the non-studentized test).
+# scripts/verify_record.py prints), the SPA p-value published when the rule was fixed (commit
+# 48138bc's README and data/vol_lab.json, the non-studentized test) and the one 2.2.0 published.
 PREREG_FIRST_SESSION = "2026-10-20"
 PREREG_PUBLISHED_SPA_P = 0.072
+PREREG_STUDENTIZED_SPA_P = 0.011     # what 2.2.0 published in its place (CHANGELOG.md, 2.2.0 errata)
 
 def _short_label(model: dict) -> str:
     """A model's label without the role the leaderboard appends to it ("HAR-IV (model of record)" -> "HAR-IV")."""
@@ -1826,16 +1827,17 @@ def prereg_duration() -> str:
                 chosen.append(window)
                 last_end = window["target_end"]
         day += timedelta(days=1)
-    start, end = chosen[0]["target_start"], chosen[-1]["target_end"]
-    sessions = business_days_between(start, end) + 1
-    months = (end - start).days / 30.44
+    base, end = chosen[0]["base_session"], chosen[-1]["target_end"]
+    sessions = business_days_between(base, end)
+    months = (end - base).days / 30.44
     return (f"At the earliest, the sample is full when the window ending {end:%Y-%m-%d} resolves: "
-            f"{sessions} sessions after the first window opened on {start:%Y-%m-%d} (about {months:.0f} months), "
-            f"not {PROMOTION_WEEKS} × {HORIZON_SESSIONS} = {PROMOTION_WEEKS * HORIZON_SESSIONS}. That is the case "
-            f"in which every session from the first entry on is recorded, sealed in time and paired; windows that "
-            f"cross the monthly contract roll are never scored, so every roll costs the greedy selection one to "
-            f"{_word(HORIZON_SESSIONS)} sessions. Each missed, unpaired or expired session delays it further. The record "
-            f"summary publishes `n_independent_paired` against `required` as the sample accrues.")
+            f"{sessions} sessions after the {base:%Y-%m-%d} settlement that opened the first window (about "
+            f"{months:.0f} months), not {PROMOTION_WEEKS} × {HORIZON_SESSIONS} = {PROMOTION_WEEKS * HORIZON_SESSIONS}. "
+            f"That is the case in which every session from the first entry on is recorded, sealed in time and "
+            f"paired; windows that cross the monthly contract roll are never scored, so every roll costs the greedy "
+            f"selection one to {_word(HORIZON_SESSIONS)} sessions. A missed, unpaired or expired session can delay it, "
+            f"if it is one the selection would have taken; the next roll often absorbs a single such loss. The "
+            f"record summary publishes `n_independent_paired` against `required` as the sample accrues.")
 
 
 def prereg_dependence() -> str:
@@ -1852,25 +1854,34 @@ def prereg_dependence() -> str:
     gamma = [sum(dev[i] * dev[i - k] for i in range(k, n)) / n for k in range(n)]
     lags = int(4 * (n / 100) ** (2 / 9))
     long_run = gamma[0] + 2 * sum((1 - k / (lags + 1)) * gamma[k] for k in range(1, lags + 1))
-    rho1 = gamma[1] / gamma[0]
-    return (f"That is an assumption, and the backtest does not fully support it. On its weekly series "
-            f"({n:,} non-overlapping weeks, {s['date'][0][:4]}–{s['date'][-1][:4]}, forecasts rounded to 0.1 vol "
-            f"points), the same loss difference d has a lag-1 autocorrelation of {_fmt(rho1, 2)}, and its "
-            f"Newey-West long-run variance ({lags} lags) is {_fmt(long_run / gamma[0], 2)} times the plain variance. "
-            + (f"If live weeks behave alike, the plain standard error understates the uncertainty, and the test's "
-               f"actual size need not equal its nominal {PROMOTION_ALPHA * 100:.0f}%" if rho1 > 0 else
-               "Serial correlation of that sign does not make the plain standard error too small") +
-            ". The rule was fixed with this statistic and is applied as registered; the backtest's own "
-            "Diebold-Mariano tests (sections 6 and 7) use Newey-West standard errors.")
+    rho1, ratio = gamma[1] / gamma[0], long_run / gamma[0]
+    correlated = abs(rho1) > 2 / math.sqrt(n)      # outside the white-noise band of the lag-1 autocorrelation
+    figures = (f"On its weekly series ({n:,} non-overlapping weeks, {s['date'][0][:4]}–{s['date'][-1][:4]}, "
+               f"forecasts rounded to 0.1 vol points), the same loss difference d has a lag-1 autocorrelation of "
+               f"{_fmt(rho1, 2)}, and its Newey-West long-run variance ({lags} lags) is {_fmt(ratio, 2)} times the "
+               f"plain variance.")
+    if correlated and ratio > 1:
+        reading = (f"That is an assumption, and the backtest does not fully support it. {figures} If live weeks "
+                   f"behave alike, the plain standard error understates the uncertainty, and the test's actual size "
+                   f"need not equal its nominal {PROMOTION_ALPHA * 100:.0f}%.")
+    elif ratio > 1:
+        reading = (f"That is an assumption. {figures} The lag-1 autocorrelation is within the range white noise "
+                   f"gives on {n:,} weeks, so the backtest neither confirms nor clearly contradicts it.")
+    else:
+        reading = (f"That is an assumption. {figures} On that evidence the plain standard error does not understate "
+                   f"the uncertainty, so the test is, if anything, conservative.")
+    return (f"{reading} The rule was fixed with this statistic and is applied as registered; the backtest's own "
+            f"Diebold-Mariano tests (sections 6 and 7) use Newey-West standard errors.")
 
 
 def prereg_deviations() -> str:
     """Section 9: changes since registration, none to the test itself."""
-    lab = _lab()
-    now = lab["leaderboard"]["spa_qlike_vs_har_iv"]["p_consistent"]
+    now = _lab()["leaderboard"]["spa_qlike_vs_har_iv"]["p_consistent"]
+    later = "" if round(now, 3) == PREREG_STUDENTIZED_SPA_P else f"; the current artifact gives {_peq(now)}"
     return (f"None to the test. Since the rule was fixed, one backtest result it does not use was corrected: in "
-            f"2.2.0 the SPA p-value was published studentized ({_peq(now)}) in place of the non-studentized "
-            f"{_fmt(PREREG_PUBLISHED_SPA_P)} (section 7). The test's pair, sample, statistic and level are unchanged.")
+            f"2.2.0 the SPA p-value was published studentized (p = {_fmt(PREREG_STUDENTIZED_SPA_P)}) in place of the "
+            f"non-studentized {_fmt(PREREG_PUBLISHED_SPA_P)}{later} (section 7). The test's pair, sample, statistic "
+            f"and level are unchanged.")
 
 
 def print_block(name: str, **options: str) -> None:

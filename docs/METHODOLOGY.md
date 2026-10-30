@@ -297,8 +297,10 @@ data).
   first entry of the pair still pending (it may still resolve, and it precedes everything after
   it). The first `PROMOTION_WEEKS` (52) entries selected are the sample. On it, a one-sided Diebold-Mariano test of
   the QLIKE differences, model of record minus challenger: the mean difference over its standard
-  error from the sample variance (n − 1 denominator, no autocovariance terms, because the windows do
-  not overlap; for one-step forecasts this equals the Harvey-Leybourne-Newbold statistic). As
+  error from the sample variance (n − 1 denominator, no autocovariance terms, so the non-overlapping
+  weeks are treated as serially uncorrelated, an assumption whose backtest evidence
+  [`PREREGISTRATION.md`](PREREGISTRATION.md#5-analysis-and-decision) gives; for one-step forecasts
+  this equals the Harvey-Leybourne-Newbold statistic). As
   Harvey, Leybourne and Newbold (1997) recommend, the p-value is from Student's t with n − 1 = 51
   degrees of freedom (`vol_record.student_t_sf`, a closed-form series in the standard library), not
   the standard normal: the normal's 10% critical value, 1.2816, is below t(51)'s 1.2984, and

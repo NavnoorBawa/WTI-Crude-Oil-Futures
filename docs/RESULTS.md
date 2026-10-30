@@ -342,9 +342,11 @@ with no challenger forecast is recorded and counted by reason, but never enters 
 can neither hold the sample back nor restart it. A different pair would be a new test, declared by
 changing those two constants; a unit test fails if `vol_forecast.MODEL_VERSION` or the lab's
 challenger changes without that declaration. On the sample, a one-sided Diebold-Mariano test of the
-QLIKE differences (model of record minus challenger). Because the windows do not overlap, the
-standard error comes from the plain sample variance, with no autocovariance terms; for one-step
-forecasts that statistic equals Harvey, Leybourne and Newbold's corrected one, and, as they
+QLIKE differences (model of record minus challenger). The standard error comes from the plain
+sample variance, with no autocovariance terms, so the test treats the non-overlapping weeks as
+serially uncorrelated; that is an assumption, and
+[`PREREGISTRATION.md`](PREREGISTRATION.md#5-analysis-and-decision) gives the backtest's evidence on
+it. For one-step forecasts the statistic equals Harvey, Leybourne and Newbold's corrected one, and, as they
 recommend, its p-value is from Student's t with n − 1 degrees of freedom
 (`vol_record.student_t_sf`) rather than the normal, whose 10% critical value is lower. The status is
 `accruing` until the sample is full, then `promote` or `keep`, and later entries never change it.
