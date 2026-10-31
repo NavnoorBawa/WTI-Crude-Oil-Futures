@@ -2094,6 +2094,38 @@ def provenance_table() -> str:
     return "\n".join(rows)
 
 
+def _cl_second_source_lines(lab: dict) -> list[str]:
+    """CL=F against EIA's contract 1 and Cushing spot, and the roll audit (ROADMAP 1.7), from the artifact."""
+    c = lab["cl_source_agreement"]["contract1"]
+    tick = lab["cl_source_agreement"]["tolerance_usd"]
+    since = c["since_sample_first"]
+    spot = lab["cl_source_agreement"]["spot"]
+    audit = lab["roll_convention_audit"]
+    years = ", ".join(f"{year}: {n}" for year, n in c["misses_by_year"].items())
+    worst = c["largest_gaps"][0]
+    early = "; ".join(f"{m['contract']} switched {m['yahoo_switch']}, {-m['offset_sessions']} session"
+                      f"{'s' if -m['offset_sessions'] != 1 else ''} before the lab's roll day"
+                      for m in audit["mismatches"]) or "none"
+    missing = ", ".join(c["eia_sessions_missing_from_cl"]) or "none"
+    return [
+        f"- `CL=F` vs EIA's contract-1 settlement (RCLC1, the front month, final through {c['last']}): "
+        f"{c['common_days']:,} common sessions from {c['first']}, {c['share_same_cent'] * 100:.2f}% equal to the "
+        f"cent and {c['share_within_one_tick'] * 100:.2f}% within one tick (${tick:.2f}); {c['misses']} sessions "
+        f"further apart ({years}), the largest {worst['date']} (Yahoo {worst['yahoo']}, EIA {worst['c1']}). In "
+        f"the scored sample (from {since['first']}): {since['misses']} of {since['common_days']:,} sessions "
+        f"further apart than a tick ({', '.join(since['miss_dates']) or 'none'}). Sessions EIA has that `CL=F` "
+        f"lacks: {missing}.",
+        f"- `CL=F` vs EIA's Cushing spot (RWTC, a physical price, so a loose check): {spot['common_days']:,} "
+        f"common days, median absolute log gap {spot['median_abs_log_gap']}, 99th percentile "
+        f"{spot['p99_abs_log_gap']}, largest {spot['max_abs_log_gap']} ({spot['max_gap_date']}).",
+        f"- Contract rolls: of the {audit['contracts_checked']} contracts that expire inside EIA's contract 1 and "
+        f"2 history, `CL=F` switches on the lab's roll day (the session after the last trade date) for "
+        f"{audit['on_lab_roll_day']}; earlier: {early}; {len(audit['indeterminate'])} cannot be told (EIA lacks "
+        f"a row, the two contracts are within a tick, or `CL=F` matches neither). The "
+        f"{audit['roll_days_after_eia']} roll days after {audit['eia_through']} are not checked.",
+    ]
+
+
 def data_quality_block() -> str:
     """Data-quality facts of the pinned snapshot: repaired bars and the Yahoo vs FRED OVX check."""
     lab = _lab()
@@ -2108,6 +2140,7 @@ def data_quality_block() -> str:
         "closes are never changed).",
         f"- OVX, Yahoo vs FRED: {agree['common_days']:,} common days, {agree['share_within_0_05_pts'] * 100:.2f}% "
         f"within 0.05 points, correlation {agree['correlation']}, largest differences {worst}.",
+        *_cl_second_source_lines(lab),
         f"- Snapshot retrieved {lab['generated_from']['retrieved_at']}, finished sessions through "
         f"{lab['generated_from']['sessions_through']}.",
     ])

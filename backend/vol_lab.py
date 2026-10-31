@@ -80,14 +80,14 @@ if TYPE_CHECKING:
 try:
     from . import market_data
     from . import vol_forecast as vf
-    from .contract_calendar import last_trade_date
+    from .contract_calendar import contract_code, last_trade_date, next_contract
     from .forecast_eval import (basel_zone, delayed_aci, christoffersen, dm_test, dq_test, hac_z,
                                 kupiec, mincer_zarnowitz, model_confidence_set, mse_var, qlike, spa_test)
     from .safe_paths import data_json_path
 except ImportError:  # Direct invocation from backend/
     import market_data  # type: ignore[import-not-found, no-redef]
     import vol_forecast as vf  # type: ignore[import-not-found, no-redef]
-    from contract_calendar import last_trade_date  # type: ignore[import-not-found, no-redef]
+    from contract_calendar import contract_code, last_trade_date, next_contract  # type: ignore[import-not-found, no-redef]
     from forecast_eval import (  # type: ignore[import-not-found, no-redef]
         basel_zone, delayed_aci, christoffersen, dm_test, dq_test, hac_z,
         kupiec, mincer_zarnowitz, model_confidence_set, mse_var, qlike, spa_test)
@@ -175,6 +175,76 @@ def roll_days(dates: pd.DatetimeIndex) -> np.ndarray:
             mask[i] = True
         year, month = (year + 1, 1) if month == 12 else (year, month + 1)
     return mask
+
+
+def window_index(dates: pd.DatetimeIndex, day: pd.Timestamp) -> int:
+    """The position of a session that is in `dates`."""
+    return int(np.flatnonzero(dates == day)[0])
+
+
+def roll_convention_audit(snapshot: market_data.MarketSnapshot) -> dict[str, Any]:
+    """Whether Yahoo's CL=F switches contracts on the lab's roll days, checked against EIA's contracts 1 and 2.
+
+    For each contract that expires inside EIA's history, CL=F should match EIA's contract 1 (the expiring
+    contract) on the last session up to its last trade date and contract 1 again (the new front month)
+    on the lab's roll day, the next session; within one tick, as cl_source_agreement. A contract where it
+    does is counted; one where CL=F followed the next contract (EIA's contract 2) earlier is a mismatch,
+    with the session it switched; one that cannot be told (no EIA row, contracts 1 and 2 within a tick
+    of each other, or CL=F matching neither) is listed as indeterminate. Roll days after EIA's last
+    date are counted as not checked.
+    """
+    if snapshot.eia_futures is None:
+        raise ValueError("the snapshot has no EIA files (python -m backend.market_data --add-eia)")
+    close = market_data.cents(snapshot.cl["Close"])
+    dates = pd.DatetimeIndex(close.index)
+    eia = snapshot.eia_futures
+    tol = market_data.TICK_TOLERANCE
+
+    def on(day: pd.Timestamp, column: str) -> bool:
+        return bool(abs(float(cast(float, close.at[day])) - float(cast(float, eia.at[day, column]))) <= tol)
+
+    checked, on_roll_day, mismatches, indeterminate, unchecked = 0, 0, [], [], 0
+    year, month = dates[0].year, dates[0].month
+    while (year, month) <= (dates[-1].year + 1, dates[-1].month):
+        expiry: Any = pd.Timestamp(last_trade_date(year, month))     # numpy's stubs reject a Timestamp
+        i = int(np.searchsorted(dates, expiry, side="right"))
+        year, month, code = *next_contract(year, month), contract_code(year, month)
+        if not 0 < i < len(dates):
+            continue
+        roll, before = dates[i], dates[i - 1]
+        if roll > eia.index.max():
+            unchecked += 1
+            continue
+        if before < eia.index.min():
+            continue
+        checked += 1
+        facts = {"contract": code, "last_trade": expiry.strftime("%Y-%m-%d"), "lab_roll_day": roll.strftime("%Y-%m-%d")}
+        if before not in eia.index or roll not in eia.index:
+            indeterminate.append({**facts, "reason": "no EIA row on the session before or on the roll day"})
+            continue
+        if abs(float(cast(float, eia.at[before, "c1"])) - float(cast(float, eia.at[before, "c2"]))) <= tol:
+            indeterminate.append({**facts, "reason": "contracts 1 and 2 within a tick of each other"})
+            continue
+        if on(before, "c1") and on(roll, "c1"):
+            on_roll_day += 1
+            continue
+        # The first session from which CL=F follows the next contract through the roll day.
+        window = [day for day in dates[max(0, i - 8):i + 1] if day in eia.index]
+        follows = [on(day, "c2") and not on(day, "c1") if day <= expiry else on(day, "c1") for day in window]
+        switch = next((day for k, day in enumerate(window) if all(follows[k:])), None)
+        if switch is not None and switch < roll:
+            mismatches.append({**facts, "yahoo_switch": switch.strftime("%Y-%m-%d"),
+                               "offset_sessions": window_index(dates, switch) - i})
+        else:
+            indeterminate.append({**facts, "reason": "CL=F matches neither contract on the session before or on the roll day"})
+    return {
+        "eia_through": eia.index.max().strftime("%Y-%m-%d"),
+        "contracts_checked": checked,
+        "on_lab_roll_day": on_roll_day,
+        "mismatches": mismatches,
+        "indeterminate": indeterminate,
+        "roll_days_after_eia": unchecked,
+    }
 
 
 def _overnight_variance(o: np.ndarray, c: np.ndarray, dates: pd.DatetimeIndex | None) -> np.ndarray:
@@ -899,6 +969,8 @@ def build_report(snapshot: market_data.MarketSnapshot, *, progress: Progress | N
     report = {
         "generated_from": snapshot.manifest,
         "ovx_source_agreement": market_data.ovx_source_agreement(snapshot),
+        "cl_source_agreement": market_data.cl_source_agreement(snapshot, frame["date"].min().strftime("%Y-%m-%d")),
+        "roll_convention_audit": roll_convention_audit(snapshot),
         "config": {
             "horizon_sessions": vf.H, "step": vf.STEP, "min_train_rows": vf.MIN_TRAIN,
             "purge_rows": vf.H - 1, "ovx_lag_sessions": vf.OVX_LAG_SESSIONS,

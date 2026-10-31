@@ -201,6 +201,21 @@ test("the ledger's CSV exports what each flag cell shows, with the id, test and 
 });
 
 // ---------------------------------------------------------------------------------------- METH
+test("METH's sources state the CL second-source check and the roll audit from the artifact, and omit them without it", () => {
+  const lab = JSON.parse(readSource("data/vol_lab.json"));
+  const { cl_source_agreement: check, roll_convention_audit: rolls } = lab;
+  const withChecks = { ...research, vol_lab: { ...research.vol_lab, cl_source_agreement: check, roll_convention_audit: rolls } };
+  const text = spaced(visibleText(section(renderPage(withChecks).html, "meth")));
+  const c1 = check.contract1;
+  assert.ok(text.includes(`CL: Yahoo vs EIA contract 1 ${(c1.share_within_one_tick * 100).toFixed(2)}% within $${check.tolerance_usd.toFixed(2)}`), text);
+  assert.ok(text.includes(`${c1.misses} of ${c1.common_days.toLocaleString("en-US")} sessions further apart, ${c1.first} to ${c1.last}`), text);
+  assert.ok(text.includes(`${c1.since_sample_first.misses} in the scored sample`), text);
+  assert.ok(text.includes(`CL rolls vs EIA ${rolls.on_lab_roll_day} of ${rolls.contracts_checked} on the roll day`), text);
+  assert.ok(text.includes(`${rolls.mismatches.length} earlier, ${rolls.indeterminate.length} cannot be told, ${rolls.roll_days_after_eia} roll days after ${rolls.eia_through} not checked`), text);
+  const without = spaced(visibleText(section(renderPage().html, "meth")));             // the fixture predates the checks
+  assert.ok(!without.includes("CL: Yahoo vs EIA") && !without.includes("CL rolls vs EIA"));
+});
+
 test("METH's Reproduce box names the pinned container and its commands, which exist in the repository", () => {
   const text = spaced(visibleText(section(renderPage().html, "meth")));
   assert.ok(text.includes("docker build -t wti-vol . then docker run --rm wti-vol make reproduce"), text);
