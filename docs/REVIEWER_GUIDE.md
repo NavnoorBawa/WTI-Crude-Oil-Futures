@@ -78,8 +78,9 @@ entries that store their fit, the forecast from its own coefficients and inputs.
 hash chain: each entry sealed from 2026-11-02 on stores the SHA-256 of the sealed part of the entry
 before it, so a sealed entry changed, removed or inserted afterwards fails the check unless every
 later link was recomputed as well. Entries sealed before the chain (to 2026-10-30) carry no link and
-are not covered, except the last of them, which the first link hashes. The chain has no key and does not cover the newest entry, so
-compare with a copy of the record you fetched earlier, or with the timestamps below.
+are not covered, except the last of them, which the first link hashes. The chain has no key and
+does not cover the newest entry, so compare with a copy of the record you fetched earlier, or with
+the timestamps and the public log below.
 
 A git commit's date is set by its committer, so the record's own timestamps are not enough. To
 check one against GitHub's clock, pick an entry and compare its `sealed_at` with the time of the
@@ -93,6 +94,26 @@ then open the Refresh run that made that commit under
 [Actions](https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures/actions/workflows/refresh.yml): its
 "Persist live vol track record" step logs the push, timestamped by GitHub. GitHub keeps run logs
 for a limited period, so this check is strongest for recent entries.
+
+The record is also logged outside GitHub's control: after each publish, the Refresh workflow tries
+to attest the record file (best effort), which puts its SHA-256 in Sigstore's public Rekor
+transparency log with Rekor's own time. In a full clone (in a shallow one, run
+`git fetch --unshallow origin live-data` first):
+
+```bash
+git fetch origin live-data
+python scripts/verify_anchors.py --latest 10
+```
+
+Passing: exit status 0, and a row per sealed entry with the first time Rekor logged a version of
+the record that held that entry unchanged, its Rekor log index, and whether that was before its
+window opened. An entry changed or removed after a version holding it was anchored is listed as
+such, with exit status 1. Entries sealed before the anchor job existed, or whose anchor runs
+failed, show no anchor or a late one. The script reads Rekor's index and times, whoever logged the
+entry: that shows the file existed then, not that no other version did. To check that this
+repository's workflow attested a version, save it with
+`git show COMMIT:runtime-state/vol_track_record.json > record.json` and run
+`gh attestation verify record.json --repo NavnoorBawa/WTI-Crude-Oil-Futures`.
 
 ## 4. A failed model is reported, not dropped (one minute)
 

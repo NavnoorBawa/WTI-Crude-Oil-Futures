@@ -86,6 +86,10 @@ flowchart TB
         P3["vol_record.py --seal, then commit and push<br/>vol_track_record.json to live-data<br/>(one step, 4-minute limit; only on top of<br/>the tree the build restored)"]
         P1 --> P2 --> P3
     end
+    subgraph anchor["refresh.yml / anchor job (no contents write; may fail)"]
+        AT["actions/attest: the record file on live-data<br/>(Sigstore keyless signature)"]
+    end
+    P3 --> AT --> RK[("Rekor public<br/>transparency log")]
     NB -- "artifacts: site, runtime state" --> P1
     subgraph price["price.yml (write token, stdlib only)"]
         Q["refresh_live_price.py<br/>quote, contract-matched near rolls"]
@@ -100,6 +104,8 @@ flowchart TB
 - **Least privilege.** The build job holds a read-only token and runs every third-party install and
   build tool. The publish job holds the write token, installs nothing, and runs only GitHub's own
   checkout, artifact and Python setup actions, git, and this repository's standard-library scripts.
+  The anchor job can sign and store an attestation (`id-token`, `attestations`) but not write the
+  repository, and runs only GitHub's checkout and attest actions.
   `tests/test_workflow_guards.py` enforces this (action allowlist pinned to commit SHAs, no package
   tooling in write-token jobs, no secret except `EIA_API_KEY` in the freeze step).
 - **Fail closed.** A failed freeze, a payload that fails validation, a missing or malformed live
@@ -117,7 +123,13 @@ flowchart TB
   of the entry before it (`previous_sha256`, a hash chain); `scripts/verify_record.py`, the Health
   workflow and LIVE report a break, and loading the record never checks it, so a break cannot stop
   the pipeline. The chain has no key and does not cover the newest entry: it shows an edit only
-  when the later links were left alone, or against an earlier copy of the record.
+  when the later links were left alone, or against an earlier copy of the record. After publish,
+  the anchor job attests the record file as it then is on `live-data` (best effort), which logs its
+  SHA-256 in Sigstore's public Rekor log with Rekor's own time; `scripts/verify_anchors.py` reads
+  those times back for each sealed entry. It runs after the seal, never inside its step, and
+  `continue-on-error` keeps a Sigstore outage from failing a refresh; while it runs it holds the
+  workflow's concurrency group, so a slow anchor can hold the next queued refresh for at most its
+  five-minute timeout.
 - **Cadence.** GitHub runs scheduled workflows on a best-effort basis: the refresh is scheduled
   every 4 hours and the quote every 15 minutes, and either can land late or be skipped. The
   dashboard dates what it displays rather than assuming a cadence: the top bar gives the snapshot's
@@ -153,6 +165,7 @@ flowchart TB
 | `backend/research_ledger.py` | Every hypothesis tested, with multiplicity adjustments |
 | `scripts/validate_frozen_payload.py` | Deploy gate (stdlib only) |
 | `scripts/record_health.py` | The Health workflow's check of the record, the site and the last runs (stdlib only) |
+| `scripts/verify_record.py`, `scripts/verify_anchors.py` | A reviewer's checks of the sealed record, from the file alone and against the Rekor log (stdlib only) |
 | `scripts/build_research_bundle.py`, `scripts/readme_blocks.py`, `scripts/make_figures.py` | research.json, the generated docs and the figures, from the artifacts |
 | `Dockerfile`, `Makefile`, `.devcontainer/` | The pinned reproduce environment and one target per check |
 | `src/` | Dashboard (below) |
