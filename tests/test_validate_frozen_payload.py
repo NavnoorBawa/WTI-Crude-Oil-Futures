@@ -478,6 +478,19 @@ class VolForecastValidationTest(unittest.TestCase):
                     self.assertIn(f"vol_forecast.live_record.{key} must be a non-negative integer",
                                   self.errors_with(lambda vol: vol.update(live_record=record)))
 
+    def test_live_record_chain_is_optional_but_well_formed_when_present(self):
+        self.assertEqual(self.record_errors(chain={"n_linked": 0, "breaks": []}), [])
+        self.assertEqual(self.record_errors(chain={"n_linked": 2, "breaks": ["2026-11-03"]}), [])
+        where = "vol_forecast.live_record.chain"
+        for bad, message in (([], f"{where} must be an object"),
+                             ({"n_linked": -1, "breaks": []}, f"{where}.n_linked must be a non-negative integer"),
+                             ({"n_linked": True, "breaks": []}, f"{where}.n_linked must be a non-negative integer"),
+                             ({"n_linked": 10 ** 6, "breaks": []}, f"{where}.n_linked cannot exceed n_recorded"),
+                             ({"n_linked": 0}, f"{where}.breaks must be a list of ISO dates (YYYY-MM-DD)"),
+                             ({"n_linked": 0, "breaks": ["20261103"]}, f"{where}.breaks must be a list of ISO dates (YYYY-MM-DD)")):
+            with self.subTest(bad=bad):
+                self.assertIn(message, self.record_errors(chain=bad))
+
     def test_live_record_recent_must_be_a_list_of_objects(self):
         for bad in (None, {}, "[]", [1, 2], [{"status": "pending"}, None]):
             with self.subTest(bad=bad):

@@ -468,6 +468,17 @@ export const LIVE_MIN_INDEPENDENT = 10;
  * `recent` rows pass through as published (newest first), with the audit fields of
  * vol_record._recent when the payload has them.
  */
+/**
+ * The record's hash chain (backend/vol_record.py chain_breaks): how many entries carry a link to the
+ * entry before them, and the as_of of each broken link. Null when the summary predates the chain.
+ */
+const chainStatus = (raw) => {
+  const chain = asObject(raw);
+  if (!chain) return null;
+  const breaks = asArray(chain.breaks).filter((day) => typeof day === "string" && ISO_DATE.test(day));
+  return { linked: num(chain.n_linked), breaks: breaks.map((day) => day.slice(0, 10)) };
+};
+
 export const liveRecordSummary = (record) => {
   const lr = asObject(record);
   if (!lr) return null;
@@ -496,6 +507,7 @@ export const liveRecordSummary = (record) => {
     recordAll: { n: num(champion.n), qlike: num(champion.qlike), modelVersion: asText(champion.model_version) },
     recent,
     promotion: promotionStatus(lr.promotion),
+    chain: chainStatus(lr.chain),
     promotionRule: asText(lr.promotion_rule),
     note: asText(lr.note),
     directionNote: asText(lr.direction_note),

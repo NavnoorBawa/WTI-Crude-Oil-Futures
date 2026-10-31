@@ -94,6 +94,7 @@ runs `build_research_bundle.validate` on `research.json`).
         "n_excluded_other_version": 0,                // resolved entries left out of the test, by reason
         "n_excluded_other_challenger": 0, "n_excluded_no_challenger": 0
       },
+      "chain": { "n_linked": 0, "breaks": [] },     // optional; the hash chain: entries carrying a link, as_of of each broken link
       "recent": [ { "as_of": "...", "issued_at": "...", "model_version": "har-iv/2",
                     "recorded_at": "...", "sealed_at": "...",          // optional; sealed_at null until sealed
                     "base_session": "...",                           // optional; its 14:30 ET settlement opens the window
@@ -137,7 +138,9 @@ its pair (`model_version`, `challenger_key`: non-empty strings) and give the thr
 (non-negative integers); `champion.model_version` and `challenger.key` must be that pair; and the
 resolved entries must add up: `n_resolved = champion.n + promotion.n_excluded_other_version`, and
 `champion.n = challenger.n + promotion.n_excluded_other_challenger +
-promotion.n_excluded_no_challenger`. `next_result_due` must be present: an ISO date (`YYYY-MM-DD`)
+promotion.n_excluded_no_challenger`. `chain` is optional (summaries written before the hash chain
+omit it); when present, `n_linked` is a non-negative integer no larger than `n_recorded` and
+`breaks` a list of ISO dates, empty unless a sealed entry was changed, removed or inserted. `next_result_due` must be present: an ISO date (`YYYY-MM-DD`)
 or null, and null when no entry is pending. The `recent[]` audit fields are optional (summaries
 written before they existed omit them) and each may be null; when present, `recorded_at` and
 `sealed_at` must be ISO timestamps with a UTC offset, `base_session` an ISO date,

@@ -7,6 +7,8 @@
 
 Needs a person (the Health run fails until it clears):
 - the record does not load under vol_record.load_record's contract, or data.json is unreadable;
+- the record's hash chain is broken (vol_record.chain_breaks): a link is missing from a sealed entry
+  that must carry one, or does not match the entry before it;
 - a session's entry is due but missing, and can still be recorded. NYMEX session d is due DUE_GRACE
   after the midnight ET that follows it: from that midnight on, the record's clock rule
   (contract_calendar.last_completed_bar_date) counts d's bar as finished at every moment, and the
@@ -124,6 +126,10 @@ def record_problems(record: dict[str, Any], now: datetime) -> list[Problem]:
     """Problems in a record that loaded: missed sessions, recent late_commit or expired entries, overdue results."""
     problems: list[Problem] = []
     entries = record["entries"]
+    by_as_of = {entry["as_of"]: entry for entry in entries}
+    for as_of in vr.chain_breaks(entries):
+        problems.append(Problem(f"chain:{as_of}", f"The record's hash chain breaks at entry {as_of}: "
+                                f"{vr.chain_break_reason(by_as_of[as_of])} (scripts/verify_record.py).", True))
     since = (now - timedelta(days=LOOKBACK_DAYS)).date()
     due = due_through(now)
     newest = max((entry["as_of"] for entry in entries), default=None)
