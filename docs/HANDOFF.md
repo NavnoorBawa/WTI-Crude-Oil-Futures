@@ -45,7 +45,9 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   keeps one issue labelled `health` open, assigned to the owner, while something needs a person,
   and fails while it does (ROADMAP 1.5). From the 2026-11-02 entry on, each sealed entry links to
   the one before it (`previous_sha256`, a hash chain without a key; ROADMAP 1.4), and
-  `scripts/verify_record.py`, Health and LIVE report a break.
+  `scripts/verify_record.py`, Health and LIVE report a break. After each publish the Refresh
+  workflow's `anchor` job attests the persisted record, logging its SHA-256 in Sigstore's public
+  Rekor log; `scripts/verify_anchors.py` reads the times back (ROADMAP 1.3).
 - **Tests.** 518 Python (unittest), 264 frontend (node --test) and 13 browser checks (Playwright,
   the "Interface" CI job: axe, layout shift, overflow, keyboard, print, script budget). CI also runs
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
@@ -62,6 +64,13 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
 - Each refresh after a window closes resolves it (once `bars_cutoff` reaches the window's last
   session, so usually the run after 05:00 UTC). Check every new resolution against
   `scripts/verify_record.py` and the page (LIVE title, coverage count, QLIKE facts).
+- **The first anchors.** On the first Refresh runs after the anchor job ships, open the `anchor`
+  job's log: it must say "Attestation signed using certificate from Public Good Sigstore instance"
+  and print a Rekor search link. If it names GitHub's instance instead, the attestation is not in
+  the public log and `scripts/verify_anchors.py` finds nothing; report that rather than working
+  around it. Then run `git fetch origin live-data && python scripts/verify_anchors.py --latest 5`:
+  every entry recorded after the job shipped should be anchored before its window opened (ROADMAP
+  1.3's acceptance: two scheduled publishes).
 - At 10 independent weeks LIVE starts comparing the two models on the same calls; check that
   wording when it first appears (around January 2027).
 - Do not touch the promotion test. It decides once, at 52 independent paired weeks (late 2027).
@@ -115,6 +124,11 @@ and its CI run is the test.
   taller neighbours; the price chart's log axis uses library tick positions.
 
 ### 5. Engineering
+- **The rest of ROADMAP 1.3.** Show "anchored <time>" with a Rekor link on LIVE rows that have one
+  (the site is built before the seal and the anchor, so the build would read the earlier versions'
+  anchors from Rekor, failure-tolerant, without the visitor's browser calling Rekor), and add a
+  second, independent anchor with OpenTimestamps (its proofs need a store outside the record, such
+  as a sibling branch, and a job that can push there without touching `live-data`).
 - **Pixel screenshots.** The browser checks assert properties, not pixels (font rasterization
   differs between machines); add screenshot comparison only with a tolerance and pinned fonts.
 - The rest of ROADMAP Stage 5 (data contract as code, an offline pipeline rehearsal, the refresh

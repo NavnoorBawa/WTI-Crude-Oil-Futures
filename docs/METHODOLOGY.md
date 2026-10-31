@@ -287,6 +287,18 @@ data).
 - **Evidence of timing.** A git commit's author and committer dates are set by whoever makes the
   commit, so they are not evidence. GitHub's own records are: the Actions run log of the publish
   job and the push event on `live-data`, both timestamped by GitHub (and kept for a limited period).
+  From November 2026 a clock outside the repository is added: after each publish, the Refresh
+  workflow's `anchor` job attests the record file as persisted (GitHub's `actions/attest`, signed
+  keylessly with the workflow's identity), which logs the file's SHA-256 in Sigstore's public Rekor
+  transparency log with Rekor's own time. No one can log a digest before the bytes it hashes
+  exist, so the first time Rekor logged a version of the file is a time by which every entry in it
+  existed. `scripts/verify_anchors.py` gives, for each sealed entry, the earliest such time of a
+  version that held it unchanged (`vol_record.entry_digest`) and whether it precedes the settlement
+  that opens the entry's window; to check a version's signature as well, run `gh attestation
+  verify` on that version of the file. The job runs after the seal and its failure never fails or
+  delays a refresh, so a missing anchor changes nothing about an entry. Entries sealed before the
+  job existed were first anchored after their windows opened, which shows only that they existed by
+  then.
 - **Resolution.** An entry is resolved once the closes of `k0 .. k0+5` are all available as
   finished sessions. A window that spans a CL contract roll is `skipped_roll` and never scored; an
   entry whose closes are still missing ten sessions after `k0+5` is `expired`.

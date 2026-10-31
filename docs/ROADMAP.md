@@ -21,7 +21,7 @@ Each line below is a property with a test; the project is "there" when every lin
 | --- | --- | --- |
 | Every number on the page is computed from the payloads | `tests/frontend` render tests; no statistic literal in copy | holds |
 | The main result reproduces bit for bit from pinned inputs | Reproduce workflow on `data/vol_lab.json` | holds (on every change to the pipeline, its inputs or its pins, and weekly) |
-| The forward record cannot be back-filled, and that is provable to an outsider | git seal before the window, plus an independent timestamp anchor | partial: sealed in git and checked from the file alone (`scripts/verify_record.py`); no external anchor |
+| The forward record cannot be back-filled, and that is provable to an outsider | git seal before the window, plus an independent timestamp anchor | partial: sealed in git and checked from the file alone (`scripts/verify_record.py`); each persisted version logged in Sigstore's Rekor from November 2026 (`scripts/verify_anchors.py`); not shown on LIVE, no second anchor |
 | The promotion test was fixed before any result arrived | a pre-registered, citable document with a persistent identifier | partial: pinned in code and docs; release tags wait for the owner's push (`HANDOFF.md` section 6); no DOI |
 | Forecast quality is judged with the right losses, at the right horizons, conditionally | QLIKE, MSE, MCS, SPA, DM today; density and conditional tests, several horizons | partial: SPA studentized with robustness; density, conditional tests and horizons to do |
 | The model is specified, bounded and attributable | model card, elasticities, hand-checkable arithmetic; per-call attribution | holds from 2026-10-28: each new call stores its fit and the hero splits the change between two such calls; the six earlier sealed calls have no stored fit |
@@ -380,6 +380,11 @@ Tick items here with the PR number and date when they ship, and move any new fin
   `scripts/bump_version.py`; `tests/test_release_metadata.py`; `.github/workflows/release.yml`
   publishes each tag's Release with `SHA256SUMS` from 2.2.0 on. A session cannot push tags, so
   `v2.0.0`, `v2.1.0` and `v2.2.0` wait for the owner (`HANDOFF.md` section 6, with the commands).
+- **1.3 Independent timestamp anchor** (#PRNUM, DATE), except the LIVE display and the OpenTimestamps
+  stamp: refresh.yml's `anchor` job attests the persisted record with `actions/attest` (keyless
+  Sigstore, public Rekor log) after publish, with `continue-on-error`; the proof lives in Rekor and
+  the repository's attestations, never in the record. `scripts/verify_anchors.py` gives each sealed
+  entry's earliest anchor of an unchanged version against its window.
 - **1.4 Hash chain across record entries** (#81, 2026-10-31): the seal stores `previous_sha256` of the
   sealed part of the entry before it; `scripts/verify_record.py`, the Health workflow and LIVE report
   a break; the validator checks only a link's form, so a break never stops the pipeline.
