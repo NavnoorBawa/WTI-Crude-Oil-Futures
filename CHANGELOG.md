@@ -19,6 +19,18 @@ backs the new one.
   copy of the record. Additive: nothing else about sealing, recording or scoring changes, entries
   sealed before the chain carry no link (and are not covered, except the last of them), and loading the record never checks the chain, so a break
   cannot stop the pipeline. (ROADMAP 1.4.)
+- **An independent timestamp for the record (best effort).** After each publish, the Refresh
+  workflow's new `anchor` job attests `runtime-state/vol_track_record.json` as it then is on
+  `live-data` with GitHub's `actions/attest`: Sigstore signs it keylessly with the workflow's
+  identity and logs its SHA-256 in the public Rekor log, with a time neither this repository nor
+  GitHub sets. `scripts/verify_anchors.py` (standard library) walks the branch's history of the file
+  and gives, for each sealed entry, the first time Rekor logged a version holding it unchanged,
+  whether that preceded the settlement that opens its window, and any anchored entry changed or
+  removed since (exit status 1). The job runs after publish, never inside it, and cannot write the
+  repository; it cannot delay or fail that run's deploy, seal or persist, and a failure leaves the
+  run green and the version unanchored. Entries sealed before the job existed can be anchored only
+  from its first run on. (ROADMAP 1.3, in progress: its acceptance waits on scheduled runs; the
+  LIVE display and a second, OpenTimestamps anchor are not done.)
 
 ### Engineering
 

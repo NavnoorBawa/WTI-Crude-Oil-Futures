@@ -326,11 +326,19 @@ branch ([`backend/vol_record.py`](../backend/vol_record.py)):
   are not covered, except the last of them, which the first link hashes. The chain has no key: whoever can write
   `live-data` can recompute every later link, and nothing links to the newest entry until the next
   seal, so an edit of that kind, or to the newest entry, shows only against an earlier copy of the
-  record or an independent timestamp of one ([`ROADMAP.md`](ROADMAP.md), Stage 1, item 3).
+  record or an independent timestamp of one (next item).
 - **Evidence of timing.** A git commit's date is set by whoever makes the commit, so on its own it
-  proves nothing. The external evidence is GitHub's: the Actions run log of each publish job and the
-  push event that delivered the record to `live-data`, both timestamped by GitHub (which keeps them
-  for a limited period, not indefinitely).
+  proves nothing. GitHub's evidence is the Actions run log of each publish job and the push event
+  that delivered the record to `live-data`, both timestamped by GitHub (which keeps them for a
+  limited period, not indefinitely). An outside clock is being added: after each publish, the
+  Refresh workflow tries to attest the record as it then is (GitHub's `actions/attest`, best
+  effort), which logs the file's SHA-256 in Sigstore's public Rekor log with a time neither this
+  repository nor GitHub sets; no one can log a digest before the file exists.
+  [`scripts/verify_anchors.py`](../scripts/verify_anchors.py) lists, for each sealed entry, the
+  first time Rekor logged a version that held it unchanged and whether that came before its window
+  opened, and fails if an anchored entry was later changed or removed. That shows the entry existed
+  by then, not that no other version did. Entries sealed before the anchor job existed can be
+  anchored only from its first run on.
 
 The promotion rule was fixed before the first live forecast ([`PREREGISTRATION.md`](PREREGISTRATION.md)
 states it as a pre-registration, with the commands that date it). It is stated in code

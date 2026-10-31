@@ -288,6 +288,21 @@ data).
 - **Evidence of timing.** A git commit's author and committer dates are set by whoever makes the
   commit, so they are not evidence. GitHub's own records are: the Actions run log of the publish
   job and the push event on `live-data`, both timestamped by GitHub (and kept for a limited period).
+  A clock outside the repository: after each publish, the Refresh workflow's `anchor` job tries to
+  attest the record file as it then is on `live-data` (GitHub's `actions/attest`, signed keylessly
+  with the workflow's identity), which logs the file's SHA-256 in Sigstore's public Rekor
+  transparency log with Rekor's own time. No one can log a digest before the bytes it hashes
+  exist, so the first time Rekor logged a version of the file is a time by which every entry in it
+  existed. `scripts/verify_anchors.py` gives, for each sealed entry, the earliest such time of a
+  version that held it unchanged (`vol_record.entry_digest`) and whether it precedes the settlement
+  that opens the entry's window, and fails if an anchored entry was later changed or removed. It
+  reads times only: the earliest entry naming the digest counts whoever logged it, which shows the
+  file existed then, not who logged it, and not that no other version existed (anyone holding
+  several candidate files could log each); `gh attestation verify` on a version of the file checks
+  that this repository's workflow attested it. The job is best effort and runs after the seal: a
+  failed run leaves that version unanchored and changes nothing about an entry, and the seal's
+  step is untouched. Entries sealed before the job existed can be anchored only from its first run
+  on.
 - **Resolution.** An entry is resolved once the closes of `k0 .. k0+5` are all available as
   finished sessions. A window that spans a CL contract roll is `skipped_roll` and never scored; an
   entry whose closes are still missing ten sessions after `k0+5` is `expired`.
