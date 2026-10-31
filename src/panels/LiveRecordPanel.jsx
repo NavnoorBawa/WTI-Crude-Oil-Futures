@@ -454,10 +454,10 @@ export default function LiveRecordPanel({ data, research }) {
     >
       {summary.chain?.breaks.length > 0 && (
         <p className="notice is-warn" role="status">
-          The record&apos;s hash chain is broken at {summary.chain.breaks.map((day) => fmtDate(day)).join(", ")}: the
-          link stored with that call is missing or no longer matches the call before it, so a sealed call was
-          changed, removed or inserted, or a run without the chain sealed it. <code>scripts/verify_record.py</code>{" "}
-          says which.
+          The record&apos;s hash chain is broken at {summary.chain.breaks.map((day) => fmtDate(day)).join("; ")}: the
+          link stored with {summary.chain.breaks.length === 1 ? "that call" : "each of those calls"} is missing or no
+          longer matches the call before it, so a sealed call was changed, removed or inserted, or a run without the
+          chain sealed it. <code>scripts/verify_record.py</code> says which.
         </p>
       )}
       {/* The one place the record's calls are counted by state; the meta line gives only the total. */}

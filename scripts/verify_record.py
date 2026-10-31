@@ -165,7 +165,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Hash chain: {linked} of {len(entries)} entries linked"
           + (f", broken at {', '.join(breaks)}" if breaks else ", no break"))
     by_as_of = {entry["as_of"]: entry for entry in entries}
-    failures += [(as_of, vr.chain_break_reason(by_as_of[as_of])) for as_of in breaks]
+    failures += [(as_of, vr.chain_break_reason(by_as_of[as_of], first=as_of == entries[0]["as_of"]))
+                 for as_of in breaks]
     for as_of, problem in failures:
         print(f"FAIL {as_of}: {problem}")
     print("OK: every entry passes" if not failures else f"{len(failures)} check(s) failed")

@@ -322,7 +322,8 @@ branch ([`backend/vol_record.py`](../backend/vol_record.py)):
   resolution sets), and every sealed entry from then on must carry one. That part includes the
   earlier entry's own link, so changing, removing or inserting a sealed entry while keeping the
   later links breaks a link; [`scripts/verify_record.py`](../scripts/verify_record.py) fails on a
-  break, and the Health workflow and LIVE report it. The chain has no key: whoever can write
+  break, and the Health workflow and LIVE report it. Entries sealed before the chain (to 2026-10-30)
+  are not covered, except the last of them, which the first link hashes. The chain has no key: whoever can write
   `live-data` can recompute every later link, and nothing links to the newest entry until the next
   seal, so an edit of that kind, or to the newest entry, shows only against an earlier copy of the
   record or an independent timestamp of one ([`ROADMAP.md`](ROADMAP.md), Stage 1, item 3).

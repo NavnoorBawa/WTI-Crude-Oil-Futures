@@ -17,7 +17,7 @@ backs the new one.
   many calls carry a link. The chain has no key and does not cover the newest entry, so an edit
   that recomputes every later link, or touches only the newest entry, shows only against an earlier
   copy of the record. Additive: nothing else about sealing, recording or scoring changes, entries
-  sealed before the chain carry no link, and loading the record never checks the chain, so a break
+  sealed before the chain carry no link (and are not covered, except the last of them), and loading the record never checks the chain, so a break
   cannot stop the pipeline. (ROADMAP 1.4.)
 
 ### Engineering

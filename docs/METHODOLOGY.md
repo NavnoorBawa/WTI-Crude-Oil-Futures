@@ -278,7 +278,8 @@ data).
   its `.0` (46.0, not 46). A sealed entry changed, removed or inserted while the later links are
   kept breaks a link, and so does a sealed entry without a link from `vol_record.CHAIN_FROM`
   (2026-11-02) on, so removing every link is a break too (`vol_record.chain_breaks`). Entries
-  sealed before the chain carry no link; loading the record checks only a link's form, never the
+  sealed before the chain carry no link and are not covered, except the last of them, which the
+  first link hashes; loading the record checks only a link's form, never the
   chain, so a break cannot stop the pipeline: the verifier, the Health workflow and LIVE report
   it. What the chain cannot show: it has no key, so whoever can write `live-data` (an unprotected
   branch) can edit an entry and recompute every later link, and nothing links to the newest entry
