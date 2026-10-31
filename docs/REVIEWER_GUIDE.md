@@ -19,7 +19,7 @@ Claim: every table, result statistic and data-dependent verdict in the README an
 is generated from `data/*.json`, including whether a result is called significant.
 
 ```bash
-PYTHONPATH=. python -m cogapp --check README.md docs/RESULTS.md docs/MODEL_CARD.md docs/DATASHEET.md
+PYTHONPATH=. python -m cogapp --check README.md docs/RESULTS.md docs/MODEL_CARD.md docs/DATASHEET.md docs/PREREGISTRATION.md
 ```
 
 Passing: one `Checking <file>` line per page and exit status 0. The sentences are written in
@@ -108,7 +108,9 @@ Benjamini-Hochberg and Holm, and why the challenger's pairwise test is left out 
 was chosen by searching the same sample; Hansen's SPA test is its search-adjusted counterpart). The
 promotion rule, fixed before the first live forecast and pinned in code, is quoted in
 [section 3 of the full results](RESULTS.md#3-live-record-and-governance), with the power the single
-test has.
+test has. [`PREREGISTRATION.md`](PREREGISTRATION.md) states it as a pre-registration (hypotheses,
+sample and stopping rule, analysis, what was known when it was fixed, deviations), with its tables
+and figures generated from the same constants and the commands that date it.
 
 ## What would change the conclusions
 

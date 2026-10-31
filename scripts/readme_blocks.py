@@ -22,7 +22,8 @@ import json
 import math
 from pathlib import Path
 
-from backend.vol_record import PROMOTION_ALPHA, PROMOTION_RULE, PROMOTION_WEEKS, student_t_sf
+from backend.vol_record import (HORIZON_SESSIONS, PROMOTION_ALPHA, PROMOTION_CHALLENGER, PROMOTION_MODEL_VERSION,
+                                 PROMOTION_RULE, PROMOTION_WEEKS, WINDOW_NOTE, student_t_sf)
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
@@ -1727,6 +1728,160 @@ def promotion_power(min_weeks: int = PROMOTION_WEEKS, alpha: float = PROMOTION_A
             f"probability {p52 * 100:.0f}%, and a fixed-sample test with 80% power would need {weeks_80}. This treats the weekly loss differences as normal, so the statistic is "
             f"noncentral t with {min_weeks - 1} degrees of freedom, compared with the test's own critical value, "
             f"t({min_weeks - 1})'s {crit:.3f}. {size} {reading}")
+
+
+# --------------------------------------------------------------------------- the pre-registration
+# docs/PREREGISTRATION.md: the promotion test as registered, read from vol_record's constants and the
+# lab's artifact, so its tables and figures cannot drift from the code that runs the test. Two facts
+# are history, not data, and are pinned here: the record's first session (live-data; the first row
+# scripts/verify_record.py prints), the SPA p-value published when the rule was fixed (commit
+# 48138bc's README and data/vol_lab.json, the non-studentized test) and the one 2.2.0 published.
+PREREG_FIRST_SESSION = "2026-10-20"
+PREREG_PUBLISHED_SPA_P = 0.072
+PREREG_STUDENTIZED_SPA_P = 0.011     # what 2.2.0 published in its place (CHANGELOG.md, 2.2.0 errata)
+
+def _short_label(model: dict) -> str:
+    """A model's label without the role the leaderboard appends to it ("HAR-IV (model of record)" -> "HAR-IV")."""
+    return model["label"].split(" (")[0]
+
+
+def prereg_design() -> str:
+    """The registered design as a table: each element, its value and where the code fixes it."""
+    from statistics import NormalDist
+
+    lab = _lab()
+    df = PROMOTION_WEEKS - 1
+    crit = _t_critical(PROMOTION_ALPHA, df)
+    normal = NormalDist().inv_cdf(1 - PROMOTION_ALPHA)
+    rows = [
+        ("Model of record", f"{_short_label(_champ(lab))}, model version `{PROMOTION_MODEL_VERSION}`",
+         "`vol_record.PROMOTION_MODEL_VERSION`"),
+        ("Challenger", f"{_short_label(_chall(lab))}, key `{PROMOTION_CHALLENGER}`", "`vol_record.PROMOTION_CHALLENGER`"),
+        ("Loss", "QLIKE on variances: r − ln r − 1, with r the realized over the forecast variance",
+         "`vol_record.qlike`"),
+        ("Loss difference", "d = QLIKE(model of record) − QLIKE(challenger); positive favours the challenger",
+         "`vol_record.promotion_test`"),
+        ("Unit", f"one recorded forecast, scored on the realized volatility of the next {HORIZON_SESSIONS} "
+                 f"settlement-to-settlement returns", "`vol_record.HORIZON_SESSIONS`"),
+        ("Sample", f"the first {PROMOTION_WEEKS} resolved entries of the pair whose windows do not overlap, in "
+                   f"record order", "`vol_record.PROMOTION_WEEKS`, `promotion_sample`"),
+        ("Statistic", f"mean of d over its standard error (sample variance, n − 1 denominator, no autocovariance "
+                      f"terms); one-sided p from Student's t with {df} degrees of freedom",
+         "`vol_record.promotion_test`, `student_t_sf`"),
+        ("Level", f"{PROMOTION_ALPHA:.2f}, one-sided: promote when the statistic exceeds t({df})'s upper "
+                  f"{PROMOTION_ALPHA * 100:.0f}% point, {crit:.4f}", "`vol_record.PROMOTION_ALPHA`"),
+        ("Looks", "one, when the sample is full; later entries never change the verdict", "`vol_record.promotion_sample`"),
+    ]
+    table = "| Element | Registered value | Fixed in |\n| --- | --- | --- |\n" + "\n".join(
+        f"| {name} | {value} | {where} |" for name, value, where in rows)
+    size = student_t_sf(normal, df)
+    return (f"{table}\n\nThe Student t reference matters at this sample size: the standard normal's upper "
+            f"{PROMOTION_ALPHA * 100:.0f}% point is {normal:.4f}, and rejecting above it would have a size of "
+            f"{size * 100:.1f}% under t({df}), not {PROMOTION_ALPHA * 100:.0f}%.")
+
+
+def prereg_window() -> str:
+    """The scoring window as the record states it (vol_record.WINDOW_NOTE)."""
+    return f"> {WINDOW_NOTE}"
+
+
+def prereg_selection() -> str:
+    """What the backtest said about the pair when the rule was fixed, and what it says now; neither enters the test."""
+    lab, ledger = _lab(), _ledger()
+    champ, chall = _champ(lab), _chall(lab)
+    spa = lab["leaderboard"]["spa_qlike_vs_har_iv"]
+    dm = chall["dm_qlike_vs_har_iv"]
+    plain = spa["non_studentized"]["p_consistent"]
+    now = spa["p_consistent"]
+    same = round(plain, 3) == round(PREREG_PUBLISHED_SPA_P, 3)
+    published = (f"When the rule was fixed it was published as p = {_fmt(PREREG_PUBLISHED_SPA_P)}; that value was the "
+                 f"non-studentized test (the 2.2.0 errata in CHANGELOG.md)"
+                 + ("" if same else f", which the current artifact gives as p = {_fmt(plain)}") + ".")
+    return (f"The challenger was not chosen blind. On the historical sample it has the lowest QLIKE of the "
+            f"{len(spa['models'])} alternatives to the model of record ({_fmt(chall['qlike'])} against "
+            f"{_fmt(champ['qlike'])}; pairwise Diebold-Mariano {_peq(dm['p_value'])}), and it was picked for that "
+            f"reason, so its pairwise p-value overstates the evidence. The test that accounts for the search is "
+            f"Hansen's SPA over all {len(spa['models'])} alternatives. {published} "
+            f"Studentized as Hansen defines it, the test gives {_peq(now)} ({_level(now)})"
+            f"{_spa_adjusted(ledger) if _sig(now) else ''}. "
+            f"None of these numbers enters the live test. They are why the challenger runs live instead of "
+            f"replacing the model of record, and why only forecasts recorded after the rule was fixed decide.")
+
+
+def prereg_duration() -> str:
+    """When the sample can fill at the earliest under the record's own rules: one in-time, paired entry every
+    session from the first one, each issued the morning after its session, windows across a roll never scored,
+    and promotion_sample's greedy selection."""
+    from datetime import date, datetime, time, timedelta, timezone
+
+    from backend.contract_calendar import business_days_between, is_business_day, spans_roll
+    from backend.vol_record import COMMIT_MARGIN, target_window
+
+    day, chosen, last_end = date.fromisoformat(PREREG_FIRST_SESSION), [], None
+    while len(chosen) < PROMOTION_WEEKS:
+        if is_business_day(day):
+            issued = datetime.combine(day + timedelta(days=1), time(5, 0), tzinfo=timezone.utc)
+            window = target_window(issued + COMMIT_MARGIN)
+            if not spans_roll(window["base_session"], window["target_end"]) and (
+                    last_end is None or window["target_start"] > last_end):
+                chosen.append(window)
+                last_end = window["target_end"]
+        day += timedelta(days=1)
+    base, end = chosen[0]["base_session"], chosen[-1]["target_end"]
+    sessions = business_days_between(base, end)
+    months = (end - base).days / 30.44
+    return (f"At the earliest, the sample is full when the window ending {end:%Y-%m-%d} resolves: "
+            f"{sessions} sessions after the {base:%Y-%m-%d} settlement that opened the first window (about "
+            f"{months:.0f} months), not {PROMOTION_WEEKS} × {HORIZON_SESSIONS} = {PROMOTION_WEEKS * HORIZON_SESSIONS}. "
+            f"That is the case in which every session from the first entry on is recorded, sealed in time and "
+            f"paired; windows that cross the monthly contract roll are never scored, so every roll costs the greedy "
+            f"selection one to {_word(HORIZON_SESSIONS)} sessions. A missed, unpaired or expired session can delay it, "
+            f"if it is one the selection would have taken; the next roll often absorbs a single such loss. The "
+            f"record summary publishes `n_independent_paired` against `required` as the sample accrues.")
+
+
+def prereg_dependence() -> str:
+    """How far the backtest's weekly loss differences are from the serially uncorrelated weeks the statistic assumes."""
+    from backend.vol_record import qlike
+
+    lab = _lab()
+    s = lab["series"]
+    d = [qlike(a, m) - qlike(a, c) for a, m, c in zip(s["actual"], s["har_iv"], s["challenger"])
+         if a and m and c]
+    n = len(d)
+    mean = sum(d) / n
+    dev = [x - mean for x in d]
+    gamma = [sum(dev[i] * dev[i - k] for i in range(k, n)) / n for k in range(n)]
+    lags = int(4 * (n / 100) ** (2 / 9))
+    long_run = gamma[0] + 2 * sum((1 - k / (lags + 1)) * gamma[k] for k in range(1, lags + 1))
+    rho1, ratio = gamma[1] / gamma[0], long_run / gamma[0]
+    correlated = abs(rho1) > 2 / math.sqrt(n)      # outside the white-noise band of the lag-1 autocorrelation
+    figures = (f"On its weekly series ({n:,} non-overlapping weeks, {s['date'][0][:4]}–{s['date'][-1][:4]}, "
+               f"forecasts rounded to 0.1 vol points), the same loss difference d has a lag-1 autocorrelation of "
+               f"{_fmt(rho1, 2)}, and its Newey-West long-run variance ({lags} lags) is {_fmt(ratio, 2)} times the "
+               f"plain variance.")
+    if correlated and ratio > 1:
+        reading = (f"That is an assumption, and the backtest does not fully support it. {figures} If live weeks "
+                   f"behave alike, the plain standard error understates the uncertainty, and the test's actual size "
+                   f"need not equal its nominal {PROMOTION_ALPHA * 100:.0f}%.")
+    elif ratio > 1:
+        reading = (f"That is an assumption. {figures} The lag-1 autocorrelation is within the range white noise "
+                   f"gives on {n:,} weeks, so the backtest neither confirms nor clearly contradicts it.")
+    else:
+        reading = (f"That is an assumption. {figures} On that evidence the plain standard error does not understate "
+                   f"the uncertainty, so the test is, if anything, conservative.")
+    return (f"{reading} The rule was fixed with this statistic and is applied as registered; the backtest's own "
+            f"Diebold-Mariano tests (sections 6 and 7) use Newey-West standard errors.")
+
+
+def prereg_deviations() -> str:
+    """Section 9: changes since registration, none to the test itself."""
+    now = _lab()["leaderboard"]["spa_qlike_vs_har_iv"]["p_consistent"]
+    later = "" if round(now, 3) == PREREG_STUDENTIZED_SPA_P else f"; the current artifact gives {_peq(now)}"
+    return (f"None to the test. Since the rule was fixed, one backtest result it does not use was corrected: in "
+            f"2.2.0 the SPA p-value was published studentized (p = {_fmt(PREREG_STUDENTIZED_SPA_P)}) in place of the "
+            f"non-studentized {_fmt(PREREG_PUBLISHED_SPA_P)}{later} (section 7). The test's pair, sample, statistic "
+            f"and level are unchanged.")
 
 
 def print_block(name: str, **options: str) -> None:
