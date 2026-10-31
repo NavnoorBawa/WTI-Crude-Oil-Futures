@@ -40,7 +40,16 @@ OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_CORETYPE=Has
   python -B -m unittest -v tests.test_vol_lab.ArtifactContractTest.test_artifact_reproduces_from_the_snapshot
 ```
 
-Passing: the three digests match the manifest, and the test prints `ok`. It rebuilds the whole
+Or, with Docker, in the pinned container (the [`Dockerfile`](../Dockerfile) sets the same
+variables; its Python and Node images are pinned by digest):
+
+```bash
+docker build -t wti-vol .
+docker run --rm wti-vol make reproduce
+```
+
+Passing: the three digests match the manifest, and the test prints `ok`; `make reproduce` then
+prints whether the rebuild is bit for bit identical or differs only in floating-point noise. It rebuilds the whole
 field (14 forecasters, every out-of-sample day, the Model Confidence Set and SPA bootstraps with their
 fixed seed) and compares it with the committed file: every model set, flag, label and count
 identical, and every number within 1e-4 relative or one unit of its last published decimal (GARCH

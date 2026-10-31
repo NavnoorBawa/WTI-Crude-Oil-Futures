@@ -540,7 +540,8 @@ class WorkflowGuardTest(unittest.TestCase):
         # keeps Dependabot from opening PRs for versions that policy would have to hold back.
         source = (REPOSITORY_ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
         entries = re.split(r"^  - package-ecosystem: ", source, flags=re.M)[1:]
-        self.assertEqual(sorted(entry.split("\n", 1)[0].strip() for entry in entries), ["github-actions", "npm", "pip"])
+        self.assertEqual(sorted(entry.split("\n", 1)[0].strip() for entry in entries),
+                         ["docker", "github-actions", "npm", "pip"])
         for entry in entries:
             with self.subTest(ecosystem=entry.split("\n", 1)[0].strip()):
                 days = re.search(r"^    cooldown:\n      default-days: (\d+)$", entry, re.M)
