@@ -376,7 +376,7 @@ These stay out, whatever a review suggests, unless the owner changes the rules:
 Tick items here with the PR number and date when they ship, and move any new finding into
 `HANDOFF.md`'s backlog.
 
-- **1.6 Exact environment for reproduction** (#PRNUM, DATE): `Dockerfile` (images pinned by digest),
+- **1.6 Exact environment for reproduction** (#83, 2026-10-31): `Dockerfile` (images pinned by digest),
   `Makefile`, `.devcontainer/`; the Reproduce workflow's container job runs `make reproduce` in the
   image; METH's Reproduce box names it; `tests/test_container.py`.
 - **1.1 Tag and release every version, with checksums** (#75, 2026-10-30), except the tags:
