@@ -15,16 +15,18 @@ found; the reproduce test itself is the gate.
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-def describe(committed: dict, rebuilt: dict) -> list[str]:
+def describe(committed: dict[str, Any], rebuilt: dict[str, Any]) -> list[str]:
     from backend.vol_lab import REPRO_REL_TOL, compare_reports
 
     diff = compare_reports(committed, rebuilt)
@@ -38,12 +40,13 @@ def describe(committed: dict, rebuilt: dict) -> list[str]:
             + [f"- `{line}`" for line in diff["violations"][:30]])
 
 
-def main(argv: list[str]) -> int:
-    if not argv or len(argv) > 2:
-        print(__doc__)
-        return 2
-    rebuilt_path = Path(argv[0])
-    committed_path = Path(argv[1]) if len(argv) > 1 else PROJECT_ROOT / "data" / "vol_lab.json"
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
+    parser.add_argument("rebuilt", help="the rebuilt report (the reproduce test's VOL_LAB_REBUILT)")
+    parser.add_argument("committed", nargs="?", default=str(PROJECT_ROOT / "data" / "vol_lab.json"),
+                        help="the committed report (default: data/vol_lab.json)")
+    args = parser.parse_args(argv)
+    rebuilt_path, committed_path = Path(args.rebuilt), Path(args.committed)
     if not rebuilt_path.is_file():
         print("### The rebuild did not finish")
         return 0
@@ -54,4 +57,4 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
+    raise SystemExit(main())
