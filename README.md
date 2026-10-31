@@ -15,6 +15,7 @@ GitHub's best-effort schedule.
 
 **[Live dashboard](https://navnoorbawa.github.io/WTI-Crude-Oil-Futures/)** ·
 **[Full results](docs/RESULTS.md)** · [Reviewer guide](docs/REVIEWER_GUIDE.md) ·
+[Pre-registration](docs/PREREGISTRATION.md) ·
 [Methodology](docs/METHODOLOGY.md) · [Model card](docs/MODEL_CARD.md) · [Datasheet](docs/DATASHEET.md) ·
 [Architecture](docs/ARCHITECTURE.md) · [Data contract](docs/DATA_CONTRACT.md) ·
 [Changelog and errata](CHANGELOG.md)
@@ -92,7 +93,7 @@ should print.
   branch; an entry is scored only if its seal precedes the settlement that opens its window by more
   than five minutes, windows across a contract roll are never scored, and the challenger can replace
   the model of record only through a single pre-declared test
-  ([rules](docs/RESULTS.md#3-live-record-and-governance)).
+  ([rules](docs/RESULTS.md#3-live-record-and-governance); [pre-registration](docs/PREREGISTRATION.md)).
 - **Dashboard.** A static React site with no server: every statistic is read or computed from three
   files the pipeline publishes, each section names its sample, and the charts switch to tables that
   download as CSV ([architecture](docs/ARCHITECTURE.md)).

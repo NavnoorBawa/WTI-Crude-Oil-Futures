@@ -100,8 +100,8 @@ jobs:
           PYTHONPATH: .
         run: |
           set -euo pipefail
-          python -m cogapp --check --diff --check-fail-msg='run: PYTHONPATH=. cog -r README.md docs/RESULTS.md docs/MODEL_CARD.md docs/DATASHEET.md' \
-            README.md docs/RESULTS.md docs/MODEL_CARD.md docs/DATASHEET.md
+          python -m cogapp --check --diff --check-fail-msg='run: PYTHONPATH=. cog -r README.md docs/RESULTS.md docs/MODEL_CARD.md docs/DATASHEET.md docs/PREREGISTRATION.md' \
+            README.md docs/RESULTS.md docs/MODEL_CARD.md docs/DATASHEET.md docs/PREREGISTRATION.md
           python -B scripts/make_figures.py
           git diff --exit-code --stat -- docs/figures
 
