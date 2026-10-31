@@ -504,7 +504,9 @@ class WorkflowGuardTest(unittest.TestCase):
         self.assertEqual(re.findall(r"\bpython3?\s+(\S+\.py)", commands), ["scripts/record_health.py"])
         self.assertEqual(set(re.findall(r">>?\s*\"?([^\s\";]+)", commands)),
                          {"record.json", "data.json", "refresh.json", "reproduce.json", "acknowledged.txt",
-                          "${GITHUB_OUTPUT}", "${GITHUB_STEP_SUMMARY}", "/dev/null"})
+                          "anchor-jobs/${id}.json", "${GITHUB_OUTPUT}", "${GITHUB_STEP_SUMMARY}", "/dev/null"})
+        # The anchor job lists are read-only API calls, one per recent successful run on main.
+        self.assertEqual(re.findall(r"gh api (\S+)", commands)[-1], '"repos/${GH_REPO}/actions/runs/${id}/jobs"')
         # The script leaves pull requests' runs out by their event, so both run lists must carry it.
         self.assertEqual(re.findall(r"--json (\S+) > (refresh|reproduce)\.json", commands),
                          [("conclusion,url,createdAt,event", "refresh"), ("conclusion,url,createdAt,event", "reproduce")])

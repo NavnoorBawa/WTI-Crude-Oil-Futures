@@ -49,7 +49,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   workflow's `anchor` job tries to attest the record (best effort), logging its SHA-256 in
   Sigstore's public Rekor log; `scripts/verify_anchors.py` reads the times back (ROADMAP 1.3, in
   progress until the first anchored runs are checked).
-- **Tests.** 557 Python (unittest), 266 frontend (node --test) and 13 browser checks (Playwright,
+- **Tests.** 560 Python (unittest), 266 frontend (node --test) and 13 browser checks (Playwright,
   the "Interface" CI job: axe, layout shift, overflow, keyboard, print, script budget). CI also runs
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
   Reproduce rebuild. Releases: `scripts/bump_version.py`, and `.github/workflows/release.yml`
@@ -72,11 +72,15 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
 - Each refresh after a window closes resolves it (once `bars_cutoff` reaches the window's last
   session, so usually the run after 05:00 UTC). Check every new resolution against
   `scripts/verify_record.py` and the page (LIVE title, coverage count, QLIKE facts).
-- **The first anchors.** On the first Refresh runs after the anchor job ships, open the `anchor`
-  job's log: it must say "Attestation signed using certificate from Public Good Sigstore instance"
-  and print a Rekor search link. If it names GitHub's instance instead, the attestation is not in
-  the public log and `scripts/verify_anchors.py` finds nothing; report that rather than working
-  around it. Then run `git fetch origin live-data && python scripts/verify_anchors.py --latest 5`
+- **The first anchors.** The first anchor job ran on 2026-10-31 at 22:43 UTC (the Refresh run of
+  #82's merge, a push): its log printed "Attestation signature uploaded to Rekor transparency log"
+  with Rekor log index 3615334628, its certificate names `refresh.yml@refs/heads/main`, and
+  `scripts/verify_anchors.py` read that time back for all nine sealed entries (the 2026-10-30 call
+  anchored 44h 46m before its window opens; the eight earlier calls after theirs, as expected).
+  On the next scheduled runs, check the same: the log must say the Public Good Sigstore instance
+  signed and print a Rekor search link. If it names GitHub's instance instead, the attestation is
+  not in the public log and `scripts/verify_anchors.py` finds nothing; report that rather than
+  working around it. A failed anchor job shows in the Health issue as a recorded incident. Then run `git fetch origin live-data && python scripts/verify_anchors.py --latest 5`
   (a full clone): entries recorded after the job shipped should mostly be anchored before their
   window opened. One sealed near the five-minute seal margin, or whose run's anchor failed, can show
   a late anchor or none with nothing wrong. After two scheduled publishes with anchors, record 1.3
@@ -137,10 +141,8 @@ and its CI run is the test.
   taller neighbours; the price chart's log axis uses library tick positions.
 
 ### 5. Engineering
-- **Anchor failures are silent.** The anchor job's `continue-on-error` keeps a failed run green,
-  and Health reads only run conclusions. Have `scripts/record_health.py` report a failed anchor job
-  in recent Refresh runs as a recorded incident (from `gh run view --json jobs`), never as needing a
-  person. ROADMAP 1.3 also asked to bind the commit SHA; the attestation's subject is the file only.
+- ROADMAP 1.3 also asked to bind the commit SHA; the attestation's subject is the file only (its
+  provenance predicate names the workflow run and the `main` commit, not the `live-data` commit).
 - **The rest of ROADMAP 1.3.** Show "anchored <time>" with a Rekor link on LIVE rows that have one
   (the site is built before the seal and the anchor, so the build would read the earlier versions'
   anchors from Rekor, failure-tolerant, without the visitor's browser calling Rekor), and add a

@@ -141,7 +141,9 @@ flowchart TB
   and the latest runs. Needing a person: a due session with no entry that can still be recorded, an
   overdue result, a site more than 18 hours old, two failed refreshes in a row, a failed rebuild, or
   an unreadable record or payload. Recorded incidents, which nothing can undo: a session that can no
-  longer be recorded, and a `late_commit` or `expired` entry, each for a week. While anything is
+  longer be recorded, a `late_commit` or `expired` entry, and a day on which a Refresh run's
+  best-effort anchor job failed (read from the runs' job lists, since `continue-on-error` keeps
+  those runs green), each for a week. While anything is
   reported, one issue labelled `health` stays open, edited only when the set of problems changes;
   closing it acknowledges the incidents. The workflow fails (its README badge turns red) only while
   something needs a person, and the first healthy run closes the issue. A drill (the `now` input)
