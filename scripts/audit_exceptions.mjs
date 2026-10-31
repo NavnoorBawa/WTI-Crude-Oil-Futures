@@ -7,8 +7,10 @@
 // the argument `-`, or it runs `npm audit --json` itself) and exits 0 only when every advisory in it has an exception that
 // names that advisory and package and has not ended; otherwise it prints what is not excused and
 // exits 1. Packages that are flagged only because they depend on a vulnerable one (string entries
-// in `via`) add no advisory of their own. The production audit (`npm audit --omit=dev`) never reads
-// this file: it stays strict. No dependencies.
+// in `via`) add no advisory of their own. Anything that is not an npm audit report (version 2, with
+// a `vulnerabilities` object whose advisories add up to the report's own count), such as the body
+// npm prints when the audit endpoint fails, exits 3: it is never read as a clean audit. The
+// production audit (`npm audit --omit=dev`) never reads this file: it stays strict. No dependencies.
 
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -18,7 +20,10 @@ const EXCEPTIONS = new URL("../.github/audit-exceptions.json", import.meta.url);
 
 /** Every advisory a report names, with the package it is reported in: [{ advisory, package, url, severity }]. */
 export function advisories(report) {
-  if (!report || typeof report !== "object" || report.error) {
+  const vulnerabilities = report?.vulnerabilities;
+  if (!report || typeof report !== "object" || Array.isArray(report) || report.error || report.auditReportVersion !== 2
+      || !vulnerabilities || typeof vulnerabilities !== "object" || Array.isArray(vulnerabilities)
+      || typeof report.metadata?.vulnerabilities?.total !== "number") {
     throw new Error(`not an npm audit report${report?.error ? `: ${JSON.stringify(report.error)}` : ""}`);
   }
   const found = [];
@@ -29,6 +34,9 @@ export function advisories(report) {
         found.push({ advisory: url.split("/").pop() || String(via.source), package: via.name, url, severity: via.severity });
       }
     }
+  }
+  if (report.metadata.vulnerabilities.total > 0 && found.length === 0) {
+    throw new Error("not an npm audit report: it counts vulnerabilities but names no advisory");
   }
   return found;
 }
@@ -52,7 +60,14 @@ function main(argv) {
     text = spawnSync("npm", ["audit", "--json"], { encoding: "utf8", shell: process.platform === "win32" }).stdout;
   }
   const today = new Date().toISOString().slice(0, 10);
-  const report = JSON.parse(text);
+  let report;
+  try {
+    report = JSON.parse(text);
+    advisories(report);
+  } catch (error) {
+    console.error(`not an npm audit report, so nothing is excused: ${error.message}`);
+    return 3;
+  }
   const open = new Set(unexcused(report, exceptions, today).map((f) => `${f.advisory} ${f.package}`));
   for (const found of advisories(report)) {
     const exception = exceptions.find((e) => e.advisory === found.advisory && e.package === found.package);

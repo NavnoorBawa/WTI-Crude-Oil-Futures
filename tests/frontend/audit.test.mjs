@@ -25,7 +25,6 @@ const exception = { advisory: "GHSA-g3hv-75wg-m249", package: "minimatch", expir
 test("only an advisory object counts; packages flagged through a dependency add none", () => {
   assert.deepEqual(advisories(report), [{ advisory: "GHSA-g3hv-75wg-m249", package: "minimatch",
     url: "https://github.com/advisories/GHSA-g3hv-75wg-m249", severity: "moderate" }]);
-  assert.deepEqual(advisories({ auditReportVersion: 2, vulnerabilities: {} }), []);
 });
 
 test("an exception covers its advisory in its package until the day it expires", () => {
@@ -37,9 +36,18 @@ test("an exception covers its advisory in its package until the day it expires",
   assert.equal(unexcused(report, [], "2026-10-31").length, 1);
 });
 
-test("a report npm could not produce is an error, not a clean audit", () => {
-  assert.throws(() => advisories({ error: { code: "ENOTFOUND" } }), /not an npm audit report/);
-  assert.throws(() => advisories(null), /not an npm audit report/);
+test("anything but a version-2 report is an error, never a clean audit", () => {
+  const endpointError = {                       // what npm before 10.8 prints when the audit endpoint fails
+    message: "500 Internal Server Error - POST https://registry.npmjs.org/-/npm/v1/security/audits/quick - boom",
+    method: "POST", uri: "https://registry.npmjs.org/-/npm/v1/security/audits/quick", statusCode: 500, body: { error: "boom" },
+  };
+  const version1 = { advisories: { 1: { module_name: "x", severity: "critical" } }, metadata: { vulnerabilities: { critical: 1 } } };
+  for (const bad of [null, {}, [], { error: { code: "ENOTFOUND" } }, { ...report, error: { summary: "" } }, endpointError,
+    version1, { ...report, auditReportVersion: 1 }, { ...report, vulnerabilities: [] }, { ...report, metadata: {} },
+    { auditReportVersion: 2, vulnerabilities: {}, metadata: { vulnerabilities: { total: 2 } } }]) {
+    assert.throws(() => advisories(bad), /not an npm audit report/, JSON.stringify(bad));
+  }
+  assert.deepEqual(advisories({ auditReportVersion: 2, vulnerabilities: {}, metadata: { vulnerabilities: { total: 0 } } }), []);
 });
 
 test("every exception names one advisory and package, ends on a real date and says why", () => {

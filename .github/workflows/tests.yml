@@ -207,10 +207,27 @@ jobs:
           audit all || all=$?
           echo "::endgroup::"
           if [ "$all" -ne 0 ]; then
-            npm audit --json > "${RUNNER_TEMP}/npm-audit.json" || true
-            if node scripts/audit_exceptions.mjs - < "${RUNNER_TEMP}/npm-audit.json"; then
+            # Check the advisories against .github/audit-exceptions.json: 0 all excused, 1 one is not,
+            # 3 the JSON report could not be read (an endpoint error), which is retried like the audit.
+            excused=3
+            for attempt in 1 2 3; do
+              npm audit --json > "${RUNNER_TEMP}/npm-audit.json" || true
+              excused=0
+              node scripts/audit_exceptions.mjs - < "${RUNNER_TEMP}/npm-audit.json" || excused=$?
+              if [ "$excused" -ne 3 ]; then break; fi
+              if [ "$attempt" -lt 3 ]; then sleep $((attempt * 20)); fi
+            done
+            if [ "$excused" -eq 0 ]; then
               echo "::warning title=npm audit (dev tooling)::Every advisory in dev tooling has a dated exception in .github/audit-exceptions.json (production dependencies are clean); see this step's log for when each ends."
               exit 0
+            fi
+            if [ "$excused" -ne 1 ]; then
+              if [ "$EVENT_NAME" = "schedule" ]; then
+                echo "::warning title=npm audit (dev tooling)::A dev advisory was found, but its JSON report could not be read after 3 attempts to check the exceptions."
+                exit 0
+              fi
+              echo "::error title=npm audit (dev tooling)::A dev advisory was found, but its JSON report could not be read after 3 attempts to check .github/audit-exceptions.json; re-run when the registry answers."
+              exit 1
             fi
             if [ "$EVENT_NAME" = "schedule" ]; then
               echo "::warning title=npm audit (dev tooling)::A development-only dependency has a known advisory (production dependencies are clean). Scheduled runs report it as a warning; pull requests and pushes still fail on it."
