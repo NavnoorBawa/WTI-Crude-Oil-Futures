@@ -208,7 +208,7 @@ jobs:
           echo "::endgroup::"
           if [ "$all" -ne 0 ]; then
             npm audit --json > "${RUNNER_TEMP}/npm-audit.json" || true
-            if node scripts/audit_exceptions.mjs "${RUNNER_TEMP}/npm-audit.json"; then
+            if node scripts/audit_exceptions.mjs - < "${RUNNER_TEMP}/npm-audit.json"; then
               echo "::warning title=npm audit (dev tooling)::Every advisory in dev tooling has a dated exception in .github/audit-exceptions.json (production dependencies are clean); see this step's log for when each ends."
               exit 0
             fi

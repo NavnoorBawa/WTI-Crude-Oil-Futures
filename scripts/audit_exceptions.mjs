@@ -3,8 +3,8 @@
 //
 // When an advisory lands in build tooling whose only fix is younger than the pinning policy allows,
 // .github/audit-exceptions.json can list it: the advisory, the package it is reported in, the date
-// the exception ends and why. This script reads an `npm audit --json` report (a file argument, or it
-// runs `npm audit --json` itself) and exits 0 only when every advisory in it has an exception that
+// the exception ends and why. This script reads an `npm audit --json` report (on standard input with
+// the argument `-`, or it runs `npm audit --json` itself) and exits 0 only when every advisory in it has an exception that
 // names that advisory and package and has not ended; otherwise it prints what is not excused and
 // exits 1. Packages that are flagged only because they depend on a vulnerable one (string entries
 // in `via`) add no advisory of their own. The production audit (`npm audit --omit=dev`) never reads
@@ -42,8 +42,11 @@ export function unexcused(report, exceptions, today) {
 function main(argv) {
   const { exceptions } = JSON.parse(readFileSync(EXCEPTIONS, "utf8"));
   let text;
-  if (argv[0]) {
-    text = readFileSync(argv[0], "utf8");
+  if (argv[0] === "-") {
+    text = readFileSync(0, "utf8");                  // the report on standard input
+  } else if (argv.length) {
+    console.error("usage: audit_exceptions.mjs [-]   (- reads an npm audit --json report from standard input)");
+    return 2;
   } else {
     // npm audit exits 1 when it finds anything; its JSON report is on stdout either way.
     text = spawnSync("npm", ["audit", "--json"], { encoding: "utf8", shell: process.platform === "win32" }).stdout;
