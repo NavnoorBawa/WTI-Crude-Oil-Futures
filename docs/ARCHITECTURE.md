@@ -116,6 +116,18 @@ flowchart TB
   dashboard dates what it displays rather than assuming a cadence: the top bar gives the snapshot's
   age and turns amber once a refresh is overdue, the quote carries its exchange time, and each
   section names its sample.
+- **Failures announce themselves.** `.github/workflows/health.yml` runs daily and after every
+  Refresh and Reproduce run on main (never for a pull request's run). `scripts/record_health.py`
+  reads copies of the record on `live-data` and of `data.json` on `gh-pages`, fetched with `gh`,
+  and the latest runs. Needing a person: a due session with no entry that can still be recorded, an
+  overdue result, a site more than 18 hours old, two failed refreshes in a row, a failed rebuild, or
+  an unreadable record or payload. Recorded incidents, which nothing can undo: a session that can no
+  longer be recorded, and a `late_commit` or `expired` entry, each for a week. While anything is
+  reported, one issue labelled `health` stays open, edited only when the set of problems changes;
+  closing it acknowledges the incidents. The workflow fails (its README badge turns red) only while
+  something needs a person, and the first healthy run closes the issue. A drill (the `now` input)
+  writes only the job summary. The job can write issues only, installs nothing, and never pushes or
+  seals (`tests/test_workflow_guards.py`).
 
 ## Code map
 
@@ -133,6 +145,7 @@ flowchart TB
 | `backend/leak_anatomy.py`, `backend/carry_signal_test.py`, `backend/supply_shock_playbook.py` | The leak demonstration and the side studies |
 | `backend/research_ledger.py` | Every hypothesis tested, with multiplicity adjustments |
 | `scripts/validate_frozen_payload.py` | Deploy gate (stdlib only) |
+| `scripts/record_health.py` | The Health workflow's check of the record, the site and the last runs (stdlib only) |
 | `scripts/build_research_bundle.py`, `scripts/readme_blocks.py`, `scripts/make_figures.py` | research.json, the generated docs and the figures, from the artifacts |
 | `src/` | Dashboard (below) |
 | `docs/DATA_CONTRACT.md` | The data.json / research.json schema |

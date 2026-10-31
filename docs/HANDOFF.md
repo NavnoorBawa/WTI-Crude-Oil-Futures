@@ -1,7 +1,7 @@
 # Handoff: state, open backlog and working loop
 
-Written on 2026-10-30 at the end of the session that shipped 2.2.0 (PRs #68 to #75). The next
-session continues from here. Keep this file current: at the end of every round, tick off what
+Written on 2026-10-31, after the round that shipped the pre-registration (#77) and the Health
+check (#78), on top of 2.2.0 (PRs #68 to #76). The next session continues from here. Keep this file current: at the end of every round, tick off what
 shipped, add what the round found, and update the date.
 
 The destination, measured, and the staged plan to reach it are in `docs/ROADMAP.md`; this file
@@ -39,7 +39,12 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   with a separator dot; print keeps every column and chart; first load is lighter (LCP 2.6–2.8 s on
   a throttled phone, from 3.8–4.4 s). Two independent verification rounds; every confirmed finding
   is fixed.
-- **Tests.** 486 Python (unittest), 260 frontend (node --test) and 13 browser checks (Playwright,
+- **Evidence and alerts.** `docs/PREREGISTRATION.md` states the promotion test as a citable
+  pre-registration, generated from its constants (ROADMAP 1.2; the DOI waits for the owner). The
+  Health workflow (`.github/workflows/health.yml`, daily and after every Refresh and Reproduce run)
+  keeps one issue labelled `health` open, assigned to the owner, while something needs a person,
+  and fails while it does (ROADMAP 1.5).
+- **Tests.** 518 Python (unittest), 260 frontend (node --test) and 13 browser checks (Playwright,
   the "Interface" CI job: axe, layout shift, overflow, keyboard, print, script budget). CI also runs
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
   Reproduce rebuild. Releases: `scripts/bump_version.py`, and `.github/workflows/release.yml`
@@ -50,6 +55,8 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
 ## Open backlog, most valuable first
 
 ### 1. Watch the live record
+- Look at the open `health` issue first, if any: it lists missed sessions, overdue results, a stale
+  site and failed runs, each with what can still be done.
 - Each refresh after a window closes resolves it (once `bars_cutoff` reaches the window's last
   session, so usually the run after 05:00 UTC). Check every new resolution against
   `scripts/verify_record.py` and the page (LIVE title, coverage count, QLIKE facts).
@@ -58,6 +65,10 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
 - Do not touch the promotion test. It decides once, at 52 independent paired weeks (late 2027).
 
 ### 2. Dependencies held back by the 14-day policy
+- **On 2026-11-10** the dated exception in `.github/audit-exceptions.json` ends and the dev audit
+  fails again by itself: pin `minimatch` 11.0.1 (published 2026-10-27, the fix for
+  GHSA-g3hv-75wg-m249) with an npm override if eslint passes with it, or take an eslint release that
+  depends on it, and remove the exception.
 Dependabot opens these PRs once each release is old enough. Merge them when CI, including the
 Reproduce rebuild, is green: react and react-dom 19.3.1 (eligible since 2026-10-28; no PR yet),
 eslint 10.13.0 (2026-10-30), vite 8.3.5 (2026-11-04), actions/setup-python v7.1.0 (2026-11-05),
@@ -110,7 +121,8 @@ and its CI run is the test.
 ### 6. Owner-only (the session cannot do these)
 - Repository Settings → Secrets and variables → Actions: keep `EIA_API_KEY`, and delete secrets the
   old pipeline used (`NEWSAPI_KEY`, `FINNHUB_API_KEY` and similar). Nothing reads them now.
-- Enable the Zenodo-GitHub integration (ROADMAP 1.2) so each release gets a DOI.
+- Enable the Zenodo-GitHub integration (ROADMAP 1.2) so each release gets a DOI; a session then
+  names it in `docs/PREREGISTRATION.md` section 10 and `CITATION.cff`.
 - **Push the version tags.** A session's git access can push branches but not tags (the push of
   `refs/tags` returns HTTP 403), so the tags wait for the owner. From a clone of `main`:
 
