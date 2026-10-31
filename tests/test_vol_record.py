@@ -522,8 +522,8 @@ def fallback(entry):
 
 class SummaryTest(unittest.TestCase):
     SHAPE = {"started", "n_recorded", "n_resolved", "n_pending", "n_skipped_roll", "n_expired", "n_late_commit",
-             "n_independent", "next_result_due", "champion", "challenger", "promotion", "recent", "promotion_rule",
-             "note", "direction_note"}
+             "n_independent", "next_result_due", "champion", "challenger", "promotion", "chain", "recent",
+             "promotion_rule", "note", "direction_note"}
     PROMOTION = {"status", "n_independent_paired", "required", "dm_stat", "p_value", "mean_qlike_difference",
                  "model_version", "challenger_key", "n_excluded_other_version", "n_excluded_other_challenger",
                  "n_excluded_no_challenger"}
@@ -549,6 +549,7 @@ class SummaryTest(unittest.TestCase):
         self.assertEqual(summary["n_late_commit"], 0)
         self.assertIsNone(summary["next_result_due"])
         self.assertEqual(summary["promotion"], ACCRUING_EMPTY)
+        self.assertEqual(summary["chain"], {"n_linked": 0, "breaks": []})
         self.assertEqual(summary["promotion_rule"],
                          "The promotion test is pinned to one pair: HAR-IV v2 (model version har-iv/2), the model "
                          "of record, against the HAR-IV-range challenger (key har_iv_range). The challenger replaces "
@@ -1276,6 +1277,146 @@ class CommandLineTest(unittest.TestCase):
             self.run_main("--data", "public/data.json")
         self.assertEqual(self.record_path.read_text(encoding="utf-8"), '{"calls": []}')
         self.assertNotIn("live_record", json.loads(self.data_path.read_text(encoding="utf-8"))["vol_forecast"])
+
+
+def chained(sessions=("2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05")):
+    """A record of one entry per session, each recorded and sealed by the real recorder and seal."""
+    record = empty_record("2026-11-02")
+    for session in sessions:
+        issued = f"{D(session) + timedelta(days=1)}T13:00:00Z"
+        message = vr.record_forecast(record, payload(live(as_of=session, issued_at=issued)), at(issued))
+        assert message.startswith("recorded"), message
+        vr.seal_entries(record, at(issued) + timedelta(minutes=10))
+    return record
+
+
+class HashChainTest(unittest.TestCase):
+    """Each entry the seal stamps links to the sealed part of the entry before it (module docstring, CHAIN)."""
+
+    def test_the_seal_links_each_entry_to_the_one_before_it(self):
+        entries = chained()["entries"]
+        self.assertIsNone(entries[0]["previous_sha256"])                         # the record's first entry
+        for before, entry in zip(entries, entries[1:]):
+            self.assertEqual(entry["previous_sha256"], vr.entry_digest(before))
+        self.assertEqual(vr.chain_breaks(entries), [])
+        self.assertEqual(vr.summarize({"schema_version": 1, "started": "2026-11-02", "entries": entries})["chain"],
+                         {"n_linked": 3, "breaks": []})
+
+    def test_several_entries_sealed_in_one_run_link_in_order_and_sealing_again_changes_nothing(self):
+        record = empty_record("2026-11-02")
+        for session in ("2026-11-02", "2026-11-03"):
+            issued = f"{D(session) + timedelta(days=1)}T13:00:00Z"
+            vr.record_forecast(record, payload(live(as_of=session, issued_at=issued)), at(issued))
+        vr.seal_entries(record, at("2026-11-04T13:10:00Z"))
+        self.assertEqual(record["entries"][1]["previous_sha256"], vr.entry_digest(record["entries"][0]))
+        before = json.dumps(record, sort_keys=True)
+        self.assertEqual(vr.seal_entries(record, at("2026-11-04T14:00:00Z")), [])
+        self.assertEqual(json.dumps(record, sort_keys=True), before)
+
+    def test_links_survive_saving_and_loading_the_record(self):
+        record = chained()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "record.json"
+            vr.save_record(record, path)
+            self.assertEqual(vr.chain_breaks(vr.load_record(path)["entries"]), [])
+
+    def test_resolution_never_breaks_a_link(self):
+        record = chained()
+        resolve(record, dict(zip(WINDOW, [100.0, 101.0, 100.0, 101.0, 100.0, 101.0])), "2026-11-11T06:00:00Z")
+        self.assertEqual(record["entries"][0]["status"], "resolved")
+        cutoff = vr.bars_cutoff(at("2026-12-04T06:00:00Z"))
+        vr.resolve_entries(record, {}, cutoff, at("2026-12-04T06:00:00Z"))             # the rest expire
+        self.assertEqual({e["status"] for e in record["entries"][1:]}, {"expired"})
+        self.assertEqual(vr.chain_breaks(record["entries"]), [])
+
+    def test_changing_removing_or_inserting_a_sealed_entry_breaks_the_next_link(self):
+        cases = {
+            "forecast edited": lambda e: e[1].__setitem__("forecast_pct", 30.0),
+            "seal backdated": lambda e: e[1].__setitem__("sealed_at", "2026-11-04T13:01:00Z"),
+            "inputs edited": lambda e: e[1]["inputs"].__setitem__("ovx", 30.0),
+            "its own link rewritten": lambda e: e[1].__setitem__("previous_sha256", "0" * 64),
+            "entry removed": lambda e: e.pop(1),
+            "entry inserted": lambda e: e.insert(2, copy.deepcopy(e[1])),
+            "a later link dropped": lambda e: e[2].pop("previous_sha256"),
+            "the first entry removed": lambda e: e.pop(0),
+        }
+        for name, change in cases.items():
+            with self.subTest(change=name):
+                entries = chained()["entries"]
+                change(entries)
+                self.assertTrue(vr.chain_breaks(entries), name)
+
+    def test_entries_before_the_chain_and_an_entry_not_sealed_yet_are_not_breaks(self):
+        record = chained()
+        entries = record["entries"]
+        for entry in entries[:2]:                            # sealed before the chain existed: no link at all
+            entry.pop("previous_sha256")
+        for index in (2, 3):                                 # then sealed with it, linking forward
+            entries[index]["previous_sha256"] = vr.entry_digest(entries[index - 1])
+        issued = "2026-11-07T13:00:00Z"                      # the build job's newest entry, sealed later
+        vr.record_forecast(record, payload(live(as_of="2026-11-06", issued_at=issued)), at(issued))
+        self.assertIsNone(record["entries"][-1]["sealed_at"])
+        with mock.patch.object(vr, "CHAIN_FROM", D("2026-11-04")):   # the chain shipped after the 11-03 entry
+            self.assertEqual(vr.chain_breaks(record["entries"]), [])
+        self.assertEqual(vr.chain_breaks(record["entries"]), ["2026-11-02", "2026-11-03"])
+
+    def test_from_chain_from_on_a_sealed_entry_without_a_link_is_a_break_even_when_every_link_is_gone(self):
+        self.assertEqual(vr.CHAIN_FROM, D("2026-11-02"))      # pinned: a later date would excuse stripped links
+        entries = chained()["entries"]
+        for entry in entries:                                # strip every link, then edit a sealed entry
+            entry.pop("previous_sha256")
+        entries[1]["forecast_pct"] = 30.0
+        self.assertEqual(vr.chain_breaks(entries), [e["as_of"] for e in entries])
+        self.assertIn("sealed without a previous_sha256", vr.chain_break_reason(entries[1]))
+        relinked = chained()["entries"]
+        relinked[1]["forecast_pct"] = 30.0
+        self.assertEqual(vr.chain_breaks(relinked), ["2026-11-04"])
+        self.assertIn("does not match the sealed part of the entry before it", vr.chain_break_reason(relinked[2]))
+        headless = chained()["entries"][1:]                  # the record's first entry removed
+        self.assertEqual(vr.chain_breaks(headless), ["2026-11-03"])
+        self.assertIn("links to an entry before it", vr.chain_break_reason(headless[0], first=True))
+
+    def test_before_chain_from_a_dropped_link_after_a_linked_entry_is_still_a_break(self):
+        entries = chained()["entries"]
+        entries[2].pop("previous_sha256")                    # 11-04 dropped, after 11-02 and 11-03 carried links
+        with mock.patch.object(vr, "CHAIN_FROM", D("2026-11-09")):
+            self.assertEqual(vr.chain_breaks(entries), ["2026-11-04", "2026-11-05"])
+
+    def test_the_chain_cannot_see_its_newest_entry_or_later_links_recomputed(self):
+        # What the docs say the chain does not show: it has no key, and nothing links to the newest entry.
+        entries = chained()["entries"]
+        entries[-1]["forecast_pct"] = 30.0                   # the newest entry, before the next seal
+        self.assertEqual(vr.chain_breaks(entries), [])
+        entries = chained()["entries"][:-1]                  # the newest entry removed
+        self.assertEqual(vr.chain_breaks(entries), [])
+        entries = chained()["entries"]
+        entries[1]["forecast_pct"] = 30.0                    # an old entry edited, every later link recomputed
+        for index in range(2, len(entries)):
+            entries[index]["previous_sha256"] = vr.entry_digest(entries[index - 1])
+        self.assertEqual(vr.chain_breaks(entries), [])
+
+    def test_loading_checks_the_link_s_form_but_never_the_chain(self):
+        record = chained()
+        record["entries"][1]["forecast_pct"] = 30.0           # a break: still loads, so the pipeline never stops on it
+        vr.validate_record(record)
+        self.assertEqual(vr.chain_breaks(record["entries"]), ["2026-11-04"])
+        for bad in ("abc", "G" * 64, 7, "0" * 63):
+            with self.subTest(bad=bad):
+                broken = chained()
+                broken["entries"][1]["previous_sha256"] = bad
+                with self.assertRaisesRegex(ValueError, "previous_sha256 must be a SHA-256 hex digest or null"):
+                    vr.validate_record(broken)
+
+    def test_the_digest_covers_exactly_the_sealed_part(self):
+        entry = chained()["entries"][1]
+        digest = vr.entry_digest(entry)
+        for key, value in (("status", "resolved"), ("realized_pct", 30.0), ("closes", []), ("closed_at", "x"),
+                           ("resolved_at", "x"), ("missing_sessions", [])):
+            with self.subTest(key=key):
+                self.assertEqual(vr.entry_digest({**entry, key: value}), digest)
+        for key in sorted(set(entry) - vr._AFTER_SEAL_KEYS):
+            with self.subTest(key=key):
+                self.assertNotEqual(vr.entry_digest({**entry, key: "changed"}), digest)
 
 
 class StandardLibraryOnlyTest(unittest.TestCase):

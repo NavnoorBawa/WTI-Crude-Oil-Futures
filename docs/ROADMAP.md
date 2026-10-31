@@ -84,7 +84,7 @@ These never finish; every session checks them first.
    exits 0 and prints each anchor's time. Refs: docs.sigstore.dev; opentimestamps.org.
 4. **Hash chain across record entries.** Each new entry stores `previous_sha256` of the sealed
    JSON of the entry before it; the validator checks the chain and LIVE shows a broken chain as a
-   warning. Old entries keep a null link. Acceptance: a test that edits a sealed entry in a copy
+   warning. Entries sealed before the chain carry no link. Acceptance: a test that edits a sealed entry in a copy
    of the record makes the validator fail.
 5. **Failures announce themselves.** A new `.github/workflows/health.yml` (daily, off-peak minute,
    plus `workflow_run` on failed Refresh and Reproduce runs; `contents: read`, `issues: write`;
@@ -380,6 +380,9 @@ Tick items here with the PR number and date when they ship, and move any new fin
   `scripts/bump_version.py`; `tests/test_release_metadata.py`; `.github/workflows/release.yml`
   publishes each tag's Release with `SHA256SUMS` from 2.2.0 on. A session cannot push tags, so
   `v2.0.0`, `v2.1.0` and `v2.2.0` wait for the owner (`HANDOFF.md` section 6, with the commands).
+- **1.4 Hash chain across record entries** (#81, 2026-10-31): the seal stores `previous_sha256` of the
+  sealed part of the entry before it; `scripts/verify_record.py`, the Health workflow and LIVE report
+  a break; the validator checks only a link's form, so a break never stops the pipeline.
 - **1.5 Failures announce themselves** (#78, 2026-10-31): `.github/workflows/health.yml` and
   `scripts/record_health.py`, with `tests/test_record_health.py` and a workflow guard; needing a
   person fails the run, recorded incidents only fill the issue.

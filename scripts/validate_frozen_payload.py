@@ -328,6 +328,7 @@ def _validate_live_record(record: Any) -> list[str]:
         errors.append("vol_forecast.live_record.next_result_due must be an ISO date (YYYY-MM-DD) or null")
     elif record["next_result_due"] is not None and record.get("n_pending") == 0:
         errors.append("vol_forecast.live_record.next_result_due must be null with no pending entry")
+    errors.extend(_validate_chain(record))
     promotion_errors = _validate_promotion(record.get("promotion"))
     errors.extend(promotion_errors)
     errors.extend(_validate_comparison(record, check_promotion=not promotion_errors))
@@ -404,6 +405,27 @@ def _validate_comparison(record: dict, *, check_promotion: bool) -> list[str]:
                          + promotion["n_excluded_no_challenger"]):
         errors.append(f"{where}: champion.n must equal challenger.n plus promotion.n_excluded_other_challenger and "
                       "promotion.n_excluded_no_challenger")
+    return errors
+
+
+def _validate_chain(record: dict) -> list[str]:
+    """The record's hash chain (vol_record.chain_breaks), optional: summaries written before it existed omit it.
+
+    When present: how many entries carry a link (a count, no more than the entries recorded) and the
+    as_of of every broken link (ISO dates)."""
+    if "chain" not in record:
+        return []
+    chain, where = record["chain"], "vol_forecast.live_record.chain"
+    if not isinstance(chain, dict):
+        return [f"{where} must be an object"]
+    errors = []
+    if not _count(chain.get("n_linked")):
+        errors.append(f"{where}.n_linked must be a non-negative integer")
+    elif _count(record.get("n_recorded")) and chain["n_linked"] > record["n_recorded"]:
+        errors.append(f"{where}.n_linked cannot exceed n_recorded")
+    breaks = chain.get("breaks")
+    if not isinstance(breaks, list) or not all(_strict_iso_date(day) for day in breaks):
+        errors.append(f"{where}.breaks must be a list of ISO dates (YYYY-MM-DD)")
     return errors
 
 

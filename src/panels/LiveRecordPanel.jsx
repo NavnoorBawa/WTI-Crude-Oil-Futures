@@ -452,6 +452,14 @@ export default function LiveRecordPanel({ data, research }) {
       source={{ artifact: "data.json → vol_forecast.live_record", reproduce: null }}
       resetKey={data}
     >
+      {summary.chain?.breaks.length > 0 && (
+        <p className="notice is-warn" role="status">
+          The record&apos;s hash chain is broken at {summary.chain.breaks.map((day) => fmtDate(day)).join("; ")}: the
+          link stored with {summary.chain.breaks.length === 1 ? "that call" : "each of those calls"} is missing or no
+          longer matches the call before it, so a sealed call was changed, removed or inserted, or a run without the
+          chain sealed it. <code>scripts/verify_record.py</code> says which.
+        </p>
+      )}
       {/* The one place the record's calls are counted by state; the meta line gives only the total. */}
       <p className="live-status sep-list">
         {recordCounts(summary).map((part) => <span key={part}>{part}</span>)}
@@ -556,6 +564,12 @@ export default function LiveRecordPanel({ data, research }) {
           aria-label="Full record and its commit history on GitHub (opens in a new tab)">
           Full record and its commit history on GitHub →
         </a>
+        {summary.chain?.linked > 0 && summary.chain.breaks.length === 0 && (
+          <span className="muted">
+            {" "}{fmtInt(summary.chain.linked)} {summary.chain.linked === 1 ? "call carries" : "calls carry"} a hash
+            of the sealed call before it; <code>scripts/verify_record.py</code> checks the chain.
+          </span>
+        )}
       </p>
     </Panel>
   );

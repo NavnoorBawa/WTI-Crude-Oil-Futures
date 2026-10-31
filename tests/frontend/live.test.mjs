@@ -254,6 +254,40 @@ test("the record's sealing can be checked from the page", () => {
   assert.doesNotMatch(before.live.match(/<thead[\s\S]*?<\/thead>/)[0], />Sealed</);
 });
 
+test("the hash chain: silent before it exists, a muted line while it holds, a warning where it breaks", () => {
+  const withChain = (chain) => {
+    const payload = structuredClone(data);
+    payload.vol_forecast.live_record.chain = chain;
+    return render(payload);
+  };
+  // Summaries written before the chain carry no `chain`: nothing about it is shown.
+  const before = render(data);
+  assert.equal(data.vol_forecast.live_record.chain, undefined);
+  assert.doesNotMatch(before.text, /hash/);
+  assert.doesNotMatch(before.live, /notice is-warn/);
+  // Linked and unbroken: one muted line beside the history link, no warning.
+  const holds = withChain({ n_linked: 3, breaks: [] });
+  assert.deepEqual(holds.errors, []);
+  assert.ok(holds.text.includes("3 calls carry a hash of the sealed call before it; scripts/verify_record.py checks the chain."),
+    holds.text);
+  assert.doesNotMatch(holds.live, /notice is-warn/);
+  assert.ok(withChain({ n_linked: 1, breaks: [] }).text.includes("1 call carries a hash"));
+  assert.doesNotMatch(withChain({ n_linked: 0, breaks: [] }).text, /hash/);
+  // Broken: a warning naming each break, and no reassuring line.
+  const broken = withChain({ n_linked: 3, breaks: ["2026-11-03", "2026-11-05"] });
+  assert.match(broken.live, /<p class="notice is-warn" role="status">/);
+  assert.ok(broken.text.includes("The record's hash chain is broken at Nov 3, 2026; Nov 5, 2026: the link stored with each of those calls"), broken.text);
+  assert.ok(broken.text.includes("is missing or no longer matches the call before it"), broken.text);
+  const one = withChain({ n_linked: 3, breaks: ["2026-11-03"] });
+  assert.ok(one.text.includes("broken at Nov 3, 2026: the link stored with that call is missing"), one.text);
+  assert.ok(broken.text.includes("scripts/verify_record.py says which."), broken.text);
+  assert.doesNotMatch(broken.text, /calls carry a hash/);
+  // The accessor keeps only well-formed dates.
+  const summary = m.research.liveRecordSummary({ ...data.vol_forecast.live_record, chain: { n_linked: 2, breaks: ["2026-11-03", "nope", 7] } });
+  assert.deepEqual(summary.chain, { linked: 2, breaks: ["2026-11-03"] });
+  assert.equal(m.research.liveRecordSummary(data.vol_forecast.live_record).chain, null);
+});
+
 test("the phone table keeps As of, Forecast with its band, Realized with its verdict, and Status", () => {
   const { live } = render(data);
   const head = live.match(/<thead[\s\S]*?<\/thead>/)[0];
