@@ -58,6 +58,10 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
 - Do not touch the promotion test. It decides once, at 52 independent paired weeks (late 2027).
 
 ### 2. Dependencies held back by the 14-day policy
+- **On 2026-11-10** the dated exception in `.github/audit-exceptions.json` ends and the dev audit
+  fails again by itself: pin `minimatch` 11.0.1 (published 2026-10-27, the fix for
+  GHSA-g3hv-75wg-m249) with an npm override if eslint passes with it, or take an eslint release that
+  depends on it, and remove the exception.
 Dependabot opens these PRs once each release is old enough. Merge them when CI, including the
 Reproduce rebuild, is green: react and react-dom 19.3.1 (eligible since 2026-10-28; no PR yet),
 eslint 10.13.0 (2026-10-30), vite 8.3.5 (2026-11-04), actions/setup-python v7.1.0 (2026-11-05),

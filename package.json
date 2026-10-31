@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "test": "node --test \"tests/frontend/*.test.mjs\"",
-    "check": "npm run lint && npm test && npm run build && npm audit --audit-level=low",
+    "check": "npm run lint && npm test && npm run build && npm audit --omit=dev --audit-level=low && node scripts/audit_exceptions.mjs",
     "test:e2e": "node --test \"tests/e2e/*.test.mjs\""
   },
   "engines": {

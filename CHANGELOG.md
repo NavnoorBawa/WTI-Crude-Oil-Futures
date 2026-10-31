@@ -4,6 +4,18 @@ All notable changes. Research results are versioned like code: when a published 
 the correction is listed under **Errata** with the old and the new value, and the artifact that
 backs the new one.
 
+## Unreleased
+
+### Engineering
+
+- **Dated audit exceptions.** A moderate advisory in dev tooling (GHSA-g3hv-75wg-m249, the
+  `minimatch` under eslint) has its only fix in a release younger than the 14-day pinning rule
+  allows. `.github/audit-exceptions.json` lists it until 2026-11-10, when the fix becomes eligible;
+  `scripts/audit_exceptions.mjs` excuses only listed advisories in their named packages before their
+  end date, in CI and in `npm run check`. The production audit stays strict. The Tests workflow's
+  audit step no longer stops at the first failing `npm audit` under `bash -e`, so its scheduled-run
+  warning and its error messages now run as written.
+
 ## 2.2.0 — 2026-10-30
 
 A minor release: one research result changed. Hansen's SPA test was not studentized (arch 8.0.0
