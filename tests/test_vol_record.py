@@ -1355,7 +1355,35 @@ class HashChainTest(unittest.TestCase):
         issued = "2026-11-07T13:00:00Z"                      # the build job's newest entry, sealed later
         vr.record_forecast(record, payload(live(as_of="2026-11-06", issued_at=issued)), at(issued))
         self.assertIsNone(record["entries"][-1]["sealed_at"])
-        self.assertEqual(vr.chain_breaks(record["entries"]), [])
+        with mock.patch.object(vr, "CHAIN_FROM", D("2026-11-04")):   # the chain shipped after the 11-03 entry
+            self.assertEqual(vr.chain_breaks(record["entries"]), [])
+        self.assertEqual(vr.chain_breaks(record["entries"]), ["2026-11-02", "2026-11-03"])
+
+    def test_from_chain_from_on_a_sealed_entry_without_a_link_is_a_break_even_when_every_link_is_gone(self):
+        self.assertEqual(vr.CHAIN_FROM, D("2026-11-02"))      # pinned: a later date would excuse stripped links
+        entries = chained()["entries"]
+        for entry in entries:                                # strip every link, then edit a sealed entry
+            entry.pop("previous_sha256")
+        entries[1]["forecast_pct"] = 30.0
+        self.assertEqual(vr.chain_breaks(entries), [e["as_of"] for e in entries])
+        self.assertIn("sealed without a previous_sha256", vr.chain_break_reason(entries[1]))
+        relinked = chained()["entries"]
+        relinked[1]["forecast_pct"] = 30.0
+        self.assertEqual(vr.chain_breaks(relinked), ["2026-11-04"])
+        self.assertIn("does not match the sealed part of the entry before it", vr.chain_break_reason(relinked[2]))
+
+    def test_the_chain_cannot_see_its_newest_entry_or_later_links_recomputed(self):
+        # What the docs say the chain does not show: it has no key, and nothing links to the newest entry.
+        entries = chained()["entries"]
+        entries[-1]["forecast_pct"] = 30.0                   # the newest entry, before the next seal
+        self.assertEqual(vr.chain_breaks(entries), [])
+        entries = chained()["entries"][:-1]                  # the newest entry removed
+        self.assertEqual(vr.chain_breaks(entries), [])
+        entries = chained()["entries"]
+        entries[1]["forecast_pct"] = 30.0                    # an old entry edited, every later link recomputed
+        for index in range(2, len(entries)):
+            entries[index]["previous_sha256"] = vr.entry_digest(entries[index - 1])
+        self.assertEqual(vr.chain_breaks(entries), [])
 
     def test_loading_checks_the_link_s_form_but_never_the_chain(self):
         record = chained()

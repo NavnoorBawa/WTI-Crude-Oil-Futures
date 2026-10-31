@@ -44,14 +44,17 @@ Rules (conservative by construction; sessions are CME business days, see contrac
   closed as "late_commit" too. A failed persist never gets that far: the run's new entry does not
   reach live-data at all, and later runs restore the record without it.
 - CHAIN. When the seal stamps an entry, it also stores `previous_sha256`: the SHA-256 of the sealed
-  part of the entry before it (entry_digest: every field but the ones resolution adds or changes,
-  _AFTER_SEAL_KEYS, as canonical JSON). That part is final once an entry is sealed, and it includes
-  the earlier entry's own link, so changing, removing or inserting any sealed entry breaks a link
-  from then on (chain_breaks). The record's first entry links to nothing (null); entries sealed
-  before the chain existed carry no link and are not checked. Additive: nothing else about the seal
-  changes, and loading the record never checks the chain, so a break can never stop the pipeline;
-  scripts/verify_record.py, the record summary (summary["chain"], shown on LIVE) and the Health
-  check report it.
+  part of the entry before it (entry_digest: every field but status and the ones resolution sets,
+  _AFTER_SEAL_KEYS, as Python's canonical JSON). That part is final once an entry is sealed, and it
+  includes the earlier entry's own link, so changing, removing or inserting a sealed entry while
+  keeping the later links breaks a link (chain_breaks), and so does a sealed entry with no link from
+  CHAIN_FROM on. The record's first entry links to nothing (null); entries sealed before the chain
+  existed carry no link and are not checked. The chain has no key: whoever can write live-data can
+  recompute every later link, and nothing links to the newest entry yet, so the chain shows an edit
+  only against a copy or timestamp of the record from before it. Additive: nothing else about the
+  seal changes, and loading the record never checks the chain, so a break can never stop the
+  pipeline; scripts/verify_record.py, the record summary (summary["chain"], shown on LIVE) and the
+  Health check report it.
 - FIT. A new entry also stores the fit that produced it: `coefficients` (the log-log regression's
   intercept, then its slopes on ln RV5, ln RV22 and ln RV66 in decimals and ln OVX in index points;
   four numbers for the plain-HAR fallback) and the Duan `smearing_factor`, so a sealed
@@ -162,6 +165,8 @@ HORIZON_SESSIONS = 5                         # the forecast's target: next 5 ses
 ANNUALIZATION = 252
 COMMIT_MARGIN = timedelta(hours=1)           # recording -> the publish job's commit, with room to spare
 SEAL_MARGIN = timedelta(minutes=5)           # seal -> commit and push: refresh.yml caps that step at 4 minutes
+CHAIN_FROM = date(2026, 11, 2)               # the first session recorded after the chain shipped: every sealed
+                                             # entry from this as_of on must carry previous_sha256
 BAR_FETCH_MARGIN = timedelta(hours=1)        # daily bars are fetched before frozen_at is stamped
 MAX_CLOCK_SKEW = timedelta(minutes=5)        # an issued_at later than the run's clock is refused
 MAX_WAIT_SESSIONS = 10                       # closes missing this long after k0+5: expired
@@ -620,33 +625,43 @@ _AFTER_SEAL_KEYS = frozenset({"status", "closed_at", "resolved_at", "closes", "r
 
 
 def entry_digest(entry: Entry) -> str:
-    """SHA-256 (hex) of the entry's sealed part: canonical JSON (sorted keys, no whitespace, ASCII) of
-    every field except _AFTER_SEAL_KEYS. The next entry stores it as previous_sha256 when it is sealed."""
+    """SHA-256 (hex) of the entry's sealed part, every field except _AFTER_SEAL_KEYS, written by Python's
+    json.dumps with sorted keys, separators "," and ":", ASCII escapes and no NaN (so a float such as 46.0
+    keeps its ".0"). The next entry stores it as previous_sha256 when it is sealed."""
     sealed = {key: value for key, value in entry.items() if key not in _AFTER_SEAL_KEYS}
     text = json.dumps(sealed, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def chain_breaks(entries: list[Entry]) -> list[str]:
-    """The as_of of every sealed entry whose link does not match the sealed part of the entry before it.
+    """The as_of of every sealed entry whose link is missing or does not match the sealed part of the entry before it.
 
-    Entries sealed before the chain existed carry no previous_sha256 and are not checked; from the first
-    entry that carries one, every later sealed entry must carry one too, so dropping a link is a break.
-    An entry not sealed yet (the build job's newest, before the publish job seals it) has no link yet.
-    The record's first entry links to nothing (null).
+    Entries sealed before the chain existed carry no previous_sha256 and are not checked. Every sealed entry
+    from CHAIN_FROM on, and every one after the first entry that carries a link, must carry one, so dropping
+    one link, or all of them, is a break. An entry not sealed yet (the build job's newest, before the publish
+    job seals it) has no link yet. The record's first entry links to nothing (null).
     """
     breaks, linked = [], False
     for index, entry in enumerate(entries):
         if entry.get("sealed_at") is None:
             continue
         if "previous_sha256" not in entry:
-            if linked:
+            if linked or _iso_date(entry["as_of"]) >= CHAIN_FROM:
                 breaks.append(entry["as_of"])
             continue
         linked = True
         if entry["previous_sha256"] != (entry_digest(entries[index - 1]) if index else None):
             breaks.append(entry["as_of"])
     return breaks
+
+
+def chain_break_reason(entry: Entry) -> str:
+    """Why chain_breaks lists `entry`, in words."""
+    if "previous_sha256" not in entry:
+        return ("it was sealed without a previous_sha256: its link was removed, or a run without the chain "
+                "sealed it")
+    return ("its previous_sha256 does not match the sealed part of the entry before it: that entry or this link "
+            "was changed, or an entry was removed or inserted between them")
 
 
 def seal_entries(record: Record, now: datetime) -> list[str]:

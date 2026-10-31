@@ -95,9 +95,24 @@ class VerifyRecordTest(unittest.TestCase):
             entry.pop("coefficients", None)
             entry.pop("smearing_factor", None)
             entry.pop("previous_sha256", None)
-        code, out = run(record)
+        with mock.patch.object(vr, "CHAIN_FROM", datetime(2026, 11, 4).date()):
+            code, out = run(record)
         self.assertEqual(code, 0, out)
         self.assertIn("not stored", out)
+        self.assertIn("Hash chain: 0 of 2 entries linked, no break", out)
+
+    def test_a_missing_or_mismatched_link_fails_and_says_which(self):
+        record = clean_record()
+        record["entries"][1].pop("previous_sha256")
+        code, out = run(record)
+        self.assertEqual(code, 1, out)
+        self.assertIn("Hash chain: 0 of 2 entries linked, broken at 2026-11-03", out)
+        self.assertIn("FAIL 2026-11-03: it was sealed without a previous_sha256", out)
+        record = clean_record()
+        record["entries"][0]["forecast_pct"] = 50.0
+        code, out = run(record)
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL 2026-11-03: its previous_sha256 does not match the sealed part of the entry before it", out)
 
     def test_each_kind_of_tampering_is_caught(self):
         def tampered(change):

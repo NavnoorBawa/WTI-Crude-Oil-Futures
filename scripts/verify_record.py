@@ -15,8 +15,11 @@ re-derives what each entry claims instead of trusting the summary or the site:
 - the forecast, when the entry stores its fit (entries recorded from 2.2.0 on): median =
   100·exp(b0 + Σ bk·ln xk) and forecast = median·√smearing from its own coefficients and inputs;
 - the hash chain: each linked entry's previous_sha256 is the SHA-256 of the sealed part of the entry
-  before it (vol_record.chain_breaks), so a sealed entry changed, removed or inserted after a later
-  one was sealed fails here.
+  before it, and every sealed entry from vol_record.CHAIN_FROM on carries one (vol_record.chain_breaks),
+  so a sealed entry changed, removed or inserted after a later one was sealed fails here unless every
+  later link was recomputed too. The chain has no key and nothing links to the newest entry: an edit
+  that rewrites the later links, or touches only the newest entry, shows only against a copy or
+  timestamp of the record from before it.
 
 Usage:
     git show origin/live-data:runtime-state/vol_track_record.json | python scripts/verify_record.py -
@@ -161,8 +164,8 @@ def main(argv: list[str] | None = None) -> int:
     linked = sum(entry.get("previous_sha256") is not None for entry in entries)
     print(f"Hash chain: {linked} of {len(entries)} entries linked"
           + (f", broken at {', '.join(breaks)}" if breaks else ", no break"))
-    failures += [(as_of, "its previous_sha256 does not match the sealed part of the entry before it: a sealed "
-                         "entry was changed, removed or inserted") for as_of in breaks]
+    by_as_of = {entry["as_of"]: entry for entry in entries}
+    failures += [(as_of, vr.chain_break_reason(by_as_of[as_of])) for as_of in breaks]
     for as_of, problem in failures:
         print(f"FAIL {as_of}: {problem}")
     print("OK: every entry passes" if not failures else f"{len(failures)} check(s) failed")

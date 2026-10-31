@@ -172,6 +172,16 @@ class EntryStatusTest(unittest.TestCase):
         later = Files(record, payload={"frozen_at": "2026-11-13T16:00:00Z"}).keys("2026-11-13T18:00:00Z")
         self.assertNotIn("late_commit:2026-11-02", later)
 
+    def test_a_broken_hash_chain_needs_a_person_and_says_how(self):
+        record = record_with(["2026-11-02", "2026-11-03", "2026-11-04"])
+        record["entries"][0]["forecast_pct"] += 1.0                 # breaks the 11-03 link
+        record["entries"][2].pop("previous_sha256")                 # and the 11-04 entry carries none
+        problems = Files(record, payload={"frozen_at": "2026-11-05T16:00:00Z"}).check("2026-11-05T18:00:00Z")
+        self.assertEqual([(p.key, p.needs_a_person) for p in problems],
+                         [("chain:2026-11-03", True), ("chain:2026-11-04", True)])
+        self.assertIn("does not match the sealed part of the entry before it", problems[0].text)
+        self.assertIn("sealed without a previous_sha256", problems[1].text)
+
     def test_a_recent_expired_entry_is_an_incident_and_an_old_one_is_not_reported(self):
         record = record_with(["2026-11-02"])
         # Its window ends Nov 10; with no closes it expires once more than MAX_WAIT_SESSIONS sessions follow.

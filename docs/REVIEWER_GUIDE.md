@@ -66,8 +66,10 @@ the 14:30 ET settlement that opens the window (it must exceed five minutes for a
 scored, skipped or expired), whether the window spans a contract roll (such entries are never
 scored), the realized volatility from the six closes the entry stores, its QLIKE loss, and, for
 entries that store their fit, the forecast from its own coefficients and inputs. It also checks the
-hash chain: each entry sealed from 2026-11 on stores the SHA-256 of the sealed part of the entry
-before it, so a sealed entry changed, removed or inserted afterwards fails the check.
+hash chain: each entry sealed from 2026-11-02 on stores the SHA-256 of the sealed part of the entry
+before it, so a sealed entry changed, removed or inserted afterwards fails the check unless every
+later link was recomputed as well. The chain has no key and does not cover the newest entry, so
+compare with a copy of the record you fetched earlier, or with the timestamps below.
 
 A git commit's date is set by its committer, so the record's own timestamps are not enough. To
 check one against GitHub's clock, pick an entry and compare its `sealed_at` with the time of the

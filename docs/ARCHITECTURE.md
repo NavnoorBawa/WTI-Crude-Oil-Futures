@@ -113,7 +113,8 @@ flowchart TB
   entry as pending until the next run. The seal also links each entry it stamps to the sealed part
   of the entry before it (`previous_sha256`, a hash chain); `scripts/verify_record.py`, the Health
   workflow and LIVE report a break, and loading the record never checks it, so a break cannot stop
-  the pipeline.
+  the pipeline. The chain has no key and does not cover the newest entry: it shows an edit only
+  when the later links were left alone, or against an earlier copy of the record.
 - **Cadence.** GitHub runs scheduled workflows on a best-effort basis: the refresh is scheduled
   every 4 hours and the quote every 15 minutes, and either can land late or be skipped. The
   dashboard dates what it displays rather than assuming a cadence: the top bar gives the snapshot's

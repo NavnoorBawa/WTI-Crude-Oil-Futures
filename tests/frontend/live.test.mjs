@@ -277,7 +277,8 @@ test("the hash chain: silent before it exists, a muted line while it holds, a wa
   const broken = withChain({ n_linked: 3, breaks: ["2026-11-03", "2026-11-05"] });
   assert.match(broken.live, /<p class="notice is-warn" role="status">/);
   assert.ok(broken.text.includes("The record's hash chain is broken at Nov 3, 2026, Nov 5, 2026"), broken.text);
-  assert.ok(broken.text.includes("scripts/verify_record.py shows which."));
+  assert.ok(broken.text.includes("is missing or no longer matches the call before it"), broken.text);
+  assert.ok(broken.text.includes("scripts/verify_record.py says which."), broken.text);
   assert.doesNotMatch(broken.text, /calls carry a hash/);
   // The accessor keeps only well-formed dates.
   const summary = m.research.liveRecordSummary({ ...data.vol_forecast.live_record, chain: { n_linked: 2, breaks: ["2026-11-03", "nope", 7] } });
