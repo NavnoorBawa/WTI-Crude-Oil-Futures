@@ -85,19 +85,23 @@ then open the Refresh run that made that commit under
 "Persist live vol track record" step logs the push, timestamped by GitHub. GitHub keeps run logs
 for a limited period, so this check is strongest for recent entries.
 
-From November 2026 each version of the record is also logged outside GitHub's control: after each
-publish, the Refresh workflow attests the record file, which puts its SHA-256 in Sigstore's public
-Rekor transparency log with Rekor's own time.
+The record is also logged outside GitHub's control: after each publish, the Refresh workflow tries
+to attest the record file (best effort), which puts its SHA-256 in Sigstore's public Rekor
+transparency log with Rekor's own time. In a full clone (in a shallow one, run
+`git fetch --unshallow origin live-data` first):
 
 ```bash
 git fetch origin live-data
 python scripts/verify_anchors.py --latest 10
 ```
 
-Passing: a row per sealed entry with the first time Rekor logged a version of the record that held
-that entry unchanged, and whether that was before its window opened. Entries sealed before the
-anchor existed show it after their window opened. The script reads Rekor's index and times; to
-check a version's signature as well, save it with
+Passing: exit status 0, and a row per sealed entry with the first time Rekor logged a version of
+the record that held that entry unchanged, its Rekor log index, and whether that was before its
+window opened. An entry changed or removed after a version holding it was anchored is listed as
+such, with exit status 1. Entries sealed before the anchor job existed, or whose anchor runs
+failed, show no anchor or a late one. The script reads Rekor's index and times, whoever logged the
+entry: that shows the file existed then, not that no other version did. To check that this
+repository's workflow attested a version, save it with
 `git show COMMIT:runtime-state/vol_track_record.json > record.json` and run
 `gh attestation verify record.json --repo NavnoorBawa/WTI-Crude-Oil-Futures`.
 

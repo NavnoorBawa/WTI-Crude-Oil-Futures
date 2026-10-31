@@ -329,13 +329,15 @@ branch ([`backend/vol_record.py`](../backend/vol_record.py)):
 - **Evidence of timing.** A git commit's date is set by whoever makes the commit, so on its own it
   proves nothing. GitHub's evidence is the Actions run log of each publish job and the push event
   that delivered the record to `live-data`, both timestamped by GitHub (which keeps them for a
-  limited period, not indefinitely). From November 2026, each version of the record the publish
-  job persists is also attested (GitHub's `actions/attest`), which logs the file's SHA-256 in
-  Sigstore's public Rekor log with a time neither this repository nor GitHub sets; no one can log a
-  digest before the file exists. [`scripts/verify_anchors.py`](../scripts/verify_anchors.py) lists,
-  for each sealed entry, the first time Rekor logged a version that held it unchanged, and whether
-  that came before its window opened. Entries sealed before the anchor existed were first anchored
-  after their windows opened.
+  limited period, not indefinitely). An outside clock is being added: after each publish, the
+  Refresh workflow tries to attest the record as it then is (GitHub's `actions/attest`, best
+  effort), which logs the file's SHA-256 in Sigstore's public Rekor log with a time neither this
+  repository nor GitHub sets; no one can log a digest before the file exists.
+  [`scripts/verify_anchors.py`](../scripts/verify_anchors.py) lists, for each sealed entry, the
+  first time Rekor logged a version that held it unchanged and whether that came before its window
+  opened, and fails if an anchored entry was later changed or removed. That shows the entry existed
+  by then, not that no other version did. Entries sealed before the anchor job existed can be
+  anchored only from its first run on.
 
 The promotion rule was fixed before the first live forecast ([`PREREGISTRATION.md`](PREREGISTRATION.md)
 states it as a pre-registration, with the commands that date it). It is stated in code

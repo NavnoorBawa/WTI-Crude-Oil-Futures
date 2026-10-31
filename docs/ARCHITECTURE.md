@@ -121,10 +121,12 @@ flowchart TB
   workflow and LIVE report a break, and loading the record never checks it, so a break cannot stop
   the pipeline. The chain has no key and does not cover the newest entry: it shows an edit only
   when the later links were left alone, or against an earlier copy of the record. After publish,
-  the anchor job attests the record file, which logs its SHA-256 in Sigstore's public Rekor log
-  with Rekor's own time; `scripts/verify_anchors.py` reads those times back for each sealed entry.
-  It runs after the seal, never inside its step, and `continue-on-error` keeps a Sigstore outage
-  from failing a refresh.
+  the anchor job attests the record file as it then is on `live-data` (best effort), which logs its
+  SHA-256 in Sigstore's public Rekor log with Rekor's own time; `scripts/verify_anchors.py` reads
+  those times back for each sealed entry. It runs after the seal, never inside its step, and
+  `continue-on-error` keeps a Sigstore outage from failing a refresh; while it runs it holds the
+  workflow's concurrency group, so a slow anchor can hold the next queued refresh for at most its
+  five-minute timeout.
 - **Cadence.** GitHub runs scheduled workflows on a best-effort basis: the refresh is scheduled
   every 4 hours and the quote every 15 minutes, and either can land late or be skipped. The
   dashboard dates what it displays rather than assuming a cadence: the top bar gives the snapshot's

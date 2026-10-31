@@ -459,7 +459,7 @@ class WorkflowGuardTest(unittest.TestCase):
         self.assertNotRegex(deploy, r"push\b[^\n]*(--force|\s-f\b|\+HEAD)")
         self.assertIn("http.followRedirects=false", deploy)
 
-    def test_the_anchor_attests_the_persisted_record_and_can_never_hold_up_a_refresh(self):
+    def test_the_anchor_attests_the_persisted_record_after_publish_and_cannot_fail_the_run(self):
         # refresh.yml's anchor job: after publish, never inside it; a failure never fails the run; it
         # can sign and store an attestation but cannot write contents, and runs no shell of its own.
         source = (WORKFLOW_DIRECTORY / "refresh.yml").read_text(encoding="utf-8")
@@ -468,6 +468,7 @@ class WorkflowGuardTest(unittest.TestCase):
         self.assertIn("    needs: publish\n", anchor)
         self.assertIn("    if: ${{ !cancelled() && needs.publish.result == 'success' }}\n", anchor)
         self.assertIn("    continue-on-error: true\n", anchor)
+        self.assertIn("    timeout-minutes: 5\n", anchor)          # it holds the concurrency group while it runs
         self.assertEqual(" ".join(_permissions(anchor, 4).split()),
                          "contents: read id-token: write # Sigstore's short-lived signing certificate for this workflow "
                          "attestations: write # keep the attestation with the repository as well")
@@ -475,7 +476,15 @@ class WorkflowGuardTest(unittest.TestCase):
         self.assertEqual(list(_shell_run_blocks(anchor)), [])
         self.assertIn("ref: live-data", anchor)
         self.assertIn("persist-credentials: false", anchor)
+        attest = anchor[anchor.index("uses: actions/attest@"):]
+        self.assertEqual(re.findall(r"^\s+(\S+):", attest[attest.index("with:"):], re.M),
+                         ["subject-path"])                       # no other input (no private-signing)
         self.assertIn("subject-path: runtime-state/vol_track_record.json", anchor)
+        # actions/attest is allowed in this job only, though WRITE_TOKEN_JOB_ACTIONS lists it.
+        for workflow in _workflow_files():
+            for name, job in _jobs(workflow.read_text(encoding="utf-8")).items():
+                if (workflow.name, name) != ("refresh.yml", "anchor"):
+                    self.assertNotIn("actions/attest", job, f"{workflow.name} {name}")
         # Nothing about the seal moved: the publish job still neither signs nor attests.
         self.assertNotIn("id-token", _permissions(jobs["publish"], 4))
         self.assertNotIn("actions/attest", re.findall(r"uses:\s*([^\s@]+)@", jobs["publish"]))
