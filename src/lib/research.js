@@ -456,6 +456,17 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}/;
 export const LIVE_MIN_INDEPENDENT = 10;
 
 /**
+ * The record's hash chain (backend/vol_record.py chain_breaks): how many entries carry a link to the
+ * entry before them, and the as_of of each broken link. Null when the summary predates the chain.
+ */
+const chainStatus = (raw) => {
+  const chain = asObject(raw);
+  if (!chain) return null;
+  const breaks = asArray(chain.breaks).filter((day) => typeof day === "string" && ISO_DATE.test(day));
+  return { linked: num(chain.n_linked), breaks: breaks.map((day) => day.slice(0, 10)) };
+};
+
+/**
  * The live forward record (data.json vol_forecast.live_record), normalized. `firstResult` is the
  * record's next_result_due: the earliest target_end of a pending call whose window does not span
  * a contract roll, or null when no result is due.
@@ -496,6 +507,7 @@ export const liveRecordSummary = (record) => {
     recordAll: { n: num(champion.n), qlike: num(champion.qlike), modelVersion: asText(champion.model_version) },
     recent,
     promotion: promotionStatus(lr.promotion),
+    chain: chainStatus(lr.chain),
     promotionRule: asText(lr.promotion_rule),
     note: asText(lr.note),
     directionNote: asText(lr.direction_note),

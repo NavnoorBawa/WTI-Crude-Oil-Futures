@@ -43,8 +43,10 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   pre-registration, generated from its constants (ROADMAP 1.2; the DOI waits for the owner). The
   Health workflow (`.github/workflows/health.yml`, daily and after every Refresh and Reproduce run)
   keeps one issue labelled `health` open, assigned to the owner, while something needs a person,
-  and fails while it does (ROADMAP 1.5).
-- **Tests.** 518 Python (unittest), 264 frontend (node --test) and 13 browser checks (Playwright,
+  and fails while it does (ROADMAP 1.5). From the 2026-11-02 entry on, each sealed entry links to
+  the one before it (`previous_sha256`, a hash chain without a key; ROADMAP 1.4), and
+  `scripts/verify_record.py`, Health and LIVE report a break.
+- **Tests.** 532 Python (unittest), 265 frontend (node --test) and 13 browser checks (Playwright,
   the "Interface" CI job: axe, layout shift, overflow, keyboard, print, script budget). CI also runs
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
   Reproduce rebuild. Releases: `scripts/bump_version.py`, and `.github/workflows/release.yml`
@@ -130,6 +132,11 @@ and its CI run is the test.
 ### 6. Owner-only (the session cannot do these)
 - Repository Settings → Secrets and variables → Actions: keep `EIA_API_KEY`, and delete secrets the
   old pipeline used (`NEWSAPI_KEY`, `FINNHUB_API_KEY` and similar). Nothing reads them now.
+- **Protect `live-data` from rewrites.** The branch has no protection, so anyone with write access
+  can force-push a rewritten record history, and the hash chain alone cannot show that (it has no
+  key). Settings → Rules → Rulesets → New branch ruleset: target `live-data`, turn on "Restrict
+  deletions" and "Block force pushes", no bypass list. The pipeline only fast-forwards the branch,
+  so nothing else changes.
 - Enable the Zenodo-GitHub integration (ROADMAP 1.2) so each release gets a DOI; a session then
   names it in `docs/PREREGISTRATION.md` section 10 and `CITATION.cff`.
 - **Push the version tags.** A session's git access can push branches but not tags (the push of

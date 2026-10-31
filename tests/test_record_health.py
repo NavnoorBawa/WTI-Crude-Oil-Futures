@@ -163,12 +163,24 @@ class EntryStatusTest(unittest.TestCase):
         now = at("2026-11-04T05:30:00Z")
         vr.resolve_entries(record, {}, vr.bars_cutoff(now), now)
         self.assertEqual(record["entries"][0]["status"], "late_commit")
-        record["entries"].append(record_with(["2026-11-03"])["entries"][0])
+        message = vr.record_forecast(record, live_payload("2026-11-03", "2026-11-04T05:00:00Z"), at("2026-11-04T05:00:00Z"))
+        self.assertTrue(message.startswith("recorded"), message)
+        vr.seal_entries(record, at("2026-11-04T05:10:00Z"))
         problems = Files(record, payload={"frozen_at": "2026-11-04T16:00:00Z"}).check("2026-11-04T18:00:00Z")
         self.assertEqual([(p.key, p.needs_a_person) for p in problems], [("late_commit:2026-11-02", False)])
         self.assertIn("Entry 2026-11-02 is late_commit", problems[0].text)
         later = Files(record, payload={"frozen_at": "2026-11-13T16:00:00Z"}).keys("2026-11-13T18:00:00Z")
         self.assertNotIn("late_commit:2026-11-02", later)
+
+    def test_a_broken_hash_chain_needs_a_person_and_says_how(self):
+        record = record_with(["2026-11-02", "2026-11-03", "2026-11-04"])
+        record["entries"][0]["forecast_pct"] += 1.0                 # breaks the 11-03 link
+        record["entries"][2].pop("previous_sha256")                 # and the 11-04 entry carries none
+        problems = Files(record, payload={"frozen_at": "2026-11-05T16:00:00Z"}).check("2026-11-05T18:00:00Z")
+        self.assertEqual([(p.key, p.needs_a_person) for p in problems],
+                         [("chain:2026-11-03", True), ("chain:2026-11-04", True)])
+        self.assertIn("does not match the sealed part of the entry before it", problems[0].text)
+        self.assertIn("sealed without a previous_sha256", problems[1].text)
 
     def test_a_recent_expired_entry_is_an_incident_and_an_old_one_is_not_reported(self):
         record = record_with(["2026-11-02"])
