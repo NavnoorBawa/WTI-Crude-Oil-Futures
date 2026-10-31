@@ -9,6 +9,7 @@ GitHub's best-effort schedule.
 
 [![Tests](https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures/actions/workflows/tests.yml/badge.svg)](https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures/actions/workflows/tests.yml)
 [![Reproduce](https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures/actions/workflows/reproduce.yml/badge.svg)](https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures/actions/workflows/reproduce.yml)
+[![Health](https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures/actions/workflows/health.yml/badge.svg)](https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures/actions/workflows/health.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Live dashboard](https://img.shields.io/badge/live-dashboard-0969da.svg)](https://navnoorbawa.github.io/WTI-Crude-Oil-Futures/)
 

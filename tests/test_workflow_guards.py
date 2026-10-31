@@ -458,6 +458,36 @@ class WorkflowGuardTest(unittest.TestCase):
         self.assertNotRegex(deploy, r"push\b[^\n]*(--force|\s-f\b|\+HEAD)")
         self.assertIn("http.followRedirects=false", deploy)
 
+    def test_health_writes_its_issue_and_nothing_else(self):
+        # health.yml can write issues: it reads copies of the record and the payload through gh, runs
+        # the standard-library check, and never pushes, seals, or writes anything but its scratch files.
+        source = (WORKFLOW_DIRECTORY / "health.yml").read_text(encoding="utf-8")
+        top_level = source[:source.index("\njobs:")]
+        self.assertEqual(" ".join(_permissions(top_level, 0).split()), "contents: read issues: write actions: read")
+        jobs = _jobs(source)
+        self.assertEqual(list(jobs), ["health"])
+        self.assertIsNone(_permissions(jobs["health"], 4))
+        self.assertIn("persist-credentials: false", jobs["health"])
+        commands = "\n".join(re.sub(r"\\\s*\n\s*", " ", block) for block in _shell_run_blocks(jobs["health"]))
+        self.assertNotRegex(commands, r"\bgit\s+(push|commit)\b|--seal\b|vol_record\.py")
+        self.assertEqual(re.findall(r"\bpython3?\s+(\S+\.py)", commands), ["scripts/record_health.py"])
+        self.assertEqual(set(re.findall(r">>?\s*\"?([^\s\";]+)", commands)),
+                         {"record.json", "data.json", "refresh.json", "reproduce.json", "acknowledged.txt",
+                          "${GITHUB_OUTPUT}", "${GITHUB_STEP_SUMMARY}", "/dev/null"})
+        # The script leaves pull requests' runs out by their event, so both run lists must carry it.
+        self.assertEqual(re.findall(r"--json (\S+) > (refresh|reproduce)\.json", commands),
+                         [("conclusion,url,createdAt,event", "refresh"), ("conclusion,url,createdAt,event", "reproduce")])
+        # It runs after every Refresh and Reproduce run on main, never for a pull request's run, and a
+        # drill (the `now` input) never reaches the step that writes the issue.
+        names = {(WORKFLOW_DIRECTORY / f).read_text(encoding="utf-8").split("\n", 1)[0].removeprefix("name: ")
+                 for f in ("refresh.yml", "reproduce.yml")}
+        listed = re.search(r"workflow_run:\n\s+workflows: \[(.*)\]", source).group(1)
+        self.assertEqual({name.strip().strip('"') for name in listed.split(",")}, names)
+        self.assertIn("    if: github.event_name != 'workflow_run' || github.event.workflow_run.event != 'pull_request'",
+                      jobs["health"])
+        issue_step = jobs["health"][jobs["health"].index("- name: Open, update or close the health issue"):]
+        self.assertRegex(issue_step[:issue_step.index("run: |")], r"\n\s+if: inputs\.now == ''\n")
+
     def test_dependabot_groups_leave_majors_to_their_own_prs(self):
         # A major bump (e.g. one half of the upload/download-artifact pair) must not ride along in
         # a routine grouped PR. Only the react group takes majors: its packages move in lockstep.
