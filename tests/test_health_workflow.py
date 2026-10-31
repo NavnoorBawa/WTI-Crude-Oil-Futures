@@ -36,9 +36,23 @@ if args[0] == "api":
     key = "record" if "vol_track_record" in args[-1] else "payload"
     if state.get("api_fails"):
         sys.stderr.write("HTTP 502\n"); done(1)
+    if args[-1].endswith("/jobs"):                 # GET /repos/{repo}/actions/runs/{id}/jobs
+        run_id = args[-1].split("/")[-2]
+        if run_id in state.get("jobs_fail", []):
+            sys.stderr.write("HTTP 502\n"); done(1)
+        print(json.dumps(state.get("jobs", {}).get(run_id, {"jobs": []}))); done()
     sys.stdout.write(state[key]); done()
 if args[:2] == ["run", "list"]:
-    print(json.dumps(state["runs"].get(opt("--workflow"), []))); done()
+    runs = state["runs"].get(opt("--workflow"), [])
+    if opt("--status") == "success":
+        runs = [run for run in runs if run.get("conclusion") == "success"]
+    if opt("--jq") is not None:
+        if "databaseId" not in opt("--jq"):
+            sys.exit("fake gh: unknown --jq " + opt("--jq"))
+        print("\n".join(str(run["databaseId"]) for run in runs
+                        if run.get("event") not in ("pull_request", "pull_request_target")))
+        done()
+    print(json.dumps(runs)); done()
 if args[:2] == ["label", "create"]:
     done(1)                                    # the label exists
 issues = state["issues"]
@@ -185,6 +199,25 @@ class HealthWorkflowTest(unittest.TestCase):
             with self.subTest(now=now):
                 self.assertEqual(repo.run(now), 0, repo.last.stderr)
                 self.assertEqual(len(repo.issues()), 1)                                     # no new issue
+
+    def test_a_failed_anchor_job_is_an_incident_that_opens_the_issue_without_failing_the_run(self):
+        repo = self.repo(record_with(["2026-11-02", "2026-11-03"]), {"frozen_at": "2026-11-04T16:00:00Z"})
+        anchor = {"name": "Anchor the record in a public log", "conclusion": "failure",
+                  "started_at": "2026-11-04T16:05:00Z", "html_url": "https://example.test/job/9"}
+        runs = [{"databaseId": n, "conclusion": "success", "url": f"https://example.test/{n}",
+                 "createdAt": f"2026-11-04T{n:02d}:00:00Z", "event": event}
+                for n, event in ((16, "schedule"), (12, "schedule"), (8, "pull_request"))]
+        repo.update(runs={"refresh.yml": runs},
+                    jobs={"16": {"jobs": [{"name": "Freeze and build", "conclusion": "success"}, anchor]},
+                          "8": {"jobs": [{**anchor, "html_url": "https://example.test/job/pr"}]}},
+                    jobs_fail=["12"])                                                  # one list cannot be fetched
+        self.assertEqual(repo.run("2026-11-04T18:00:00Z"), 0, repo.last.stderr)
+        body = repo.issues()[0]["body"]
+        self.assertIn("On 2026-11-04, 1 Refresh run did not anchor the record in Rekor", body)
+        self.assertIn("https://example.test/job/9", body)
+        self.assertNotIn("job/pr", body)                                               # a pull request's run is not main's
+        self.assertIn("<!-- health-incidents: anchor:2026-11-04 -->", body)
+        self.assertEqual(sorted(p.name for p in (repo.dir / "anchor-jobs").iterdir()), ["16.json"])
 
     def test_a_fetch_that_keeps_failing_fails_the_run_and_touches_no_issue(self):
         repo = self.repo(record_with(["2026-11-02"]), {"frozen_at": "2026-11-03T20:00:00Z"})

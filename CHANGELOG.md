@@ -8,6 +8,10 @@ backs the new one.
 
 ### Live record
 
+- **Health reports a failed anchor.** The anchor job's `continue-on-error` keeps a run green when
+  it fails, so `scripts/record_health.py` now reads the job lists of the last week of successful
+  Refresh runs on main (`--anchor-jobs`, fetched by `health.yml` with read-only API calls) and lists
+  each day with a failed anchor job as a recorded incident, never as needing a person.
 - **A hash chain across sealed entries.** When the seal stamps an entry it also stores
   `previous_sha256`, the SHA-256 of the sealed part of the entry before it (every field but its
   status and the ones resolution sets), which includes that entry's own link; every sealed entry

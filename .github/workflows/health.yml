@@ -6,7 +6,8 @@ name: Health
 # open, its description updated (with a comment) only when the set of problems changes. A problem
 # that needs a person also fails this workflow, so its badge and GitHub's failure notice show it; a
 # recorded incident (a lost session, a late seal) is listed in the issue without failing the run,
-# and closing the issue acknowledges it (the script drops incidents a closed issue lists). The first
+# and closing the issue acknowledges it (the script drops incidents a closed issue lists). A day on
+# which Refresh's best-effort anchor job failed is such an incident. The first
 # healthy run closes the issue. A drill (the `now` input) writes only the job summary and passes. The job can write issues, so it runs only GitHub's checkout,
 # the preinstalled gh CLI and this repository's standard-library script: nothing is installed,
 # nothing is pushed, and data/ is never touched.
@@ -73,10 +74,18 @@ jobs:
             --json conclusion,url,createdAt,event > refresh.json
           gh run list --workflow reproduce.yml --branch main --status completed --limit 20 \
             --json conclusion,url,createdAt,event > reproduce.json
+          # The anchor job's result in the last week of successful Refresh runs (its continue-on-error
+          # keeps a failed anchor's run green). A list that cannot be fetched is left out.
+          mkdir -p anchor-jobs
+          for id in $(gh run list --workflow refresh.yml --branch main --status success --limit 45 \
+              --json databaseId,event --jq '.[] | select(.event != "pull_request" and .event != "pull_request_target") | .databaseId'); do
+            gh api "repos/${GH_REPO}/actions/runs/${id}/jobs" > "anchor-jobs/${id}.json" || rm -f "anchor-jobs/${id}.json"
+          done
           # Closed health issues: the incidents they list were acknowledged when a person closed them.
           gh issue list --label health --state closed --limit 20 --json body --jq '.[].body' > acknowledged.txt
           args=(--record record.json --payload data.json --refresh-runs refresh.json \
-                --reproduce-runs reproduce.json --acknowledged acknowledged.txt --markdown health.md)
+                --reproduce-runs reproduce.json --anchor-jobs anchor-jobs --acknowledged acknowledged.txt \
+                --markdown health.md)
           if [ -n "${DRILL_NOW}" ]; then args+=(--now "${DRILL_NOW}"); fi
           status=0
           python3 scripts/record_health.py "${args[@]}" || status=$?

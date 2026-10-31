@@ -182,6 +182,33 @@ class EntryStatusTest(unittest.TestCase):
         self.assertIn("does not match the sealed part of the entry before it", problems[0].text)
         self.assertIn("sealed without a previous_sha256", problems[1].text)
 
+    def test_a_failed_anchor_job_is_an_incident_per_day_for_a_week_and_never_needs_a_person(self):
+        def job(conclusion, started, name=rh.ANCHOR_JOB):
+            return {"name": name, "conclusion": conclusion, "started_at": started, "html_url": f"https://x/{started}"}
+        listings = [
+            {"jobs": [job("success", "2026-11-04T16:05:00Z"), job("failure", "2026-11-04T16:05:00Z", "Publish")]},
+            {"jobs": [job("failure", "2026-11-04T12:05:00Z")]},
+            {"jobs": [job("timed_out", "2026-11-04T08:05:00Z")]},
+            {"jobs": [job("failure", "2026-11-02T08:05:00Z")]},
+            {"jobs": [job("skipped", "2026-11-03T08:05:00Z"), job("cancelled", "2026-11-03T04:05:00Z")]},
+            {"jobs": [job("failure", "2026-10-27T08:05:00Z")]},              # more than a week before now
+            {"jobs": [job("failure", "not a time")]}, {"jobs": "x"}, "x", {},
+        ]
+        problems = rh.anchor_problems(listings, at("2026-11-04T18:00:00Z"))
+        self.assertEqual([(p.key, p.needs_a_person) for p in problems], [("anchor:2026-11-02", False),
+                                                                         ("anchor:2026-11-04", False)])
+        self.assertIn("On 2026-11-04, 2 Refresh runs did not anchor the record", problems[1].text)
+        self.assertIn("the latest is https://x/2026-11-04T12:05:00Z", problems[1].text)
+        files = Files(record_with(["2026-11-02", "2026-11-03"]), payload={"frozen_at": "2026-11-04T16:00:00Z"})
+        found = rh.check(files.record, files.payload, at("2026-11-04T18:00:00Z"), anchor_jobs=listings,
+                         acknowledged={"anchor:2026-11-02"})
+        self.assertEqual([p.key for p in found], ["anchor:2026-11-04"])
+        self.assertEqual(rh.status(found), rh.INCIDENTS)
+
+    def test_the_anchor_job_name_is_refresh_yml_s(self):
+        source = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "refresh.yml").read_text(encoding="utf-8")
+        self.assertIn(f"\n  anchor:\n    name: {rh.ANCHOR_JOB}\n", source)
+
     def test_a_recent_expired_entry_is_an_incident_and_an_old_one_is_not_reported(self):
         record = record_with(["2026-11-02"])
         # Its window ends Nov 10; with no closes it expires once more than MAX_WAIT_SESSIONS sessions follow.

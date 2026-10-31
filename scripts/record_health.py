@@ -27,8 +27,11 @@ Needs a person (the Health run fails until it clears):
 
 Recorded incidents (nothing can undo them; they are reported for LOOKBACK_DAYS so a person sees
 them, and closing the issue acknowledges them): a missed session that can no longer be recorded,
-and an entry closed late_commit (not sealed in time, never scored) or expired (its closes still
-missing MAX_WAIT_SESSIONS sessions after its window) in that period. The issue body lists the
+an entry closed late_commit (not sealed in time, never scored) or expired (its closes still
+missing MAX_WAIT_SESSIONS sessions after its window) in that period, and a day on which a Refresh
+run's anchor job failed (refresh.yml's best-effort Rekor timestamp, docs/ROADMAP.md Stage 1 item 3:
+its continue-on-error keeps the run green, so only the job's own result shows it; that version of
+the record has no anchor, and nothing else changes). The issue body lists the
 incidents' keys; the workflow passes the bodies of closed health issues back (--acknowledged), and
 an incident whose key a closed issue lists is dropped, one incident at a time.
 
@@ -43,8 +46,8 @@ backend.contract_calendar are standard library only).
 
 Usage:
     python scripts/record_health.py --record record.json --payload data.json \\
-        [--refresh-runs refresh.json] [--reproduce-runs reproduce.json] [--acknowledged closed.txt] \\
-        [--now 2026-10-30T18:00:00Z] [--markdown health.md]
+        [--refresh-runs refresh.json] [--reproduce-runs reproduce.json] [--anchor-jobs jobs/] \\
+        [--acknowledged closed.txt] [--now 2026-10-30T18:00:00Z] [--markdown health.md]
 """
 
 from __future__ import annotations
@@ -79,6 +82,7 @@ REFRESH_FAILURES = 2
 FAILED = {"failure", "timed_out", "startup_failure"}
 NOT_A_RESULT = {None, "", "cancelled", "skipped", "neutral", "stale"}
 PULL_REQUEST_EVENTS = {"pull_request", "pull_request_target"}
+ANCHOR_JOB = "Anchor the record in a public log"     # refresh.yml's anchor job, by its name
 HEALTHY, INCIDENTS, NEEDS_A_PERSON, BROKEN = 0, 3, 4, 2
 
 
@@ -211,6 +215,31 @@ def run_problems(name: str, runs: list[dict[str, Any]], failures_needed: int) ->
                     f"{latest.get('url', 'unknown')} ({latest.get('createdAt', 'unknown time')}).", True)]
 
 
+def anchor_problems(runs_jobs: list[dict[str, Any]], now: datetime) -> list[Problem]:
+    """Days in the last LOOKBACK_DAYS on which a Refresh run's anchor job failed, one incident per UTC day.
+
+    `runs_jobs` holds the GitHub API's job lists (GET /repos/{repo}/actions/runs/{id}/jobs) of recent Refresh
+    runs on main. Runs without the job (from before it existed, or whose publish did not succeed) say nothing.
+    """
+    since = now - timedelta(days=LOOKBACK_DAYS)
+    failed: dict[str, list[str]] = {}
+    for listing in runs_jobs:
+        jobs = listing.get("jobs") if isinstance(listing, dict) else None
+        for job in jobs if isinstance(jobs, list) else []:
+            if not isinstance(job, dict) or job.get("name") != ANCHOR_JOB or job.get("conclusion") not in FAILED:
+                continue
+            try:
+                started = _utc(str(job.get("started_at")))
+            except ValueError:
+                continue
+            if started >= since:
+                failed.setdefault(started.date().isoformat(), []).append(str(job.get("html_url", "unknown")))
+    return [Problem(f"anchor:{day}", f"On {day}, {len(urls)} Refresh run{'s' if len(urls) > 1 else ''} did not anchor "
+                    f"the record in Rekor (the anchor job failed; the latest is {urls[0]}). Those versions of the "
+                    f"record have no outside timestamp; the record itself is unchanged.", False)
+            for day, urls in sorted(failed.items())]
+
+
 INCIDENT_MARKER = re.compile(r"<!-- health-incidents: ([^>]*?) -->")
 
 
@@ -220,7 +249,8 @@ def acknowledged_keys(text: str) -> set[str]:
 
 
 def check(record_path: Path, payload_path: Path, now: datetime, refresh_runs: list[dict[str, Any]] | None = None,
-          reproduce_runs: list[dict[str, Any]] | None = None, acknowledged: set[str] | None = None) -> list[Problem]:
+          reproduce_runs: list[dict[str, Any]] | None = None, acknowledged: set[str] | None = None,
+          anchor_jobs: list[dict[str, Any]] | None = None) -> list[Problem]:
     """Every problem, in a fixed order, less the incidents a closed issue acknowledged; empty means healthy."""
     problems: list[Problem] = []
     try:
@@ -239,6 +269,8 @@ def check(record_path: Path, payload_path: Path, now: datetime, refresh_runs: li
         problems += run_problems("Refresh", refresh_runs, REFRESH_FAILURES)
     if reproduce_runs is not None:
         problems += run_problems("Reproduce", reproduce_runs, 1)
+    if anchor_jobs is not None:
+        problems += anchor_problems(anchor_jobs, now)
     return [p for p in problems if p.needs_a_person or p.key not in (acknowledged or set())]
 
 
@@ -282,12 +314,26 @@ def _runs(path: str | None) -> list[dict[str, Any]] | None:
     return runs
 
 
+def _job_lists(directory: str | None) -> list[dict[str, Any]] | None:
+    """The job lists saved in `directory` (one JSON file per run); one that is not JSON is left out."""
+    if directory is None:
+        return None
+    listings = []
+    for path in sorted(Path(directory).glob("*.json")):
+        try:
+            listings.append(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            continue
+    return listings
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--record", required=True, help="a copy of runtime-state/vol_track_record.json")
     parser.add_argument("--payload", required=True, help="a copy of the deployed data.json")
     parser.add_argument("--refresh-runs", help="gh run list --json conclusion,url,createdAt,event for refresh.yml")
     parser.add_argument("--reproduce-runs", help="the same for reproduce.yml")
+    parser.add_argument("--anchor-jobs", help="a directory of job lists (GitHub API) of recent Refresh runs on main")
     parser.add_argument("--acknowledged", help="the bodies of closed health issues: incidents they list are dropped")
     parser.add_argument("--now", help="check as of this UTC time (ISO 8601) instead of the clock: a drill")
     parser.add_argument("--markdown", help="write the issue body here")
@@ -295,11 +341,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         now = _utc(args.now) if args.now else datetime.now(timezone.utc)
         refresh, reproduce = _runs(args.refresh_runs), _runs(args.reproduce_runs)
+        anchor_jobs = _job_lists(args.anchor_jobs)
         acknowledged = acknowledged_keys(Path(args.acknowledged).read_text(encoding="utf-8")) if args.acknowledged else set()
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     try:
-        problems = check(Path(args.record), Path(args.payload), now, refresh, reproduce, acknowledged)
+        problems = check(Path(args.record), Path(args.payload), now, refresh, reproduce, acknowledged, anchor_jobs)
         if args.markdown:
             Path(args.markdown).write_text(markdown(problems, now), encoding="utf-8")
     except Exception:                    # a failure of the check itself: no verdict, and no issue is touched
