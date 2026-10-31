@@ -161,8 +161,35 @@
       "base_session": "2026-10-23",
       "target_start": "2026-10-26",
       "target_end": "2026-10-30",
-      "status": "pending",
-      "realized_pct": null
+      "status": "resolved",
+      "realized_pct": 30.5042,
+      "resolved_at": "2026-10-31T05:38:07.545132Z",
+      "closes": [
+        [
+          "2026-10-23",
+          103.27
+        ],
+        [
+          "2026-10-26",
+          101.76
+        ],
+        [
+          "2026-10-27",
+          99.9
+        ],
+        [
+          "2026-10-28",
+          102.78
+        ],
+        [
+          "2026-10-29",
+          102.0
+        ],
+        [
+          "2026-10-30",
+          104.12
+        ]
+      ]
     },
     {
       "as_of": "2026-10-23",
@@ -357,6 +384,50 @@
       "base_session": "2026-10-30",
       "target_start": "2026-11-02",
       "target_end": "2026-11-06",
+      "status": "pending",
+      "realized_pct": null
+    },
+    {
+      "as_of": "2026-10-30",
+      "issued_at": "2026-10-31T05:37:58.723877Z",
+      "recorded_at": "2026-10-31T05:38:07.545132Z",
+      "sealed_at": "2026-10-31T05:38:31.538651Z",
+      "frozen_at": "2026-10-31T05:38:07.135694+00:00",
+      "contract": "CLZ26",
+      "model_version": "har-iv/2",
+      "model": "HAR-IV (RV5,RV22,RV66,OVX)",
+      "forecast_pct": 54.7,
+      "median_pct": 46.0,
+      "prob_vol_rises_pct": 84.3,
+      "direction": "RISING",
+      "rv5_pct": 30.5,
+      "lo80_pct": 26.8,
+      "hi80_pct": 73.4,
+      "inputs": {
+        "ovx": 57.16,
+        "ovx_last_print": "2026-10-30",
+        "ovx_session": "2026-10-29",
+        "ovx_source": "yahoo ^OVX",
+        "rv22_pct": 37.54,
+        "rv5_pct": 30.5,
+        "rv66_pct": 41.33
+      },
+      "coefficients": [
+        -4.879467,
+        0.038595,
+        0.171775,
+        -0.151709,
+        1.033946
+      ],
+      "smearing_factor": 1.4127,
+      "challenger": {
+        "key": "har_iv_range",
+        "forecast_pct": 51.1,
+        "median_pct": 43.3
+      },
+      "base_session": "2026-11-02",
+      "target_start": "2026-11-03",
+      "target_end": "2026-11-09",
       "status": "pending",
       "realized_pct": null
     }
