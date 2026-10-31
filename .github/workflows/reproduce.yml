@@ -19,6 +19,10 @@ on:
       - 'requirements*.txt'
       - 'tests/test_vol_lab.py'
       - '.github/workflows/reproduce.yml'
+      - 'scripts/describe_rebuild.py'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'Makefile'
   push:
     branches:
       - main
@@ -33,6 +37,10 @@ on:
       - 'requirements*.txt'
       - 'tests/test_vol_lab.py'
       - '.github/workflows/reproduce.yml'
+      - 'scripts/describe_rebuild.py'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'Makefile'
   schedule:
     - cron: '47 6 * * 1'
   workflow_dispatch: {}
@@ -114,29 +122,7 @@ jobs:
         if: ${{ !cancelled() && steps.reproduce.outcome != 'skipped' }}
         env:
           VOL_LAB_REBUILT: ${{ runner.temp }}/vol_lab.rebuilt.json
-        run: |
-          set -euo pipefail
-          test -f "$VOL_LAB_REBUILT" || { echo "### The rebuild did not finish" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
-          python -B - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
-          import json
-          import os
-
-          from backend.vol_lab import REPRO_REL_TOL, compare_reports
-
-          committed = json.loads(open("data/vol_lab.json", encoding="utf-8").read())
-          rebuilt = json.loads(open(os.environ["VOL_LAB_REBUILT"], encoding="utf-8").read())
-          diff = compare_reports(committed, rebuilt)
-          if diff["identical"]:
-              print("### Rebuild: bit for bit identical")
-          elif not diff["violations"]:
-              print(f"### Rebuild: every conclusion identical; {diff['numbers_differing']} numbers differ "
-                    f"in the last bits (largest {diff['largest_relative_difference']:.1e} relative, "
-                    f"tolerance {REPRO_REL_TOL:g} or the published last place)")
-          else:
-              print(f"### Rebuild: {len(diff['violations'])} differences beyond floating-point noise")
-              for line in diff["violations"][:30]:
-                  print(f"- `{line}`")
-          PY
+        run: python -B scripts/describe_rebuild.py "$VOL_LAB_REBUILT" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Summarize the artifact
         if: ${{ !cancelled() }}
@@ -173,3 +159,22 @@ jobs:
           print(f"| 90% MCS (MSE) | {', '.join(f'`{m}`' for m in board['mcs_mse_included'])} |")
           print(f"| Challenger | `{report['config']['challenger']}` |")
           PY
+
+  container:
+    # The same rebuild inside the pinned container (Dockerfile, Makefile), as a reviewer runs it with
+    # `docker build -t wti-vol .` and `docker run --rm wti-vol make reproduce`, so the image cannot
+    # drift away from the workflow above unnoticed.
+    name: Rebuild in the pinned container
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the image
+        run: docker build --pull -t wti-vol .
+
+      - name: Rebuild the artifact in it and compare
+        run: docker run --rm wti-vol make reproduce

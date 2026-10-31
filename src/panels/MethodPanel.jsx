@@ -520,6 +520,12 @@ export default function MethodPanel({ data, research, researchStatus }) {
               ? "The benchmark lab's inputs are pinned by the SHA-256 digests above and its bootstrap is seeded, so a rerun on the same files should reproduce its figures on this page; the runs that download data reproduce on the data of the day they run."
               : "The runs that download data reproduce on the data of the day they run."}
           </p>
+          <p className="prose-note is-muted">
+            The same environment as a container, with its Python and Node images pinned by digest: <code>docker build -t
+            wti-vol .</code> then <code>docker run --rm wti-vol make reproduce</code> rebuilds the benchmark lab and
+            compares it with the committed artifact (the <code>Dockerfile</code> and <code>Makefile</code> at the
+            repository root; <code>.devcontainer/</code> opens it in Codespaces).
+          </p>
         </div>
 
         <Cite data={data} />

@@ -8,6 +8,16 @@ backs the new one.
 
 ### Engineering
 
+- **A pinned reproduce environment.** A `Dockerfile` (Python 3.12.14 and Node 24.21.0 images pinned
+  by digest, each at least 14 days old; dependencies only from `requirements*.txt` and
+  `package-lock.json`; the Reproduce workflow's numeric environment), a `Makefile` with one target
+  per check (`lint`, `type`, `test`, `reproduce`, `check-frontend`, `figures`, `docs`) and
+  `.devcontainer/` for Codespaces. `docker build -t wti-vol .` then `docker run --rm wti-vol make
+  reproduce` rebuilds `data/vol_lab.json` and compares it with the committed file. The Reproduce
+  workflow gains a job that does exactly that, Dependabot proposes digest updates with the same
+  14-day cooldown, and `tests/test_container.py` keeps the three files and the workflow in step.
+  The comparison's summary moved from inline workflow Python to `scripts/describe_rebuild.py`.
+  (ROADMAP 1.6.)
 - **Failures announce themselves.** `.github/workflows/health.yml` runs daily and after every
   Refresh and Reproduce run on main; `scripts/record_health.py` checks copies of the live record and
   of the deployed `data.json`, and the latest runs. While something needs a person (a due session

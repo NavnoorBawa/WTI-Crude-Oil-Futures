@@ -51,6 +51,13 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   publishes a GitHub Release with `SHA256SUMS` on each `vX.Y.Z` tag from 2.2.0 on.
 - **Cloud sessions.** `.claude/hooks/session-start.sh` builds `.venv` (Python 3.12, pinned
   requirements) and installs `node_modules`, so every gate runs from the first command.
+- **Reproduce environment.** `Dockerfile` (Python 3.12.14 and Node 24.21.0 images pinned by
+  digest), `Makefile` (`make help`) and `.devcontainer/` (ROADMAP 1.6). `docker build -t wti-vol .`
+  then `docker run --rm wti-vol make reproduce` rebuilt `data/vol_lab.json` bit for bit on an Intel
+  x86-64 host on 2026-10-31; the Reproduce workflow's container job repeats it on every change to
+  the lab's inputs or the container and weekly. A cloud session can run Docker: start `dockerd` in
+  the background first; behind the session's TLS proxy, a local build needs the proxy's CA added in
+  a scratch copy of the Dockerfile (never in the committed one).
 
 ## Open backlog, most valuable first
 
@@ -69,7 +76,9 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   fails again by itself: pin `minimatch` 11.0.1 (published 2026-10-27, the fix for
   GHSA-g3hv-75wg-m249) with an npm override if eslint passes with it, or take an eslint release that
   depends on it, and remove the exception.
-Dependabot opens these PRs once each release is old enough. Merge them when CI, including the
+Dependabot opens these PRs once each release is old enough, and from ROADMAP 1.6 also proposes
+new digests for the Dockerfile's two base images (same 14-day cooldown; the container job is
+their test). Merge them when CI, including the
 Reproduce rebuild, is green: react and react-dom 19.3.1 (eligible since 2026-10-28; no PR yet),
 eslint 10.13.0 (2026-10-30), vite 8.3.5 (2026-11-04), actions/setup-python v7.1.0 (2026-11-05),
 pandas 3.1.0 and coverage 7.17.0. Those were tested in scratch environments and pass, including

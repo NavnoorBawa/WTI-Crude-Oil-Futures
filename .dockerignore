@@ -1,0 +1,12 @@
+# The image gets its own dependencies (Dockerfile); local installs and build output stay out.
+node_modules
+.venv
+dist
+dist-ssr
+**/__pycache__
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+*.log
+.claude

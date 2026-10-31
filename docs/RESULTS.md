@@ -527,7 +527,12 @@ Both supported leak demonstrations survive every adjustment, so some of the proj
 
 ## 7. Reproduce
 
-Requires Python 3.12+ and, for the dashboard, Node 22.13+.
+Requires Python 3.12+ and, for the dashboard, Node 22.13+. The [`Dockerfile`](../Dockerfile) gives
+the same environment with its Python and Node images pinned by digest: `docker build -t wti-vol .`
+then `docker run --rm wti-vol make reproduce` runs the rebuild-and-compare test below with the
+numeric environment set (the [`Makefile`](../Makefile) lists the other checks;
+[`.devcontainer/`](../.devcontainer) opens it in Codespaces). The Reproduce workflow runs that
+container job too.
 
 ```bash
 python -m pip install -r requirements.txt -r requirements-dev.txt

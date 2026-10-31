@@ -140,6 +140,15 @@ PYTHONPATH=. python -m unittest discover -s tests               # the test suite
 npm ci && npm run check                                         # dashboard lint, tests, build and audit
 ```
 
+Or in the pinned container (Python and Node images pinned by digest, the same pins, the Reproduce
+workflow's numeric environment):
+
+```bash
+docker build -t wti-vol .
+docker run --rm wti-vol make reproduce                          # rebuild data/vol_lab.json and compare
+docker run --rm wti-vol make help                               # lint, type, test, check-frontend, figures, docs
+```
+
 Every command, including the side studies and the runs on downloaded data, is in
 [section 7 of the full results](docs/RESULTS.md#7-reproduce), with the numeric environment the
 Reproduce workflow pins.

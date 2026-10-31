@@ -1,0 +1,16 @@
+{
+  // The pinned reproduce environment (Dockerfile at the repository root) for Codespaces or a local
+  // Dev Containers editor. The image holds the Python packages and Node; node_modules is installed
+  // into the mounted checkout from package-lock.json. Then: make reproduce (or make help).
+  "name": "WTI volatility research",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": ".."
+  },
+  "postCreateCommand": "npm ci --ignore-scripts --no-audit --no-fund",
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "charliermarsh.ruff", "dbaeumer.vscode-eslint"]
+    }
+  }
+}
