@@ -28,10 +28,10 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   its inputs or its pins, and weekly).
 - **Live record.** Daily calls are recorded and sealed in git on the `live-data` branch before their
   window opens; each call since 2026-10-28 also stores its fit, so it recomputes from its own entry.
-  The first windows resolved on 2026-10-29 and 2026-10-30: the Oct 20 call (47.3%, band
-  23.1–63.6%) against a realized 40.95% and the Oct 21 call (49.6%, band 24.3–66.6%) against
-  37.76%, both inside their band. The windows overlap, so the page counts one independent week.
-  `scripts/verify_record.py` passes on the record.
+  The first three windows resolved on 2026-10-29, 10-30 and 10-31: the Oct 20 call (47.3%, band
+  23.1–63.6%) against a realized 40.95%, the Oct 21 call (49.6%, band 24.3–66.6%) against 37.76% and
+  the Oct 22 call (50.8%, band 24.9–68.2%) against 30.50%, all inside their band. The windows
+  overlap, so the page counts one independent week. `scripts/verify_record.py` passes on the record.
 - **Dashboard (2.2.0).** 2.1.0's research terminal, plus: the hero splits each change between calls
   into its inputs, refit and smearing; the hand arithmetic shows again; titles name their samples;
   the live record explains every never-scored status and an overdue result; charts keep their frame
@@ -44,7 +44,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   Health workflow (`.github/workflows/health.yml`, daily and after every Refresh and Reproduce run)
   keeps one issue labelled `health` open, assigned to the owner, while something needs a person,
   and fails while it does (ROADMAP 1.5).
-- **Tests.** 518 Python (unittest), 260 frontend (node --test) and 13 browser checks (Playwright,
+- **Tests.** 518 Python (unittest), 264 frontend (node --test) and 13 browser checks (Playwright,
   the "Interface" CI job: axe, layout shift, overflow, keyboard, print, script budget). CI also runs
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
   Reproduce rebuild. Releases: `scripts/bump_version.py`, and `.github/workflows/release.yml`
