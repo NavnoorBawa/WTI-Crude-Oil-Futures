@@ -6,6 +6,17 @@ backs the new one.
 
 ## Unreleased
 
+### Live record
+
+- **A hash chain across sealed entries.** When the seal stamps an entry it also stores
+  `previous_sha256`, the SHA-256 of the sealed part of the entry before it (every field but the ones
+  resolution adds), which includes that entry's own link. Changing, removing or inserting a sealed
+  entry breaks a link from then on: `scripts/verify_record.py` fails, the Health workflow opens its
+  issue, and LIVE shows a warning; while the chain holds, LIVE says how many calls carry a link.
+  Additive: nothing else about sealing, recording or scoring changes, entries sealed before the
+  chain carry no link, and loading the record never checks the chain, so a break cannot stop the
+  pipeline. (ROADMAP 1.4.)
+
 ### Engineering
 
 - **Failures announce themselves.** `.github/workflows/health.yml` runs daily and after every

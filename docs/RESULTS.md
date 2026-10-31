@@ -317,6 +317,13 @@ branch ([`backend/vol_record.py`](../backend/vol_record.py)):
   the calendar spread. An entry whose closes never arrive is marked expired rather than scored late.
 - **Scored on QLIKE**, for the model of record and the challenger on the same entries. Direction is
   reported beside its noise floor. Only non-overlapping windows count as independent evidence.
+- **Chained.** From 2026-11 on, the seal also stores in each entry `previous_sha256`, the SHA-256 of
+  the sealed part of the entry before it (everything but the fields resolution adds). That part
+  includes the earlier entry's own link, so changing, removing or inserting a sealed entry breaks
+  a link from then on; [`scripts/verify_record.py`](../scripts/verify_record.py) fails on a break,
+  and the Health workflow and LIVE report it. The newest entry is covered once the next one is
+  sealed; an independent timestamp anchor ([`ROADMAP.md`](ROADMAP.md), Stage 1, item 3) would cover
+  it at once.
 - **Evidence of timing.** A git commit's date is set by whoever makes the commit, so on its own it
   proves nothing. The external evidence is GitHub's: the Actions run log of each publish job and the
   push event that delivered the record to `live-data`, both timestamped by GitHub (which keeps them

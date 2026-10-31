@@ -270,6 +270,14 @@ data).
   marked `late_commit` (with `closed_at`) and never scored. An entry still unsealed when its window
   is about to open was never pushed by the seal step (for example, written by hand) and is closed as
   `late_commit` too. Only entries sealed in time can be resolved, skipped or expired.
+- **Chain.** The seal also stores `previous_sha256` in each entry it stamps: the SHA-256 of the
+  canonical JSON (sorted keys, no whitespace) of the entry before it, less the fields resolution
+  adds or changes (`status`, `closed_at`, `resolved_at`, `closes`, `realized_pct`,
+  `missing_sessions`), so of a part that is final once that entry is sealed and that holds its own
+  link (`vol_record.entry_digest`). A changed, removed or inserted sealed entry breaks a link from
+  then on (`vol_record.chain_breaks`). Entries sealed before the chain carry no link; loading the
+  record checks only a link's form, never the chain, so a break cannot stop the pipeline: the
+  verifier, the Health workflow and LIVE report it.
 - **Evidence of timing.** A git commit's author and committer dates are set by whoever makes the
   commit, so they are not evidence. GitHub's own records are: the Actions run log of the publish
   job and the push event on `live-data`, both timestamped by GitHub (and kept for a limited period).
