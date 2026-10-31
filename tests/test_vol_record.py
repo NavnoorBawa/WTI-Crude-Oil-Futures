@@ -1338,6 +1338,7 @@ class HashChainTest(unittest.TestCase):
             "entry removed": lambda e: e.pop(1),
             "entry inserted": lambda e: e.insert(2, copy.deepcopy(e[1])),
             "a later link dropped": lambda e: e[2].pop("previous_sha256"),
+            "the first entry removed": lambda e: e.pop(0),
         }
         for name, change in cases.items():
             with self.subTest(change=name):
@@ -1371,6 +1372,15 @@ class HashChainTest(unittest.TestCase):
         relinked[1]["forecast_pct"] = 30.0
         self.assertEqual(vr.chain_breaks(relinked), ["2026-11-04"])
         self.assertIn("does not match the sealed part of the entry before it", vr.chain_break_reason(relinked[2]))
+        headless = chained()["entries"][1:]                  # the record's first entry removed
+        self.assertEqual(vr.chain_breaks(headless), ["2026-11-03"])
+        self.assertIn("links to an entry before it", vr.chain_break_reason(headless[0], first=True))
+
+    def test_before_chain_from_a_dropped_link_after_a_linked_entry_is_still_a_break(self):
+        entries = chained()["entries"]
+        entries[2].pop("previous_sha256")                    # 11-04 dropped, after 11-02 and 11-03 carried links
+        with mock.patch.object(vr, "CHAIN_FROM", D("2026-11-09")):
+            self.assertEqual(vr.chain_breaks(entries), ["2026-11-04", "2026-11-05"])
 
     def test_the_chain_cannot_see_its_newest_entry_or_later_links_recomputed(self):
         # What the docs say the chain does not show: it has no key, and nothing links to the newest entry.

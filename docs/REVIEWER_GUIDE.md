@@ -68,9 +68,10 @@ scored), the realized volatility from the six closes the entry stores, its QLIKE
 entries that store their fit, the forecast from its own coefficients and inputs. It also checks the
 hash chain: each entry sealed from 2026-11-02 on stores the SHA-256 of the sealed part of the entry
 before it, so a sealed entry changed, removed or inserted afterwards fails the check unless every
-later link was recomputed as well. The chain has no key and does not cover the newest entry, so
-compare with a copy of the record you fetched earlier, or with the timestamps and the public log
-below.
+later link was recomputed as well. Entries sealed before the chain (to 2026-10-30) carry no link and
+are not covered, except the last of them, which the first link hashes. The chain has no key and
+does not cover the newest entry, so compare with a copy of the record you fetched earlier, or with
+the timestamps and the public log below.
 
 A git commit's date is set by its committer, so the record's own timestamps are not enough. To
 check one against GitHub's clock, pick an entry and compare its `sealed_at` with the time of the

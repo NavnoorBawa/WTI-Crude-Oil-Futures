@@ -129,7 +129,8 @@ def record_problems(record: dict[str, Any], now: datetime) -> list[Problem]:
     by_as_of = {entry["as_of"]: entry for entry in entries}
     for as_of in vr.chain_breaks(entries):
         problems.append(Problem(f"chain:{as_of}", f"The record's hash chain breaks at entry {as_of}: "
-                                f"{vr.chain_break_reason(by_as_of[as_of])} (scripts/verify_record.py).", True))
+                                f"{vr.chain_break_reason(by_as_of[as_of], first=as_of == entries[0]['as_of'])} "
+                                f"(scripts/verify_record.py).", True))
     since = (now - timedelta(days=LOOKBACK_DAYS)).date()
     due = due_through(now)
     newest = max((entry["as_of"] for entry in entries), default=None)

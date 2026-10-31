@@ -655,11 +655,13 @@ def chain_breaks(entries: list[Entry]) -> list[str]:
     return breaks
 
 
-def chain_break_reason(entry: Entry) -> str:
-    """Why chain_breaks lists `entry`, in words."""
+def chain_break_reason(entry: Entry, first: bool = False) -> str:
+    """Why chain_breaks lists `entry` (`first`: it is the record's first entry), in words."""
     if "previous_sha256" not in entry:
         return ("it was sealed without a previous_sha256: its link was removed, or a run without the chain "
                 "sealed it")
+    if first:
+        return "it is the record's first entry but links to an entry before it: entries were removed before it"
     return ("its previous_sha256 does not match the sealed part of the entry before it: that entry or this link "
             "was changed, or an entry was removed or inserted between them")
 

@@ -49,7 +49,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   workflow's `anchor` job tries to attest the record (best effort), logging its SHA-256 in
   Sigstore's public Rekor log; `scripts/verify_anchors.py` reads the times back (ROADMAP 1.3, in
   progress until the first anchored runs are checked).
-- **Tests.** 518 Python (unittest), 264 frontend (node --test) and 13 browser checks (Playwright,
+- **Tests.** 552 Python (unittest), 265 frontend (node --test) and 13 browser checks (Playwright,
   the "Interface" CI job: axe, layout shift, overflow, keyboard, print, script budget). CI also runs
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
   Reproduce rebuild. Releases: `scripts/bump_version.py`, and `.github/workflows/release.yml`

@@ -140,7 +140,7 @@ resolved entries must add up: `n_resolved = champion.n + promotion.n_excluded_ot
 `champion.n = challenger.n + promotion.n_excluded_other_challenger +
 promotion.n_excluded_no_challenger`. `chain` is optional (summaries written before the hash chain
 omit it); when present, `n_linked` is a non-negative integer no larger than `n_recorded` and
-`breaks` a list of ISO dates, empty unless a sealed entry was changed, removed or inserted. `next_result_due` must be present: an ISO date (`YYYY-MM-DD`)
+`breaks` a list of ISO dates, empty unless a sealed entry's link is missing or does not match the entry before it. `next_result_due` must be present: an ISO date (`YYYY-MM-DD`)
 or null, and null when no entry is pending. The `recent[]` audit fields are optional (summaries
 written before they existed omit them) and each may be null; when present, `recorded_at` and
 `sealed_at` must be ISO timestamps with a UTC offset, `base_session` an ISO date,
@@ -162,7 +162,10 @@ before any job uses it. Each entry carries `as_of`, `issued_at`, `recorded_at`, 
 until the publish job's seal), `frozen_at`, `contract`, `model_version`, `model`, `forecast_pct`,
 `median_pct`, `prob_vol_rises_pct`, `direction`, `rv5_pct`, `lo80_pct`, `hi80_pct`, `inputs`,
 `challenger` (`{key, forecast_pct, median_pct}` or null), the window (`base_session`,
-`target_start`, `target_end`), `status` and `realized_pct`. Entries recorded from 2.2.0 on also
+`target_start`, `target_end`), `status` and `realized_pct`. Entries sealed from 2026-11-02 on also
+carry `previous_sha256`, set by the seal: the SHA-256 of the sealed part of the entry before it
+(`vol_record.entry_digest`), or null for the record's first entry; entries sealed before the chain
+do not have the key. Entries recorded from 2.2.0 on also
 store the fit that produced the forecast: `coefficients` (the log-log regression's intercept, then
 its slopes on ln RV5, ln RV22 and ln RV66 in decimals and ln OVX in index points; four numbers for
 the plain-HAR fallback; null when the live block had none) and `smearing_factor` (Duan's, positive,

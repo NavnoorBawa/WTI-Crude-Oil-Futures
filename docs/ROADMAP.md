@@ -84,7 +84,7 @@ These never finish; every session checks them first.
    exits 0 and prints each anchor's time. Refs: docs.sigstore.dev; opentimestamps.org.
 4. **Hash chain across record entries.** Each new entry stores `previous_sha256` of the sealed
    JSON of the entry before it; the validator checks the chain and LIVE shows a broken chain as a
-   warning. Old entries keep a null link. Acceptance: a test that edits a sealed entry in a copy
+   warning. Entries sealed before the chain carry no link. Acceptance: a test that edits a sealed entry in a copy
    of the record makes the validator fail.
 5. **Failures announce themselves.** A new `.github/workflows/health.yml` (daily, off-peak minute,
    plus `workflow_run` on failed Refresh and Reproduce runs; `contents: read`, `issues: write`;
