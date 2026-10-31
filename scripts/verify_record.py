@@ -13,7 +13,10 @@ re-derives what each entry claims instead of trusting the summary or the site:
 - the outcome: a resolved entry's realized vol recomputed from the six closes it stores, and its
   QLIKE;
 - the forecast, when the entry stores its fit (entries recorded from 2.2.0 on): median =
-  100·exp(b0 + Σ bk·ln xk) and forecast = median·√smearing from its own coefficients and inputs.
+  100·exp(b0 + Σ bk·ln xk) and forecast = median·√smearing from its own coefficients and inputs;
+- the hash chain: each linked entry's previous_sha256 is the SHA-256 of the sealed part of the entry
+  before it (vol_record.chain_breaks), so a sealed entry changed, removed or inserted after a later
+  one was sealed fails here.
 
 Usage:
     git show origin/live-data:runtime-state/vol_track_record.json | python scripts/verify_record.py -
@@ -154,6 +157,12 @@ def main(argv: list[str] | None = None) -> int:
         independent = len(vr.independent_entries([entry for entry, _ in champion]))
         print(f"{vr.PROMOTION_MODEL_VERSION}: {len(champion)} resolved, mean QLIKE {mean_qlike:.4f}, "
               f"{independent} with non-overlapping windows")
+    breaks = vr.chain_breaks(entries)
+    linked = sum(entry.get("previous_sha256") is not None for entry in entries)
+    print(f"Hash chain: {linked} of {len(entries)} entries linked"
+          + (f", broken at {', '.join(breaks)}" if breaks else ", no break"))
+    failures += [(as_of, "its previous_sha256 does not match the sealed part of the entry before it: a sealed "
+                         "entry was changed, removed or inserted") for as_of in breaks]
     for as_of, problem in failures:
         print(f"FAIL {as_of}: {problem}")
     print("OK: every entry passes" if not failures else f"{len(failures)} check(s) failed")

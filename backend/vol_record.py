@@ -43,6 +43,15 @@ Rules (conservative by construction; sessions are CME business days, see contrac
   to open was never committed by the seal step (for example, it was written by hand), so it is
   closed as "late_commit" too. A failed persist never gets that far: the run's new entry does not
   reach live-data at all, and later runs restore the record without it.
+- CHAIN. When the seal stamps an entry, it also stores `previous_sha256`: the SHA-256 of the sealed
+  part of the entry before it (entry_digest: every field but the ones resolution adds or changes,
+  _AFTER_SEAL_KEYS, as canonical JSON). That part is final once an entry is sealed, and it includes
+  the earlier entry's own link, so changing, removing or inserting any sealed entry breaks a link
+  from then on (chain_breaks). The record's first entry links to nothing (null); entries sealed
+  before the chain existed carry no link and are not checked. Additive: nothing else about the seal
+  changes, and loading the record never checks the chain, so a break can never stop the pipeline;
+  scripts/verify_record.py, the record summary (summary["chain"], shown on LIVE) and the Health
+  check report it.
 - FIT. A new entry also stores the fit that produced it: `coefficients` (the log-log regression's
   intercept, then its slopes on ln RV5, ln RV22 and ln RV66 in decimals and ln OVX in index points;
   four numbers for the plain-HAR fallback) and the Duan `smearing_factor`, so a sealed
@@ -111,6 +120,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -343,6 +353,9 @@ def _validate_entry(entry: object, index: int) -> date:
         raise ValueError(f"{where}: recorded after its window opened, or issued after it was recorded")
     if entry.get("sealed_at") is not None and recorded_at > _aware_utc(entry["sealed_at"]) + MAX_CLOCK_SKEW:
         raise ValueError(f"{where}: sealed before it was recorded")
+    link = entry.get("previous_sha256")
+    if link is not None and (not isinstance(link, str) or len(link) != 64 or set(link) - set("0123456789abcdef")):
+        raise ValueError(f"{where}: previous_sha256 must be a SHA-256 hex digest or null")
     status = entry["status"]
     if status not in STATUSES:
         raise ValueError(f"{where}: unknown status {status!r}")
@@ -601,21 +614,60 @@ def realized_vol_pct(closes: list[float]) -> float:
     return math.sqrt(sum(r * r for r in returns) / len(returns) * ANNUALIZATION) * 100.0
 
 
+# The fields an entry gains or changes after its seal: resolution's, and the seal's own late_commit
+# check. Everything else, sealed_at and previous_sha256 included, is fixed once the entry is sealed.
+_AFTER_SEAL_KEYS = frozenset({"status", "closed_at", "resolved_at", "closes", "realized_pct", "missing_sessions"})
+
+
+def entry_digest(entry: Entry) -> str:
+    """SHA-256 (hex) of the entry's sealed part: canonical JSON (sorted keys, no whitespace, ASCII) of
+    every field except _AFTER_SEAL_KEYS. The next entry stores it as previous_sha256 when it is sealed."""
+    sealed = {key: value for key, value in entry.items() if key not in _AFTER_SEAL_KEYS}
+    text = json.dumps(sealed, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def chain_breaks(entries: list[Entry]) -> list[str]:
+    """The as_of of every sealed entry whose link does not match the sealed part of the entry before it.
+
+    Entries sealed before the chain existed carry no previous_sha256 and are not checked; from the first
+    entry that carries one, every later sealed entry must carry one too, so dropping a link is a break.
+    An entry not sealed yet (the build job's newest, before the publish job seals it) has no link yet.
+    The record's first entry links to nothing (null).
+    """
+    breaks, linked = [], False
+    for index, entry in enumerate(entries):
+        if entry.get("sealed_at") is None:
+            continue
+        if "previous_sha256" not in entry:
+            if linked:
+                breaks.append(entry["as_of"])
+            continue
+        linked = True
+        if entry["previous_sha256"] != (entry_digest(entries[index - 1]) if index else None):
+            breaks.append(entry["as_of"])
+    return breaks
+
+
 def seal_entries(record: Record, now: datetime) -> list[str]:
     """Stamp sealed_at = `now` on every entry not yet sealed; returns one message per entry sealed.
 
     Runs immediately before the record is committed (refresh.yml's publish job). A pending entry whose
     window-opening settlement is not later than `now` + SEAL_MARGIN becomes "late_commit": its commit
     cannot be shown to precede that settlement, so it is never scored. Entries already sealed are left
-    alone, so sealing again changes nothing. Mutates `record`.
+    alone, so sealing again changes nothing. Each entry sealed also gets its link in the chain,
+    previous_sha256 (the module docstring's CHAIN): the entry before it is sealed by then, earlier or
+    just above in this loop, so its sealed part is final. Mutates `record`.
     """
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     messages = []
-    for entry in record["entries"]:
+    entries = record["entries"]
+    for index, entry in enumerate(entries):
         if entry.get("sealed_at") is not None:
             continue
         entry["sealed_at"] = _stamp(now)
+        entry["previous_sha256"] = entry_digest(entries[index - 1]) if index else None
         if entry["status"] == "pending" and not sealed_in_time(entry):
             entry["status"] = "late_commit"
             entry["closed_at"] = _stamp(now)
@@ -880,7 +932,8 @@ def summarize(record: Record, noise_floor_pct: object = None) -> dict[str, Any]:
     (PROMOTION_MODEL_VERSION; `n` of them), whatever the newest entry's version: a fallback forecast
     from another model is not pooled with it. `challenger` compares the pinned challenger
     (PROMOTION_CHALLENGER) with the model of record on the resolved entries of exactly that pair;
-    `promotion` is the promotion rule's single test on the same pair. `next_result_due` is the date
+    `promotion` is the promotion rule's single test on the same pair. `chain` counts the entries that
+    carry a hash-chain link and lists the as_of of any broken link (chain_breaks). `next_result_due` is the date
     the next score can arrive (next_result_due()). `recent` lists up to RECENT_ENTRIES entries,
     newest first, each with its model_version, its recording and seal times and the inputs it was
     recorded with (_recent()), so a reader can check each seal against the window it opened.
@@ -921,6 +974,9 @@ def summarize(record: Record, noise_floor_pct: object = None) -> dict[str, Any]:
             "champion_qlike": _mean([qlike(e["realized_pct"], e["forecast_pct"]) for e in paired], 4),
         },
         "promotion": promotion_test(entries),
+        # The hash chain (module docstring, CHAIN): how many entries carry a link, and where one breaks.
+        "chain": {"n_linked": sum(e.get("previous_sha256") is not None for e in entries),
+                  "breaks": chain_breaks(entries)},
         "recent": [_recent(e) for e in reversed(entries[-RECENT_ENTRIES:])],
         "promotion_rule": PROMOTION_RULE,
         "note": WINDOW_NOTE,

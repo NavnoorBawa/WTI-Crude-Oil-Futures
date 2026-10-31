@@ -91,9 +91,10 @@ class VerifyRecordTest(unittest.TestCase):
 
     def test_entries_recorded_before_the_fit_was_stored_pass_and_say_so(self):
         record = clean_record()
-        for entry in record["entries"]:
+        for entry in record["entries"]:      # recorded before 2.2.0: no fit, and sealed before the chain
             entry.pop("coefficients", None)
             entry.pop("smearing_factor", None)
+            entry.pop("previous_sha256", None)
         code, out = run(record)
         self.assertEqual(code, 0, out)
         self.assertIn("not stored", out)

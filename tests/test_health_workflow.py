@@ -14,7 +14,10 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from test_record_health import live_payload, record_with  # noqa: F401  (records made by the real recorder)
+try:                                     # records made by the real recorder; tests/ is on the path under discover
+    from test_record_health import record_with
+except ImportError:                      # python -m unittest tests.test_health_workflow
+    from tests.test_record_health import record_with
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "health.yml"
