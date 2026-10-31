@@ -5,9 +5,11 @@ temporary file and read back through vol_record.load_record, as the Health workf
 copy of live-data's record."""
 
 import ast
+import atexit
 import contextlib
 import io
 import json
+import shutil
 import sys
 import tempfile
 import unittest
@@ -19,11 +21,8 @@ from backend import vol_record as vr
 from scripts import record_health as rh
 
 UTC = timezone.utc
-_SCRATCH = tempfile.TemporaryDirectory()      # every Files() lives under it; removed after the module
-
-
-def tearDownModule():
-    _SCRATCH.cleanup()
+_SCRATCH = tempfile.mkdtemp()      # every Files() lives under it; removed when the tests end
+atexit.register(shutil.rmtree, _SCRATCH, ignore_errors=True)
 
 
 def at(stamp: str) -> datetime:
@@ -52,7 +51,7 @@ class Files:
     """The record, payload and run lists as files, as the workflow writes them."""
 
     def __init__(self, record, payload=None, refresh=None, reproduce=None):
-        root = Path(tempfile.mkdtemp(dir=_SCRATCH.name))
+        root = Path(tempfile.mkdtemp(dir=_SCRATCH))
         self.root = root
         self.record, self.payload = root / "record.json", root / "data.json"
         self.record.write_text(record if isinstance(record, str) else json.dumps(record), encoding="utf-8")
@@ -92,6 +91,39 @@ class MissedSessionTest(unittest.TestCase):
         alone = Files(record_with(["2026-11-02"]), payload={"frozen_at": "2026-11-05T04:00:00Z"})
         self.assertEqual(alone.keys("2026-11-05T04:59:00Z"), ["missing:2026-11-03"])
         self.assertEqual(alone.keys("2026-11-05T05:01:00Z"), ["lost:2026-11-03"])
+
+    def test_a_thursday_can_be_recorded_only_until_friday_17_00_et(self):
+        # Friday has no 18:00 ET reopen: from its 17:00 ET close the clock rule gives Friday until Monday.
+        files = Files(record_with(["2026-11-04"]), payload={"frozen_at": "2026-11-06T20:00:00Z"})
+        self.assertEqual(files.keys("2026-11-06T21:59:00Z"), ["missing:2026-11-05"])     # 16:59 EST
+        self.assertEqual(files.keys("2026-11-06T22:01:00Z"), ["lost:2026-11-05"])
+        self.assertIn("before 2026-11-06 17:00 ET", files.check("2026-11-06T21:00:00Z")[0].text)
+
+    def test_a_later_session_recorded_in_its_17_00_hour_makes_the_missed_one_lost_at_once(self):
+        record = record_with(["2026-11-02"])
+        # Nov 4's entry recorded at 17:10 EST on Nov 4, as the live record's 21:0x UTC entries are.
+        message = vr.record_forecast(record, live_payload("2026-11-04", "2026-11-04T22:10:00Z"), at("2026-11-04T22:10:00Z"))
+        self.assertTrue(message.startswith("recorded"), message)
+        vr.seal_entries(record, at("2026-11-04T22:20:00Z"))
+        files = Files(record, payload={"frozen_at": "2026-11-04T22:00:00Z"})
+        self.assertEqual(files.keys("2026-11-04T22:30:00Z"), ["lost:2026-11-03"])          # well before midnight
+
+    def test_last_chance_is_when_the_clock_rule_last_gives_the_session(self):
+        # Brute force over 15-minute steps, across Thanksgiving, Christmas, New Year and the DST change.
+        from backend.contract_calendar import last_completed_bar_date
+        step, t, end = timedelta(minutes=15), at("2026-10-26T00:00:00Z"), at("2027-01-20T00:00:00Z")
+        last_seen = {}
+        while t < end:
+            last_seen[last_completed_bar_date(t)] = t
+            t += step
+        checked = 0
+        for day, seen in last_seen.items():
+            if day < date(2026, 10, 27) or day > date(2027, 1, 12):
+                continue
+            with self.subTest(day=day):
+                self.assertTrue(seen < rh.last_chance(day) <= seen + step, (day, seen, rh.last_chance(day)))
+            checked += 1
+        self.assertGreater(checked, 50)
 
     def test_a_friday_can_be_recorded_until_monday_midnight(self):
         files = Files(record_with(["2026-11-05"]), payload={"frozen_at": "2026-11-09T20:00:00Z"})
@@ -187,8 +219,8 @@ class PayloadAndRunsTest(unittest.TestCase):
         record = record_with(["2026-11-02", "2026-11-03"])
         cases = [
             ([run("failure", 2), run("success", 1)], None),
-            ([run("failure", 3), run("cancelled", 2), run("timed_out", 1)], "refresh:https://example.test/1"),
-            ([run("startup_failure", 2), run("failure", 1)], "refresh:https://example.test/1"),
+            ([run("failure", 3), run("cancelled", 2), run("timed_out", 1)], "refresh-failing"),
+            ([run("startup_failure", 2), run("failure", 1)], "refresh-failing"),
             ([run("success", 2), run("failure", 1)], None),
             ([run("failure", 1)], None),
             ([run("failure", 3, "pull_request"), run("failure", 2), run("success", 1)], None),
@@ -198,12 +230,11 @@ class PayloadAndRunsTest(unittest.TestCase):
                 keys = [k for k in Files(record, refresh=runs).keys("2026-11-04T18:00:00Z") if k.startswith("refresh")]
                 self.assertEqual(keys, [key] if key else [])
 
-    def test_a_growing_failure_streak_stays_one_problem(self):
+    def test_a_growing_failure_streak_stays_one_problem_even_past_the_listed_runs(self):
         record = record_with(["2026-11-02", "2026-11-03"])
-        two = [run("failure", 3), run("failure", 2), run("success", 1)]
-        three = [run("failure", 4)] + two
-        self.assertEqual(Files(record, refresh=two).keys("2026-11-04T18:00:00Z"),
-                         Files(record, refresh=three).keys("2026-11-04T18:00:00Z"))
+        streak = [run("failure", n) for n in range(40, 0, -1)]
+        keys = {tuple(Files(record, refresh=streak[i:i + 20]).keys("2026-11-04T18:00:00Z")) for i in range(20)}
+        self.assertEqual(keys, {("refresh-failing",)})
 
     def test_a_failed_reproduce_run_on_main_needs_a_person_and_a_pull_request_run_does_not_count(self):
         record = record_with(["2026-11-02", "2026-11-03"])
@@ -217,7 +248,23 @@ class PayloadAndRunsTest(unittest.TestCase):
         for runs, reported in cases:
             with self.subTest(runs=[(r["conclusion"], r["event"]) for r in runs]):
                 keys = Files(record, reproduce=runs).keys("2026-11-04T18:00:00Z")
-                self.assertEqual(any(k.startswith("reproduce:") for k in keys), reported)
+                self.assertEqual("reproduce-failing" in keys, reported)
+
+
+class AcknowledgedTest(unittest.TestCase):
+    def test_a_closed_issue_acknowledges_its_incidents_one_by_one_and_never_a_needed_action(self):
+        record = record_with(["2026-11-02", "2026-11-05"], started="2026-11-02")          # Nov 3 and Nov 4 lost
+        files = Files(record, payload={"frozen_at": "2026-11-05T16:00:00Z"})
+        problems = files.check("2026-11-06T18:00:00Z")
+        self.assertEqual([p.key for p in problems], ["lost:2026-11-03", "lost:2026-11-04", "stale:2026-11-05T16:00:00Z"])
+        body = rh.markdown(problems, at("2026-11-06T18:00:00Z"))
+        self.assertIn("<!-- health-incidents: lost:2026-11-03 lost:2026-11-04 -->", body)
+        acknowledged = rh.acknowledged_keys("an older body\n" + body)
+        self.assertEqual(acknowledged, {"lost:2026-11-03", "lost:2026-11-04"})
+        later = rh.check(files.record, files.payload, at("2026-11-06T18:00:00Z"), acknowledged=acknowledged)
+        self.assertEqual([p.key for p in later], ["stale:2026-11-05T16:00:00Z"])        # the stale site stays
+        only_one = rh.check(files.record, files.payload, at("2026-11-06T18:00:00Z"), acknowledged={"lost:2026-11-03"})
+        self.assertEqual([p.key for p in only_one], ["lost:2026-11-04", "stale:2026-11-05T16:00:00Z"])
 
 
 class OutputTest(unittest.TestCase):
@@ -238,15 +285,18 @@ class OutputTest(unittest.TestCase):
         healthy = Files(record_with(["2026-11-02", "2026-11-03"]))
         body = healthy.root / "health.md"
         args = ["--record", str(healthy.record), "--payload", str(healthy.payload), "--markdown", str(body)]
-        self.assertEqual(rh.main([*args, "--now", "2026-11-04T18:00:00Z"]), rh.HEALTHY)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(rh.main([*args, "--now", "2026-11-04T18:00:00Z"]), rh.HEALTHY)
         self.assertTrue(body.read_text(encoding="utf-8").startswith("Healthy"))
-        self.assertEqual(rh.main([*args, "--now", "2026-11-09T18:00:00Z"]), rh.NEEDS_A_PERSON)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(rh.main([*args, "--now", "2026-11-09T18:00:00Z"]), rh.NEEDS_A_PERSON)
         self.assertIn("health-digest", body.read_text(encoding="utf-8"))
         lost = Files(record_with(["2026-11-02", "2026-11-04"], started="2026-11-02"),
                      payload={"frozen_at": "2026-11-05T16:00:00Z"})
-        self.assertEqual(rh.main(["--record", str(lost.record), "--payload", str(lost.payload),
-                                  "--now", "2026-11-05T18:00:00Z"]), rh.INCIDENTS)
-        with self.assertRaises(SystemExit) as raised:
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(rh.main(["--record", str(lost.record), "--payload", str(lost.payload),
+                                      "--now", "2026-11-05T18:00:00Z"]), rh.INCIDENTS)
+        with self.assertRaises(SystemExit) as raised, contextlib.redirect_stderr(io.StringIO()):
             rh.main([*args, "--now", "not a time"])
         self.assertEqual(raised.exception.code, 2)
 

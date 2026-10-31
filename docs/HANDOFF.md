@@ -44,7 +44,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   Health workflow (`.github/workflows/health.yml`, daily and after every Refresh and Reproduce run)
   keeps one issue labelled `health` open, assigned to the owner, while something needs a person,
   and fails while it does (ROADMAP 1.5).
-- **Tests.** 510 Python (unittest), 260 frontend (node --test) and 13 browser checks (Playwright,
+- **Tests.** 518 Python (unittest), 260 frontend (node --test) and 13 browser checks (Playwright,
   the "Interface" CI job: axe, layout shift, overflow, keyboard, print, script budget). CI also runs
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
   Reproduce rebuild. Releases: `scripts/bump_version.py`, and `.github/workflows/release.yml`

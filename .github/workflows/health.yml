@@ -6,8 +6,8 @@ name: Health
 # open, its description updated (with a comment) only when the set of problems changes. A problem
 # that needs a person also fails this workflow, so its badge and GitHub's failure notice show it; a
 # recorded incident (a lost session, a late seal) is listed in the issue without failing the run,
-# and closing the issue acknowledges it. The first healthy run closes the issue. A drill (the `now`
-# input) writes only the job summary. The job can write issues, so it runs only GitHub's checkout,
+# and closing the issue acknowledges it (the script drops incidents a closed issue lists). The first
+# healthy run closes the issue. A drill (the `now` input) writes only the job summary and passes. The job can write issues, so it runs only GitHub's checkout,
 # the preinstalled gh CLI and this repository's standard-library script: nothing is installed,
 # nothing is pushed, and data/ is never touched.
 
@@ -73,8 +73,10 @@ jobs:
             --json conclusion,url,createdAt,event > refresh.json
           gh run list --workflow reproduce.yml --branch main --status completed --limit 20 \
             --json conclusion,url,createdAt,event > reproduce.json
+          # Closed health issues: the incidents they list were acknowledged when a person closed them.
+          gh issue list --label health --state closed --limit 20 --json body --jq '.[].body' > acknowledged.txt
           args=(--record record.json --payload data.json --refresh-runs refresh.json \
-                --reproduce-runs reproduce.json --markdown health.md)
+                --reproduce-runs reproduce.json --acknowledged acknowledged.txt --markdown health.md)
           if [ -n "${DRILL_NOW}" ]; then args+=(--now "${DRILL_NOW}"); fi
           status=0
           python3 scripts/record_health.py "${args[@]}" || status=$?
@@ -107,9 +109,6 @@ jobs:
               gh issue edit "${number}" --body-file health.md
               gh issue comment "${number}" --body "The problems changed; the description lists the current ones."
             fi
-          elif [ "${STATUS}" = "3" ] && gh issue list --label "${label}" --state closed --limit 1 --json body \
-              --jq '.[0].body // ""' | grep -qF "${digest}"; then
-            echo "These incidents were acknowledged when their issue was closed; not reopening it."
           else
             gh issue create --title "${title}" --label "${label}" --assignee "${GITHUB_REPOSITORY_OWNER}" \
               --body-file health.md || gh issue create --title "${title}" --label "${label}" --body-file health.md
@@ -125,5 +124,5 @@ jobs:
         env:
           STATUS: ${{ steps.check.outputs.status }}
         run: |
-          echo "Drill: no issue was opened, changed or closed; the would-be issue body is in the job summary."
-          if [ "${STATUS}" = "4" ]; then exit 1; fi
+          # A drill passes whatever it finds, so it never turns the badge red; its result is in the summary.
+          echo "::notice title=Drill::would-be status ${STATUS} (0 healthy, 3 recorded incidents, 4 needs a person); no issue was opened, changed or closed."
