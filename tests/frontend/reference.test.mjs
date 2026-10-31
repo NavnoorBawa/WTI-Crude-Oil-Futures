@@ -201,6 +201,14 @@ test("the ledger's CSV exports what each flag cell shows, with the id, test and 
 });
 
 // ---------------------------------------------------------------------------------------- METH
+test("METH's Reproduce box names the pinned container and its commands, which exist in the repository", () => {
+  const text = spaced(visibleText(section(renderPage().html, "meth")));
+  assert.ok(text.includes("docker build -t wti-vol . then docker run --rm wti-vol make reproduce"), text);
+  const makefile = readSource("Makefile");
+  assert.match(makefile, /^reproduce:/m);
+  assert.match(readSource("Dockerfile"), /^FROM python:[\w.-]+@sha256:[0-9a-f]{64}$/m);
+});
+
 test("METH opens with a model card whose values come from the payloads", () => {
   const meth = section(renderPage().html, "meth");
   const text = spaced(visibleText(meth));

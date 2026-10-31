@@ -20,7 +20,7 @@ Each line below is a property with a test; the project is "there" when every lin
 | Property | Test a reviewer can run | Status at 2.2.0 |
 | --- | --- | --- |
 | Every number on the page is computed from the payloads | `tests/frontend` render tests; no statistic literal in copy | holds |
-| The main result reproduces bit for bit from pinned inputs | Reproduce workflow on `data/vol_lab.json` | holds (on every change to the pipeline, its inputs or its pins, and weekly) |
+| The main result reproduces bit for bit from pinned inputs | Reproduce workflow on `data/vol_lab.json` | holds (on every change to the pipeline, its inputs or its pins, and weekly; also inside the digest-pinned container, `make reproduce`) |
 | The forward record cannot be back-filled, and that is provable to an outsider | git seal before the window, plus an independent timestamp anchor | partial: sealed in git and checked from the file alone (`scripts/verify_record.py`); an anchor job attests the record in Sigstore's Rekor after each publish, best effort (`scripts/verify_anchors.py`), its acceptance pending; not shown on LIVE, no second anchor |
 | The promotion test was fixed before any result arrived | a pre-registered, citable document with a persistent identifier | partial: pinned in code and docs; release tags wait for the owner's push (`HANDOFF.md` section 6); no DOI |
 | Forecast quality is judged with the right losses, at the right horizons, conditionally | QLIKE, MSE, MCS, SPA, DM today; density and conditional tests, several horizons | partial: SPA studentized with robustness; density, conditional tests and horizons to do |
@@ -376,6 +376,9 @@ These stay out, whatever a review suggests, unless the owner changes the rules:
 Tick items here with the PR number and date when they ship, and move any new finding into
 `HANDOFF.md`'s backlog.
 
+- **1.6 Exact environment for reproduction** (#PRNUM, DATE): `Dockerfile` (images pinned by digest),
+  `Makefile`, `.devcontainer/`; the Reproduce workflow's container job runs `make reproduce` in the
+  image; METH's Reproduce box names it; `tests/test_container.py`.
 - **1.1 Tag and release every version, with checksums** (#75, 2026-10-30), except the tags:
   `scripts/bump_version.py`; `tests/test_release_metadata.py`; `.github/workflows/release.yml`
   publishes each tag's Release with `SHA256SUMS` from 2.2.0 on. A session cannot push tags, so

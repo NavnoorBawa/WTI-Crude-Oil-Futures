@@ -59,7 +59,10 @@ access. `.github/workflows/reproduce.yml` does that on pull requests and pushes 
 lab's inputs, every week, and on demand, and compares the result with the committed file using
 `vol_lab.compare_reports`: every model set, flag, label and count must be identical, and every
 number within 1e-4 relative or within one unit of the last decimal it is published with (GARCH
-refits differ in the last bits across CPU kernels). `python -m backend.vol_lab --refresh` downloads
+refits differ in the last bits across CPU kernels). Its second job does the same inside the pinned
+container (`Dockerfile`: Python and Node images pinned by digest, the repository's own
+requirements and lockfile, the workflow's numeric environment; `make reproduce`), so the image a
+reviewer builds is checked on the same schedule. `python -m backend.vol_lab --refresh` downloads
 a new snapshot first. The unit suite (`tests.yml`) rebuilds the carry and supply-shock studies and
 the research ledger and requires them to equal the committed files, and re-runs a subset of the
 leak anatomy's runs. The production validation and the post-mortem runs are committed records and
@@ -166,6 +169,7 @@ flowchart TB
 | `scripts/record_health.py` | The Health workflow's check of the record, the site and the last runs (stdlib only) |
 | `scripts/verify_record.py`, `scripts/verify_anchors.py` | A reviewer's checks of the sealed record, from the file alone and against the Rekor log (stdlib only) |
 | `scripts/build_research_bundle.py`, `scripts/readme_blocks.py`, `scripts/make_figures.py` | research.json, the generated docs and the figures, from the artifacts |
+| `Dockerfile`, `Makefile`, `.devcontainer/` | The pinned reproduce environment and one target per check |
 | `src/` | Dashboard (below) |
 | `docs/DATA_CONTRACT.md` | The data.json / research.json schema |
 
