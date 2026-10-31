@@ -15,6 +15,13 @@ backs the new one.
   refreshes in a row, a failed rebuild), one issue labelled `health` stays open and the workflow
   fails; recorded incidents (a lost session, a late seal, an expired entry) are listed for a week
   without failing it. The README has its badge. (ROADMAP 1.5.)
+- **Dated audit exceptions.** A moderate advisory in dev tooling (GHSA-g3hv-75wg-m249, the
+  `minimatch` under eslint) has its only fix in a release younger than the 14-day pinning rule
+  allows. `.github/audit-exceptions.json` lists it until 2026-11-10, when the fix becomes eligible;
+  `scripts/audit_exceptions.mjs` excuses only listed advisories in their named packages before their
+  end date, in CI and in `npm run check`. The production audit stays strict. The Tests workflow's
+  audit step no longer stops at the first failing `npm audit` under `bash -e`, so its scheduled-run
+  warning and its error messages now run as written.
 
 ### Documentation and verification
 

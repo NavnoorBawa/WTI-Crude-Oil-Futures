@@ -37,7 +37,8 @@ their window opens and scored afterwards. Site: https://navnoorbawa.github.io/WT
 
 ## Commands (a cloud session's startup hook installs everything: `.venv` and `node_modules`)
 
-- Frontend gate: `npm run check` (eslint, tests, build, `npm audit --audit-level=low`).
+- Frontend gate: `npm run check` (eslint, tests, build, the production `npm audit`, and the full-tree
+  audit with the dated exceptions in `.github/audit-exceptions.json`).
 - Python gates (venv on PATH): `ruff check backend/ scripts/ tests/ freeze.py ./*.py --select F,E9`,
   `ruff check`, `mypy`, `bandit -q -r backend scripts freeze.py`,
   `python -B -m unittest discover -s tests`,
