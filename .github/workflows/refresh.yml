@@ -547,3 +547,34 @@ jobs:
             fi
             sleep "$((attempt * 5))"
           done
+
+  # An independent timestamp for what publish persisted (docs/ROADMAP.md, Stage 1, item 3). A git
+  # commit's date is set by whoever commits, so this attests the record file on live-data with
+  # GitHub's own action: Sigstore signs it keylessly with this workflow's identity and logs it in
+  # Rekor, the public transparency log, whose integratedTime neither this repository nor GitHub
+  # sets. scripts/verify_anchors.py reads those times back. It runs after publish, never inside
+  # it: the seal's step and its four-minute budget are untouched, and continue-on-error keeps a
+  # Sigstore outage from failing or delaying a refresh. Only GitHub's checkout and attest actions
+  # run next to its id-token and attestations permissions (tests/test_workflow_guards.py).
+  anchor:
+    name: Anchor the record in a public log
+    needs: publish
+    if: ${{ !cancelled() && needs.publish.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    continue-on-error: true
+    permissions:
+      contents: read
+      id-token: write              # Sigstore's short-lived signing certificate for this workflow
+      attestations: write          # keep the attestation with the repository as well
+    steps:
+      - name: Checkout the record as persisted
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: live-data
+          persist-credentials: false
+
+      - name: Attest the record file
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: runtime-state/vol_track_record.json
