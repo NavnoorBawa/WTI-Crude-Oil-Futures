@@ -46,7 +46,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   and fails while it does (ROADMAP 1.5). From the 2026-11-02 entry on, each sealed entry links to
   the one before it (`previous_sha256`, a hash chain without a key; ROADMAP 1.4), and
   `scripts/verify_record.py`, Health and LIVE report a break.
-- **Tests.** 532 Python (unittest), 265 frontend (node --test) and 13 browser checks (Playwright,
+- **Tests.** 537 Python (unittest), 266 frontend (node --test) and 13 browser checks (Playwright,
   the "Interface" CI job: axe, layout shift, overflow, keyboard, print, script budget). CI also runs
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
   Reproduce rebuild. Releases: `scripts/bump_version.py`, and `.github/workflows/release.yml`
