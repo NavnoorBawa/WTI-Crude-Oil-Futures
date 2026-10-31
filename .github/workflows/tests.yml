@@ -157,9 +157,12 @@ jobs:
         # on every event. The full tree (dev tooling included: eslint, vite) is strict on pull
         # requests, pushes and manual runs; on the weekly schedule a dev-only advisory is a warning
         # annotation instead, so an upstream advisory in build tooling, with no fix to take yet,
-        # does not turn main's badge red between pull requests. A registry or network error from
-        # the advisory endpoint is retried, then only warned: an unreachable audit endpoint is not
-        # a vulnerability.
+        # does not turn main's badge red between pull requests. An advisory in dev tooling whose only
+        # fix is younger than the 14-day pinning rule can get a dated exception in
+        # .github/audit-exceptions.json (scripts/audit_exceptions.mjs): it is then a warning on every
+        # event until the exception ends, and an error again after. The production audit never
+        # reads that file. A registry or network error from the advisory endpoint is retried, then
+        # only warned: an unreachable audit endpoint is not a vulnerability.
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -189,8 +192,9 @@ jobs:
           }
 
           echo "::group::npm audit --omit=dev (production dependencies)"
-          audit production --omit=dev
-          production=$?
+          # GitHub runs this step as bash -e: a bare failing call would end the step here.
+          production=0
+          audit production --omit=dev || production=$?
           echo "::endgroup::"
           if [ "$production" -ne 0 ]; then
             echo "::error title=npm audit (production)::A production dependency has a known advisory."
@@ -198,10 +202,16 @@ jobs:
           fi
 
           echo "::group::npm audit (all dependencies, dev tooling included)"
-          audit all
-          all=$?
+          # GitHub runs this step as bash -e: a bare failing call would end the step here.
+          all=0
+          audit all || all=$?
           echo "::endgroup::"
           if [ "$all" -ne 0 ]; then
+            npm audit --json > "${RUNNER_TEMP}/npm-audit.json" || true
+            if node scripts/audit_exceptions.mjs "${RUNNER_TEMP}/npm-audit.json"; then
+              echo "::warning title=npm audit (dev tooling)::Every advisory in dev tooling has a dated exception in .github/audit-exceptions.json (production dependencies are clean); see this step's log for when each ends."
+              exit 0
+            fi
             if [ "$EVENT_NAME" = "schedule" ]; then
               echo "::warning title=npm audit (dev tooling)::A development-only dependency has a known advisory (production dependencies are clean). Scheduled runs report it as a warning; pull requests and pushes still fail on it."
               exit 0
