@@ -2,11 +2,14 @@ name: Health
 
 # Says when the live pipeline needs a person (docs/ROADMAP.md, Stage 1, item 5). scripts/record_health.py
 # reads copies of the record on live-data and of the deployed data.json on gh-pages, and the latest
-# Refresh and Reproduce runs. While it reports a problem, one issue labelled "health" stays open
-# (its description updated, with a comment, only when the problems change) and this workflow fails,
-# so its badge and GitHub's failure notice show it; the first healthy run closes the issue. The job
-# can write issues, so it runs only GitHub's checkout, the preinstalled gh CLI and this repository's
-# standard-library script: nothing is installed, nothing is pushed, and data/ is never touched.
+# Refresh and Reproduce runs on main. While it reports a problem, one issue labelled "health" stays
+# open, its description updated (with a comment) only when the set of problems changes. A problem
+# that needs a person also fails this workflow, so its badge and GitHub's failure notice show it; a
+# recorded incident (a lost session, a late seal) is listed in the issue without failing the run,
+# and closing the issue acknowledges it. The first healthy run closes the issue. A drill (the `now`
+# input) writes only the job summary. The job can write issues, so it runs only GitHub's checkout,
+# the preinstalled gh CLI and this repository's standard-library script: nothing is installed,
+# nothing is pushed, and data/ is never touched.
 
 on:
   schedule:
@@ -33,6 +36,8 @@ concurrency:
 
 jobs:
   health:
+    # A pull request's run (a fork's branch can be named main too) says nothing about main.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.event != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -50,24 +55,36 @@ jobs:
           DRILL_NOW: ${{ inputs.now }}
         run: |
           set -euo pipefail
-          # A copy that cannot be fetched is left empty, and the script reports it as unreadable.
-          gh api -H "Accept: application/vnd.github.raw" \
-            "repos/${GH_REPO}/contents/runtime-state/vol_track_record.json?ref=live-data" > record.json || : > record.json
-          gh api -H "Accept: application/vnd.github.raw" \
-            "repos/${GH_REPO}/contents/data.json?ref=gh-pages" > data.json || : > data.json
-          gh run list --workflow refresh.yml --branch main --status completed --limit 5 \
-            --json conclusion,url,createdAt > refresh.json
-          gh run list --workflow reproduce.yml --branch main --status completed --limit 1 \
-            --json conclusion,url,createdAt > reproduce.json
+          # A copy that cannot be fetched after three tries fails this run without touching the issue:
+          # it says nothing about the pipeline, only that the check could not run.
+          for attempt in 1 2 3; do
+            if gh api -H "Accept: application/vnd.github.raw" \
+              "repos/${GH_REPO}/contents/runtime-state/vol_track_record.json?ref=live-data" > record.json; then break; fi
+            if [ "${attempt}" = 3 ]; then echo "::error title=Health check could not run::live-data's record could not be fetched"; exit 2; fi
+            sleep $((attempt * 15))
+          done
+          for attempt in 1 2 3; do
+            if gh api -H "Accept: application/vnd.github.raw" \
+              "repos/${GH_REPO}/contents/data.json?ref=gh-pages" > data.json; then break; fi
+            if [ "${attempt}" = 3 ]; then echo "::error title=Health check could not run::gh-pages' data.json could not be fetched"; exit 2; fi
+            sleep $((attempt * 15))
+          done
+          gh run list --workflow refresh.yml --branch main --status completed --limit 20 \
+            --json conclusion,url,createdAt,event > refresh.json
+          gh run list --workflow reproduce.yml --branch main --status completed --limit 20 \
+            --json conclusion,url,createdAt,event > reproduce.json
           args=(--record record.json --payload data.json --refresh-runs refresh.json \
                 --reproduce-runs reproduce.json --markdown health.md)
           if [ -n "${DRILL_NOW}" ]; then args+=(--now "${DRILL_NOW}"); fi
           status=0
           python3 scripts/record_health.py "${args[@]}" || status=$?
-          if [ "${status}" -gt 1 ]; then exit "${status}"; fi
+          # 0 healthy, 3 recorded incidents only, 4 needs a person; anything else is a failure of the check.
+          case "${status}" in 0|3|4) ;; *) exit "${status}" ;; esac
+          cat health.md >> "${GITHUB_STEP_SUMMARY}"
           echo "status=${status}" >> "${GITHUB_OUTPUT}"
 
       - name: Open, update or close the health issue
+        if: inputs.now == ''
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -85,12 +102,28 @@ jobs:
           fi
           digest="$(grep -o 'health-digest: [0-9a-f]*' health.md)"
           title="Live pipeline needs attention"
-          if [ -z "${number}" ]; then
+          if [ -n "${number}" ]; then
+            if ! gh issue view "${number}" --json body --jq .body | grep -qF "${digest}"; then
+              gh issue edit "${number}" --body-file health.md
+              gh issue comment "${number}" --body "The problems changed; the description lists the current ones."
+            fi
+          elif [ "${STATUS}" = "3" ] && gh issue list --label "${label}" --state closed --limit 1 --json body \
+              --jq '.[0].body // ""' | grep -qF "${digest}"; then
+            echo "These incidents were acknowledged when their issue was closed; not reopening it."
+          else
             gh issue create --title "${title}" --label "${label}" --assignee "${GITHUB_REPOSITORY_OWNER}" \
               --body-file health.md || gh issue create --title "${title}" --label "${label}" --body-file health.md
-          elif ! gh issue view "${number}" --json body --jq .body | grep -qF "${digest}"; then
-            gh issue edit "${number}" --body-file health.md
-            gh issue comment "${number}" --body "The problems changed; the description lists the current ones."
           fi
-          echo "::error title=Live pipeline needs attention::$(grep -c '^- ' health.md) problem(s); see the open issue labelled ${label}."
-          exit 1
+          if [ "${STATUS}" = "4" ]; then
+            echo "::error title=Live pipeline needs attention::see the open issue labelled ${label}."
+            exit 1
+          fi
+
+      - name: Drill result
+        if: inputs.now != ''
+        shell: bash
+        env:
+          STATUS: ${{ steps.check.outputs.status }}
+        run: |
+          echo "Drill: no issue was opened, changed or closed; the would-be issue body is in the job summary."
+          if [ "${STATUS}" = "4" ]; then exit 1; fi

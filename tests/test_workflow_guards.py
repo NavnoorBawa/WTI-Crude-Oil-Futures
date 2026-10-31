@@ -471,8 +471,19 @@ class WorkflowGuardTest(unittest.TestCase):
         commands = "\n".join(re.sub(r"\\\s*\n\s*", " ", block) for block in _shell_run_blocks(jobs["health"]))
         self.assertNotRegex(commands, r"\bgit\s+(push|commit)\b|--seal\b|vol_record\.py")
         self.assertEqual(re.findall(r"\bpython3?\s+(\S+\.py)", commands), ["scripts/record_health.py"])
-        self.assertEqual(set(re.findall(r">>?\s*\"?([^\s\"]+)", commands)),
-                         {"record.json", "data.json", "refresh.json", "reproduce.json", "${GITHUB_OUTPUT}", "/dev/null"})
+        self.assertEqual(set(re.findall(r">>?\s*\"?([^\s\";]+)", commands)),
+                         {"record.json", "data.json", "refresh.json", "reproduce.json", "${GITHUB_OUTPUT}",
+                          "${GITHUB_STEP_SUMMARY}", "/dev/null"})
+        # It runs after every Refresh and Reproduce run on main, never for a pull request's run, and a
+        # drill (the `now` input) never reaches the step that writes the issue.
+        names = {(WORKFLOW_DIRECTORY / f).read_text(encoding="utf-8").split("\n", 1)[0].removeprefix("name: ")
+                 for f in ("refresh.yml", "reproduce.yml")}
+        listed = re.search(r"workflow_run:\n\s+workflows: \[(.*)\]", source).group(1)
+        self.assertEqual({name.strip().strip('"') for name in listed.split(",")}, names)
+        self.assertIn("    if: github.event_name != 'workflow_run' || github.event.workflow_run.event != 'pull_request'",
+                      jobs["health"])
+        issue_step = jobs["health"][jobs["health"].index("- name: Open, update or close the health issue"):]
+        self.assertIn("if: inputs.now == ''", issue_step[:issue_step.index("run: |")])
 
     def test_dependabot_groups_leave_majors_to_their_own_prs(self):
         # A major bump (e.g. one half of the upload/download-artifact pair) must not ride along in

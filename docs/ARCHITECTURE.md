@@ -117,13 +117,17 @@ flowchart TB
   age and turns amber once a refresh is overdue, the quote carries its exchange time, and each
   section names its sample.
 - **Failures announce themselves.** `.github/workflows/health.yml` runs daily and after every
-  Refresh and Reproduce run. `scripts/record_health.py` reads copies of the record on `live-data`
-  and of `data.json` on `gh-pages`, fetched with `gh`, and the latest runs, and reports a session
-  with no entry once it was due, a recent `late_commit` or `expired` entry, an overdue result, a
-  site more than 12 hours old, two failed refreshes in a row or a failed rebuild. While anything is
-  reported, one issue labelled `health` stays open and the workflow fails (its README badge turns
-  red); the first healthy run closes the issue. The job can write issues only, installs nothing,
-  and never pushes or seals (`tests/test_workflow_guards.py`).
+  Refresh and Reproduce run on main (never for a pull request's run). `scripts/record_health.py`
+  reads copies of the record on `live-data` and of `data.json` on `gh-pages`, fetched with `gh`,
+  and the latest runs. Needing a person: a due session with no entry that can still be recorded, an
+  overdue result, a site more than 18 hours old, two failed refreshes in a row, a failed rebuild, or
+  an unreadable record or payload. Recorded incidents, which nothing can undo: a session that can no
+  longer be recorded, and a `late_commit` or `expired` entry, each for a week. While anything is
+  reported, one issue labelled `health` stays open, edited only when the set of problems changes;
+  closing it acknowledges the incidents. The workflow fails (its README badge turns red) only while
+  something needs a person, and the first healthy run closes the issue. A drill (the `now` input)
+  writes only the job summary. The job can write issues only, installs nothing, and never pushes or
+  seals (`tests/test_workflow_guards.py`).
 
 ## Code map
 
