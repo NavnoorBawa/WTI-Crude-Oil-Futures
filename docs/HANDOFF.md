@@ -141,7 +141,7 @@ and its CI run is the test.
 
 ### 5. Engineering
 - **ROADMAP 1.8, second part: run the shadow field log.** `backend/field_record.py` is merged
-  (#PRNUM18); add to refresh.yml, all additive and continue-on-error: `field_build` (contents:
+  (#94); add to refresh.yml, all additive and continue-on-error: `field_build` (contents:
   read; needs build; downloads the `site` artifact, fetches `field-data` with `--depth=1`, counts
   `--open-keys` with the standard library and stops at 0, else installs, runs `--issue`, uploads
   `field-rows`, sets a `rows` output); `field` (contents: write; needs [publish, field_build]; only
