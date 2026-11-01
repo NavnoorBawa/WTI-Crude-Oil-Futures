@@ -144,7 +144,7 @@ and its CI run is the test.
 
 ### 5. Engineering
 - **The rest of ROADMAP 1.7.** The first part (#91) pinned EIA's contracts 1 and 2 and Cushing
-  spot and published `cl_source_agreement` and `roll_convention_audit`; the second (#PRNUM172)
+  spot and published `cl_source_agreement` and `roll_convention_audit`; the second (#93)
   added the freeze-time check (`vol_forecast.source_check`), report-only. After its first Refresh,
   read `source_check` in the deployed `data.json`: `spot.status` should be `pass` with `spot_last`
   a few days old. `no_spot_rows`, or a Health incident `source:spot-stale:...`, means the EIA

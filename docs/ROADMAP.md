@@ -380,7 +380,7 @@ Tick items here with the PR number and date when they ship, and move any new fin
   contracts 1 and 2 and Cushing spot pinned in the snapshot; `cl_source_agreement` and
   `roll_convention_audit` in `data/vol_lab.json` (descriptive, every other number unchanged); the
   April 2020 rule written into METHODOLOGY (unchanged: kept, as production does). Second part
-  (#PRNUM172, 2026-11-01): the freeze-time check (`market_data.freeze_source_check`, in the payload
+  (#93, 2026-11-01): the freeze-time check (`market_data.freeze_source_check`, in the payload
   as `vol_forecast.source_check`), which reports instead of failing the freeze, a deliberate
   change from this item's text: a revised past close would fail every freeze until a person
   refreshed the snapshot, and each session lost meanwhile delays the 52-week promotion test (a
