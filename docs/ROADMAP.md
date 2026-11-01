@@ -385,6 +385,14 @@ Tick items here with the PR number and date when they ship, and move any new fin
   the 2026-10-30 call was logged 44h 46m before its window opens. Not done: binding the
   `live-data` commit SHA (the attestation's subject is the file), "anchored <time>" on LIVE, and
   the second anchor with OpenTimestamps.
+- **1.8 A shadow log of the whole field** (#94, #95, 2026-11-01): `backend/field_record.py` and
+  three best-effort Refresh jobs keep `vol_field_record.jsonl` on the `field-data` branch, unsealed,
+  windowed and settled by the record's rules; the guards show the jobs never touch `runtime-state/`,
+  `live-data`, the seal or its inputs. A separate job rather than a step in the build job, as the
+  item asked: the write token then never sits next to an install. Accepted 2026-11-01: the first
+  run after the merge (Refresh run 41299948946) logged all 13 models for 2026-10-30 (window
+  2026-11-02 to 2026-11-09, the record's), the file validates, and `field_anchor` logged its digest
+  in Rekor (log index 3627645998).
 - **1.7 Second-source cross-checks and a roll audit** (#91, 2026-11-01), first part: EIA
   contracts 1 and 2 and Cushing spot pinned in the snapshot; `cl_source_agreement` and
   `roll_convention_audit` in `data/vol_lab.json` (descriptive, every other number unchanged); the
