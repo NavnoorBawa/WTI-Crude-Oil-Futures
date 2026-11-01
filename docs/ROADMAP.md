@@ -382,7 +382,8 @@ Tick items here with the PR number and date when they ship, and move any new fin
   floor (the conditional kurtosis of the lab's GARCH(1,1)-t fit, chosen after two alternatives were
   found unusable, and disclosed as such), that GARCH with its variance moving within the week, and
   the range proxy's value on simulated bars (not a lower bound); shown on the QLIKE tile (the lower
-  bound) and in MODL (every value with its assumption), never subtracted from a loss or test.
+  bound, as text) and in MODL (each value with the returns it assumes), never subtracted from a loss
+  or test, and never placed where it would read as a model's distance from its floor.
   Departures: no research-ledger row (the floor is a property of the proxy, not a test; a row would
   read as "inconclusive" or move most q-values); the simulation that agrees within 0.01 is the
   normal one, and the Student-t(5) one agrees with its own exact value.

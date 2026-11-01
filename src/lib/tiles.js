@@ -118,10 +118,11 @@ const qlikeComparators = (ovx, persistence, ovxName) => {
 };
 
 /**
- * A one-axis glyph: zero to persistence, the record as a dot and OVX alone as a ring around it. With the
- * lab's QLIKE floor, a faint tick at its lower bound (the proxy's, not a model's: never a band up to a loss).
+ * A one-axis glyph: zero to persistence, the record as a dot and OVX alone as a ring around it. The proxy's
+ * QLIKE floor stays out of it, in the foot as text: a mark would turn its lower bound into a point, and the
+ * gap to the dot would read as a distance the data do not identify.
  */
-const qlikeGlyph = (record, ovx, persistence, floor = null) => {
+const qlikeGlyph = (record, ovx, persistence) => {
   if (record == null) return null;
   const hi = persistence ?? Math.max(record, ovx ?? 0) * 2;
   if (!(hi > 0)) return null;
@@ -129,7 +130,6 @@ const qlikeGlyph = (record, ovx, persistence, floor = null) => {
     kind: "axis",
     domain: [0, hi],
     marks: [
-      floor != null ? { type: "tick", at: floor, tone: "faint" } : null,
       persistence != null ? { type: "tick", at: persistence, tone: "muted" } : null,
       { type: "dot", at: record, tone: "model" },
       ovx != null ? { type: "ring", at: ovx, tone: "implied" } : null,
@@ -160,7 +160,7 @@ function qlikeTile({ lab, rows, validation, research, researchStatus }) {
     return {
       ...tile,
       value: fmtNum(record.qlike, 3),
-      glyph: qlikeGlyph(record.qlike, ovxRow?.qlike, persistenceRow?.qlike, floor),
+      glyph: qlikeGlyph(record.qlike, ovxRow?.qlike, persistenceRow?.qlike),
       baseline: qlikeComparators(ovxRow?.qlike, persistenceRow?.qlike, ovxName),
       foot: joinDot([`every OOS day${nDays != null ? `, ${fmtInt(nDays)}${NBSP}d` : ""}`,
         floor != null ? `proxy's noise floor ≥${NBSP}${fmtNum(floor, 3)}` : null, weeklyText]),

@@ -146,13 +146,16 @@ backs the new one.
 ### Dashboard
 
 - **The proxy's noise floor on the QLIKE tile and in MODL (ROADMAP 2.1, second part).** The QLIKE
-  tile's footnote adds "proxy's noise floor ≥ 0.213" (the closed form, read from the artifact) and
-  its glyph a faint tick there; its value, comparisons and the other tiles are unchanged. MODL adds
-  one note with every published floor and its assumption, says that daily closes cannot say which
-  applies and that the range values are not lower bounds, and that nothing on the page subtracts
-  it. Tests check that every number comes from the artifact, that no loss minus a floor appears,
-  that the rows, CSV and tests are byte-identical with and without the block, and that no floor
-  value is typed in `src/`.
+  tile's footnote adds "proxy's noise floor ≥ 0.213" (the closed form, read from the artifact); its
+  glyph, value, comparisons and the other tiles are unchanged (a mark on the glyph would turn the
+  lower bound into a point the model's dot is read against). MODL adds one note with each
+  five-return value and the returns it assumes (the Student-t(5) one as its simulation's mean and
+  range; the exact value is in RESULTS) and the two range-proxy values with theirs, and says that
+  daily closes cannot say which applies, so the page does not say how far any model is from its
+  floor; that the range values are not lower bounds; and that nothing on the page subtracts it.
+  Tests check that every number comes from the artifact and moves with it, that no loss minus a
+  floor or ratio of the two appears, that the rows, CSV and tests are byte-identical with and
+  without the block, and that no floor value is typed in `src/`.
 
 ## 2.2.0 — 2026-10-30
 

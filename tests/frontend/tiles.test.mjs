@@ -342,7 +342,7 @@ test("tile labels keep their case and the footnotes are set in the sans face", (
 });
 
 // ------------------------------------------------------------------------- the proxy's noise floor
-test("with the lab's floor the QLIKE tile adds its lower bound to the foot and a faint tick, and nothing else moves", () => {
+test("with the lab's floor the QLIKE tile adds its lower bound to the foot as text, and nothing else moves", () => {
   const block = JSON.parse(readSource("data/vol_lab.json")).qlike_floor;
   const withFloor = { ...research, vol_lab: { ...lab, qlike_floor: block } };
   const [qlike, ...others] = tiles.evidenceTiles(data, withFloor, "ready");
@@ -350,10 +350,9 @@ test("with the lab's floor the QLIKE tile adds its lower bound to the foot and a
   const lo = block.five_return.normal.closed_form;
   assert.equal(qlike.value, plainQlike.value);
   assert.deepEqual(qlike.baseline, plainQlike.baseline);
-  assert.ok(qlike.foot.includes(`proxy's noise floor ≥\u00a0${lo.toFixed(3)}`), qlike.foot);
-  assert.deepEqual(qlike.glyph.marks[0], { type: "tick", at: lo, tone: "faint" });
-  assert.deepEqual(qlike.glyph.marks.slice(1), plainQlike.glyph.marks);
-  assert.deepEqual(qlike.glyph.domain, plainQlike.glyph.domain);
+  // Exactly one segment more in the foot; the glyph is untouched (a mark would read as a distance to the floor).
+  assert.equal(qlike.foot, plainQlike.foot.replace(" · weekly", ` · proxy's noise floor ≥\u00a0${lo.toFixed(3)} · weekly`));
+  assert.deepEqual(qlike.glyph, plainQlike.glyph);
   assert.deepEqual(others, plainOthers);
   assert.ok(!plainQlike.foot.includes("noise floor"), "the fixture predates the block");
 });

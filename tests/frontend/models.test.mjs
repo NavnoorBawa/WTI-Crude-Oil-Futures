@@ -317,23 +317,49 @@ const floorBlock = JSON.parse(readSource("data/vol_lab.json")).qlike_floor;
 const withFloor = { ...research, vol_lab: { ...lab, qlike_floor: floorBlock } };
 const OVERCLAIM = /near(ly)? perfect|most of the way|at the floor|of the loss is noise|net of the floor|gap to the floor|attainable gain|the model's error/i;
 
-test("MODL states the proxy's noise floor from the artifact, with its assumptions, and omits it without the block", () => {
-  const floor = m.research.qlikeFloor(withFloor.vol_lab);
-  const garch = m.research.shortLabel(board.models.find((model) => model.key === "garch").label);
-  const expected = comparison.qlikeFloorNote(floor, garch);
-  const text = visibleText(section(renderDashboard(withFloor), "modl"));
-  assert.ok(text.includes(expected.replace(/\u00a0/g, " ")), text);
+const floorText = (payload) => {
+  const markup = section(renderDashboard(payload), "modl");
+  return visibleText(markup.match(/<li class="qlike-floor-note">[\s\S]*?<\/li>/)?.[0] ?? "").replace(/\u00a0/g, " ");
+};
+
+test("MODL states the proxy's noise floor from the artifact, each value with its returns, and omits it without the block", () => {
+  const text = floorText(withFloor);
   const five = floorBlock.five_return;
-  for (const value of [five.normal.closed_form, five.kurtosis_matched.exact, five.student_t5.simulated_mean,
-    five.garch_t_dynamics.simulated_mean, floorBlock.range.normal.simulated_mean, floorBlock.range.student_t5.simulated_mean]) {
-    assert.ok(expected.includes(value.toFixed(3)), `${value} shown`);
-  }
-  assert.match(expected, /a lower bound while the variance does not react to the week's own shocks/);
-  assert.match(expected, /Daily closes cannot say which applies/);
-  assert.match(expected, /not lower bounds/);
-  assert.match(expected, /no loss, DM t or confidence set on this page subtracts it/);
-  assert.doesNotMatch(expected, OVERCLAIM);
-  assert.ok(!visibleText(section(renderDashboard(), "modl")).includes("noise floor:"), "the fixture predates the block");
+  const garch = m.research.shortLabel(board.models.find((model) => model.key === "garch").label);
+  const [lo, hi] = five.student_t5.simulated_range.map((value) => value.toFixed(3));
+  // Each clause is built from the block here, not from the module, so a value under the wrong
+  // assumption, or a wrong kurtosis, horizon or simulation count, fails.
+  for (const clause of [
+    `from ${floorBlock.horizon_sessions} daily returns`,
+    `${five.normal.closed_form.toFixed(3)} with normal returns of constant variance (exact, and a lower bound while the variance does not react to the week's own shocks)`,
+    `${five.kurtosis_matched.exact.toFixed(3)} with i.i.d. Student-t returns of constant variance whose kurtosis (${five.kurtosis_matched.kurtosis.toFixed(1)}) matches the conditional kurtosis of a ${garch} fitted once to all returns`,
+    `${five.student_t5.simulated_mean.toFixed(3)} on the Student-t(5) returns of the direction noise-floor simulation (${lo}–${hi} across ${floorBlock.sims} simulations)`,
+    `When that fitted ${garch}'s variance moves within the week, its own forecast at the decision scores ${five.garch_t_dynamics.simulated_mean.toFixed(3)}, which also counts variance moves that no forecast made at the decision can know`,
+    "Daily closes cannot say which applies, so this page does not say how far any model is from its floor",
+    `scores ${floorBlock.range.normal.simulated_mean.toFixed(3)} with normal returns and ${floorBlock.range.student_t5.simulated_mean.toFixed(3)} with Student-t(5) returns, on simulated bars whose proxy overstates the variance, so those two are not lower bounds`,
+    "It belongs to the proxy, not to any model; no loss, DM t or confidence set on this page subtracts it",
+  ]) assert.ok(text.includes(clause), `${clause}\n— missing from —\n${text}`);
+  assert.ok(text.trim().startsWith("The proxy's noise floor:"), text);
+  assert.doesNotMatch(text, OVERCLAIM);
+  assert.equal(floorText(), "", "the fixture predates the block");
+});
+
+test("every floor value on the page moves with the artifact (none is typed)", async () => {
+  const tiles = await m.load("/src/lib/tiles.js");
+  const scale = (value) => (typeof value === "number" && !Number.isInteger(value) ? value * 1.37
+    : Array.isArray(value) ? value.map(scale)
+      : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, scale(v)])) : value);
+  const moved = scale(floorBlock);
+  const payload = { ...research, vol_lab: { ...lab, qlike_floor: moved } };
+  const text = floorText(payload);
+  const [tile] = tiles.evidenceTiles(data, payload, "ready");
+  const pick = (block) => [block.five_return.normal.closed_form, block.five_return.kurtosis_matched.exact,
+    block.five_return.student_t5.simulated_mean, block.five_return.garch_t_dynamics.simulated_mean,
+    block.range.normal.simulated_mean, block.range.student_t5.simulated_mean].map((value) => value.toFixed(3));
+  for (const value of pick(moved)) assert.ok(text.includes(value), `${value} shown`);
+  for (const value of pick(floorBlock)) assert.ok(!text.includes(value), `${value} still shown`);
+  assert.ok(tile.foot.includes(moved.five_return.normal.closed_form.toFixed(3)), tile.foot);
+  assert.ok(!tile.foot.includes(floorBlock.five_return.normal.closed_form.toFixed(3)), tile.foot);
 });
 
 test("the floor changes no loss, row or test in MODL, and no loss minus a floor appears", () => {
@@ -342,16 +368,21 @@ test("the floor changes no loss, row or test in MODL, and no loss minus a floor 
   const note = markup.match(/<li class="qlike-floor-note">([\s\S]*?)<\/li>/)?.[1] ?? "";
   assert.ok(note.length > 0);
   assert.equal(markup.replace(`<li class="qlike-floor-note">${note}</li>`, ""), section(renderDashboard(), "modl"));
-  // ... and it shows no loss minus a floor: the subtraction the floor must never invite.
+  // ... and it shows no loss minus a floor, nor their ratio: the comparison the floor must never invite.
   const block = floorBlock.five_return;
   const floors = [block.normal.closed_form, block.student_t5.simulated_mean, block.kurtosis_matched.exact,
     block.garch_t_dynamics.simulated_mean, floorBlock.range.normal.simulated_mean, floorBlock.range.student_t5.simulated_mean];
   const own = new Set(floors.map((value) => value.toFixed(3)));
+  // A number as a whole token: "0.21" is not inside "0.213".
+  const shows = (token) => new RegExp(`(?<![\\d.])${escapeRegExp(token)}(?!\\d)`).test(note);
   for (const model of board.models) {
     for (const loss of [model.qlike, model.qlike_range_proxy].filter((value) => typeof value === "number")) {
       for (const floor of floors) {
         const gap = Math.abs(loss - floor).toFixed(3);
-        if (!own.has(gap)) assert.ok(!note.includes(gap), `${loss} − ${floor} = ${gap} shown`);
+        if (!own.has(gap)) assert.ok(!shows(gap), `${loss} − ${floor} = ${gap} shown`);
+        for (const ratio of [(floor / loss).toFixed(2), `${Math.round((floor / loss) * 100)}%`, `${((floor / loss) * 100).toFixed(1)}%`]) {
+          assert.ok(!shows(ratio), `${floor} / ${loss} = ${ratio} shown`);
+        }
       }
     }
   }
