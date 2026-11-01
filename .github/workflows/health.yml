@@ -74,8 +74,8 @@ jobs:
             --json conclusion,url,createdAt,event > refresh.json
           gh run list --workflow reproduce.yml --branch main --status completed --limit 20 \
             --json conclusion,url,createdAt,event > reproduce.json
-          # The anchor job's result in the last week of successful Refresh runs (its continue-on-error
-          # keeps a failed anchor's run green). A list that cannot be fetched is left out.
+          # The anchor and field jobs' results in the last week of successful Refresh runs (their
+          # continue-on-error keeps a failed job's run green). A list that cannot be fetched is left out.
           mkdir -p anchor-jobs
           for id in $(gh run list --workflow refresh.yml --branch main --status success --limit 45 \
               --json databaseId,event --jq '.[] | select(.event != "pull_request" and .event != "pull_request_target") | .databaseId'); do

@@ -92,6 +92,16 @@ flowchart TB
     end
     P3 --> AT --> RK[("Rekor public<br/>transparency log")]
     NB -- "artifacts: site, runtime state" --> P1
+    subgraph field["refresh.yml / field jobs (unsealed shadow log; each may fail)"]
+        FB["field_build (read-only): field_record.py --open-keys,<br/>then install and --issue if any model is open"]
+        FA["field (write token, no installs): --append, --validate,<br/>commit on top of field-data's tip, push; --lag"]
+        FN["field_anchor: actions/attest the log as pushed"]
+        FB --> FA --> FN
+    end
+    NB -- "artifact: site" --> FB
+    P2 -. "after a successful publish" .-> FA
+    FA --> FD[("field-data branch")]
+    FN --> RK
     subgraph price["price.yml (write token, stdlib only)"]
         Q["refresh_live_price.py<br/>quote, contract-matched near rolls"]
     end
@@ -106,7 +116,12 @@ flowchart TB
   build tool. The publish job holds the write token, installs nothing, and runs only GitHub's own
   checkout, artifact and Python setup actions, git, and this repository's standard-library scripts.
   The anchor job can sign and store an attestation (`id-token`, `attestations`) but not write the
-  repository, and runs only GitHub's checkout and attest actions.
+  repository, and runs only GitHub's checkout and attest actions. Of the three field jobs (the
+  unsealed shadow log, ROADMAP 1.8), `field_build` installs and downloads with a read-only token and
+  no secret; `field` holds a write token for the `field-data` branch only, installs nothing and runs
+  the standard-library `backend/field_record.py`; `field_anchor` is shaped like the anchor job. They
+  never name the record, its branch, the seal or the site's branch, and nothing in build, publish or
+  anchor waits on them.
   `tests/test_workflow_guards.py` enforces this (action allowlist pinned to commit SHAs, no package
   tooling in write-token jobs, no secret except `EIA_API_KEY` in the freeze step).
 - **Fail closed.** A failed freeze, a payload that fails validation, a missing or malformed live

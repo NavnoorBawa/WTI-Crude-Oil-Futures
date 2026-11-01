@@ -34,6 +34,8 @@ First issuance per (as_of, model_key) wins; a line is never rewritten. Commands:
                  the read-only build side)
     --append     the merged file and its new outcomes (standard library: the write-token side)
     --validate   a file, and that an earlier file is a byte prefix of it (standard library)
+    --lag        how many sessions the log's newest session trails the payload's; exit 1 beyond
+                 MAX_LAG_SESSIONS, so a log that stopped growing fails the job that keeps it
 Every file named must exist (an empty file is an empty log).
 """
 
@@ -67,6 +69,9 @@ ISSUED_KEYS = FORECAST_KEYS - {"appended_at", "base_session", "target_start", "t
 OUTCOME_KEYS = {"kind", "base_session", "status", "closes", "realized_pct", "resolved_at", "sealed"}
 OUTCOME_STATUSES = ("resolved", "skipped_roll", "expired")
 SPEC_FILES = ("backend/vol_lab.py", "backend/vol_forecast.py")
+# A session can go unlogged (its download never reproduced the published forecast while it was the
+# published one); more than this many in a row means the log has stopped, and --lag says so.
+MAX_LAG_SESSIONS = 3
 
 Line = dict[str, Any]
 
@@ -127,6 +132,14 @@ def open_keys(lines: list[Line], as_of: str) -> list[str]:
         return []
     done = {line["model_key"] for line in logged if line["as_of"] == as_of}
     return [key for key in FIELD_KEYS if key not in done]
+
+
+def lag(lines: list[Line], as_of: str) -> int | None:
+    """Sessions from the log's newest forecast session to `as_of`; None for an empty log."""
+    logged = [line["as_of"] for line in _forecasts(lines)]
+    if not logged:
+        return None
+    return business_days_between(_session(max(logged)), _session(as_of))
 
 
 def spec_sha256(root: Path = PROJECT_ROOT) -> str:
@@ -417,7 +430,7 @@ def validate(text: str, previous: str | None = None) -> list[str]:
 def main(argv: list[str] | None = None, now: datetime | None = None) -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     action = parser.add_mutually_exclusive_group(required=True)
-    for flag in ("--open-keys", "--issue", "--append", "--validate"):
+    for flag in ("--open-keys", "--issue", "--append", "--validate", "--lag"):
         action.add_argument(flag, action="store_true")
     parser.add_argument("--payload", help="the frozen data.json")
     parser.add_argument("--log", help="the current log (it must exist; an empty file: none yet)")
@@ -448,11 +461,19 @@ def main(argv: list[str] | None = None, now: datetime | None = None) -> int:
         if not isinstance(payload, dict):
             raise ValueError("the payload is not a JSON object")
         lines = parse(read(args.log, "--log"))
+        as_of = vr._dict(vr._dict(payload.get("vol_forecast")).get("live")).get("as_of")
         if args.open_keys:
-            as_of = vr._dict(vr._dict(payload.get("vol_forecast")).get("live")).get("as_of")
             keys = open_keys(lines, as_of) if isinstance(as_of, str) else []
             print(len(keys))
             return 0
+        if args.lag:
+            behind = lag(lines, as_of) if isinstance(as_of, str) else None
+            if behind is None:
+                print("nothing to compare: the log or the payload has no session yet")
+                return 0
+            print(f"the log's newest session trails the payload's {as_of} by {behind} session(s)"
+                  + (f", more than {MAX_LAG_SESSIONS}: the log has stopped growing" if behind > MAX_LAG_SESSIONS else ""))
+            return 1 if behind > MAX_LAG_SESSIONS else 0
         if args.issue:
             new, why = issue(payload, lines, now, os.environ.get("GITHUB_SHA") or None)
             out(args.out).write_text("".join(canonical(line) + "\n" for line in new), encoding="utf-8")

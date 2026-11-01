@@ -206,10 +206,13 @@ going back. An `outcome` line: `base_session` (a window a line above opened), `s
 contract roll; `resolved` carries the six closes dated from `base_session` to `target_end` and the
 `realized_pct` they give, after the last of them settled; `expired` only more than ten sessions
 after `target_end`; the other two carry null `closes` and `realized_pct`. Lines are in time order
-(`appended_at`, `resolved_at`). `python backend/field_record.py --validate --log FILE [--previous
+(`appended_at`, `resolved_at`). The file lives on the `field-data` branch (with the marker
+`.initialized-v1` and a README), and the Refresh workflow's `field` job appends to it after each
+successful publish; each version it pushes is attested in Sigstore's Rekor log by `field_anchor`. `python backend/field_record.py --validate --log FILE [--previous
 EARLIER]` checks all of this from the file alone, and that the earlier copy is a byte prefix; what it
 cannot check is which closes the payload held when a window was settled. It is not sealed evidence,
-never feeds the promotion test, and no other tracked file but the docs names it (a test checks).
+never feeds the promotion test, and no tracked file names it but the docs, its own module and tests,
+and the field jobs that keep it (a test checks).
 
 ## `research.json` (schema_version 1)
 

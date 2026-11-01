@@ -50,7 +50,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   Sigstore's public Rekor log; `scripts/verify_anchors.py` reads the times back (ROADMAP 1.3,
   accepted on 2026-11-01 after two scheduled publishes with anchors; LIVE and a second anchor
   remain).
-- **Tests.** 611 Python (unittest), 267 frontend (node --test) and 13 browser checks (Playwright,
+- **Tests.** 619 Python (unittest), 267 frontend (node --test) and 13 browser checks (Playwright,
   the "Interface" CI job: axe, layout shift, overflow, keyboard, print, script budget). CI also runs
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
   Reproduce rebuild. Releases: `scripts/bump_version.py`, and `.github/workflows/release.yml`
@@ -83,6 +83,13 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   with nothing wrong; a failed anchor job shows in the Health issue as a recorded incident. If a
   run's log names GitHub's Sigstore instance instead of Public Good, the attestation is not in the
   public log: report that rather than working around it.
+- **The shadow field log (ROADMAP 1.8).** After the jobs' first scheduled run, check the
+  `field-data` branch: 13 forecast lines for the published session, each `appended_at` before its
+  window's settlement, `python backend/field_record.py --validate --log FILE` OK, and a Rekor entry
+  from `field_anchor`. If they are there within a day, record 1.8 in ROADMAP's Done list. Later runs
+  settle windows (a `skipped_roll` outcome lands at once for a window across a roll). A run whose
+  fresh download does not reproduce the published forecast logs nothing (the `field_build` log says
+  why); a field job failure is a Health incident, and so is a log more than three sessions behind.
 - At 10 independent weeks LIVE starts comparing the two models on the same calls; check that
   wording when it first appears (around January 2027).
 - Do not touch the promotion test. It decides once, at 52 independent paired weeks (late 2027).
@@ -140,22 +147,6 @@ and its CI run is the test.
   taller neighbours; the price chart's log axis uses library tick positions.
 
 ### 5. Engineering
-- **ROADMAP 1.8, second part: run the shadow field log.** `backend/field_record.py` is merged
-  (#94); add to refresh.yml, all additive and continue-on-error: `field_build` (contents:
-  read; needs build; downloads the `site` artifact, fetches `field-data` with `--depth=1`, counts
-  `--open-keys` with the standard library and stops at 0, else installs, runs `--issue`, uploads
-  `field-rows`, sets a `rows` output); `field` (contents: write; needs [publish, field_build]; only
-  if rows > 0; GitHub's checkout/download-artifact/setup-python only, no pip cache, no package
-  tooling; requires `field-data` to hold exactly `.initialized-v1` and the log; runs `--append`
-  then `--validate --previous`; commits with `commit-tree` under an explicit bot identity and pushes
-  without force via the extraheader pattern; sets `pushed`); `field_anchor` (attests the log only
-  when `pushed`; a job name distinct from the record's anchor). Seed the orphan `field-data` branch
-  first (a session can push it). Guards: nothing mentions runtime-state, live-data, `--seal` or
-  gh-pages; the `field` job's command runs with numpy blocked; `field_build` gets no secrets (its
-  download needs none). `tests/test_field_record.py`'s guard, which lets no tracked file but the
-  docs name the log, must then allow refresh.yml's three field jobs and nothing else in it (parse
-  the YAML). Health: an incident when the log's newest `as_of` lags the payload's by more than
-  three sessions. Acceptance: 13 lines for the first session within a day.
 - **The rest of ROADMAP 1.7.** The first part (#91) pinned EIA's contracts 1 and 2 and Cushing
   spot and published `cl_source_agreement` and `roll_convention_audit`; the second (#93)
   added the freeze-time check (`vol_forecast.source_check`), report-only. After its first Refresh,

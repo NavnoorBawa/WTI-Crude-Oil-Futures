@@ -37,7 +37,11 @@ an entry closed late_commit (not sealed in time, never scored) or expired (its c
 missing MAX_WAIT_SESSIONS sessions after its window) in that period, and a day on which a Refresh
 run's anchor job failed (refresh.yml's best-effort Rekor timestamp, docs/ROADMAP.md Stage 1 item 3:
 its continue-on-error keeps the run green, so only the job's own result shows it; that version of
-the record has no anchor, and nothing else changes). The issue body lists the
+the record has no anchor, and nothing else changes), and a day on which one of refresh.yml's field jobs
+failed (the unsealed shadow log of the whole field, docs/ROADMAP.md Stage 1 item 8, also
+continue-on-error: a session it missed stays unlogged, a version without an anchor has no outside
+timestamp, and the append job fails when the log trails the payload by more than three sessions; the
+sealed record is unaffected). The issue body lists the
 incidents' keys; the workflow passes the bodies of closed health issues back (--acknowledged), and
 an incident whose key a closed issue lists is dropped, one incident at a time.
 
@@ -90,6 +94,9 @@ FAILED = {"failure", "timed_out", "startup_failure"}
 NOT_A_RESULT = {None, "", "cancelled", "skipped", "neutral", "stale"}
 PULL_REQUEST_EVENTS = {"pull_request", "pull_request_target"}
 ANCHOR_JOB = "Anchor the record in a public log"     # refresh.yml's anchor job, by its name
+# refresh.yml's field jobs, by their names (the shadow field log; tests/test_record_health.py checks them).
+FIELD_JOBS = ("Issue the field's forecasts (unsealed)", "Append to the field log (unsealed)",
+              "Anchor the field log in a public log")
 HEALTHY, INCIDENTS, NEEDS_A_PERSON, BROKEN = 0, 3, 4, 2
 
 
@@ -293,18 +300,18 @@ def run_problems(name: str, runs: list[dict[str, Any]], failures_needed: int) ->
                     f"{latest.get('url', 'unknown')} ({latest.get('createdAt', 'unknown time')}).", True)]
 
 
-def anchor_problems(runs_jobs: list[dict[str, Any]], now: datetime) -> list[Problem]:
-    """Days in the last LOOKBACK_DAYS on which a Refresh run's anchor job failed, one incident per UTC day.
+def _failed_days(runs_jobs: list[dict[str, Any]], now: datetime, names: tuple[str, ...]) -> dict[str, list[str]]:
+    """The UTC days in the last LOOKBACK_DAYS on which a job of one of these names failed, with the jobs' links.
 
     `runs_jobs` holds the GitHub API's job lists (GET /repos/{repo}/actions/runs/{id}/jobs) of recent Refresh
-    runs on main. Runs without the job (from before it existed, or whose publish did not succeed) say nothing.
+    runs on main. Runs without the job (from before it existed, or that skipped it) say nothing.
     """
     since = now - timedelta(days=LOOKBACK_DAYS)
     failed: dict[str, list[str]] = {}
     for listing in runs_jobs:
         jobs = listing.get("jobs") if isinstance(listing, dict) else None
         for job in jobs if isinstance(jobs, list) else []:
-            if not isinstance(job, dict) or job.get("name") != ANCHOR_JOB or job.get("conclusion") not in FAILED:
+            if not isinstance(job, dict) or job.get("name") not in names or job.get("conclusion") not in FAILED:
                 continue
             try:
                 started = _utc(str(job.get("started_at")))
@@ -312,10 +319,27 @@ def anchor_problems(runs_jobs: list[dict[str, Any]], now: datetime) -> list[Prob
                 continue
             if started >= since:
                 failed.setdefault(started.date().isoformat(), []).append(str(job.get("html_url", "unknown")))
-    return [Problem(f"anchor:{day}", f"On {day}, {len(urls)} Refresh run{'s' if len(urls) > 1 else ''} did not anchor "
+    return failed
+
+
+def _run_count(urls: list[str]) -> str:
+    return f"{len(urls)} Refresh run{'s' if len(urls) > 1 else ''}"
+
+
+def anchor_problems(runs_jobs: list[dict[str, Any]], now: datetime) -> list[Problem]:
+    """Days in the last LOOKBACK_DAYS on which a Refresh run's anchor job failed, one incident per UTC day."""
+    return [Problem(f"anchor:{day}", f"On {day}, {_run_count(urls)} did not anchor "
                     f"the record in Rekor (the anchor job failed; the latest is {urls[0]}). Those versions of the "
                     f"record have no outside timestamp; the record itself is unchanged.", False)
-            for day, urls in sorted(failed.items())]
+            for day, urls in sorted(_failed_days(runs_jobs, now, (ANCHOR_JOB,)).items())]
+
+
+def field_problems(runs_jobs: list[dict[str, Any]], now: datetime) -> list[Problem]:
+    """Days in the last LOOKBACK_DAYS on which one of a Refresh run's field jobs failed, one incident per UTC day."""
+    return [Problem(f"field:{day}", f"On {day}, {_run_count(urls)} did not keep the shadow field log (a field job "
+                    f"failed; the latest is {urls[0]}). The log is unsealed and descriptive: a session it missed "
+                    f"stays unlogged, and the sealed record is unaffected.", False)
+            for day, urls in sorted(_failed_days(runs_jobs, now, FIELD_JOBS).items())]
 
 
 INCIDENT_MARKER = re.compile(r"<!-- health-incidents: ([^>]*?) -->")
@@ -349,7 +373,7 @@ def check(record_path: Path, payload_path: Path, now: datetime, refresh_runs: li
     if reproduce_runs is not None:
         problems += run_problems("Reproduce", reproduce_runs, 1)
     if anchor_jobs is not None:
-        problems += anchor_problems(anchor_jobs, now)
+        problems += anchor_problems(anchor_jobs, now) + field_problems(anchor_jobs, now)
     return [p for p in problems if p.needs_a_person or p.key not in (acknowledged or set())]
 
 
@@ -416,7 +440,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--payload", required=True, help="a copy of the deployed data.json")
     parser.add_argument("--refresh-runs", help="gh run list --json conclusion,url,createdAt,event for refresh.yml")
     parser.add_argument("--reproduce-runs", help="the same for reproduce.yml")
-    parser.add_argument("--anchor-jobs", help="a directory of job lists (GitHub API) of recent Refresh runs on main")
+    parser.add_argument("--anchor-jobs", help="a directory of job lists (GitHub API) of recent Refresh runs on main "
+                                              "(the anchor and field jobs are read from them)")
     parser.add_argument("--acknowledged", help="the bodies of closed health issues: incidents they list are dropped")
     parser.add_argument("--now", help="check as of this UTC time (ISO 8601) instead of the clock: a drill")
     parser.add_argument("--markdown", help="write the issue body here")

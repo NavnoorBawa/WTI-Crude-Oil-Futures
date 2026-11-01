@@ -16,7 +16,7 @@ VOL_RECORD_CHECK = "'from backend.vol_record import load_record; load_record()'"
 VOL_RECORD_SEAL = "PYTHONDONTWRITEBYTECODE=1 python backend/vol_record.py --seal"
 
 # The only actions a job holding a write token may use: GitHub's own, and only those such a job
-# needs (actions/attest only in refresh.yml's anchor job, which holds no contents write). Their SHA
+# needs (actions/attest only in refresh.yml's anchor and field_anchor jobs, which hold no contents write). Their SHA
 # pins are enforced by test_every_remote_action_is_pinned_to_a_full_commit_sha.
 WRITE_TOKEN_JOB_ACTIONS = {"actions/checkout", "actions/download-artifact", "actions/setup-python", "actions/attest"}
 # Anything that installs, fetches or executes packages or remote code. Next to a write token, a
@@ -191,10 +191,10 @@ class WorkflowGuardTest(unittest.TestCase):
         # The restore, and every step that sends the token, refuses an unexpected origin first.
         origin_check = 'if [ "${origin_url%.git}" != "$expected_origin" ]'
         credentialed = [b for b in _shell_run_blocks(source) if "extraheader" in b]
-        self.assertEqual(len(credentialed), 2)            # the site deploy and the state persist
+        self.assertEqual(len(credentialed), 3)            # the site deploy, the state persist, the field log
         for block in credentialed:
             self.assertLess(block.index(origin_check), block.index("extraheader"))
-        self.assertEqual(source.count(origin_check), 3)
+        self.assertEqual(source.count(origin_check), 4)
 
         restore = source.index("- name: Restore mutable runtime state from live-data")
         freeze = source.index("- name: Freeze data snapshot")
@@ -480,14 +480,75 @@ class WorkflowGuardTest(unittest.TestCase):
         self.assertEqual(re.findall(r"^\s+(\S+):", attest[attest.index("with:"):], re.M),
                          ["subject-path"])                       # no other input (no private-signing)
         self.assertIn("subject-path: runtime-state/vol_track_record.json", anchor)
-        # actions/attest is allowed in this job only, though WRITE_TOKEN_JOB_ACTIONS lists it.
+        # actions/attest is allowed in the two anchor jobs only, though WRITE_TOKEN_JOB_ACTIONS lists it.
         for workflow in _workflow_files():
             for name, job in _jobs(workflow.read_text(encoding="utf-8")).items():
-                if (workflow.name, name) != ("refresh.yml", "anchor"):
+                if (workflow.name, name) not in (("refresh.yml", "anchor"), ("refresh.yml", "field_anchor")):
                     self.assertNotIn("actions/attest", job, f"{workflow.name} {name}")
         # Nothing about the seal moved: the publish job still neither signs nor attests.
         self.assertNotIn("id-token", _permissions(jobs["publish"], 4))
         self.assertNotIn("actions/attest", re.findall(r"uses:\s*([^\s@]+)@", jobs["publish"]))
+
+    def test_the_field_jobs_only_add_to_the_field_log(self):
+        # ROADMAP 1.8: the shadow field log is kept by three best-effort jobs that never touch the sealed
+        # record, its branch, the seal or the site, and push only the field-data branch, without force.
+        source = (WORKFLOW_DIRECTORY / "refresh.yml").read_text(encoding="utf-8")
+        jobs = _jobs(source)
+        top_level = source[:source.index("\njobs:")]
+        field_jobs = {name: jobs[name] for name in ("field_build", "field", "field_anchor")}
+        for name, job in field_jobs.items():
+            with self.subTest(name):
+                self.assertIn("    continue-on-error: true\n", job)
+                code = "\n".join(line for line in job.splitlines() if not line.strip().startswith("#"))
+                for word in ("runtime-state", "live-data", "vol_track_record", "vol_record", "--seal", "gh-pages",
+                             "STATE_", "PAGES_", "secrets.", "refs/heads/main", "--force", "--force-with-lease"):
+                    self.assertNotIn(word, code)
+        # Nothing the seal depends on waits on them or names them.
+        for name in ("build", "publish", "anchor"):
+            self.assertNotIn("field", "\n".join(line for line in jobs[name].splitlines()
+                                                if not line.strip().startswith("#")), name)
+        self.assertIn("    needs: build\n", jobs["publish"])
+
+        build = field_jobs["field_build"]
+        self.assertIn("    needs: build\n", build)
+        self.assertFalse(_holds_write_token(build, top_level))
+        self.assertNotIn("github.token", build)
+        self.assertEqual(" ".join(_permissions(build, 4).split()), "contents: read")
+        self.assertEqual([c for c in re.findall(r"backend/field_record\.py (--[\w-]+)", build)], ["--open-keys", "--issue"])
+
+        field = field_jobs["field"]
+        self.assertIn("    needs: [publish, field_build]\n", field)
+        self.assertIn("    if: ${{ !cancelled() && needs.publish.result == 'success' && "
+                      "needs.field_build.result == 'success' }}\n", field)
+        self.assertEqual(" ".join(re.sub(r"#.*", "", _permissions(field, 4)).split()), "contents: write")
+        self.assertEqual(re.findall(r"uses:\s*([^\s@]+)@", field),
+                         ["actions/checkout", "actions/download-artifact", "actions/download-artifact",
+                          "actions/setup-python"])
+        self.assertNotIn("cache:", field)                      # no package cache next to the write token
+        self.assertIn("persist-credentials: false", field)
+        commands = [re.sub(r"\\\s*\n\s*", " ", block) for block in _shell_run_blocks(field)]
+        calls = [m for command in commands for m in re.findall(r"\bpython3?\s+(?:-[A-Za-z]\s+)*(\S+)", command)]
+        self.assertEqual(set(calls), {"backend/field_record.py"})
+        self.assertEqual(re.findall(r"backend/field_record\.py (--[\w-]+)", "\n".join(commands)),
+                         ["--append", "--validate", "--lag"])
+        pushes = [line.strip() for command in commands for line in command.splitlines()
+                  if re.match(r"(?:if\s+)?git\b.*\bpush\b", line.strip())]
+        self.assertEqual(len(pushes), 1)
+        self.assertTrue(pushes[0].endswith('push origin "${commit}:refs/heads/${FIELD_BRANCH}"; then'), pushes)
+        self.assertEqual(re.findall(r"^\s+FIELD_BRANCH: (\S+)$", field, re.M), ["field-data"])
+        self.assertIn('git commit-tree "$tree" -p "$parent"', field)    # on top of the tip it was built from
+
+        anchor = field_jobs["field_anchor"]
+        self.assertIn("    needs: field\n", anchor)
+        self.assertIn("    if: ${{ !cancelled() && needs.field.outputs.pushed == 'true' }}\n", anchor)
+        self.assertEqual(" ".join(_permissions(anchor, 4).split()),
+                         " ".join(_permissions(jobs["anchor"], 4).split()))
+        self.assertEqual(re.findall(r"uses:\s*([^\s@]+)@", anchor), ["actions/checkout", "actions/attest"])
+        self.assertEqual(list(_shell_run_blocks(anchor)), [])
+        self.assertIn("ref: field-data", anchor)
+        attest = anchor[anchor.index("uses: actions/attest@"):]
+        self.assertEqual(re.findall(r"^\s+(\S+):", attest[attest.index("with:"):], re.M), ["subject-path"])
+        self.assertIn("subject-path: vol_field_record.jsonl", anchor)
 
     def test_health_writes_its_issue_and_nothing_else(self):
         # health.yml can write issues: it reads copies of the record and the payload through gh, runs

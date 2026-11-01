@@ -11,6 +11,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -59,6 +60,19 @@ def frozen_for(cutoff: date) -> str:
     stamp = f"{cutoff + timedelta(days=1)}T13:00:00Z"
     assert vr.bars_cutoff(at(stamp)) == cutoff, stamp
     return stamp
+
+
+def outside_the_field_jobs(workflow: str) -> str:
+    """refresh.yml without its three field jobs and without comment lines."""
+    head, body = workflow.split("\njobs:\n", 1)
+    kept, inside = [head], False
+    for line in body.splitlines():
+        header = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+        if header:
+            inside = header.group(1) in ("field_build", "field", "field_anchor")
+        if not inside:
+            kept.append(line)
+    return "\n".join(line for line in kept if not line.strip().startswith("#"))
 
 
 class FieldTest(unittest.TestCase):
@@ -393,9 +407,10 @@ class CommandLineTest(unittest.TestCase):
 
     def test_nothing_but_the_log_s_own_code_reads_it(self):
         # The log is never evidence: no other tracked file but the docs may name it, so no module, script,
-        # workflow, page or build step can feed it to the promotion test or the site. (PR 2 of ROADMAP 1.8
-        # adds the Refresh jobs that write it; this test then allows those jobs and nothing else there.)
-        allowed = {"backend/field_record.py", "tests/test_field_record.py", "CHANGELOG.md", "pyproject.toml"}
+        # workflow, page or build step can feed it to the promotion test or the site. In refresh.yml only
+        # the three field jobs may (they keep it; comments aside, nothing else there names it).
+        allowed = {"backend/field_record.py", "tests/test_field_record.py", "CHANGELOG.md", "pyproject.toml",
+                   "tests/test_workflow_guards.py", "tests/test_field_workflow.py"}
         try:
             listed = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True).stdout
             paths = [name for name in listed.decode().split("\0") if name]
@@ -408,8 +423,38 @@ class CommandLineTest(unittest.TestCase):
             if name in allowed or name.startswith("docs/") or not (ROOT / name).is_file():
                 continue
             text = (ROOT / name).read_bytes().decode("utf-8", errors="replace")
+            if name == ".github/workflows/refresh.yml":
+                text = outside_the_field_jobs(text)
             for word in ("field_record", "vol_field_record", "field-data"):
                 self.assertNotIn(word, text, f"{name} mentions {word}")
+
+    def test_the_refresh_guard_sees_everything_but_the_field_jobs(self):
+        workflow = (ROOT / ".github" / "workflows" / "refresh.yml").read_text(encoding="utf-8")
+        outside = outside_the_field_jobs(workflow)
+        self.assertIn("\n  publish:\n", outside)
+        self.assertIn("\n  anchor:\n", outside)
+        self.assertNotIn("\n  field:\n", outside)
+        planted = workflow.replace("    name: Deploy and persist state\n",
+                                   "    name: Deploy and persist state\n    env:\n      X: field-data\n")
+        self.assertIn("field-data", outside_the_field_jobs(planted))
+
+    def test_lag_counts_sessions_since_the_newest_logged_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            log = tmp / "log.jsonl"
+            log.write_text("")
+            for as_of, expected in (("2026-11-04", (0, "nothing to compare")),):
+                (tmp / "p.json").write_text(json.dumps(payload(as_of=as_of)))
+                code, printed = self.run_main("--lag", "--payload", str(tmp / "p.json"), "--log", str(log))
+                self.assertEqual((code, printed[:18]), expected)
+            log.write_text(fr.append("", [issued()], payload(), at("2026-11-05T13:05:00Z"))[0])
+            for as_of, code_expected, words in (("2026-11-04", 0, "by 0 session(s)"), ("2026-11-09", 0, "by 3 session(s)"),
+                                                ("2026-11-10", 1, "more than 3: the log has stopped growing")):
+                with self.subTest(as_of=as_of):
+                    (tmp / "p.json").write_text(json.dumps(payload(as_of=as_of)))
+                    code, printed = self.run_main("--lag", "--payload", str(tmp / "p.json"), "--log", str(log))
+                    self.assertEqual(code, code_expected, printed)
+                    self.assertIn(words, printed)
 
     def test_it_never_touches_the_sealed_record(self):
         source = (ROOT / "backend" / "field_record.py").read_text()
