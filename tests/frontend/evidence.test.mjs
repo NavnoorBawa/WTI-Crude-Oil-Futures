@@ -6,6 +6,7 @@ import { after, before, test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadDashboard, readFixture, visibleText } from "./load.mjs";
+import { committedLab, committedLedger, withRegimes } from "./splice.mjs";
 
 const FIXED_NOW = Date.parse("2026-10-21T12:00:00Z");
 Date.now = () => FIXED_NOW;
@@ -151,37 +152,52 @@ test("CALB: the weekly-grid MZ slope reproduces the production slope, and both s
   assert.equal(cone.mzWeekly(null), null);
 });
 
-test("CALB: coverage by OVX tercile equals an independent count, with n and the OVX range", () => {
-  const s = lab.series;
-  const weeks = s.date.map((_, i) => ({ ovx: s.ovx[i], actual: s.actual[i], lo: s.lo80[i], hi: s.hi80[i] }))
-    .filter((w) => [w.ovx, w.actual, w.lo, w.hi].every((v) => typeof v === "number"));
-  const sorted = weeks.map((w) => w.ovx).sort((a, b) => a - b);
-  const cut = (q) => sorted[Math.ceil(q * sorted.length) - 1];
-  const [c1, c2] = [cut(1 / 3), cut(2 / 3)];
-  const expected = [
-    weeks.filter((w) => w.ovx <= c1),
-    weeks.filter((w) => w.ovx > c1 && w.ovx <= c2),
-    weeks.filter((w) => w.ovx > c2),
-  ].map((group) => {
-    const inside = group.filter((w) => w.actual >= w.lo && w.actual <= w.hi).length;
-    return { n: group.length, covered: inside, low: Math.min(...group.map((w) => w.ovx)), high: Math.max(...group.map((w) => w.ovx)) };
-  });
-  const terciles = cone.coverageByOvxTercile(s);
-  assert.equal(terciles.length, 3);
-  terciles.forEach((row, i) => {
-    assert.equal(row.n, expected[i].n);
-    assert.equal(row.covered, expected[i].covered);
-    assert.equal(row.ovxLow, expected[i].low);
-    assert.equal(row.ovxHigh, expected[i].high);
-    assert.ok(Math.abs(row.coverage - (100 * expected[i].covered) / expected[i].n) < 1e-9);
-  });
-  assert.equal(terciles.reduce((sum, row) => sum + row.n, 0), weeks.length);
+test("CALB: coverage by regime at the decision is read from the artifact, and no regime is named by an OVX range", () => {
+  const spliced = withRegimes(research);
+  const regimesLib = m.regimes;
+  const art = committedLab();
+  const c = art.conformal[champion];
+  const html = section(render(data, spliced).html, "calb");
+  const body = visibleText(html);
   const f = m.format;
-  const body = visibleText(section(render(data).html, "calb"));
-  for (const row of terciles) {
-    assert.ok(body.includes(`OVX ${f.fmtNum(row.ovxLow, 1)}–${f.fmtNum(row.ovxHigh, 1)} ${f.fmtPct(row.coverage)} of ${f.fmtInt(row.n)} wk`), "regime fact");
+  assert.ok(body.includes(`Coverage by regime at the decision, ${f.fmtInt(c.n_days)} days with a band`), body);
+  for (const [split, levels] of Object.entries({ ovx_tercile: ["low", "mid", "high"], ovx_rv_gap: ["at_or_below", "above"],
+    rv5_tercile: ["low", "mid", "high"], target_spans_roll: ["no", "yes"] })) {
+    assert.equal(levels.reduce((sum, level) => sum + c.n_days_by_regime[split][level], 0), c.n_days, split);
+    for (const level of levels) {
+      const label = regimesLib.REGIME_SPLITS.find((s) => s.key === split).levels[level];
+      assert.ok(body.includes(`${label} ${f.fmtPct(c.coverage_by_regime_pct[split][level])} of ${f.fmtInt(c.n_days_by_regime[split][level])}`),
+        `${split} ${level}`);
+    }
   }
-  assert.deepEqual(cone.coverageByOvxTercile(null), []);
+  // The statement, rebuilt here from the artifact and the ledger.
+  const cc = c.conditional_coverage;
+  const ledger = committedLedger();
+  const q = ledger.rows.find((row) => row.id === `band_regime_ovx_tercile_${champion}`).q_value_bh;
+  const ovx = Object.values(c.coverage_by_regime_pct.ovx_tercile);
+  const pq = (v) => { const text = f.fmtPValue(v, { digits: 3 }); return /^[<>]/.test(text) ? `p ${text}` : `p = ${text}`; };
+  const expected = `Across OVX thirds at the decision the model of record's band covered ${f.fmtPct(Math.min(...ovx))} to `
+    + `${f.fmtPct(Math.max(...ovx))}; the test of equal coverage across OVX thirds is inconclusive (${pq(cc.ovx_tercile.p_value)}; `
+    + `q = ${f.fmtPValue(q, { digits: 3 })} after the ledger's adjustment; ${pq(cc.ovx_tercile.robustness.hac_lags_20.p_value)} with 20 HAC lags). `
+    + `No dependence detected across OVX/RV5 halves, RV5 thirds or roll windows (${pq(cc.ovx_rv_gap.p_value)}, `
+    + `${pq(cc.rv5_tercile.p_value)}, ${pq(cc.target_spans_roll.p_value)}). `
+    + "A dependence found here is reported, never used to change the band.";
+  assert.ok(body.includes(expected.replace(/\u00a0/g, " ")), body);
+  assert.doesNotMatch(body, /OVX \d+(\.\d)?–\d/, "a third's OVX range moves over time, so no fixed range is shown");
+  assert.doesNotMatch(body, /hides|regime-dependent|evidence of|suggests|calibrated in every|premium/i);
+  // Without the blocks (the fixture predates them) the section is absent.
+  assert.ok(!visibleText(section(render(data).html, "calb")).includes("Coverage by regime"));
+});
+
+test("regime verdicts follow the house words at every p and never upgrade on robustness", () => {
+  const verdict = (p, p20, q = 0.3) => m.regimes.regimeVerdict({ short: "OVX thirds", test: { p, p20, p40: p20, pAll: p20 } }, { q });
+  assert.match(verdict(0.03, 0.04), /is significant at 5% \(p.=.0\.030; q.=.0\.300 after the ledger's adjustment\)$/);
+  assert.match(verdict(0.03, 0.07), /is significant at 5% .*; p.=.0\.070 with 20 HAC lags\)$/);
+  assert.match(verdict(0.07, 0.07), /is inconclusive \(p.=.0\.070; q.=.0\.300 after the ledger's adjustment\)$/);
+  assert.match(verdict(0.07, 0.2), /is inconclusive .*; p.=.0\.200 with 20 HAC lags\)$/);
+  assert.equal(verdict(0.2, 0.03), null, "a robustness p never turns 'not detected' into a verdict");
+  assert.equal(m.regimes.regimeCoverage(null, "har_iv").length, 0);
+  assert.equal(m.regimes.regimeCoverageAssertion(research.vol_lab, champion, null), null);
 });
 
 test("CALB keeps the mechanism in the notes and the by-construction caveat in view", () => {

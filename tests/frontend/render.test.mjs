@@ -326,6 +326,12 @@ test("no source file restates a statistic from the fixtures as a literal", () =>
   walk(research.vol_lab.leaderboard.spa_qlike_vs_har_iv); walk(research.leak_anatomy.unpurged_dir_acc_pct_mean);
   walk(research.supply_study.placebo);
   walk(JSON.parse(readSource("data/vol_lab.json")).qlike_floor);       // the proxy's noise floor (0.213 and the rest)
+  {
+    const committed = JSON.parse(readSource("data/vol_lab.json"));               // the band by regime (ROADMAP 2.2)
+    for (const block of Object.values(committed.conformal)) {
+      walk(block.coverage_by_regime_pct); walk(block.interval_score_by_regime); walk(block.conditional_coverage);
+    }
+  }
   // ... and fail on any of them written as a numeric literal in src/ (design constants are integers
   // or listed here with their reason).
   const allowed = new Set([

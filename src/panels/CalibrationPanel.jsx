@@ -4,13 +4,15 @@ import DataTable from "../components/DataTable";
 import LazyMount from "../components/LazyMount";
 import Panel, { REPRODUCE } from "../components/Panel";
 import { INTERVAL_LEVEL_PCT, calibrationAssertion, calibrationDetail } from "../lib/assertions";
-import { coverageByOvxTercile, mzWeekly } from "../lib/cone";
+import { mzWeekly } from "../lib/cone";
 import { DASH, NBSP, fmtInt, fmtNum, fmtPValue, fmtPct, num } from "../lib/format";
-import { asObject, coverageByYear, getLab, getRoles, getVol, leaderboardRows, modelLabels, shortLabel } from "../lib/research";
+import { regimeCoverage, regimeCoverageAssertion } from "../lib/regimes";
+import { asObject, coverageByYear, getLab, getRoles, getVol, leaderboardRows, modelLabels, researchLedger, shortLabel } from "../lib/research";
 import { Facts, Legend, ResearchUnavailable } from "./common";
 
 const SOURCE = {
-  artifact: ["research.json → vol_lab.conformal", "vol_lab.leaderboard", "vol_lab.series", "data.json → vol_forecast.validation"],
+  artifact: ["research.json → vol_lab.conformal", "vol_lab.regimes", "vol_lab.leaderboard", "vol_lab.series", "ledger",
+    "data.json → vol_forecast.validation"],
   reproduce: [REPRODUCE.lab, REPRODUCE.validation],
 };
 
@@ -61,7 +63,10 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
       tone: row.role === "record" ? "model" : row.role === "challenger" ? "alt" : "neutral",
     })), [lab]);
   const weeklyLab = useMemo(() => mzWeekly(lab?.series), [lab]);
-  const terciles = useMemo(() => coverageByOvxTercile(lab?.series), [lab]);
+  const regimes = useMemo(() => regimeCoverage(lab, champion), [lab, champion]);
+  const challengerRegimes = useMemo(() => regimeCoverage(lab, challenger), [lab, challenger]);
+  const regimeText = useMemo(() => regimeCoverageAssertion(lab, champion, researchLedger(research)),
+    [lab, champion, research]);
   const conformal = asObject(lab?.conformal?.[champion]);
   const config = asObject(lab?.config?.conformal);
   const horizon = num(lab?.config?.horizon_sessions);
@@ -73,7 +78,6 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
   const recordMz = mzRows.find((row) => row.key === champion) ?? null;
   const labDays = num(lab?.leaderboard?.n_days) ?? num(lab?.sample?.n_days);
   const weeklyN = num(validation?.n);
-  const tercileWeeks = terciles.reduce((sum, row) => sum + row.n, 0);
 
   const facts = (
     <Facts items={[
@@ -135,9 +139,14 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
       + `${weeklyMz?.slope != null ? `, the forecasts the production validation scores${weeklyN != null ? ` over ${fmtInt(weeklyN)} weeks` : ""}` : ""}; `
       + `the every-day slope uses every out-of-sample day in the benchmark lab${labDays != null ? ` (${fmtInt(labDays)} days)` : ""}. `
       + "The two samples score the same forecasts on different days, so the slopes differ; each figure names its sample.",
-    terciles.length
-      ? `OVX regimes: the lab's ${fmtInt(tercileWeeks)} weeks with OVX, realized vol and a band, split at the nearest-rank thirds of OVX; `
-        + `each regime's coverage is the share of its weeks whose realized vol fell inside the weekly ${fmtNum(target, 0)}% band.`
+    regimes.length
+      ? `Regimes are labelled at the decision from what was known then: OVX of the session before and RV5 of the five returns `
+        + `to the decision against thirds of every earlier session's value (so a third's OVX range moves over time), `
+        + `OVX/RV5 (log) against its median over the previous ${fmtInt(num(lab?.regimes?.variables?.ovx_rv_gap?.window_sessions))} `
+        + `sessions, and whether the target week holds a contract roll. Each split is tested for equal miss rates across its `
+        + `regimes (HAC Wald, ${fmtInt(num(lab?.regimes?.test?.hac_lags))} lags); a single regime's coverage carries no verdict. `
+        + "The interval score is in vol points and grows with the vol level, so it compares the two models within a regime, not one "
+        + "regime with another. Roll windows are never scored in the live record; that split describes the lab's band only."
       : null,
   ];
 
@@ -177,20 +186,60 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
               values: series.map((s) => s.points.find((p) => p.year === point.year)?.coverage ?? null),
             }))}
           />
-          {terciles.length > 0 && (
-            <DataTable
-              caption={`${fmtNum(target, 0)}% band coverage by OVX tercile, lab weekly series (${fmtInt(tercileWeeks)} weeks)`}
-              rowKey={(row) => String(row.tercile)}
-              dense
-              exportName="calb-coverage-by-ovx"
-              columns={[
-                { key: "tercile", label: "OVX range", rowHeader: true, render: (row) => `${fmtNum(row.ovxLow, 1)}–${fmtNum(row.ovxHigh, 1)}`, csv: (row) => `${row.ovxLow}–${row.ovxHigh}` },
-                { key: "n", label: "Weeks", align: "right", render: (row) => fmtInt(row.n) },
-                { key: "covered", label: "Inside", align: "right", render: (row) => fmtInt(row.covered) },
-                { key: "coverage", label: "Coverage", align: "right", render: (row) => fmtPct(row.coverage), csvLabel: "Coverage (%)" },
-              ]}
-              rows={terciles}
-            />
+          {regimes.length > 0 && (
+            <>
+              <DataTable
+                caption={`${fmtNum(target, 0)}% band coverage by regime at the decision, model of record, ${fmtInt(num(conformal?.n_days))} days with a band`}
+                rowKey={(row) => row.id}
+                dense
+                exportName="calb-coverage-by-regime"
+                columns={[
+                  { key: "label", label: "Regime", rowHeader: true },
+                  { key: "n", label: "Days", align: "right", render: (row) => fmtInt(row.n) },
+                  { key: "inside", label: "Inside", align: "right", render: (row) => fmtInt(row.inside) },
+                  { key: "coverage", label: "Coverage", align: "right", render: (row) => fmtPct(row.coverage), csvLabel: "Coverage (%)" },
+                  { key: "misses", label: "Misses above / below", align: "right", render: (row) => `${fmtPct(row.above)} / ${fmtPct(row.below)}`,
+                    csv: (row) => `${row.above} / ${row.below}` },
+                  { key: "hacP", label: "HAC p (this regime)", align: "right", render: (row) => fmtPValue(row.hacP, { digits: 3 }) },
+                  { key: "binomial", label: "Binomial p by grid", align: "right", hideBelow: 640,
+                    render: (row) => (row.binomial ? `${fmtPValue(row.binomial.min, { digits: 3 })}–${fmtPValue(row.binomial.max, { digits: 3 })}` : DASH),
+                    csv: (row) => (row.binomial ? `${row.binomial.min}–${row.binomial.max}` : "") },
+                  { key: "score", label: "Interval score (vol pts)", align: "right", render: (row) => fmtNum(row.score, 2) },
+                  { key: "logScore", label: "Log interval score", align: "right", hideBelow: 640, render: (row) => fmtNum(row.logScore, 3) },
+                  { key: "challenger", label: "Challenger coverage", align: "right", hideBelow: 640, render: (row) => fmtPct(row.challenger),
+                    csvLabel: "Challenger coverage (%)" },
+                ]}
+                rows={regimes.flatMap((split) => split.levels.map((level) => ({
+                  ...level,
+                  id: `${split.key}:${level.key}`,
+                  challenger: challengerRegimes.find((s) => s.key === split.key)?.levels.find((l) => l.key === level.key)?.coverage ?? null,
+                })))}
+              />
+              <DataTable
+                caption="Tests of equal coverage across regimes (HAC Wald), with the ledger's q"
+                rowKey={(row) => row.id}
+                dense
+                exportName="calb-regime-tests"
+                columns={[
+                  { key: "name", label: "Split", rowHeader: true },
+                  { key: "model", label: "Model" },
+                  { key: "wald", label: "Wald χ² (df)", align: "right", render: (row) => `${fmtNum(row.test.wald, 2)} (${fmtInt(row.test.df)})`,
+                    csv: (row) => row.test.wald },
+                  { key: "p", label: "p", align: "right", render: (row) => fmtPValue(row.test.p, { digits: 3 }), csv: (row) => row.test.p },
+                  { key: "q", label: "q (ledger)", align: "right", render: (row) => fmtPValue(row.q, { digits: 3 }) },
+                  { key: "p20", label: "p, 20 lags", align: "right", hideBelow: 640, render: (row) => fmtPValue(row.test.p20, { digits: 3 }), csv: (row) => row.test.p20 },
+                  { key: "p40", label: "p, 40 lags", align: "right", hideBelow: 640, render: (row) => fmtPValue(row.test.p40, { digits: 3 }), csv: (row) => row.test.p40 },
+                  { key: "pAll", label: "p, every regime vs target", align: "right", hideBelow: 640, render: (row) => fmtPValue(row.test.pAll, { digits: 3 }),
+                    csv: (row) => row.test.pAll },
+                ]}
+                rows={[[champion, regimes], [challenger, challengerRegimes]].flatMap(([key, splits]) => splits.map((split) => ({
+                  ...split,
+                  id: `${key}:${split.key}`,
+                  model: shortLabel(labels.get(key) ?? key),
+                  q: researchLedger(research)?.byId?.get(`band_regime_${split.key}_${key}`)?.q ?? null,
+                })))}
+              />
+            </>
           )}
           <DataTable
             caption={`Mincer-Zarnowitz regression by model, every out-of-sample day${labDays != null ? ` (${fmtInt(labDays)} days)` : ""}, benchmark lab`}
@@ -219,14 +268,17 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
       <LazyMount minHeight={COVERAGE_HEIGHT} label="coverage chart">
         <CoverageByYear series={series} target={target} />
       </LazyMount>
-      {terciles.length > 0 && (
+      {regimes.length > 0 && (
         <>
-          <h3 className="figure-title">Coverage by OVX regime, lab weekly band ({fmtInt(tercileWeeks)} weeks)</h3>
-          <Facts className="facts--row calb-regimes" items={terciles.map((row) => ({
-            label: <>OVX <span className="nowrap">{fmtNum(row.ovxLow, 1)}–{fmtNum(row.ovxHigh, 1)}</span></>,
-            value: fmtPct(row.coverage),
-            note: `of ${fmtInt(row.n)} wk`,
-          }))} />
+          <h3 className="figure-title">Coverage by regime at the decision, {fmtInt(num(conformal?.n_days))} days with a band</h3>
+          {regimeText && <p className="prose-note">{regimeText}</p>}
+          {regimes.map((split) => (
+            <Facts key={split.key} className="facts--row calb-regimes" items={split.levels.map((level) => ({
+              label: level.label,
+              value: fmtPct(level.coverage),
+              note: `of ${fmtInt(level.n)} d`,
+            }))} />
+          ))}
         </>
       )}
       {mzRows.length > 0 && (

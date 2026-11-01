@@ -1,5 +1,5 @@
 // Pure helpers for CONE (where realized vol sits in its own history) and CALB (the weekly-grid
-// Mincer-Zarnowitz slope and coverage by OVX regime). Like research.js they tolerate missing or
+// Mincer-Zarnowitz slope). Like research.js they tolerate missing or
 // malformed fields and return null / [] instead of throwing.
 import { fmtPct, num } from "./format";
 import { asArray, asObject } from "./research";
@@ -193,35 +193,3 @@ export const mzWeekly = (series) => {
   return sxx > 0 ? { slope: sxy / sxx, n: rows.length } : null;
 };
 
-/** The nearest-rank `q` quantile (0 < q <= 1) of ascending `sorted`. */
-const nearestRank = (sorted, q) => sorted[Math.max(0, Math.ceil(q * sorted.length) - 1)];
-
-/**
- * Coverage of the lab's weekly 80% band ([lo80, hi80]) by OVX regime: the weeks with OVX, realized
- * vol and a band, split into terciles of OVX at its nearest-rank 1/3 and 2/3 quantiles (a week on a
- * cut goes to the lower tercile). Each tercile has its OVX range, week count and coverage. [] below
- * 3 weeks.
- *
- * @returns {{tercile: number, ovxLow: number, ovxHigh: number, n: number, covered: number, coverage: number}[]}
- */
-export const coverageByOvxTercile = (series) => {
-  const rows = rowsWith(series, ["ovx", "actual", "lo80", "hi80"]);
-  if (rows.length < 3) return [];
-  const sorted = rows.map((row) => row.ovx).sort((a, b) => a - b);
-  const cuts = [nearestRank(sorted, 1 / 3), nearestRank(sorted, 2 / 3)];
-  const groups = [[], [], []];
-  for (const row of rows) groups[row.ovx <= cuts[0] ? 0 : row.ovx <= cuts[1] ? 1 : 2].push(row);
-  return groups.map((group, index) => {
-    if (!group.length) return null;
-    const covered = group.filter((row) => row.actual >= row.lo80 && row.actual <= row.hi80).length;
-    const ovx = group.map((row) => row.ovx);
-    return {
-      tercile: index + 1,
-      ovxLow: Math.min(...ovx),
-      ovxHigh: Math.max(...ovx),
-      n: group.length,
-      covered,
-      coverage: (covered / group.length) * 100,
-    };
-  }).filter(Boolean);
-};

@@ -46,6 +46,7 @@ export async function loadDashboard() {
     quote: await load("/src/app/quote.js"),
     format: await load("/src/lib/format.js"),
     research: await load("/src/lib/research.js"),
+    regimes: await load("/src/lib/regimes.js"),
     assertions: await load("/src/lib/assertions.js"),
     table: await load("/src/components/DataTable.jsx"),
     theme: await load("/src/theme/chartTheme.js"),
