@@ -157,6 +157,32 @@ residuals understate its error.
   range variance of the five target sessions, not rescaled), as a robustness check on the proxy
   itself. Its level differs from the close-to-close proxy's, so only rankings within one proxy
   are compared.
+- **The proxy's noise floor** (`vol_lab.qlike_floor`). The realized volatility of five returns is a
+  noisy estimate of the week's variance, so a forecast equal to the true conditional variance has an
+  expected QLIKE above zero against it. Because that proxy is conditionally unbiased, every
+  forecast's expected loss against it is at least that floor (Patton 2011), and when the proxy's
+  error is independent of the forecast the floor shifts every model's loss by the same amount
+  (Hansen and Lunde 2006). With normal returns of constant variance
+  and the target not demeaned, `y²/σ²` is χ²(5)/5 and the floor is `−ψ(5/2) − ln(2/5)` (equally
+  `γ + ln 10 − 8/3`). It is a lower bound when returns are normal given their variance and that
+  variance does not depend on the week's own shocks (Jensen's inequality and the Schur-concavity of
+  `E ln Σwᵢzᵢ²`); the lab's simulated GARCH(1,1)-t, whose variance reacts to the week's shocks, also
+  lies above it. The lab also
+  publishes the floor for i.i.d. Student-t returns (exact, by Frullani's integral), on the direction
+  noise floor's own Student-t(5) simulations, for Student-t returns whose kurtosis is the conditional
+  kurtosis of its GARCH(1,1)-t fit to all returns (this definition was chosen after the
+  unconditional kurtosis and a within-week dispersion match were found unusable: the first puts the
+  floor above most models' losses, the second is biased low when the variance moves within the
+  week), and for that fitted GARCH with its variance moving within the week (which also counts moves
+  no forecast can know at the decision). For the range proxy it simulates bars through the same
+  returns: each day a Brownian bridge with exact extremes between its points, 2.5/23 of the day's
+  variance after the settlement, High and Low to 17:00 ET as `range_variance` assumes, drawn from a
+  second seed stream. Those bars' range proxy runs above the true variance (`proxy_to_true_variance`),
+  so the range values are the expected loss of a forecast equal to the true variance, not lower
+  bounds: they include the proxy's level, and a forecast scaled to that level scores lower. Roll
+  days (about a quarter of the windows) are not simulated. The floor is
+  never subtracted from any loss, Diebold-Mariano test or confidence set, and no ledger row tests it:
+  daily closes do not identify which assumption applies.
 
 ## 7. Inference
 
@@ -507,6 +533,7 @@ pre-specified.
 - Glosten, L., Jagannathan, R., Runkle, D. (1993). On the relation between the expected value and the volatility of the nominal excess return on stocks. *Journal of Finance* 48(5).
 - Gneiting, T., Raftery, A. (2007). Strictly proper scoring rules, prediction, and estimation. *JASA* 102(477).
 - Hansen, P. R. (2005). A test for superior predictive ability. *JBES* 23(4).
+- Hansen, P. R., Lunde, A. (2006). Consistent ranking of volatility models. *Journal of Econometrics* 131(1-2).
 - Hansen, P. R., Lunde, A., Nason, J. (2011). The model confidence set. *Econometrica* 79(2).
 - Harvey, C., Hoyle, E., Korgaonkar, R., Rattray, S., Sargaison, M., Van Hemert, O. (2018). The impact of volatility targeting. *Journal of Portfolio Management* 45(1).
 - Harvey, C., Liu, Y., Zhu, H. (2016). … and the cross-section of expected returns. *Review of Financial Studies* 29(1).

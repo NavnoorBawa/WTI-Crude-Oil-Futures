@@ -32,7 +32,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
 SCHEMA_VERSION = 1
 REQUIRED_LAB_KEYS = ("sample", "config", "leaderboard", "oos_selection", "var_backtest", "conformal",
-                     "yearly", "noise_floor", "har_iv_coefficients", "vol_cone", "series", "generated_from")
+                     "yearly", "noise_floor", "qlike_floor", "har_iv_coefficients", "vol_cone", "series",
+                     "generated_from")
 
 
 def _load(name: str) -> dict:

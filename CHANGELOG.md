@@ -126,6 +126,23 @@ backs the new one.
   the backtest. RESULTS and METHODOLOGY now call that independence an assumption. (ROADMAP 1.2,
   except the DOI.)
 
+### Research
+
+- **The proxy's QLIKE noise floor (ROADMAP 2.1, first part).** `data/vol_lab.json` gains
+  `qlike_floor`: the expected QLIKE of a forecast equal to the true variance, against the
+  five-return proxy (exact with normal returns of constant variance, −ψ(5/2) − ln(2/5), a lower
+  bound when the variance does not react to the week's own shocks; exact and simulated with
+  Student-t returns, on the direction noise floor's own simulations; with the kurtosis of the lab's
+  GARCH(1,1)-t fit, a definition chosen after two others were found unusable; and with that model's
+  variance moving within the week), and the expected loss of the same forecast against the range
+  proxy on simulated bars through the same returns (not a lower bound: those bars' proxy runs above
+  the true variance). RESULTS section 2.1 states each value with its assumption; daily closes do
+  not identify which applies, so nothing estimates a model's distance from its floor and no loss or
+  test subtracts it. It adds no research-ledger row: it is a property of the proxy, not a test, and
+  a row would either read as "inconclusive" or join the Benjamini-Hochberg family and move most of
+  its q-values, the SPA row's among them. Rebuilt in the pinned container; every other value in the
+  artifact is unchanged.
+
 ## 2.2.0 — 2026-10-30
 
 A minor release: one research result changed. Hansen's SPA test was not studentized (arch 8.0.0
