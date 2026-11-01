@@ -171,6 +171,7 @@ flowchart TB
 | `backend/research_ledger.py` | Every hypothesis tested, with multiplicity adjustments |
 | `scripts/validate_frozen_payload.py` | Deploy gate (stdlib only) |
 | `scripts/record_health.py` | The Health workflow's check of the record, the site and the last runs (stdlib only) |
+| `backend/field_record.py` | The unsealed shadow log of the whole field: issue (build side, needs the models' packages), append, resolve and validate (stdlib only) |
 | `scripts/verify_record.py`, `scripts/verify_anchors.py` | A reviewer's checks of the sealed record, from the file alone and against the Rekor log (stdlib only) |
 | `scripts/build_research_bundle.py`, `scripts/readme_blocks.py`, `scripts/make_figures.py` | research.json, the generated docs and the figures, from the artifacts |
 | `Dockerfile`, `Makefile`, `.devcontainer/` | The pinned reproduce environment and one target per check |

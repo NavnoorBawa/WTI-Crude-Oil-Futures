@@ -63,6 +63,7 @@ files = [
     "backend/vol_forecast.py",
     "backend/vol_record.py",
     "backend/research_ledger.py",
+    "backend/field_record.py",
 ]
 follow_imports = "silent"
 warn_unreachable = true

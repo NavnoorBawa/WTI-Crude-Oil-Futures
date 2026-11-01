@@ -65,6 +65,17 @@ backs the new one.
   `fetch_wti_daily` now remembers a failed EIA attempt for ten minutes, so a freeze waits on EIA
   once; Health clears the issue's body when it closes the issue itself, so only a person's close
   acknowledges incidents.
+- **The shadow field log, first part (code only).** `backend/field_record.py` issues, for the
+  published session, the live forecast of every model in the lab's field (never the timing
+  control), but only when one fresh download reproduces the published har-iv/2 forecast and
+  challenger; appends lines by the record's window rule (first issuance per session and model
+  wins, one window per session, the file only grows); settles windows by the record's resolution
+  rule (never marking expired a window whose closes have scrolled out of the payload); and
+  validates from the file alone every rule it appends by (each line stores its append time, so the
+  window can be rechecked). It is unsealed and descriptive: no other tracked file but the docs
+  names it (a test checks), and no test of the pinned pair is run on it. The jobs that run it in the Refresh workflow and the
+  `field-data` branch come next. On 2026-11-01 two runs against the live payload each logged all 13
+  models for 2026-10-30, in 16 and 8 seconds, and the merged log validated. (ROADMAP 1.8, first part.)
 
 ### Engineering
 

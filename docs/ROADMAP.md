@@ -21,7 +21,7 @@ Each line below is a property with a test; the project is "there" when every lin
 | --- | --- | --- |
 | Every number on the page is computed from the payloads | `tests/frontend` render tests; no statistic literal in copy | holds |
 | The main result reproduces bit for bit from pinned inputs | Reproduce workflow on `data/vol_lab.json` | holds (on every change to the pipeline, its inputs or its pins, and weekly; also inside the digest-pinned container, `make reproduce`) |
-| The forward record cannot be back-filled, and that is provable to an outsider | git seal before the window, plus an independent timestamp anchor | partial: sealed in git and checked from the file alone (`scripts/verify_record.py`); an anchor job attests the record in Sigstore's Rekor after each publish, best effort (`scripts/verify_anchors.py`), its acceptance pending; not shown on LIVE, no second anchor |
+| The forward record cannot be back-filled, and that is provable to an outsider | git seal before the window, plus an independent timestamp anchor | partial: sealed in git and checked from the file alone (`scripts/verify_record.py`); an anchor job attests the record in Sigstore's Rekor after each publish, best effort, and `scripts/verify_anchors.py` reads the times back (accepted 2026-11-01); not shown on LIVE, no second anchor |
 | The promotion test was fixed before any result arrived | a pre-registered, citable document with a persistent identifier | partial: pinned in code and docs; release tags wait for the owner's push (`HANDOFF.md` section 6); no DOI |
 | Forecast quality is judged with the right losses, at the right horizons, conditionally | QLIKE, MSE, MCS, SPA, DM today; density and conditional tests, several horizons | partial: SPA studentized with robustness; density, conditional tests and horizons to do |
 | The model is specified, bounded and attributable | model card, elasticities, hand-checkable arithmetic; per-call attribution | holds from 2026-10-28: each new call stores its fit and the hero splits the change between two such calls; the six earlier sealed calls have no stored fit |
@@ -376,6 +376,15 @@ These stay out, whatever a review suggests, unless the owner changes the rules:
 Tick items here with the PR number and date when they ship, and move any new finding into
 `HANDOFF.md`'s backlog.
 
+- **1.3 Independent timestamp anchor** (#82, first anchor 2026-10-31), first part: the Refresh
+  workflow's `anchor` job attests `runtime-state/vol_track_record.json` after each publish
+  (best effort; sealing never waits on it), which logs the file's SHA-256 in Sigstore's public
+  Rekor log, and `scripts/verify_anchors.py` gives each sealed entry the first time a version of
+  the file holding it was logged. Accepted 2026-11-01: after two scheduled publishes with anchors
+  (Rekor log indexes 3615895345 and 3622033493) the verifier exits 0 and prints each anchor's time;
+  the 2026-10-30 call was logged 44h 46m before its window opens. Not done: binding the
+  `live-data` commit SHA (the attestation's subject is the file), "anchored <time>" on LIVE, and
+  the second anchor with OpenTimestamps.
 - **1.7 Second-source cross-checks and a roll audit** (#91, 2026-11-01), first part: EIA
   contracts 1 and 2 and Cushing spot pinned in the snapshot; `cl_source_agreement` and
   `roll_convention_audit` in `data/vol_lab.json` (descriptive, every other number unchanged); the
