@@ -376,7 +376,7 @@ These stay out, whatever a review suggests, unless the owner changes the rules:
 Tick items here with the PR number and date when they ship, and move any new finding into
 `HANDOFF.md`'s backlog.
 
-- **1.7 Second-source cross-checks and a roll audit** (#PRNUM17, 2026-11-01), first part: EIA
+- **1.7 Second-source cross-checks and a roll audit** (#91, 2026-11-01), first part: EIA
   contracts 1 and 2 and Cushing spot pinned in the snapshot; `cl_source_agreement` and
   `roll_convention_audit` in `data/vol_lab.json` (descriptive, every other number unchanged); the
   April 2020 rule written into METHODOLOGY (unchanged: kept, as production does). Not done: Stooq

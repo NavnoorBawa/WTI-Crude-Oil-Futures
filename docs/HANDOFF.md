@@ -141,7 +141,7 @@ and its CI run is the test.
   taller neighbours; the price chart's log axis uses library tick positions.
 
 ### 5. Engineering
-- **The rest of ROADMAP 1.7.** The first part (#PRNUM17) pinned EIA's contracts 1 and 2 and Cushing
+- **The rest of ROADMAP 1.7.** The first part (#91) pinned EIA's contracts 1 and 2 and Cushing
   spot in the snapshot and published `cl_source_agreement` and `roll_convention_audit`. Still to
   do: a freeze-time check of the live `CL=F` history in `vol_forecast._load_data_full`, recorded
   in a new top-level `vol_forecast.source_check` (never inside `live`, so sealed entries are
