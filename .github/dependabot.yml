@@ -87,3 +87,10 @@ updates:
     # Image digests are dependencies too: the same two-week wait as every other pin.
     cooldown:
       default-days: 14
+    # The container mirrors CI's runtimes (python-version '3.12' and node-version '24' in the
+    # workflows), so only releases on those lines are proposed; a new line moves with CI, by hand.
+    ignore:
+      - dependency-name: python
+        versions: [">= 3.13"]
+      - dependency-name: node
+        versions: [">= 25"]

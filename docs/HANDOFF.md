@@ -49,7 +49,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   workflow's `anchor` job tries to attest the record (best effort), logging its SHA-256 in
   Sigstore's public Rekor log; `scripts/verify_anchors.py` reads the times back (ROADMAP 1.3, in
   progress until the first anchored runs are checked).
-- **Tests.** 567 Python (unittest), 267 frontend (node --test) and 13 browser checks (Playwright,
+- **Tests.** 568 Python (unittest), 267 frontend (node --test) and 13 browser checks (Playwright,
   the "Interface" CI job: axe, layout shift, overflow, keyboard, print, script budget). CI also runs
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
   Reproduce rebuild. Releases: `scripts/bump_version.py`, and `.github/workflows/release.yml`
@@ -97,7 +97,9 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   depends on it, and remove the exception.
 Dependabot opens these PRs once each release is old enough, and from ROADMAP 1.6 also proposes
 new digests for the Dockerfile's two base images (same 14-day cooldown; the container job is
-their test). Merge them when CI, including the
+their test), on CI's lines only: Python 3.12 and Node 24 (`ignore` in `.github/dependabot.yml`).
+Moving to a new line means changing the workflows' `python-version`/`node-version`, the
+Dockerfile and that rule together, and rebuilding `data/vol_lab.json` under the new runtime. Merge them when CI, including the
 Reproduce rebuild, is green: react and react-dom 19.3.1 (eligible since 2026-10-28; no PR yet),
 eslint 10.13.0 (2026-10-30), vite 8.3.5 (2026-11-04), actions/setup-python v7.1.0 (2026-11-05),
 pandas 3.1.0 and coverage 7.17.0. Those were tested in scratch environments and pass, including
