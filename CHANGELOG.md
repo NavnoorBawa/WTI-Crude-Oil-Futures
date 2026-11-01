@@ -88,7 +88,7 @@ backs the new one.
   branch, the seal or the site's branch, and within a run nothing the seal depends on waits on them;
   like the anchor job, while they run they hold the workflow's concurrency group, so the next
   queued refresh can wait up to their timeouts (`tests/test_workflow_guards.py`); `tests/test_field_workflow.py` runs the `field` job's own shell
-  against a local copy of the branch with numpy unimportable. (ROADMAP 1.8, second part.)
+  against a local copy of the branch with numpy unimportable. (ROADMAP 1.8, second part, #95.)
 
 ### Engineering
 
