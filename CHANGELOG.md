@@ -57,11 +57,14 @@ backs the new one.
   revision of history shows) and, after the pinned spot copy ends, with a fresh EIA Cushing spot
   download (a 0.40 absolute log gap, gross errors only), and puts the result in
   `vol_forecast.source_check`, outside `live`, so sealed entries are unchanged. It never stops the
-  freeze (ROADMAP 1.7 asked to fail it; a failed freeze leaves the session unrecorded, which costs
-  the pinned promotion test a week): the validator notes a finding and Health lists it under
-  "Source checks". A failure of the check itself is reported by the exception's class name only,
-  so an EIA error cannot publish the API key. It detects a bad close; it cannot keep one from being
-  recorded and scored.
+  freeze (ROADMAP 1.7 asked to fail it; a revised past close would then fail every freeze until a
+  person refreshed the snapshot, and each session lost meanwhile delays the 52-week promotion
+  test): the validator notes a finding and Health lists it under "Source checks". A failure of the
+  check itself is reported by the exception's class name only, so an EIA error cannot publish the
+  API key. It can detect a grossly wrong close; it cannot keep one from being recorded and scored.
+  `fetch_wti_daily` now remembers a failed EIA attempt for ten minutes, so a freeze waits on EIA
+  once; Health clears the issue's body when it closes the issue itself, so only a person's close
+  acknowledges incidents.
 
 ### Engineering
 

@@ -25,9 +25,10 @@ into those pages from the artifacts.
   spot copy lasts; roll days after it are not checked. Each freeze also checks the live closes it
   uses (`market_data.freeze_source_check`, in the payload as `vol_forecast.source_check`): every
   pinned session must still be there within one tick (Yahoo revising its history), and sessions
-  after the pinned spot copy must be within a 0.40 absolute log gap of a fresh EIA spot download,
-  which only catches gross errors. It reports and never stops the freeze, so it detects a bad close
-  but cannot keep one from being recorded and scored; Health lists what it finds.
+  after the pinned spot copy (or the pinned closes, if earlier) must be within a 0.40 absolute log gap of a fresh EIA spot download,
+  which only catches gross errors. It reports and never stops the freeze, so it can detect a
+  grossly wrong close but cannot keep one from being recorded and scored; Health lists what it
+  finds.
 - **The negative settlement.** On 2020-04-20 the expiring May contract settled at −$37.63, which
   has no logarithm, so that session is dropped from the close series, in the lab as in production
   (`vol_forecast._completed` keeps positive closes only). The return dated 2020-04-21 therefore

@@ -382,9 +382,10 @@ Tick items here with the PR number and date when they ship, and move any new fin
   April 2020 rule written into METHODOLOGY (unchanged: kept, as production does). Second part
   (#PRNUM172, 2026-11-01): the freeze-time check (`market_data.freeze_source_check`, in the payload
   as `vol_forecast.source_check`), which reports instead of failing the freeze, a deliberate
-  change from this item's text: a failed freeze leaves its session unrecorded until a later run
-  passes, each lost session thins the pinned promotion test, and the only revisions measured so
-  far were to volume; what it finds reaches the owner as a Health incident. Not done: Stooq
+  change from this item's text: a revised past close would fail every freeze until a person
+  refreshed the snapshot, and each session lost meanwhile delays the 52-week promotion test (a
+  check on 2026-10-31 found no close outside a tick); what it finds reaches the owner as a
+  Health incident. Not done: Stooq
   (unreachable from a session), a tight check for sessions after 2024-04-05 (EIA's contract-1
   series ends there; later sessions get only the loose spot check), and the acceptance test of the
   roll days against EIA-derived switch days: the audit checks `CL=F` against EIA's contract 1 around

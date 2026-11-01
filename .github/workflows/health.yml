@@ -108,7 +108,12 @@ jobs:
             --description "The live pipeline needs a person (.github/workflows/health.yml)" 2> /dev/null || true
           number="$(gh issue list --label "${label}" --state open --limit 1 --json number --jq '.[0].number // empty')"
           if [ "${STATUS}" = "0" ]; then
-            if [ -n "${number}" ]; then gh issue close "${number}" --comment "$(cat health.md)"; fi
+            # The body is cleared before closing: a closed issue's body acknowledges the incident keys it
+            # lists, and only a person's close may do that (recurring keys such as source:unavailable).
+            if [ -n "${number}" ]; then
+              gh issue edit "${number}" --body-file health.md
+              gh issue close "${number}" --comment "$(cat health.md)"
+            fi
             exit 0
           fi
           digest="$(grep -o 'health-digest: [0-9a-f]*' health.md)"

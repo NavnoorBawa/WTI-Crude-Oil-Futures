@@ -3,7 +3,7 @@
 
 .github/workflows/health.yml runs this daily and after every Refresh and Reproduce run on main, on
 `gh api` copies of live-data's runtime-state/vol_track_record.json and gh-pages' data.json and on
-`gh run list` output for the two workflows. It reports two kinds of problem.
+`gh run list` output for the two workflows. It reports three kinds of problem.
 
 Needs a person (the Health run fails until it clears):
 - the record does not load under vol_record.load_record's contract, or data.json is unreadable;
@@ -61,6 +61,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import sys
 import traceback
@@ -189,7 +190,13 @@ SPOT_STALE_SESSIONS = 10       # a spot series this many sessions behind the for
 
 
 def _iso_or_none(value: Any) -> str | None:
-    return value if isinstance(value, str) and ISO.fullmatch(value) else None
+    if not (isinstance(value, str) and ISO.fullmatch(value)):
+        return None
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return None
+    return value
 
 
 def _int_or_zero(value: Any) -> int:
@@ -222,9 +229,12 @@ def source_problems(payload: dict[str, Any]) -> list[Problem]:
                                 False))
     spot = block.get("spot") if isinstance(block.get("spot"), dict) else {}
     spot_dates = [d for d in spot.get("dates", []) if _iso_or_none(d)] if isinstance(spot.get("dates"), list) else []
+    tolerance = spot.get("tolerance_abs_log_gap")
+    tolerance = tolerance if isinstance(tolerance, float) and math.isfinite(tolerance) else None
     if spot.get("status") == "beyond_tolerance" and spot_dates:
         problems.append(Problem(f"source:spot:{spot_dates[0]}", f"The freeze found {_int_or_zero(spot.get('n_above'))} "
-                                f"CL=F close(s) more than a 0.40 log gap from EIA's Cushing spot, the first "
+                                f"CL=F close(s) more than a {f'{tolerance:.2f}' if tolerance else 'stated'} absolute log "
+                                f"gap from EIA's Cushing spot, the first "
                                 f"{spot_dates[0]}: a gross error in one of the two series. The forecast was published "
                                 f"and recorded as usual.", False))
     spot_last = _iso_or_none(spot.get("spot_last"))

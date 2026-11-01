@@ -379,7 +379,7 @@ def freeze_source_check(close: pd.Series, snapshot: MarketSnapshot, spot: pd.Ser
     every pinned session must be in the live series and within one tick of it, rounded to the cent
     (cents), and no live session inside the pinned span may be new; a mismatch means Yahoo revised its
     history (prices only: volume is never compared). `spot`: live sessions after the pinned spot copy
-    ends, paired with spot prices above zero, must be within SPOT_LOG_GAP_TOLERANCE in absolute log
+    ends (or the pinned closes, if earlier), paired with finite spot prices above zero, must be within SPOT_LOG_GAP_TOLERANCE in absolute log
     terms, which catches only a gross error. With nothing to pair the status is no_spot_rows, never a
     pass. Every value is an int, a float, a str or None (no NaN), so the block serialises as JSON.
     """
@@ -399,8 +399,13 @@ def freeze_source_check(close: pd.Series, snapshot: MarketSnapshot, spot: pd.Ser
         "n_missing": int(len(missing)), "n_added": int(len(added)), "n_beyond_tick": int(len(beyond)),
         "dates": [_iso(day) for day in flagged[:SOURCE_CHECK_LISTED]],
     }
-    spot_from = snapshot.eia_spot.index.max() if snapshot.eia_spot is not None and len(snapshot.eia_spot) else last
-    after = close[(close.index > spot_from) & (close > 0)].rename("cl")
+    # The lab's own spot comparison stops where the pinned spot copy or the pinned closes stop,
+    # whichever is first; this check starts there.
+    spot_from = min(snapshot.eia_spot.index.max(), last) if snapshot.eia_spot is not None and len(snapshot.eia_spot) else last
+    finite = close[np.isfinite(close.to_numpy(dtype=float))]
+    after = finite[(finite.index > spot_from) & (finite > 0)].rename("cl")
+    if spot is not None:
+        spot = spot[np.isfinite(spot.to_numpy(dtype=float))]
     usable = spot[spot > 0].rename("spot") if spot is not None else pd.Series(dtype=float, name="spot")
     paired = pd.concat([after, usable], axis=1, join="inner").dropna()
     spot_check: dict[str, Any] = {
@@ -414,7 +419,7 @@ def freeze_source_check(close: pd.Series, snapshot: MarketSnapshot, spot: pd.Ser
         above = log_gap.index[log_gap.to_numpy() > SPOT_LOG_GAP_TOLERANCE]
         spot_check.update(status="beyond_tolerance" if len(above) else "pass",
                           max_abs_log_gap=round(float(log_gap.max()), 4), n_above=int(len(above)),
-                          dates=[_iso(day) for day in above[:SOURCE_CHECK_LISTED]])
+                          dates=[_iso(day) for day in sorted(above)[:SOURCE_CHECK_LISTED]])
     return {"snapshot": pinned_check, "spot": spot_check}
 
 def main(argv: list[str] | None = None) -> int:

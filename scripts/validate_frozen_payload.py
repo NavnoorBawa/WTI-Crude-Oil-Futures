@@ -307,6 +307,12 @@ def _validate_vol_forecast(vol: Any, session: date | None, notes: list[str]) -> 
 
 
 SOURCE_STATUSES = {"snapshot": {"pass", "beyond_tolerance"}, "spot": {"pass", "beyond_tolerance", "no_spot_rows"}}
+SOURCE_KEYS = {
+    "snapshot": {"status", "first", "last", "sessions", "tolerance_usd", "n_missing", "n_added", "n_beyond_tick", "dates"},
+    "spot": {"status", "tolerance_abs_log_gap", "after", "sessions_after", "spot_last", "paired", "max_abs_log_gap",
+             "n_above", "dates"},
+}
+SOURCE_DATES_LISTED = 10
 REASON = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
 
 
@@ -329,7 +335,9 @@ def _validate_source_check(block: Any, notes: list[str]) -> list[str]:
         return [f"{where} must have exactly the keys snapshot and spot, or be unavailable"]
     errors: list[str] = []
     for name, check in (("snapshot", block["snapshot"]), ("spot", block["spot"])):
-        check = _dict(check)
+        if not isinstance(check, dict) or set(check) != SOURCE_KEYS[name]:
+            errors.append(f"{where}.{name} must have exactly the keys {sorted(SOURCE_KEYS[name])}")
+            continue
         if check.get("status") not in SOURCE_STATUSES[name]:
             errors.append(f"{where}.{name}.status must be one of {sorted(SOURCE_STATUSES[name])}")
         counts = ("sessions", "n_missing", "n_added", "n_beyond_tick") if name == "snapshot" else (
@@ -338,8 +346,9 @@ def _validate_source_check(block: Any, notes: list[str]) -> list[str]:
             if not _count(check.get(key)):
                 errors.append(f"{where}.{name}.{key} must be a non-negative integer")
         dates = check.get("dates")
-        if not isinstance(dates, list) or not all(_strict_iso_date(day) for day in dates):
-            errors.append(f"{where}.{name}.dates must be a list of ISO dates")
+        if (not isinstance(dates, list) or len(dates) > SOURCE_DATES_LISTED
+                or not all(_strict_iso_date(day) for day in dates)):
+            errors.append(f"{where}.{name}.dates must be a list of at most {SOURCE_DATES_LISTED} ISO dates")
         for key in (("first", "last") if name == "snapshot" else ("after",)):
             if not _strict_iso_date(check.get(key)):
                 errors.append(f"{where}.{name}.{key} must be an ISO date")
@@ -356,7 +365,7 @@ def _validate_source_check(block: Any, notes: list[str]) -> list[str]:
     if errors:
         return errors
     for name, check in (("snapshot", snapshot), ("spot", spot)):
-        if check["status"] == "beyond_tolerance":
+        if check.get("status") == "beyond_tolerance":
             notes.append(f"{where}.{name} found sessions beyond its tolerance; Health lists them")
     return []
 

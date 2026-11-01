@@ -6,6 +6,7 @@ leaves in data.json. Network-free: EIA's spot download is always patched.
 """
 
 import copy
+import dataclasses
 import json
 import unittest
 from pathlib import Path
@@ -77,6 +78,31 @@ class FreezeSourceCheckTest(unittest.TestCase):
                          ("beyond_tolerance", 1, [later[3].strftime("%Y-%m-%d")]))
         self.assertEqual(bad["spot_last"], later[-1].strftime("%Y-%m-%d"))
 
+    def test_one_tick_everywhere_is_agreement(self):
+        found = md.freeze_source_check(CLOSE + 0.01, SNAPSHOT, None)["snapshot"]
+        self.assertEqual((found["status"], found["n_beyond_tick"]), ("pass", 0))
+
+    def test_the_spot_check_starts_at_the_pinned_closes_end_when_the_spot_copy_runs_longer(self):
+        # Re-pinning spot from a fresh cache can carry it past the pinned closes; no session may then
+        # fall between the two checks.
+        later = sessions("2026-10-20", "2026-10-30")
+        longer = dataclasses.replace(SNAPSHOT, eia_spot=pd.concat([SNAPSHOT.eia_spot, spot_after(later[:6])]))
+        live = pd.concat([CLOSE, pd.Series(float(CLOSE.iloc[-1]), index=later)])
+        live.loc[later[2]] *= 3.0
+        found = md.freeze_source_check(live, longer, spot_after(later))["spot"]
+        self.assertEqual(found["after"], "2026-10-19")
+        self.assertEqual((found["status"], found["dates"]), ("beyond_tolerance", [later[2].strftime("%Y-%m-%d")]))
+
+    def test_non_finite_and_non_positive_prices_are_left_unpaired(self):
+        later = sessions("2026-10-20", "2026-10-30")
+        live = pd.concat([CLOSE, pd.Series(float(CLOSE.iloc[-1]), index=later)])
+        live.loc[later[1]] = float("nan")
+        spot = spot_after(later)
+        spot.iloc[2], spot.iloc[3], spot.iloc[4] = 0.0, -36.98, float("inf")
+        found = md.freeze_source_check(live, SNAPSHOT, spot)["spot"]
+        self.assertEqual((found["status"], found["paired"]), ("pass", len(later) - 4))
+        json.dumps(found, allow_nan=False)
+
     def test_listed_dates_are_capped(self):
         live = CLOSE.copy()
         live.iloc[:50] += 1.0
@@ -91,6 +117,21 @@ class FreezeSourceCheckTest(unittest.TestCase):
 
 
 class SourceCheckWrapperTest(unittest.TestCase):
+    def test_the_freeze_checks_the_closes_its_forecast_uses(self):
+        # _load_data_full hands the completed, tz-naive closes (not Yahoo's raw tz-aware frame) to the
+        # check, and forecast_bundle publishes the check's block beside `live`.
+        days = pd.date_range("2026-10-26", periods=4, freq="B", tz="America/New_York")
+        raw = pd.DataFrame({"Open": 70.0, "High": 71.0, "Low": 69.0, "Close": [70.0, 71.0, 72.0, 73.0],
+                            "Volume": 1}, index=days)
+        now = pd.Timestamp("2026-10-30T23:00:00Z").to_pydatetime()
+        with mock.patch.object(vf, "_yf_history", side_effect=[raw, raw]):
+            _, _, _, meta = vf._load_data_full(now=now)
+        expected = vf._completed(raw["Close"], now)
+        pd.testing.assert_series_equal(meta["cl_close"], expected)
+        self.assertIsNone(pd.DatetimeIndex(meta["cl_close"].index).tz)
+        # forecast_bundle's use of it: tests/test_vol_forecast.py, the source-check test.
+
+
     def test_it_returns_plain_json_and_none_without_closes(self):
         rows = [("2026-10-20", 70.0), ("2026-10-21", float("nan"))]
         with mock.patch("backend.supply_shock_playbook.fetch_wti_daily", return_value=rows):
@@ -155,6 +196,8 @@ class ValidatorTest(unittest.TestCase):
             "a NaN gap": {**good, "spot": {**good["spot"], "max_abs_log_gap": float("nan")}},
             "a negative count": {**good, "snapshot": {**good["snapshot"], "n_missing": -1}},
             "a bad date": {**good, "snapshot": {**good["snapshot"], "dates": ["Fri, 30 Oct 2026"]}},
+            "too many dates": {**good, "snapshot": {**good["snapshot"], "dates": ["2026-10-01"] * 11}},
+            "an extra key inside": {**good, "spot": {**good["spot"], "note": "x"}},
         }
         for name, block in cases.items():
             with self.subTest(name):
@@ -198,7 +241,8 @@ class HealthTest(unittest.TestCase):
     def test_an_absent_or_malformed_block_never_breaks_the_check(self):
         for payload in ({}, {"vol_forecast": None}, self._payload(None), self._payload([1]),
                         self._payload({"snapshot": "x", "spot": {"dates": 5, "status": "beyond_tolerance"}}),
-                        self._payload({"snapshot": {"status": "beyond_tolerance", "dates": ["<b>", 3]}})):
+                        self._payload({"snapshot": {"status": "beyond_tolerance", "dates": ["<b>", 3]}}),
+                        self._payload({"snapshot": {}, "spot": {"spot_last": "2026-02-30"}})):
             with self.subTest(payload=str(payload)[:60]):
                 self.assertTrue(all(p.key.startswith("source:") for p in rh.source_problems(payload)))
 
