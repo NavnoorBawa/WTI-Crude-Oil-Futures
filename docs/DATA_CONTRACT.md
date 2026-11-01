@@ -190,6 +190,20 @@ the six `closes` it was scored on; a `late_commit`, `skipped_roll` or `expired` 
 `closed_at` (an expired one also `missing_sessions`). Only an entry sealed more than five minutes
 before the settlement that opens its window can be resolved, skipped or expired.
 
+### The shadow field log (unsealed)
+
+`vol_field_record.jsonl` (backend/field_record.py) is JSON Lines, append-only, one canonical object
+per line (sorted keys, compact, ASCII, no NaN), every line with `sealed: false`. A `forecast` line:
+`as_of`, `issued_at`, `model_key` (one of `field_record.FIELD_KEYS`, the lab's field without the
+timing control), `forecast_pct`, `median_pct`, `inputs_sha256` (the exact inputs, never outputs),
+`ovx_source`, `code_sha`, `spec_sha256` (backend/vol_lab.py and backend/vol_forecast.py), and the
+window `base_session`, `target_start`, `target_end` by the record's rule at append time; one per
+(`as_of`, `model_key`), one window per `as_of`. An `outcome` line: `base_session`, `status`
+(`resolved`, `skipped_roll` or `expired`), `closes` and `realized_pct` (resolved only, recomputable),
+`resolved_at`; one per window. `python backend/field_record.py --validate --log FILE [--previous
+EARLIER]` checks all of this and that the earlier copy is a byte prefix. It is not sealed evidence,
+never feeds the promotion test, and no other module or page reads it.
+
 ## `research.json` (schema_version 1)
 
 Built from committed artifacts by `scripts/build_research_bundle.py`; see that script for the exact

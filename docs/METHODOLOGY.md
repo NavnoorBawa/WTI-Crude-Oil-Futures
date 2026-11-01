@@ -371,6 +371,16 @@ data).
   the challenger's historical edge is computed in the full results (section 3) from the noncentral t with
   the same 51 degrees of freedom.
 
+- **The shadow field log (unsealed).** `backend/field_record.py` keeps, for every session, the live
+  forecast of every model in the lab's field (`vol_lab.FEASIBLE`, never the timing control), with
+  the record's window rule and resolution rule, in an append-only file on a separate branch. It is
+  a research asset for asking later whether the lab's ranking held out of sample, and it is not
+  evidence: it has no seal and no hash chain, and nothing in the pipeline, the site or the promotion
+  test reads it (a test enforces that). No test of `har_iv` against `har_iv_range` is run on it: the
+  pinned promotion test is the only one. A run logs the field only if one fresh download reproduces
+  the published har-iv/2 forecast and challenger; the first line for a session fixes its window,
+  and a window that opened before the payload's oldest close is never marked expired.
+
 ## 13. The retracted direction model
 
 A six-model ensemble forecast one-week price direction. Its backtest trained, at every step, on rows
