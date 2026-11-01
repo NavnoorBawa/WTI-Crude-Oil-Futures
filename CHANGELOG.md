@@ -79,13 +79,15 @@ backs the new one.
 - **The shadow field log, second part (the jobs).** The orphan `field-data` branch holds the log, a
   marker and a README. Three best-effort jobs in the Refresh workflow keep it: `field_build`
   (read-only, no secret) counts the open models with the standard library and, only if some are
-  open, installs and issues their lines; `field` (a write token for `field-data` only, nothing
-  installed) appends after a successful publish, validates the merged file against the old one,
-  commits on top of the tip and pushes without force, then fails if the log trails the payload by
-  more than three sessions (`field_record.py --lag`); `field_anchor` attests each pushed version in
-  Rekor. Health reports a failed field job as a recorded incident. They never name the record, its
-  branch, the seal or the site's branch, and nothing the seal depends on waits on them
-  (`tests/test_workflow_guards.py`); `tests/test_field_workflow.py` runs the `field` job's own shell
+  open, installs and issues their lines; `field` (the repository-wide contents-write token, its
+  script pushing only `field-data`; nothing installed) appends after a successful publish,
+  validates the merged file against the old one, commits on top of the tip and pushes without
+  force, then fails if the log trails the payload by more than three sessions
+  (`field_record.py --lag`); `field_anchor` tries to attest each pushed version in Rekor. Health
+  reports a failed field job as a recorded incident, once per run. They never name the record, its
+  branch, the seal or the site's branch, and within a run nothing the seal depends on waits on them;
+  like the anchor job, while they run they hold the workflow's concurrency group, so the next
+  queued refresh can wait up to their timeouts (`tests/test_workflow_guards.py`); `tests/test_field_workflow.py` runs the `field` job's own shell
   against a local copy of the branch with numpy unimportable. (ROADMAP 1.8, second part.)
 
 ### Engineering

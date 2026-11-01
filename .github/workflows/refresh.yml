@@ -588,10 +588,13 @@ jobs:
   # unsealed by backend/field_record.py on the field-data branch. It is not evidence and nothing reads
   # it (tests/test_field_record.py). These three jobs only add to it, after build and beside and after
   # publish, never inside it: they run on their own runners and never name the record, its branch,
-  # the seal or the site's branch, so the seal's step, its inputs and its four-minute budget are
-  # untouched. continue-on-error keeps any failure here from failing the run; Health lists a failed
-  # field job as a recorded incident. The build side holds no write token and no secret; the write
-  # side installs nothing and pushes only field-data, without force.
+  # the seal or the site's branch, so this run's seal step, its inputs and its four-minute budget are
+  # untouched. While they run they hold the workflow's concurrency group, like the anchor job, so they
+  # can hold the next queued refresh for at most their timeouts (15, 5 and 5 minutes).
+  # continue-on-error keeps any failure here from failing the run; Health lists a failed field job as
+  # a recorded incident. The build side holds no write token and no secret; the write side installs
+  # nothing and its script pushes only field-data, without force (its token, like publish's, could
+  # write any branch: tests/test_workflow_guards.py checks the script).
   field_build:
     name: Issue the field's forecasts (unsealed)
     needs: build
@@ -600,6 +603,10 @@ jobs:
     continue-on-error: true
     permissions:
       contents: read
+    # GitHub reports a failed continue-on-error job to the jobs after it as a success, so `field`
+    # waits on this output (set only once the lines are uploaded), never on this job's result.
+    outputs:
+      issued: ${{ steps.lines.outputs.artifact-id }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -639,8 +646,11 @@ jobs:
           done
           git show "origin/${FIELD_BRANCH}:vol_field_record.jsonl" > "$FIELD_DIR/log.jsonl"
           : > "$FIELD_DIR/new.jsonl"
-          open="$(PYTHONDONTWRITEBYTECODE=1 python backend/field_record.py --open-keys \
-            --payload dist/data.json --log "$FIELD_DIR/log.jsonl")"
+          if ! open="$(PYTHONDONTWRITEBYTECODE=1 python backend/field_record.py --open-keys \
+            --payload dist/data.json --log "$FIELD_DIR/log.jsonl")"; then
+            echo "$open" >&2
+            exit 1
+          fi
           echo "${open} of the field's models are still to log for this session"
           echo "open=${open}" >> "$GITHUB_OUTPUT"
 
@@ -657,6 +667,7 @@ jobs:
 
       # Always uploaded (often empty): the write side also settles windows on runs that log nothing.
       - name: Upload the issued lines
+        id: lines
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: field-lines
@@ -667,7 +678,7 @@ jobs:
   field:
     name: Append to the field log (unsealed)
     needs: [publish, field_build]
-    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.field_build.result == 'success' }}
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.field_build.outputs.issued != '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     continue-on-error: true
@@ -733,9 +744,10 @@ jobs:
               parent="$(git rev-parse "origin/${FIELD_BRANCH}")"
               listing="$(git ls-tree "$parent")"
               # Regular files only, the marker and the log among them; anything else fails closed.
-              if printf '%s\n' "$listing" | awk '$1 != "100644" || $2 != "blob"' | grep -q . \
-                || ! printf '%s\n' "$listing" | cut -f2 | grep -qx -- "$FIELD_MARKER" \
-                || ! printf '%s\n' "$listing" | cut -f2 | grep -qx -- "$FIELD_FILE"; then
+              other="$(printf '%s\n' "$listing" | awk '$1 != "100644" || $2 != "blob"')"
+              names="$(printf '%s\n' "$listing" | cut -f2)"
+              if [ -n "$other" ] || ! grep -qxF -- "$FIELD_MARKER" <<< "$names" \
+                || ! grep -qxF -- "$FIELD_FILE" <<< "$names"; then
                 echo "Refusing: ${FIELD_BRANCH} does not hold an initialized field log" >&2
                 exit 1
               fi

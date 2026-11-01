@@ -210,7 +210,8 @@ class EntryStatusTest(unittest.TestCase):
             return {"name": name, "conclusion": conclusion, "started_at": started, "html_url": f"https://x/{started}"}
         issue, append, anchor = rh.FIELD_JOBS
         listings = [
-            {"jobs": [job("failure", "2026-11-04T16:05:00Z", append), job("failure", "2026-11-04T16:01:00Z", rh.ANCHOR_JOB)]},
+            {"jobs": [job("failure", "2026-11-04T16:05:00Z", append), job("failure", "2026-11-04T16:01:00Z", rh.ANCHOR_JOB),
+                      job("failure", "2026-11-04T16:07:00Z", anchor)]},          # one run, two field jobs: counted once
             {"jobs": [job("failure", "2026-11-04T12:05:00Z", issue), job("skipped", "2026-11-04T12:09:00Z", append)]},
             {"jobs": [job("failure", "2026-11-03T08:05:00Z", anchor), job("success", "2026-11-03T08:01:00Z", append)]},
             {"jobs": [job("success", "2026-11-02T08:05:00Z", issue), job("cancelled", "2026-11-02T04:05:00Z", append)]},
@@ -219,6 +220,7 @@ class EntryStatusTest(unittest.TestCase):
         self.assertEqual([(p.key, p.needs_a_person) for p in problems], [("field:2026-11-03", False),
                                                                          ("field:2026-11-04", False)])
         self.assertIn("On 2026-11-04, 2 Refresh runs did not keep the shadow field log", problems[1].text)
+        self.assertIn("the latest is https://x/2026-11-04T16:05:00Z", problems[1].text)
         self.assertIn("the sealed record is unaffected", problems[1].text)
         files = Files(record_with(["2026-11-02", "2026-11-03"]), payload={"frozen_at": "2026-11-04T16:00:00Z"})
         found = rh.check(files.record, files.payload, at("2026-11-04T18:00:00Z"), anchor_jobs=listings,

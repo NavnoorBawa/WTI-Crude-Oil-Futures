@@ -208,7 +208,9 @@ contract roll; `resolved` carries the six closes dated from `base_session` to `t
 after `target_end`; the other two carry null `closes` and `realized_pct`. Lines are in time order
 (`appended_at`, `resolved_at`). The file lives on the `field-data` branch (with the marker
 `.initialized-v1` and a README), and the Refresh workflow's `field` job appends to it after each
-successful publish; each version it pushes is attested in Sigstore's Rekor log by `field_anchor`. `python backend/field_record.py --validate --log FILE [--previous
+successful publish; after each push `field_anchor` tries to attest the log in Sigstore's Rekor log
+(best effort: a failed attestation leaves that version without an outside timestamp and is a Health
+incident). `python backend/field_record.py --validate --log FILE [--previous
 EARLIER]` checks all of this from the file alone, and that the earlier copy is a byte prefix; what it
 cannot check is which closes the payload held when a window was settled. It is not sealed evidence,
 never feeds the promotion test, and no tracked file names it but the docs, its own module and tests,

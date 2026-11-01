@@ -496,6 +496,9 @@ class WorkflowGuardTest(unittest.TestCase):
         jobs = _jobs(source)
         top_level = source[:source.index("\njobs:")]
         field_jobs = {name: jobs[name] for name in ("field_build", "field", "field_anchor")}
+        # Each holds the concurrency group while it runs, so the next queued refresh waits at most this long.
+        for name, minutes in (("field_build", 15), ("field", 5), ("field_anchor", 5)):
+            self.assertIn(f"    timeout-minutes: {minutes}\n", field_jobs[name], name)
         for name, job in field_jobs.items():
             with self.subTest(name):
                 self.assertIn("    continue-on-error: true\n", job)
@@ -511,6 +514,12 @@ class WorkflowGuardTest(unittest.TestCase):
 
         build = field_jobs["field_build"]
         self.assertIn("    needs: build\n", build)
+        # A failed continue-on-error job reads as a success to the jobs after it: field waits on this
+        # output, set by the upload step only once the lines are uploaded.
+        self.assertIn("    outputs:\n      issued: ${{ steps.lines.outputs.artifact-id }}\n", build)
+        upload = build[build.index("- name: Upload the issued lines"):]
+        self.assertIn("        id: lines\n        uses: actions/upload-artifact@", upload)
+        self.assertNotIn("needs.field_build.result", field_jobs["field"])
         self.assertFalse(_holds_write_token(build, top_level))
         self.assertNotIn("github.token", build)
         self.assertEqual(" ".join(_permissions(build, 4).split()), "contents: read")
@@ -519,7 +528,7 @@ class WorkflowGuardTest(unittest.TestCase):
         field = field_jobs["field"]
         self.assertIn("    needs: [publish, field_build]\n", field)
         self.assertIn("    if: ${{ !cancelled() && needs.publish.result == 'success' && "
-                      "needs.field_build.result == 'success' }}\n", field)
+                      "needs.field_build.outputs.issued != '' }}\n", field)
         self.assertEqual(" ".join(re.sub(r"#.*", "", _permissions(field, 4)).split()), "contents: write")
         self.assertEqual(re.findall(r"uses:\s*([^\s@]+)@", field),
                          ["actions/checkout", "actions/download-artifact", "actions/download-artifact",

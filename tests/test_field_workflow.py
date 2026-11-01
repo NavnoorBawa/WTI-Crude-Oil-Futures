@@ -154,7 +154,10 @@ class FieldJobTest(unittest.TestCase):
         self.assertEqual(changed, {"vol_field_record.jsonl"})
         log = git("show", f"{after}:vol_field_record.jsonl", cwd=self.remote) + "\n"
         self.assertEqual(fr.validate(log, previous=""), [])
-        self.assertEqual([line["model_key"] for line in fr.parse(log)], list(fr.FIELD_KEYS))
+        lines = fr.parse(log)
+        self.assertEqual([line["model_key"] for line in lines if line["kind"] == "forecast"], list(fr.FIELD_KEYS))
+        # The real clock picks the window: one across a roll is settled at once (skipped_roll); no other outcome.
+        self.assertIn([line["status"] for line in lines if line["kind"] == "outcome"], ([], ["skipped_roll"]))
         self.assertEqual(git("log", "-1", "--format=%an <%ae>|%cn|%s", after, cwd=self.remote),
                          "WTI Field Log Bot <41898282+github-actions[bot]@users.noreply.github.com>|WTI Field Log Bot|"
                          "chore: append to the field log [skip ci]")

@@ -301,15 +301,17 @@ def run_problems(name: str, runs: list[dict[str, Any]], failures_needed: int) ->
 
 
 def _failed_days(runs_jobs: list[dict[str, Any]], now: datetime, names: tuple[str, ...]) -> dict[str, list[str]]:
-    """The UTC days in the last LOOKBACK_DAYS on which a job of one of these names failed, with the jobs' links.
+    """The UTC days in the last LOOKBACK_DAYS on which a job of one of these names failed, with one link per run.
 
     `runs_jobs` holds the GitHub API's job lists (GET /repos/{repo}/actions/runs/{id}/jobs) of recent Refresh
-    runs on main. Runs without the job (from before it existed, or that skipped it) say nothing.
+    runs on main, one list per run. Runs without the job (from before it existed, or that skipped it) say
+    nothing; a run in which several of the jobs failed counts once (its first failed job's link).
     """
     since = now - timedelta(days=LOOKBACK_DAYS)
     failed: dict[str, list[str]] = {}
     for listing in runs_jobs:
         jobs = listing.get("jobs") if isinstance(listing, dict) else None
+        run: dict[str, str] = {}
         for job in jobs if isinstance(jobs, list) else []:
             if not isinstance(job, dict) or job.get("name") not in names or job.get("conclusion") not in FAILED:
                 continue
@@ -318,7 +320,9 @@ def _failed_days(runs_jobs: list[dict[str, Any]], now: datetime, names: tuple[st
             except ValueError:
                 continue
             if started >= since:
-                failed.setdefault(started.date().isoformat(), []).append(str(job.get("html_url", "unknown")))
+                run.setdefault(started.date().isoformat(), str(job.get("html_url", "unknown")))
+        for day, url in run.items():
+            failed.setdefault(day, []).append(url)
     return failed
 
 

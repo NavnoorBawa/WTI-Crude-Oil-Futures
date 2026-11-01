@@ -118,10 +118,13 @@ flowchart TB
   The anchor job can sign and store an attestation (`id-token`, `attestations`) but not write the
   repository, and runs only GitHub's checkout and attest actions. Of the three field jobs (the
   unsealed shadow log, ROADMAP 1.8), `field_build` installs and downloads with a read-only token and
-  no secret; `field` holds a write token for the `field-data` branch only, installs nothing and runs
-  the standard-library `backend/field_record.py`; `field_anchor` is shaped like the anchor job. They
-  never name the record, its branch, the seal or the site's branch, and nothing in build, publish or
-  anchor waits on them.
+  no secret; `field` holds the job's contents-write token (repository-wide, like publish's), installs
+  nothing, runs the standard-library `backend/field_record.py`, and its script pushes only
+  `field-data`, without force (the guards check the script; the token itself could write any
+  branch); `field_anchor` is shaped like the anchor job. They never name the record, its branch, the
+  seal or the site's branch, and within a run nothing in build, publish or anchor waits on them. Like
+  the anchor job, while they run they hold the workflow's concurrency group, so they can hold the
+  next queued refresh for at most their timeouts (15, 5 and 5 minutes).
   `tests/test_workflow_guards.py` enforces this (action allowlist pinned to commit SHAs, no package
   tooling in write-token jobs, no secret except `EIA_API_KEY` in the freeze step).
 - **Fail closed.** A failed freeze, a payload that fails validation, a missing or malformed live
