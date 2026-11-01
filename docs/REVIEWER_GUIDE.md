@@ -152,6 +152,7 @@ and figures generated from the same constants and the commands that date it.
 - The forward record: after 52 independent paired weeks the promotion test runs once, and its
   verdict stands (section 3 gives its power, which is low).
 - Intraday data: five daily returns make a noisy proxy for weekly volatility; a cleaner target could
-  separate models that this one cannot.
+  separate models that this one cannot. The proxy's own QLIKE noise floor, the loss even a forecast
+  equal to the true variance would score against it, is in [RESULTS section 2.1](RESULTS.md#21-the-benchmark-field).
 - A different sample: the field, the challenger and the robustness checks were all chosen while
   looking at 2008–2026; [section 9](RESULTS.md#9-limitations) lists this and the other limits.

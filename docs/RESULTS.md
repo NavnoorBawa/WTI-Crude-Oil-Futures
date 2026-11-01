@@ -149,6 +149,9 @@ The 90% Model Confidence Set keeps 4 of the 13 feasible models (HAR-IV-range, Co
 HAR-IV-range has the lowest QLIKE and the highest realized utility in the field, and beats the model of record on both in a pairwise test (DM p = 0.002 on QLIKE, p = 0.002 on utility). On MSE, which a few extreme weeks dominate, nothing is distinguishable: the MSE confidence set keeps all 13 feasible models, and the challenger's MSE difference from the model of record has DM p = 0.702. The variant was found by searching this sample, and those pairwise p-values do not account for the search. Hansen's SPA test does: after the search the null that no alternative beats the model of record is rejected at 5% (studentized p = 0.011; HAR-IV-range has the largest studentized gain, t 2.91), though the rejection does not survive the ledger's Benjamini-Hochberg adjustment across the 75 hypotheses in its multiplicity family (q = 0.090). Without studentizing (White's Reality Check with Hansen's recentring, the figure published before this correction; see the changelog's errata) the same draws give p = 0.072: on raw means the alternatives whose loss differences vary most set the bootstrap maximum. The studentized p-value is 0.005 with blocks of 10 days and 0.013 with blocks of 40 days (block 20 above); by sub-period it is 0.027 over 2008–2016 (2,177 days; largest gain Combination) and 0.026 over 2017–2026 (2,457 days; largest gain HAR-IV-range). The test accounts for the search within the field, not for how the field was assembled, and every reading is of this sample. That is why the variant competes live rather than replacing the model of record on its historical record.
 <!-- [[[end]]] -->
 
+<!-- [[[cog import scripts.readme_blocks as b; b.print_block("qlike_floor_block") ]]] -->
+<!-- [[[end]]] -->
+
 ### 2.2 What the model is
 
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("coefficients_table") ]]] -->

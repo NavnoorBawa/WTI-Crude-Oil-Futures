@@ -67,7 +67,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
-from scipy import stats
+from scipy import integrate, special, stats
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -620,6 +620,197 @@ def noise_floor(r: np.ndarray, dates: pd.DatetimeIndex) -> dict[str, Any]:
                      "below its median is right with probability E[max(U, 1-U)] = 75%.")}
 
 
+# --------------------------------------------------------------------------- the proxy's QLIKE noise floor
+
+QLIKE_FLOOR_BAR_SEED_OFFSET = 1000         # simulated bars: default_rng(NOISE_FLOOR_SEED + 1000 + k), a second stream
+RANGE_FLOOR_SETTLE_SHARE = 2.5 / 23        # trading-time share of a session from the 14:30 settlement to 17:00 ET
+RANGE_FLOOR_POINTS = (5, 41)               # bridge points: settlement -> 17:00, 18:00 open -> settlement
+_FLOOR_LNW = np.linspace(-40.0, 8.0, 6001)  # trapezoid grid in ln(W / nu) for t_qlike_floor
+
+
+def normal_qlike_floor(n: int = vf.H) -> float:
+    """E[X - ln X - 1] with X ~ chi2(n)/n: the expected QLIKE of a forecast equal to the true variance, scored
+    against the realized variance of n returns that are normal with a constant variance (the target is not
+    demeaned), -digamma(n/2) - ln(2/n). A lower bound for returns that are normal given their variance."""
+    return float(np.log(n / 2) - special.digamma(n / 2))
+
+
+def t_qlike_floor(nu: float, n: int = vf.H) -> float:
+    """The same floor for i.i.d. unit-variance Student-t(nu) returns (normal_qlike_floor when nu is infinite):
+    -E ln X = int_0^inf (M(s/n)^n - e^-s)/s ds (Frullani), M(u) = E[(1 + 2u(nu-2)/W)^(-1/2)], W ~ chi2(nu),
+    with M by the trapezoid rule in ln W. Deterministic, about 10 ms."""
+    if not np.isfinite(nu):
+        return normal_qlike_floor(n)
+    w = np.exp(_FLOOR_LNW) * nu
+    weights = np.exp(stats.chi2.logpdf(w, nu) + np.log(w))
+    weights = weights / weights.sum()                 # the density of ln W on the grid; < 1e-15 lies outside
+
+    def integrand(s: float) -> float:
+        m = float(np.dot(weights, (1.0 + 2.0 * (s / n) * (nu - 2.0) / w) ** -0.5))
+        return float((m ** n - np.exp(-s)) / s)
+
+    head = integrate.quad(integrand, 0.0, 1.0, limit=400, epsabs=1e-13)[0]
+    tail = integrate.quad(integrand, 1.0, np.inf, limit=400, epsabs=1e-13)[0]
+    return float(head + tail)
+
+
+def noise_floor_draws(r: np.ndarray, k: int) -> np.ndarray:
+    """Simulation k of the direction noise floor: vol_forecast.noise_floor's own Student-t(5) returns (the same
+    generator, seed and calls; tests/test_vol_lab.py pins the equality)."""
+    rng = np.random.default_rng(vf.NOISE_FLOOR_SEED + k)
+    return rng.standard_t(5, len(r)) / np.sqrt(5 / 3) * float(np.std(r))
+
+
+def _bridge(end: np.ndarray, var: np.ndarray, steps: int, rng: np.random.Generator) -> np.ndarray:
+    """A Brownian bridge from 0 to `end` (per row) with total variance `var`: its steps + 1 grid points."""
+    free = np.concatenate([np.zeros((end.size, 1)),
+                           np.cumsum(rng.standard_normal((end.size, steps)) * np.sqrt(var / steps)[:, None], 1)], 1)
+    return free - (np.arange(steps + 1)[None, :] / steps) * (free[:, -1:] - end[:, None])
+
+
+def _extremes(points: np.ndarray, step_var: np.ndarray, rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray]:
+    """The path's exact maximum and minimum: between two grid points of a Brownian bridge with variance v,
+    max = (x0 + x1 + sqrt((x1 - x0)^2 - 2 v ln U)) / 2, and the minimum by symmetry. (Reading the extremes at
+    the grid points only would understate the range.)"""
+    x0, x1 = points[:, :-1], points[:, 1:]
+    gap, v = (x1 - x0) ** 2, step_var[:, None]
+    high = 0.5 * (x0 + x1 + np.sqrt(gap - 2 * v * np.log(rng.random(x0.shape))))
+    low = 0.5 * (x0 + x1 - np.sqrt(gap - 2 * v * np.log(rng.random(x0.shape))))
+    return high.max(1), low.min(1)
+
+
+def floor_bars(z: np.ndarray, day_var: np.ndarray, dates: pd.DatetimeIndex, rng: np.random.Generator) -> pd.DataFrame:
+    """Daily bars whose settlement-to-settlement log returns are exactly `z`: each day a Brownian bridge with
+    variance `day_var`, split at the 18:00 ET reopen (RANGE_FLOOR_SETTLE_SHARE of it after the settlement).
+    Open is the reopen; High and Low run from the open to the next 17:00 ET, as range_variance assumes; Close is
+    the settlement."""
+    share, (n_after, n_day) = RANGE_FLOOR_SETTLE_SHARE, RANGE_FLOOR_POINTS
+    after = share * z + np.sqrt(share * (1 - share) * day_var) * rng.standard_normal(len(z))   # settlement -> reopen
+    day_high, day_low = _extremes(_bridge(z - after, (1 - share) * day_var, n_day - 1, rng),
+                                  (1 - share) * day_var / (n_day - 1), rng)
+    after_high, after_low = _extremes(_bridge(after, share * day_var, n_after - 1, rng),
+                                      share * day_var / (n_after - 1), rng)
+    settle = np.log(50.0) + np.cumsum(z)
+    opened = np.r_[np.log(50.0), settle[:-1]] + after
+    # Session i's High and Low also cover the next day's first segment, from its settlement to 17:00.
+    high = np.maximum(opened + day_high, np.r_[after_high[1:], 0.0] + settle)
+    low = np.minimum(opened + day_low, np.r_[after_low[1:], 0.0] + settle)
+    return pd.DataFrame({"Open": np.exp(opened), "High": np.exp(high), "Low": np.exp(low), "Close": np.exp(settle)},
+                        index=dates)
+
+
+def _floor_scores(z: np.ndarray, dates: pd.DatetimeIndex, forecast: np.ndarray | float,
+                  v_range: np.ndarray | None = None) -> float:
+    """Mean QLIKE over the lab's OOS rows (from MIN_TRAIN on) of `forecast` against the five-return target of
+    `z`, or against the range target when the daily range variances `v_range` are given."""
+    _, y, _, pos = vf._build_matrix(z, dates, None, return_positions=True)
+    y, pos = y[vf.MIN_TRAIN:], pos[vf.MIN_TRAIN:]
+    if v_range is not None:
+        y = np.array([np.sqrt(np.mean(v_range[t + 1: t + 1 + vf.H]) * ANNUAL) for t in pos])
+    f = np.full(y.shape, forecast) if np.isscalar(forecast) else np.asarray(forecast)[pos]
+    return float(np.mean(qlike(y, f)))
+
+
+def _summary(values: list[float]) -> dict[str, Any]:
+    return {"simulated_mean": round(float(np.mean(values)), 4),
+            "simulated_range": [round(float(min(values)), 4), round(float(max(values)), 4)]}
+
+
+def qlike_floor(d: Design) -> dict[str, Any]:
+    """The proxy's QLIKE noise floor: the mean QLIKE of a forecast equal to the true variance of the target week,
+    against the five-return proxy and against the range proxy, under stated return processes. It belongs to the
+    proxy and the assumed returns, never to a model, and nothing subtracts it from any loss or test.
+
+    The simulations are the direction noise floor's (NOISE_FLOOR_SIMS draws of i.i.d. Student-t(5) returns with
+    the sample's volatility, seeds NOISE_FLOOR_SEED + k), scored on the lab's OOS rows; the normal ones use the
+    same seeds. Range bars are Brownian bridges through each simulated return (floor_bars), drawn from a second
+    stream (seed + QLIKE_FLOOR_BAR_SEED_OFFSET + k) so the first is untouched. 'Kurtosis-matched' is the
+    conditional kurtosis of the lab's GARCH(1,1)-t fitted to all returns (chosen after the unconditional kurtosis,
+    which puts the floor above most models' losses, and a within-week dispersion match, which a variance moving
+    within the week biases low, were found unusable); garch_t_dynamics lets that fitted model's variance move
+    within the week, so its floor also counts moves no forecast made at the decision can know."""
+    from arch import arch_model
+
+    r, dates, sims = d.r, d.dates, vf.NOISE_FLOOR_SIMS
+    sd = float(np.std(r))
+    true_vol = sd * vf.ANNUALIZE
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = arch_model(r * GARCH_SCALE, mean="Constant", vol="GARCH", p=1, o=0, q=1, dist="t").fit(
+            disp="off", show_warning=False, tol=GARCH_TOL)
+    omega, alpha, beta, nu = (float(fit.params[k]) for k in ("omega", "alpha[1]", "beta[1]", "nu"))
+    persistence, mean_var = alpha + beta, omega / (1 - alpha - beta)
+    scores: dict[str, list[float]] = {"normal": [], "t5": [], "garch": [], "range_normal": [], "range_t5": []}
+    ratios: dict[str, list[float]] = {"range_normal": [], "range_t5": []}
+    for k in range(sims):
+        normal = np.random.default_rng(vf.NOISE_FLOOR_SEED + k).standard_normal(len(r)) * sd
+        t5 = noise_floor_draws(r, k)
+        scores["normal"].append(_floor_scores(normal, dates, true_vol))
+        scores["t5"].append(_floor_scores(t5, dates, true_vol))
+        # The fitted GARCH(1,1)-t with its variance moving; the forecast is its conditional mean of the target.
+        eps = np.random.default_rng(vf.NOISE_FLOOR_SEED + k).standard_t(nu, len(r)) / np.sqrt(nu / (nu - 2))
+        h, x = np.empty(len(r) + 1), np.empty(len(r))
+        h[0] = mean_var
+        for i in range(len(r)):
+            x[i] = np.sqrt(h[i]) * eps[i]
+            h[i + 1] = omega + alpha * x[i] ** 2 + beta * h[i]
+        expected = np.mean([mean_var + persistence ** j * (h[1:] - mean_var) for j in range(vf.H)], axis=0)
+        scores["garch"].append(_floor_scores(x / GARCH_SCALE, dates, np.sqrt(expected) / GARCH_SCALE * vf.ANNUALIZE))
+        # Range proxy: bars through the same returns. A Student-t(5) day's variance is drawn given its return
+        # (T = N sqrt(S'), S' | t ~ (5 + t^2) / chi2(6)), so every bar keeps the noise floor's draw.
+        bars_rng = np.random.default_rng(vf.NOISE_FLOOR_SEED + QLIKE_FLOOR_BAR_SEED_OFFSET + k)
+        t_draw = t5 / sd * np.sqrt(5 / 3)
+        for name, z, day_var in (("range_normal", normal, np.full(len(r), sd ** 2)),
+                                 ("range_t5", t5, (5 + t_draw ** 2) / bars_rng.chisquare(6, len(r)) * (3 / 5) * sd ** 2)):
+            v = range_variance(floor_bars(z, day_var, dates, bars_rng), z, None)
+            scores[name].append(_floor_scores(z, dates, true_vol, v_range=v))
+            _, _, _, pos = vf._build_matrix(z, dates, None, return_positions=True)
+            proxy = np.array([np.mean(v[t + 1: t + 1 + vf.H]) for t in pos[vf.MIN_TRAIN:]])
+            ratios[name].append(float(np.mean(proxy) / sd ** 2))
+    ends = np.asarray(d.ends)
+    close_var = d.y[ends] ** 2
+    range_var = np.array([np.mean(d.v_range[t + 1: t + 1 + vf.H]) * ANNUAL for t in d.pos[ends]])
+    kurtosis = 3 + 6 / (nu - 4)
+    _, _, _, pos = vf._build_matrix(r, dates, None, return_positions=True)
+    return {
+        "what": ("The mean QLIKE of a forecast equal to the true variance of the target week, scored against each "
+                 "realized-vol proxy: the proxy's noise floor. It belongs to the proxy and the assumed returns, not "
+                 "to any model, and is never subtracted from any loss or test."),
+        "horizon_sessions": vf.H, "sims": sims, "seed": vf.NOISE_FLOOR_SEED,
+        "bar_seed_offset": QLIKE_FLOOR_BAR_SEED_OFFSET,
+        "seeds": "simulation k uses default_rng(seed + k); its range bars use default_rng(seed + bar_seed_offset + k)",
+        "rows_per_sim": int(len(pos) - vf.MIN_TRAIN),
+        "five_return": {
+            "proxy": "realized vol of the 5 target sessions' close-to-close returns, not demeaned",
+            "normal": {"closed_form": normal_qlike_floor(vf.H), "formula": "-digamma(5/2) - ln(2/5)",
+                       "lower_bound": "for returns normal given their variance",
+                       **_summary(scores["normal"])},
+            "student_t5": {"df": 5, "kurtosis": 9.0,
+                           "process": "i.i.d. Student-t(5), constant volatility (nothing to forecast)",
+                           "exact": round(t_qlike_floor(5.0), 4), **_summary(scores["t5"])},
+            "kurtosis_matched": {"df": round(nu, 2), "kurtosis": round(kurtosis, 2), "exact": round(t_qlike_floor(nu), 4),
+                                 "source": ("conditional kurtosis of the GARCH(1,1)-t fit to all returns (the lab's "
+                                            "GARCH spec); i.i.d. Student-t returns with that kurtosis and constant "
+                                            "variance")},
+            "garch_t_dynamics": {"process": ("the fitted GARCH(1,1)-t itself; the forecast is its conditional mean of "
+                                             "the proxy, so the floor includes variance moves within the week that no "
+                                             "forecast made at the decision can know"),
+                                 **_summary(scores["garch"])},
+        },
+        "range": {
+            "proxy": "range_variance of the 5 target sessions (Rogers-Satchell plus the overnight return), not rescaled",
+            "bar": ("Brownian bridge through each simulated return; High/Low to 17:00 ET, 2.5 h after the 14:30 "
+                    "settlement; share 2.5/23 of the day's variance after the settlement; exact extremes between "
+                    "bridge points"),
+            "normal": {**_summary(scores["range_normal"]),
+                       "proxy_to_true_variance": round(float(np.mean(ratios["range_normal"])), 4)},
+            "student_t5": {**_summary(scores["range_t5"]),
+                           "proxy_to_true_variance": round(float(np.mean(ratios["range_t5"])), 4)},
+            "data_proxy_to_close_variance": round(float(np.mean(range_var) / np.mean(close_var)), 4),
+        },
+    }
+
+
 def coefficient_report(d: Design) -> dict[str, Any]:
     """Full-sample HAR-IV log regression with Newey-West t-statistics (overlapping 5-session targets
     on daily rows, so 10 lags)."""
@@ -1002,6 +1193,7 @@ def build_report(snapshot: market_data.MarketSnapshot, *, progress: Progress | N
         "conformal": {k: {kk: vv for kk, vv in v.items() if not kk.startswith("_")} for k, v in conf.items()},
         "yearly": yearly(frame, challenger),
         "noise_floor": noise_floor(r, dates),
+        "qlike_floor": qlike_floor(design),
         "har_iv_coefficients": coefficient_report(design),
         "vol_cone": vol_cone(r, dates, float(ovx[-1]) if np.isfinite(ovx[-1]) else None),
         "series": chart_series(frame, conf, challenger),

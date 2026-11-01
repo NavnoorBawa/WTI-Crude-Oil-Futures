@@ -405,6 +405,83 @@ class LossAndTestTest(unittest.TestCase):
         self.assertTrue(np.isnan(aci["hit"][:52]).all())
 
 
+class QlikeFloorTest(unittest.TestCase):
+    """The proxy's QLIKE noise floor (docs/ROADMAP.md, Stage 2, item 1): the closed form, the Student-t
+    quadrature, the simulations' draws and the simulated bars."""
+
+    def test_the_closed_form_is_the_roadmap_s_and_an_elementary_identity(self):
+        from scipy import integrate, special, stats
+
+        floor = lab.normal_qlike_floor(5)
+        self.assertLess(abs(floor - (-special.digamma(2.5) - np.log(0.4))), 1e-9)       # ROADMAP 2.1's acceptance
+        self.assertLess(abs(floor - (np.euler_gamma + np.log(10) - 8 / 3)), 1e-9)       # psi(5/2) = 8/3 - gamma - 2 ln 2
+        for n in (1, 2, 5, 10):
+            with self.subTest(n=n):
+                dist = stats.chi2(n, scale=1 / n)
+                direct = integrate.quad(lambda x: (x - np.log(x) - 1) * dist.pdf(x), 0, np.inf, limit=400)[0]
+                self.assertLess(abs(lab.normal_qlike_floor(n) - direct), 1e-8)
+
+    def test_the_student_t_floor_matches_slow_quadrature_and_falls_with_the_tails(self):
+        from scipy import integrate, stats
+
+        def slow(nu, n=5):   # -E ln X by nested adaptive quadrature over W ~ chi2(nu)
+            c = (nu - 2) / nu
+
+            def m(u):
+                return integrate.quad(lambda w: stats.chi2.pdf(w, nu) * (1 + 2 * u * c * nu / w) ** -0.5,
+                                      0, np.inf, limit=200)[0]
+            f = lambda s: (m(s / n) ** n - np.exp(-s)) / s   # noqa: E731
+            return integrate.quad(f, 0, 1, limit=200)[0] + integrate.quad(f, 1, np.inf, limit=200)[0]
+
+        self.assertLess(abs(lab.t_qlike_floor(5.0) - slow(5.0)), 1e-7)
+        self.assertLess(abs(lab.t_qlike_floor(1e7) - lab.normal_qlike_floor(5)), 1e-6)
+        self.assertEqual(lab.t_qlike_floor(np.inf), lab.normal_qlike_floor(5))
+        values = [lab.t_qlike_floor(nu) for nu in (4.5, 5.0, 7.37, 10.0, 31.5, 200.0, 1000.0)]
+        self.assertTrue(all(a > b for a, b in zip(values, values[1:])), values)
+        self.assertGreater(values[-1], lab.normal_qlike_floor(5))
+
+    def test_the_simulations_are_the_direction_noise_floor_s_own_draws(self):
+        r, dates, _, _ = _synthetic_market(n=400, seed=11)
+        seen = []
+        build = vf._build_matrix
+
+        def capture(z, *args, **kwargs):
+            seen.append(np.array(z, copy=True))
+            return build(z, *args, **kwargs)
+
+        with mock.patch.object(vf, "_build_matrix", side_effect=capture), \
+                mock.patch.object(vf, "_walk_forward", side_effect=RuntimeError("stop")):
+            for k in range(2):
+                seen.clear()
+                with mock.patch.object(vf, "NOISE_FLOOR_SEED", vf.NOISE_FLOOR_SEED + k), self.assertRaises(RuntimeError):
+                    vf.noise_floor(r, dates, sims=1)
+                np.testing.assert_array_equal(seen[0], lab.noise_floor_draws(r, k))
+
+    def test_the_simulated_bars_keep_every_return_and_are_valid_bars(self):
+        rng = np.random.default_rng(1)
+        n = 3000
+        z = rng.standard_t(5, n) * 0.02
+        dates = pd.bdate_range("2010-01-04", periods=n)
+        bars = lab.floor_bars(z, np.full(n, 0.0004), dates, np.random.default_rng(2))
+        settle = np.log(bars["Close"].to_numpy())
+        np.testing.assert_allclose(np.diff(settle), z[1:], atol=1e-12)
+        self.assertLess(abs(settle[0] - np.log(50.0) - z[0]), 1e-12)
+        self.assertTrue((bars["Low"] <= np.minimum(bars["Open"], bars["Close"]) + 1e-12).all())
+        self.assertTrue((bars["High"] >= np.maximum(bars["Open"], bars["Close"]) - 1e-12).all())
+
+    def test_the_exact_extremes_make_rogers_satchell_unbiased(self):
+        # With nothing after the settlement, a bar is one settlement-to-settlement diffusion with constant
+        # variance, for which Rogers-Satchell is unbiased; extremes read at the grid points would bias it low.
+        n, var = 100_000, 0.0004
+        rng = np.random.default_rng(5)
+        z = rng.standard_normal(n) * np.sqrt(var)
+        with mock.patch.object(lab, "RANGE_FLOOR_SETTLE_SHARE", 0.0):
+            bars = lab.floor_bars(z, np.full(n, var), pd.bdate_range("2000-01-03", periods=n), rng)
+        o, h, low, c = (np.log(bars[col].to_numpy()) for col in ("Open", "High", "Low", "Close"))
+        rs = (h - c) * (h - o) + (low - c) * (low - o)
+        self.assertLess(abs(rs.mean() / var - 1), 0.01)
+
+
 class SnapshotTest(unittest.TestCase):
     def _frame(self):
         idx = pd.DatetimeIndex(["2024-01-02", "2024-01-03", "2024-01-04"])
@@ -589,6 +666,32 @@ class ArtifactContractTest(unittest.TestCase):
         manifest = json.loads((ROOT / "data" / "market" / "MANIFEST.json").read_text())
         self.assertEqual(self.report["generated_from"], manifest)
         md.load_snapshot()                                                    # digests verify
+
+    def test_the_qlike_floor_is_current_and_never_subtracted(self):
+        import inspect
+
+        from backend import research_ledger as rl
+
+        block = self.report["qlike_floor"]
+        r, dates, ovx, ohlc = md.research_inputs(md.load_snapshot())
+        rebuilt = json.loads(json.dumps(lab._jsonable(lab.qlike_floor(lab.build_design(r, dates, ovx, ohlc)))))
+        diff = lab.compare_reports(block, rebuilt)
+        self.assertEqual(diff["violations"], [], diff)
+        self.assertEqual((block["sims"], block["seed"]), (vf.NOISE_FLOOR_SIMS, vf.NOISE_FLOOR_SEED))
+        self.assertEqual(block["five_return"]["student_t5"]["process"], self.report["noise_floor"]["process"])
+        five = block["five_return"]
+        # ROADMAP 2.1's acceptance: the closed form, and a simulation within 0.01 of the value it estimates.
+        self.assertLess(abs(five["normal"]["closed_form"] - lab.normal_qlike_floor(5)), 1e-12)
+        self.assertLess(abs(five["normal"]["simulated_mean"] - five["normal"]["closed_form"]), 0.01)
+        self.assertLess(abs(five["student_t5"]["simulated_mean"] - five["student_t5"]["exact"]), 0.01)
+        self.assertLess(five["normal"]["closed_form"], five["kurtosis_matched"]["exact"])
+        self.assertLess(five["kurtosis_matched"]["exact"], five["student_t5"]["exact"])
+        # It describes the proxy: nothing that scores, ranks or tests a model reads it, and no test row cites it.
+        for key in ("leaderboard", "oos_selection", "conformal", "var_backtest", "yearly"):
+            self.assertNotIn("floor", json.dumps(self.report[key]), key)
+        for function in (lab.leaderboard, lab._losses, lab.spa_vs_champion, fe.dm_test):
+            self.assertNotIn("qlike_floor", inspect.getsource(function), function.__name__)
+        self.assertNotIn("qlike_floor", inspect.getsource(rl))
 
     def test_the_second_source_blocks_are_current_and_say_what_the_docs_say(self):
         snapshot = md.load_snapshot()

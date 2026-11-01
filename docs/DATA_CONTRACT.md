@@ -234,7 +234,13 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   row the MCS fields (`mcs_qlike_p`, `in_mcs_qlike`, `mcs_mse_p`, `in_mcs_mse`, `in_mcs_qlike_grids`,
   `in_mcs_qlike_range_proxy`) are null, because it is in no confidence set. Also `oos_selection`,
   `var_backtest{grid0{evaluation_weeks,methods[]}, summary{}}`, `conformal{<model>{coverage_pct,...}}`,
-  `yearly[]`, `noise_floor`, `har_iv_coefficients{terms[]}`, `vol_cone{windows[], since, as_of,
+  `yearly[]`, `noise_floor`, `qlike_floor` (the proxy's QLIKE noise floor, never subtracted from a
+  loss: `what, horizon_sessions, sims, seed, bar_seed_offset, seeds, rows_per_sim`,
+  `five_return{proxy, normal{closed_form, formula, lower_bound, simulated_mean, simulated_range},
+  student_t5{df, kurtosis, process, exact, simulated_mean, simulated_range}, kurtosis_matched{df,
+  kurtosis, exact, source}, garch_t_dynamics{process, simulated_mean, simulated_range}}`,
+  `range{proxy, bar, normal{simulated_mean, simulated_range, proxy_to_true_variance},
+  student_t5{...}, data_proxy_to_close_variance}`), `har_iv_coefficients{terms[]}`, `vol_cone{windows[], since, as_of,
   implied_ovx}`, `ovx_source_agreement`, `cl_source_agreement` (`CL=F` against EIA's contract 1 and
   Cushing spot: `tolerance_usd`, `contract1{first, last, common_days, share_same_cent,
   share_within_one_tick, misses, misses_by_year, largest_gaps[], eia_sessions_missing_from_cl[],

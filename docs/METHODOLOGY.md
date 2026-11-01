@@ -157,6 +157,27 @@ residuals understate its error.
   range variance of the five target sessions, not rescaled), as a robustness check on the proxy
   itself. Its level differs from the close-to-close proxy's, so only rankings within one proxy
   are compared.
+- **The proxy's noise floor** (`vol_lab.qlike_floor`). The realized volatility of five returns is a
+  noisy estimate of the week's variance, so a forecast equal to the true conditional variance has an
+  expected QLIKE above zero against it; every forecast's expected loss is at least that floor
+  (Patton 2011), and when the proxy's error is independent of the forecast the floor shifts every
+  model's loss by the same amount (Hansen and Lunde 2006). With normal returns of constant variance
+  and the target not demeaned, `y²/σ²` is χ²(5)/5 and the floor is `−ψ(5/2) − ln(2/5)` (equally
+  `γ + ln 10 − 8/3`). It is a lower bound when returns are normal given their variance and that
+  variance does not depend on the week's own shocks (Jensen's inequality and the Schur-concavity of
+  `E ln Σwᵢzᵢ²`); simulated GARCH and GJR feedback within the week also lie above it. The lab also
+  publishes the floor for i.i.d. Student-t returns (exact, by Frullani's integral), on the direction
+  noise floor's own Student-t(5) simulations, for Student-t returns whose kurtosis is the conditional
+  kurtosis of its GARCH(1,1)-t fit to all returns (this definition was chosen after the
+  unconditional kurtosis and a within-week dispersion match were found unusable: the first puts the
+  floor above most models' losses, the second is biased low when the variance moves within the
+  week), and for that fitted GARCH with its variance moving within the week (which also counts moves
+  no forecast can know at the decision). For the range proxy it simulates bars through the same
+  returns: each day a Brownian bridge with exact extremes between its points, 2.5/23 of the day's
+  variance after the settlement, High and Low to 17:00 ET as `range_variance` assumes, drawn from a
+  second seed stream. Roll days (about a quarter of the windows) are not simulated. The floor is
+  never subtracted from any loss, Diebold-Mariano test or confidence set, and no ledger row tests it:
+  daily closes do not identify which assumption applies.
 
 ## 7. Inference
 

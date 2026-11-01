@@ -235,6 +235,7 @@ def key_numbers() -> dict:
         "bh_kurt": econ["buy_hold"]["excess_kurtosis"], "fc_kurt": econ["forecast_vol_target"]["excess_kurtosis"],
         "tr_kurt": econ["trailing_vol_target"]["excess_kurtosis"],
         "ovx_coef": next(t for t in lab["har_iv_coefficients"]["terms"] if t["term"] == "log OVX"),
+        "qlike_floor_normal": lab["qlike_floor"]["five_return"]["normal"]["closed_form"],
     }
 
 
@@ -460,7 +461,9 @@ def key_findings() -> str:
         beat = "not significantly better than any model built from close-to-close returns alone"
     first = (f"- **Forecastable from free data.** Over {k['n_days']:,} out-of-sample days ({years}), the model of "
              f"record, HAR-IV (realized-volatility terms plus OVX lagged one session), has a QLIKE loss of "
-             f"{_fmt(k['champ_qlike'])} against {_fmt(k['persistence_qlike'])} for a random-walk forecast, and is "
+             f"{_fmt(k['champ_qlike'])} against {_fmt(k['persistence_qlike'])} for a random-walk forecast (even a "
+             f"forecast equal to the true variance has an expected QLIKE of {_fmt(k['qlike_floor_normal'])} against "
+             f"this five-return proxy when returns are normal, and more with heavier tails), and is "
              f"{beat} (Diebold-Mariano p < {ALPHA:g} each).")
     odm = ovx_only["dm_qlike_vs_har_iv"]
     coef = k["ovx_coef"]
@@ -714,6 +717,38 @@ def leaderboard_table() -> str:
                 f"Benjamini-Hochberg result in section 2.1. Realized utility: "
                 f"Bollerslev, Hood, Huss and Pedersen (2018), maximum {board['realized_utility_max_pct']}. Source: lab.")
     return "\n".join(rows)
+
+
+def qlike_floor_block() -> str:
+    """The proxy's QLIKE noise floor (vol_lab.qlike_floor): each value with the assumption it rests on, never
+    compared with or subtracted from a model's loss."""
+    floor = _lab()["qlike_floor"]
+    five, rng = floor["five_return"], floor["range"]
+    normal, t5, matched, dyn = five["normal"], five["student_t5"], five["kurtosis_matched"], five["garch_t_dynamics"]
+    sims, seed = floor["sims"], floor["seed"]
+    span = lambda block: f"{_fmt(block['simulated_range'][0])}–{_fmt(block['simulated_range'][1])}"   # noqa: E731
+    return (
+        f"**The proxy's noise floor.** QLIKE is scored against the realized volatility of the {floor['horizon_sessions']} "
+        f"target sessions, a noisy estimate of the week's true variance, so even a forecast equal to the true "
+        f"variance has an expected QLIKE above zero against it. With normal returns and a constant variance within "
+        f"the week that floor is {_fmt(normal['closed_form'])} (exact: {normal['formula']}), and it is a lower bound "
+        f"{normal['lower_bound']}: heavier tails, or a variance that moves within the week, raise it. On the direction "
+        f"noise floor's own simulations (i.i.d. Student-t(5) returns, {sims} simulations, seeds {seed}–{seed + sims - 1}) "
+        f"it is {_fmt(t5['simulated_mean'])} ({span(t5)}; exact {_fmt(t5['exact'])}). With Student-t returns whose "
+        f"kurtosis, {_fmt(matched['kurtosis'], 2)}, matches the conditional kurtosis of the lab's GARCH(1,1)-t fit "
+        f"(ν = {_fmt(matched['df'], 2)}) it is {_fmt(matched['exact'])}; that definition of a kurtosis match was "
+        f"chosen after two others were found unusable (the unconditional kurtosis of daily returns, and a match of "
+        f"the within-week dispersion). When that fitted model's variance moves within the week it is "
+        f"{_fmt(dyn['simulated_mean'])} ({span(dyn)}), which also counts moves that no forecast made at the decision "
+        f"can know. Daily closes do not identify which of these applies, so this report does not estimate how far "
+        f"any model is from its floor, and no loss, Diebold-Mariano test or confidence set subtracts it. Against the "
+        f"range proxy (section 2.7) the floor is lower: {_fmt(rng['normal']['simulated_mean'])} with normal returns "
+        f"and {_fmt(rng['student_t5']['simulated_mean'])} with Student-t(5), on simulated bars through the same "
+        f"returns, whose range proxy averages {_fmt(rng['normal']['proxy_to_true_variance'], 2)} and "
+        f"{_fmt(rng['student_t5']['proxy_to_true_variance'], 2)} times the true variance (in the data it averages "
+        f"{_fmt(rng['data_proxy_to_close_variance'], 2)} times the close-to-close variance); so loss levels are "
+        f"compared only within one proxy. Source: lab."
+    )
 
 
 def field_findings() -> str:
@@ -1215,8 +1250,9 @@ def noise_block() -> str:
         "",
         f"{nf['note']} The call compares next week's realized volatility with this week's, and a five-session "
         f"realized volatility is a noisy estimate that reverts toward its mean whether or not the underlying "
-        f"volatility moves. Accuracy against that comparison measures the noise in the proxy. The losses above "
-        f"measure forecasting skill.",
+        f"volatility moves. Accuracy against that comparison measures the noise in the proxy. Differences between "
+        f"the losses above compare forecasting skill; their level includes the proxy's own noise floor (section "
+        f"2.1).",
     ]
     if pnf["dir_acc_pct_mean"] > pnf["mean_reversion_dir_acc_pct_mean"]:
         lines[-1] += (f" With nothing to forecast, HAR also beats the mean-reversion rule ({pnf['dir_acc_pct_mean']}% "
@@ -1277,7 +1313,10 @@ def robustness_block() -> str:
         f"- **Second volatility proxy.** Against the range-based realized variance of the target week (full bars, "
         f"Rogers-Satchell plus the overnight return, not rescaled to the close-to-close level) the model of "
         f"record's QLIKE is {_fmt(champ['qlike_range_proxy'])}, and the MCS on that proxy keeps {kept}"
-        + ("." if champ["key"] in range_set else ", not the model of record."),
+        + ("." if champ["key"] in range_set else ", not the model of record.")
+        + (f" That proxy's own noise floor is lower ({_fmt(lab['qlike_floor']['range']['normal']['simulated_mean'])} "
+           f"with normal returns, {_fmt(lab['qlike_floor']['range']['student_t5']['simulated_mean'])} with "
+           f"Student-t(5); section 2.1), so loss levels are compared only within one proxy."),
         f"- **Choosing the model out of sample.** Picking, each day, the feasible model with the lowest trailing "
         f"{lab['config']['selection_window_weeks']}-week loss scores {_fmt(sel['qlike'])} vs "
         f"{_fmt(sel['qlike_har_iv'])} for always using the model of record (DM "
@@ -2051,7 +2090,8 @@ def model_card_metrics() -> str:
             "|---|---:|---:|---|"]
     rows.append(f"| QLIKE, every OOS day (lower is better) | {_fmt(champ['qlike'])} | {_fmt(chall['qlike'])} | "
                 f"persistence {_fmt(_model(lab, 'persistence')['qlike'])}; {ovx_only['label']} "
-                f"{_fmt(ovx_only['qlike'])}; {raw['label']} {_fmt(raw['qlike'])} |")
+                f"{_fmt(ovx_only['qlike'])}; {raw['label']} {_fmt(raw['qlike'])}; the proxy's noise floor "
+                f"{_fmt(k['qlike_floor_normal'])} with normal returns, more with heavier tails (RESULTS section 2.1) |")
     rows.append(f"| Diebold-Mariano on QLIKE vs the model of record (pairwise) | — | {_fmt(cdm['stat'], 2, True)} "
                 f"({_peq(cdm['p_value'])}; before adjusting for the search that chose it) | {ovx_only['label']} "
                 f"{_fmt(odm['stat'], 2, True)} ({_peq(odm['p_value'])}) |")
