@@ -653,8 +653,47 @@ def _shock_rows() -> list[Row]:
     return rows
 
 
+def _band_rows() -> list[Row]:
+    """The 80% band's coverage across regimes at the decision (ROADMAP 2.2): one HAC Wald test of equal miss rates
+    per banded model and regime split. Non-directional (two-sided), so no `expects`; the per-regime HAC z and
+    per-grid binomials stay in the artifact as context, as the per-grid DM statistics do."""
+    splits = (
+        ("ovx_tercile", ("low", "mid", "high"),
+         "misses at different rates across thirds of OVX at the decision (cut points from earlier sessions only)."),
+        ("ovx_rv_gap", ("at_or_below", "above"),
+         "misses at different rates across days with OVX/RV5 above and at or below its median over the previous "
+         "{window} sessions."),
+        ("rv5_tercile", ("low", "mid", "high"),
+         "misses at different rates across thirds of RV5 at the decision (cut points from earlier sessions only)."),
+        ("target_spans_roll", ("no", "yes"),
+         "misses at different rates between target windows that contain a contract roll and those that do not."),
+    )
+    rows = []
+    for model, subject in (("har_iv", "The model of record's 80% band"),
+                           ("har_iv_range", "The challenger HAR-IV-range's 80% band")):
+        for var, levels, claim in splits:
+            cc = f"conformal.{model}.conditional_coverage.{var}"
+            rows.append(Row(
+                id=f"band_regime_{var}_{model}", family="forecast interval", source=LAB,
+                hypothesis=f"{subject} {claim}",
+                test=("HAC Wald test of equal miss rates across regimes: the miss indicator on a constant and regime "
+                      "dummies, Newey-West (Bartlett) with the lags in context; chi-squared with K-1 df; two-sided"),
+                statistic=("Wald chi2", f"{cc}.wald"), p=Field(f"{cc}.p_value"), sided="two",
+                context={"df": f"{cc}.df", "hac_lags": f"{cc}.hac_lags", "n_days": f"conformal.{model}.n_days",
+                         **{f"coverage_{level}_pct": f"conformal.{model}.coverage_by_regime_pct.{var}.{level}"
+                            for level in levels},
+                         "p_hac_lags_20": f"{cc}.robustness.hac_lags_20.p_value",
+                         "p_hac_lags_40": f"{cc}.robustness.hac_lags_40.p_value",
+                         "p_all_cells": f"{cc}.robustness.all_cells.p_value"},
+                names={"window": "regimes.variables.ovx_rv_gap.window_sessions"} if var == "ovx_rv_gap" else {},
+                note=("Regime definitions and the test's form were fixed after prototype runs on this sample "
+                      "(docs/METHODOLOGY.md section 9). A dependence is reported, never used to change the band.")))
+    return rows
+
+
 def ledger_rows() -> list[Row]:
-    return _direction_rows() + _leak_rows() + _carry_rows() + _vrp_rows() + _vol_rows() + _var_rows() + _shock_rows()
+    return (_direction_rows() + _leak_rows() + _carry_rows() + _vrp_rows() + _vol_rows() + _var_rows() + _band_rows()
+            + _shock_rows())
 
 
 def source_names() -> set[str]:

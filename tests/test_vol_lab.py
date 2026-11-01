@@ -109,6 +109,58 @@ def _row_features(design, i):
 class NoLookAheadTest(unittest.TestCase):
     """A forecast made at a test day's 14:30 ET settlement may depend only on data known then."""
 
+    def _labels(self, r, dates, ovx, pos):
+        return lab.regime_labels(r, dates, ovx, pos)["labels"]
+
+    def test_regime_labels_ignore_later_ovx_and_returns(self):
+        # ROADMAP 2.2's acceptance: later OVX values (and later returns) leave every label up to t unchanged.
+        r, dates, ovx, ohlc = _synthetic_market()
+        design = lab.build_design(r, dates, ovx, ohlc)
+        pos = design.pos[np.asarray(design.ends)]
+        base = self._labels(r, dates, ovx, pos)
+        rng = np.random.default_rng(5)
+        moved_somewhere = False
+        for k in (len(pos) // 3, 2 * len(pos) // 3):
+            t = int(pos[k])
+            ovx2, r2 = ovx.copy(), r.copy()
+            ovx2[t:] *= rng.uniform(0.5, 2.0, ovx2.size - t)      # from the decision's own same-day close on
+            r2[t + 1:] *= rng.uniform(0.5, 2.0, r2.size - t - 1)
+            moved = self._labels(r2, dates, ovx2, pos)
+            for var in lab.REGIMES:
+                np.testing.assert_array_equal(base[var][: k + 1], moved[var][: k + 1], err_msg=f"{var} at {k}")
+                moved_somewhere |= bool((base[var][k + 1:] != moved[var][k + 1:]).any())
+        self.assertTrue(moved_somewhere, "the perturbation must be able to change later labels")
+
+    def test_regime_labels_read_the_models_inputs_and_need_history(self):
+        r, dates, ovx, ohlc = _synthetic_market()
+        design = lab.build_design(r, dates, ovx, ohlc)
+        ends = np.asarray(design.ends)
+        ovx_l, rv5, gap = lab.regime_inputs(r, ovx)
+        pos = design.pos[ends]
+        np.testing.assert_allclose(ovx_l[pos], design.X[ends, 3])       # the model's lagged OVX ...
+        np.testing.assert_allclose(rv5[pos], design.X[ends, 0])          # ... and its RV5 term
+        with self.assertRaises(ValueError):
+            lab.regime_labels(r, dates, ovx, np.array([lab.REGIME_MIN_HISTORY - 10]))
+
+    def test_a_value_on_a_cut_point_goes_to_the_lower_third(self):
+        history = np.arange(1.0, 301.0)
+        c1, c2 = np.quantile(history, [1 / 3, 2 / 3])
+        self.assertEqual(lab._tercile(float(c1), history)[0], 0)
+        self.assertEqual(lab._tercile(float(c1) + 1e-9, history)[0], 1)
+        self.assertEqual(lab._tercile(float(c2), history)[0], 1)
+        self.assertEqual(lab._tercile(float(c2) + 1e-9, history)[0], 2)
+
+    def test_the_roll_label_is_the_target_window_on_the_snapshot(self):
+        from backend.contract_calendar import spans_roll
+
+        r, dates, ovx, ohlc = md.research_inputs(md.load_snapshot())
+        ovx = vf._pick_ovx(ovx)
+        design = lab.build_design(r, dates, ovx, ohlc)
+        pos = design.pos[np.asarray(design.ends)]
+        labels = self._labels(r, dates, ovx, pos)["target_spans_roll"]
+        expected = np.array([spans_roll(dates[t].date(), dates[t + vf.H].date()) for t in pos])
+        np.testing.assert_array_equal(labels, expected.astype(int))
+
     def test_every_model_ignores_the_future(self):
         r, dates, ovx, ohlc = _synthetic_market()
         design = lab.build_design(r, dates, ovx, ohlc)
@@ -246,6 +298,51 @@ class NoLookAheadTest(unittest.TestCase):
         for key in ("har_range", "har_iv_range", "lgbm"):
             wide = lab.live_model_forecast(key, r, dates, ovx, _widen_bar(ohlc, t, 1.3))
             self.assertEqual(wide, lab.live_model_forecast(key, r, dates, ovx, ohlc), key)
+
+
+class CoverageByGroupTest(unittest.TestCase):
+    """forecast_eval.coverage_by_group_test against statsmodels and against simulations with a known answer."""
+
+    def test_it_is_statsmodels_hac_wald(self):
+        import statsmodels.api as sm
+
+        rng = np.random.default_rng(1)
+        group = rng.integers(0, 3, 1500)
+        miss = (rng.random(1500) < np.where(group == 2, 0.26, 0.2)).astype(float)
+        dummies = np.column_stack([(group == j).astype(float) for j in (1, 2)])
+        fit = sm.OLS(miss, sm.add_constant(dummies)).fit(cov_type="HAC", cov_kwds={"maxlags": 10})
+        expected = fit.wald_test("x1 = 0, x2 = 0", scalar=True)
+        got = fe.coverage_by_group_test(miss, group, 3, 0.2, 10)
+        self.assertAlmostEqual(got["equal"]["wald"], float(expected.statistic), places=8)
+        self.assertAlmostEqual(got["equal"]["p_value"], float(expected.pvalue), places=8)
+        self.assertEqual((got["equal"]["df"], got["all_cells"]["df"], got["lags"]), (2, 3, 10))
+
+    @staticmethod
+    def _markov(rng, n, k, spell):
+        stay = 1 - 1 / spell
+        states = np.empty(n, dtype=int)
+        states[0] = rng.integers(k)
+        for i in range(1, n):
+            states[i] = states[i - 1] if rng.random() < stay else rng.integers(k)
+        return states
+
+    def test_equal_rates_hold_their_size_and_find_a_difference(self):
+        rng = np.random.default_rng(2)
+        rejected = np.mean([fe.coverage_by_group_test((rng.random(1500) < 0.2).astype(float),
+                                                      self._markov(rng, 1500, 3, 30), 3, 0.2, 10)["equal"]["p_value"] < 0.05
+                            for _ in range(600)])
+        self.assertTrue(0.025 <= rejected <= 0.08, rejected)
+        power = []
+        for _ in range(200):
+            group = self._markov(rng, 3000, 3, 30)
+            rate = np.choose(group, [0.25, 0.20, 0.15])
+            power.append(fe.coverage_by_group_test((rng.random(3000) < rate).astype(float), group, 3, 0.2, 10)
+                         ["equal"]["p_value"] < 0.05)
+        self.assertGreater(np.mean(power), 0.95)
+
+    def test_an_empty_group_is_refused(self):
+        with self.assertRaises(ValueError):
+            fe.coverage_by_group_test(np.zeros(10), np.zeros(10, dtype=int), 2, 0.2, 2)
 
 
 class LossAndTestTest(unittest.TestCase):
@@ -727,7 +824,7 @@ class ArtifactContractTest(unittest.TestCase):
         self.assertLess(five["normal"]["closed_form"], five["kurtosis_matched"]["exact"])
         self.assertLess(five["kurtosis_matched"]["exact"], five["student_t5"]["exact"])
         # It describes the proxy: nothing that scores, ranks or tests a model reads it, and no test row cites it.
-        for key in ("leaderboard", "oos_selection", "conformal", "var_backtest", "yearly"):
+        for key in ("leaderboard", "oos_selection", "conformal", "var_backtest", "yearly", "regimes"):
             self.assertNotIn("floor", json.dumps(self.report[key]), key)
         names = {"qlike_floor", "normal_qlike_floor", "t_qlike_floor", "_floor_scores", "floor_bars",
                  "noise_floor_draws", "t5_day_variance"}
@@ -745,6 +842,72 @@ class ArtifactContractTest(unittest.TestCase):
         for name in ("normal", "student_t5"):
             self.assertTrue(1 < rng[name]["proxy_to_true_variance"] < 1.3)
         self.assertTrue(0.8 < rng["data_proxy_to_close_variance"] < 1.3)
+
+    def test_regime_blocks_add_up(self):
+        # ROADMAP 2.2's acceptance: counts sum to the days they describe, and the cells reproduce the pooled values.
+        regimes, board, conf = self.report["regimes"], self.report["leaderboard"], self.report["conformal"]
+        n_days = self.report["sample"]["n_days"]
+        self.assertEqual(n_days, board["n_days"])
+        for var, levels in lab.REGIMES.items():
+            self.assertEqual(regimes["variables"][var]["levels"], list(levels))
+            self.assertEqual(sum(regimes["n_days_by_regime"][var].values()), n_days, var)
+            for key, c in conf.items():
+                cc = c["conditional_coverage"][var]
+                self.assertEqual(sum(c["n_days_by_regime"][var].values()), c["n_days"], (key, var))
+                self.assertEqual(sum(cell["n_days"] for cell in cc["cells"]), c["n_days"], (key, var))
+                self.assertEqual(sum(sum(cell["n_by_grid"]) for cell in cc["cells"]), c["n_days"], (key, var))
+                self.assertEqual(cc["df"], len(levels) - 1)
+                self.assertTrue(0 <= cc["p_value"] <= 1)
+                weights = c["n_days_by_regime"][var]
+                pooled = sum(c["coverage_by_regime_pct"][var][lv] * weights[lv] for lv in levels) / c["n_days"]
+                self.assertAlmostEqual(pooled, c["coverage_pct"], delta=0.1)
+                score = sum(c["interval_score_by_regime"][var][lv] * weights[lv] for lv in levels) / c["n_days"]
+                self.assertAlmostEqual(score, c["interval_score_pct"], delta=0.02)
+            for model in board["models"]:
+                by = model["qlike_by_regime"][var]
+                pooled = sum(by[lv] * regimes["n_days_by_regime"][var][lv] for lv in levels) / n_days
+                self.assertAlmostEqual(pooled, model["qlike"], delta=1e-3, msg=(model["key"], var))
+        weeks = len(self.report["series"]["date"])
+        self.assertEqual(len(self.report["series"]["ovx_rv_gap"]), weeks)
+        self.assertEqual(len(self.report["series"]["ovx_rv_gap_median"]), weeks)
+
+    def test_regime_blocks_are_current(self):
+        snapshot = md.load_snapshot()
+        r, dates, ovx, ohlc = md.research_inputs(snapshot)
+        ovx = vf._pick_ovx(ovx)
+        design = lab.build_design(r, dates, ovx, ohlc)
+        frame = lab.walk_forward(design, include_slow=False)
+        conf = lab.conformal_report(frame, self.report["config"]["challenger"])
+        regimes = lab.regime_labels(r, dates, ovx, design.pos[np.asarray(design.ends)])
+        rebuilt = json.loads(json.dumps(lab._jsonable(lab.regime_report(frame, conf, regimes))))
+        committed = {"regimes": self.report["regimes"],
+                     "conformal": {key: {k: c[k] for k in rebuilt["conformal"][key]}
+                                   for key, c in self.report["conformal"].items()},
+                     "qlike": {m["key"]: m["qlike_by_regime"] for m in self.report["leaderboard"]["models"]
+                               if m["key"] in rebuilt["qlike"]}}
+        diff = lab.compare_reports(committed, rebuilt)
+        self.assertEqual(diff["violations"], [], diff)
+        series = lab.chart_series(frame, conf, self.report["config"]["challenger"], regimes)
+        for key in ("ovx_rv_gap", "ovx_rv_gap_median"):
+            self.assertEqual(series[key], self.report["series"][key], key)
+
+    def test_the_band_never_reads_a_regime(self):
+        import ast
+        import inspect
+
+        from backend import research_ledger as rl
+
+        names = {"regime_inputs", "regime_labels", "regime_report", "REGIMES", "_coverage_by_regime"}
+        tree = ast.parse(inspect.getsource(lab))
+        readers = {node.name for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                   and any(isinstance(n, ast.Name) and n.id in names for n in ast.walk(node))}
+        self.assertEqual(readers, {"regime_labels", "regime_report", "_coverage_by_regime", "build_report"})
+        for function in (lab.conformal_report, lab.choose_challenger, fe.delayed_aci, fe.adaptive_conformal):
+            source = inspect.getsource(function)
+            self.assertFalse([name for name in names if name in source], function.__name__)
+        imported = {alias.name for node in ast.walk(ast.parse(inspect.getsource(rl)))
+                    if isinstance(node, (ast.Import, ast.ImportFrom)) for alias in node.names}
+        self.assertFalse({"vol_lab", "backend.vol_lab"} & imported)        # the ledger reads the artifact only
 
     def test_the_second_source_blocks_are_current_and_say_what_the_docs_say(self):
         snapshot = md.load_snapshot()

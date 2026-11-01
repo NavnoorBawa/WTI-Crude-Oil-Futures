@@ -95,6 +95,38 @@ def _p(value) -> str:
     return f"{value:.3f}"
 
 
+_P_THRESHOLDS = (0.01, 0.05, 0.10, 1.0)
+
+
+def _pthr(value) -> str:
+    """A p- or q-value as the site prints it (src/lib/format.js fmtPValue with three digits): three decimals,
+    unless rounding would carry it onto or across 0.01, 0.05, 0.10 or 1 (0.0996 is not "0.100"); then up to four,
+    else "< t" or "> t"."""
+    if value is None:
+        return "—"
+    if value < 0.001:
+        return "< 0.001"
+
+    def crossed(text: str) -> float | None:
+        return next((t for t in _P_THRESHOLDS if value < t <= float(text)), None)
+
+    def landed(text: str) -> float | None:
+        return next((t for t in _P_THRESHOLDS if value > t == float(text)), None)
+
+    text = f"{value:.3f}"
+    if crossed(text) is None and landed(text) is None:
+        return text
+    digits = 3 if value < 0.01 else 2
+    text = f"{value:.{digits}f}"
+    while (crossed(text) is not None or landed(text) is not None) and digits < 4:
+        digits += 1
+        text = f"{value:.{digits}f}"
+    below, above = crossed(text), landed(text)
+    if below is not None:
+        return f"< {below:g}"
+    return f"> {above:g}" if above is not None else text
+
+
 def _peq(value) -> str:
     """'p = 0.123' or 'p < 0.001'."""
     text = _p(value)
@@ -275,8 +307,8 @@ def _spa_adjusted(ledger: dict) -> str:
     family = ledger["summary"]["rows_in_multiplicity_family"]
     where = f"the ledger's Benjamini-Hochberg adjustment across the {family} hypotheses in its multiplicity family"
     if row["id"] in ledger["summary"]["supported_surviving_bh_5pct"]:
-        return f", and the rejection survives {where} (q = {_fmt(row['q_value_bh'])})"
-    return f", though the rejection does not survive {where} (q = {_fmt(row['q_value_bh'])})"
+        return f", and the rejection survives {where} (q = {_pthr(row['q_value_bh'])})"
+    return f", though the rejection does not survive {where} (q = {_pthr(row['q_value_bh'])})"
 
 
 def _spa_leader(lab: dict) -> dict | None:
@@ -566,7 +598,7 @@ def results_at_a_glance() -> str:
     spa_row = _ledger_row(ledger, "vol_spa_beats_record")
     spa_bh = ((" (" + ("significant after the ledger's Benjamini-Hochberg adjustment" if spa_row["survives_bh_5pct"]
                        else "not after the ledger's Benjamini-Hochberg adjustment")
-               + f", q = {_fmt(spa_row['q_value_bh'])})") if _sig(k["spa_p"]) else "")
+               + f", q = {_pthr(spa_row['q_value_bh'])})") if _sig(k["spa_p"]) else "")
     mz = champ["mincer_zarnowitz"]
     calibrated = "Unbiasedness not rejected" if not _sig(mz["p_unbiased"]) else "Biased (Mincer-Zarnowitz rejects)"
     clean = var95["independence_pass_grids"] == grids and var99["independence_pass_grids"] == grids
@@ -970,6 +1002,104 @@ def calibration_block() -> str:
                 f"(lower is better). The every-day rows are from the lab; the production-grid row is from "
                 f"`data/vol_forecast_validation.json`, a recorded run on downloaded data.")
     return "\n".join(rows)
+
+
+_REGIME_SPLITS = {"ovx_tercile": "OVX thirds at the decision",
+                  "ovx_rv_gap": "OVX/RV5 (log) against its trailing median",
+                  "rv5_tercile": "RV5 thirds at the decision",
+                  "target_spans_roll": "target windows with and without a contract roll"}
+_REGIME_LEVELS = {"low": "low third", "mid": "middle third", "high": "high third", "at_or_below": "at or below",
+                  "above": "above", "no": "no roll", "yes": "roll"}
+
+
+def _peq_thr(value) -> str:
+    text = _pthr(value)
+    return f"p {text}" if text[0] in "<>" else f"p = {text}"
+
+
+def _band(p: float) -> int:
+    return 0 if p < 0.05 else 1 if p < 0.10 else 2
+
+
+def _band_verdict(row: dict, cc: dict) -> str:
+    """A regime test's verdict at the strength it supports, with the ledger's q and the first robustness check
+    that lands in another band (docs: never a per-cell verdict, never 'calibrated in every regime')."""
+    p = cc["p_value"]
+    if p < 0.05:
+        survives = "survives" if row.get("survives_bh_5pct") else "does not survive"
+        text = (f"significant at 5% ({_peq_thr(p)}; it {survives} the ledger's Benjamini-Hochberg adjustment, "
+                f"q = {_pthr(row['q_value_bh'])}")
+    elif p < 0.10:
+        text = f"inconclusive ({_peq_thr(p)}; q = {_pthr(row['q_value_bh'])} after the ledger's adjustment"
+    else:
+        text = f"no dependence detected ({_peq_thr(p)}"
+    robust = cc["robustness"]
+    for label, value in ((f"with {lags} HAC lags", robust[f"hac_lags_{lags}"]["p_value"]) for lags in (20, 40)):
+        if _band(value) != _band(p):
+            text += f"; {_peq_thr(value)} {label}"
+            break
+    else:
+        if _band(robust["all_cells"]["p_value"]) != _band(p):
+            text += f"; {_peq_thr(robust['all_cells']['p_value'])} when every regime is tested against the target"
+    return text + ")"
+
+
+def regime_block() -> str:
+    """Coverage and interval score of the model of record's band by regime at the decision, and the equal-miss-rate
+    tests of both banded models with their ledger q-values (ROADMAP 2.2)."""
+    lab, ledger = _lab(), _ledger()
+    champ_key = lab["config"]["champion"]
+    conf = lab["conformal"]
+    c = conf[champ_key]
+    rows = ["| Split | Regime | Days with a band | Coverage | Misses above / below | Interval score (vol pts) | "
+            "Log interval score | HAC p (this regime) |", "|---|---|---:|---:|---|---:|---:|---:|"]
+    for var, title in _REGIME_SPLITS.items():
+        cells = {cell["regime"]: cell for cell in c["conditional_coverage"][var]["cells"]}
+        for i, level in enumerate(lab["regimes"]["variables"][var]["levels"]):
+            rows.append(f"| {title if i == 0 else ''} | {_REGIME_LEVELS[level]} | {c['n_days_by_regime'][var][level]:,} | "
+                        f"{c['coverage_by_regime_pct'][var][level]}% | {c['miss_above_by_regime_pct'][var][level]}% / "
+                        f"{c['miss_below_by_regime_pct'][var][level]}% | {c['interval_score_by_regime'][var][level]} | "
+                        f"{_fmt(c['log_interval_score_by_regime'][var][level])} | {_pthr(cells[level]['hac_p'])} |")
+    rows += ["", "| Split | Model | Wald χ² (df) | p | q (ledger) | p, 20 HAC lags | p, 40 HAC lags | p, every regime "
+             "against the target |", "|---|---|---:|---:|---:|---:|---:|---:|"]
+    for var, title in _REGIME_SPLITS.items():
+        for key in (champ_key, lab["config"]["challenger"]):
+            cc = conf[key]["conditional_coverage"][var]
+            row = _ledger_row(ledger, f"band_regime_{var}_{key}")
+            robust = cc["robustness"]
+            rows.append(f"| {title} | {_model(lab, key)['label']} | {_fmt(cc['wald'], 2)} ({cc['df']}) | "
+                        f"{_pthr(cc['p_value'])} | {_pthr(row['q_value_bh'])} | {_pthr(robust['hac_lags_20']['p_value'])} | "
+                        f"{_pthr(robust['hac_lags_40']['p_value'])} | {_pthr(robust['all_cells']['p_value'])} |")
+    test = lab["regimes"]["test"]
+    gap = lab["regimes"]["variables"]["ovx_rv_gap"]
+    rows += ["", f"Every out-of-sample day with a band ({c['n_days']:,} of {lab['sample']['n_days']:,}; the first are "
+             f"the interval's warm-up). Regimes are labelled at the decision from what was known then: OVX of the "
+             f"session before and RV5 of the five returns to the decision, against thirds of every earlier session's "
+             f"value; OVX/RV5 (log) against its median over the previous {gap['window_sessions']} sessions; and whether "
+             f"the target's five sessions include a contract roll. Test: {test['form']}, {test['hac']} with "
+             f"{test['hac_lags']} lags; q from the ledger's Benjamini-Hochberg adjustment over its multiplicity family. "
+             f"The interval score is in vol points and grows with the vol level, so it compares the two models within a "
+             f"regime, not one regime with another; the log interval score is scale-free. Source: lab."]
+    return "\n".join(rows)
+
+
+def regime_reading() -> str:
+    """The regime tests in words, at the strength each supports (ROADMAP 2.2)."""
+    lab, ledger = _lab(), _ledger()
+    champ_key, chall_key = lab["config"]["champion"], lab["config"]["challenger"]
+    conf = lab["conformal"]
+    parts = []
+    for key, subject in ((champ_key, "the model of record's band"), (chall_key, f"{_chall(lab)['label']}'s band")):
+        verdicts = []
+        for var, title in _REGIME_SPLITS.items():
+            cc = conf[key]["conditional_coverage"][var]
+            coverage = conf[key]["coverage_by_regime_pct"][var]
+            span = f"{min(coverage.values())}% to {max(coverage.values())}%"
+            verdicts.append(f"across {title} it covered {span}, and equal coverage is "
+                            f"{_band_verdict(_ledger_row(ledger, f'band_regime_{var}_{key}'), cc)}")
+        parts.append(f"For {subject}, " + "; ".join(verdicts) + ".")
+    return (" ".join(parts) + " Equal coverage is tested, not the coverage of any one regime: a single regime's "
+            "coverage carries no verdict. A dependence found here is reported, never used to change the band.")
 
 
 def calibration_reading() -> str:
@@ -1462,7 +1592,7 @@ def carry_reading() -> str:
     if _sig(p):
         text.append(f"Over the full sample the spread is significant at 5% on its own (one-sided p = {_fmt(p)}), "
                     + ("and it survives" if row.get("survives_bh_5pct") else "though it does not survive")
-                    + f" the ledger's multiplicity adjustment (Benjamini-Hochberg q = {_fmt(row['q_value_bh'])}; "
+                    + f" the ledger's multiplicity adjustment (Benjamini-Hochberg q = {_pthr(row['q_value_bh'])}; "
                       f"section 6).")
     else:
         text.append(f"Over the full sample the spread is not significant at 5% (one-sided p = {_fmt(p)}).")
@@ -1614,7 +1744,7 @@ def ledger_block() -> str:
             "| Claim | p | BH q | Clears t > 3 |", "|---|---:|---:|:---:|"]
     for key in s["supported_surviving_bh_5pct"]:
         r = rows_by_id[key]
-        out.append(f"| {r['hypothesis']} | {_p(r['p_value'])} | {_p(r.get('q_value_bh'))} | "
+        out.append(f"| {r['hypothesis']} | {_pthr(r['p_value'])} | {_pthr(r.get('q_value_bh'))} | "
                    f"{'yes' if r.get('clears_hlz_t3') else 'no'} |")
     out += ["", "Source: `data/research_ledger.json`, rebuilt from the artifacts by `python -m backend.research_ledger`."]
     return "\n".join(out)
@@ -2107,7 +2237,7 @@ def model_card_metrics() -> str:
                 + ("; the timing control is excluded" if controls else "") + " |")
     spa_row = _ledger_row(_ledger(), "vol_spa_beats_record")
     bh = (f", {'and' if spa_row['survives_bh_5pct'] else 'not'} after the ledger's Benjamini-Hochberg adjustment "
-          f"(q = {_fmt(spa_row['q_value_bh'])})" if _sig(k["spa_p"]) else "")
+          f"(q = {_pthr(spa_row['q_value_bh'])})" if _sig(k["spa_p"]) else "")
     rows.append(f"| Hansen SPA, null: no model beats the model of record | p = {_fmt(k['spa_p'])} | — | "
                 f"{len(board['spa_qlike_vs_har_iv']['models'])} feasible alternatives; {_level(k['spa_p'])}{bh} |")
     rows.append(f"| Mincer-Zarnowitz slope (joint unbiasedness p) | {_fmt(champ['mincer_zarnowitz']['slope'], 2)} "

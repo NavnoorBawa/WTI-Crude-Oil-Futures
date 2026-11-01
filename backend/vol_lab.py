@@ -81,16 +81,17 @@ try:
     from . import market_data
     from . import vol_forecast as vf
     from .contract_calendar import contract_code, last_trade_date, next_contract
-    from .forecast_eval import (basel_zone, delayed_aci, christoffersen, dm_test, dq_test, hac_z,
-                                kupiec, mincer_zarnowitz, model_confidence_set, mse_var, qlike, spa_test)
+    from .forecast_eval import (basel_zone, coverage_by_group_test, delayed_aci, christoffersen, dm_test, dq_test,
+                                hac_z, kupiec, mincer_zarnowitz, model_confidence_set, mse_var, newey_west_lrv, qlike,
+                                spa_test)
     from .safe_paths import data_json_path
 except ImportError:  # Direct invocation from backend/
     import market_data  # type: ignore[import-not-found, no-redef]
     import vol_forecast as vf  # type: ignore[import-not-found, no-redef]
     from contract_calendar import contract_code, last_trade_date, next_contract  # type: ignore[import-not-found, no-redef]
     from forecast_eval import (  # type: ignore[import-not-found, no-redef]
-        basel_zone, delayed_aci, christoffersen, dm_test, dq_test, hac_z,
-        kupiec, mincer_zarnowitz, model_confidence_set, mse_var, qlike, spa_test)
+        basel_zone, coverage_by_group_test, delayed_aci, christoffersen, dm_test, dq_test, hac_z,
+        kupiec, mincer_zarnowitz, model_confidence_set, mse_var, newey_west_lrv, qlike, spa_test)
     from safe_paths import data_json_path  # type: ignore[import-not-found, no-redef]
 
 ARTIFACT = "vol_lab.json"
@@ -105,6 +106,14 @@ WARMUP = 52                      # weeks of out-of-sample history before any dat
 CONFORMAL_ALPHA = 0.20           # 80% intervals
 CONFORMAL_GAMMA = 0.005          # ACI step size (Gibbs-Candes 2021 use 0.005)
 CONFORMAL_WINDOW = 156 * 5       # trailing matured daily errors (3 years)
+# Regimes at the decision (ROADMAP 2.2): labels read only what is known at the 14:30 ET settlement of session t;
+# cut points come from strictly earlier sessions. Reported against the band and the losses, never read by them.
+REGIMES = {"ovx_tercile": ("low", "mid", "high"), "ovx_rv_gap": ("at_or_below", "above"),
+           "rv5_tercile": ("low", "mid", "high"), "target_spans_roll": ("no", "yes")}
+REGIME_MIN_HISTORY = 250         # earlier values a cut point needs (vf.MIN_TRAIN, one year)
+REGIME_GAP_WINDOW = 250          # trailing sessions for the OVX/RV5 gap's median
+REGIME_HAC_LAGS = 10             # the lab's HAC lag count for overlapping 5-session targets (coefficient_report)
+REGIME_ROBUST_LAGS = (20, 40)
 VAR_LEVELS = (0.05, 0.01)
 EWMA_LAMBDA = 0.94               # RiskMetrics daily decay
 GARCH_SCALE = 100.0              # arch fits percent returns for numerical stability
@@ -1090,6 +1099,9 @@ def conformal_report(frame: pd.DataFrame, challenger: str) -> dict[str, dict[str
         lo_v, hi_v, act = med * np.exp(aci["lo"]), med * np.exp(aci["hi"]), frame["actual"].to_numpy()
         score = ((hi_v - lo_v) + (2 / CONFORMAL_ALPHA) * np.maximum(lo_v - act, 0)
                  + (2 / CONFORMAL_ALPHA) * np.maximum(act - hi_v, 0))
+        # The same quantiles' interval score on the log scale: scale-free, so regimes at different vol levels compare.
+        log_score = ((aci["hi"] - aci["lo"]) + (2 / CONFORMAL_ALPHA) * np.maximum(aci["lo"] - e, 0)
+                     + (2 / CONFORMAL_ALPHA) * np.maximum(e - aci["hi"], 0))
         out[m] = {"target_coverage_pct": round((1 - CONFORMAL_ALPHA) * 100, 1),
                   "coverage_pct": round(float(hits.mean()) * 100, 1), "n_days": int(hits.size),
                   "interval_score_pct": round(float(np.nanmean(score)) * 100, 2),
@@ -1097,8 +1109,156 @@ def conformal_report(frame: pd.DataFrame, challenger: str) -> dict[str, dict[str
                   "coverage_by_year_pct": by_year,
                   "next_alpha": round(aci["alpha_next"], 4),
                   "next_log_bounds": [round(aci["next_lo"], 4), round(aci["next_hi"], 4)],
-                  "_lo": aci["lo"], "_hi": aci["hi"]}
+                  "_lo": aci["lo"], "_hi": aci["hi"], "_hit": aci["hit"], "_score": score, "_log_score": log_score}
     return out
+
+
+def regime_inputs(r: np.ndarray, ovx_same: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Session-indexed values known at each session's 14:30 ET settlement: OVX of the session before (the model's
+    lagged input, in vol points), RV5 of the five returns to the session (the model's first term, a decimal), and
+    their log gap ln(OVX/100) - ln(RV5); NaN where either is missing."""
+    ovx_l = np.asarray(vf.lag_ovx(np.asarray(ovx_same, float)), float)
+    r2 = np.asarray(r, float) ** 2
+    rv5 = np.full(r2.size, np.nan)
+    cum = np.cumsum(np.r_[0.0, r2])
+    rv5[vf.H - 1:] = np.sqrt((cum[vf.H:] - cum[:-vf.H]) / vf.H * ANNUAL)
+    ok = np.isfinite(ovx_l) & (ovx_l > 0) & np.isfinite(rv5) & (rv5 > 0)
+    gap = np.full(r2.size, np.nan)
+    gap[ok] = np.log(ovx_l[ok] / 100.0) - np.log(rv5[ok])
+    return ovx_l, rv5, gap
+
+
+def _tercile(value: float, history: np.ndarray) -> tuple[int, tuple[float, float]]:
+    """0, 1 or 2 by the thirds of `history` (np.quantile at 1/3 and 2/3); a value on a cut goes to the lower third."""
+    if history.size < REGIME_MIN_HISTORY or not np.isfinite(value):
+        raise ValueError(f"a regime cut point needs {REGIME_MIN_HISTORY} earlier values")
+    c1, c2 = (float(c) for c in np.quantile(history, [1 / 3, 2 / 3]))
+    return int(value > c1) + int(value > c2), (c1, c2)
+
+
+def regime_labels(r: np.ndarray, dates: pd.DatetimeIndex, ovx_same: np.ndarray, pos: np.ndarray) -> dict[str, Any]:
+    """Each decision session t in `pos` labelled by REGIMES, reading only sessions up to t (OVX closes up to t - 1)
+    and, for the roll, the exchange calendar: OVX and RV5 thirds with cut points from strictly earlier sessions, the
+    OVX/RV5 gap against its median over the previous REGIME_GAP_WINDOW sessions, and whether the target's sessions
+    t+1..t+5 include a roll day. Raises ValueError where a label would rest on too little history."""
+    ovx_l, rv5, gap = regime_inputs(r, ovx_same)
+    rolls = roll_days(dates)
+    pos = np.asarray(pos, dtype=int)
+    labels = {var: np.empty(pos.size, dtype=int) for var in REGIMES}
+    medians = np.empty(pos.size)
+    cuts: list[dict[str, Any]] = []
+    for i, t in enumerate(pos):
+        before = ovx_l[:t]
+        labels["ovx_tercile"][i], ovx_cut = _tercile(float(ovx_l[t]), before[np.isfinite(before)])
+        before = rv5[:t]
+        labels["rv5_tercile"][i], rv5_cut = _tercile(float(rv5[t]), before[np.isfinite(before)])
+        before = gap[:t]
+        before = before[np.isfinite(before)][-REGIME_GAP_WINDOW:]
+        if before.size < REGIME_GAP_WINDOW or not np.isfinite(gap[t]):
+            raise ValueError(f"the gap's median needs {REGIME_GAP_WINDOW} earlier values")
+        medians[i] = float(np.median(before))
+        labels["ovx_rv_gap"][i] = int(gap[t] > medians[i])
+        labels["target_spans_roll"][i] = int(rolls[t + 1: t + 1 + vf.H].any())
+        if i in (0, pos.size - 1):
+            cuts.append({"date": dates[t].strftime("%Y-%m-%d"), "ovx": [round(c, 2) for c in ovx_cut],
+                         "rv5_pct": [round(c * 100, 1) for c in rv5_cut], "gap_median": round(float(medians[i]), 3)})
+    return {"labels": labels, "gap": gap[pos], "gap_median": medians,
+            "cut_points": {"first": cuts[0], "last": cuts[-1]}}
+
+
+def _by_level(values: np.ndarray, label: np.ndarray, levels: tuple[str, ...], digits: int,
+              scale: float = 1.0) -> dict[str, float]:
+    return {name: round(float(np.mean(values[label == j])) * scale, digits) for j, name in enumerate(levels)}
+
+
+def _coverage_by_regime(frame: pd.DataFrame, conf: dict[str, Any], labels: dict[str, np.ndarray]) -> dict[str, Any]:
+    """One banded model's coverage, misses, interval scores and conditional-coverage tests by regime, on the days
+    with a band (after the ACI warm-up)."""
+    hit = np.asarray(conf["_hit"], float)
+    band = np.isfinite(hit)
+    med = conf["_med"]
+    act = frame["actual"].to_numpy()
+    above = act > med * np.exp(conf["_hi"])
+    miss = 1.0 - hit[band]
+    grids = frame["grid"].to_numpy()[band]
+    out: dict[str, Any] = {key: {} for key in ("coverage_by_regime_pct", "n_days_by_regime", "miss_above_by_regime_pct",
+                                              "miss_below_by_regime_pct", "interval_score_by_regime",
+                                              "log_interval_score_by_regime", "conditional_coverage")}
+    out["log_interval_score"] = round(float(np.mean(conf["_log_score"][band])), 3)
+    for var, levels in REGIMES.items():
+        label = labels[var][band]
+        k = len(levels)
+        out["n_days_by_regime"][var] = {name: int((label == j).sum()) for j, name in enumerate(levels)}
+        out["coverage_by_regime_pct"][var] = _by_level(1.0 - miss, label, levels, 1, 100.0)
+        out["miss_above_by_regime_pct"][var] = _by_level(above[band].astype(float), label, levels, 1, 100.0)
+        out["miss_below_by_regime_pct"][var] = _by_level(miss - above[band], label, levels, 1, 100.0)
+        out["interval_score_by_regime"][var] = _by_level(conf["_score"][band], label, levels, 2, 100.0)
+        out["log_interval_score_by_regime"][var] = _by_level(conf["_log_score"][band], label, levels, 3)
+        main = coverage_by_group_test(miss, label, k, CONFORMAL_ALPHA, REGIME_HAC_LAGS)
+        robust = {f"hac_lags_{lags}": coverage_by_group_test(miss, label, k, CONFORMAL_ALPHA, lags)["equal"]
+                  for lags in REGIME_ROBUST_LAGS}
+        by_grid_lags, by_grid_p = [], []
+        cells = []
+        for j, name in enumerate(levels):
+            inside = (label == j) & (miss == 0)
+            n_grid = [int(((label == j) & (grids == g)).sum()) for g in range(vf.STEP)]
+            in_grid = [int((inside & (grids == g)).sum()) for g in range(vf.STEP)]
+            cells.append({"regime": name, "n_days": int((label == j).sum()), "inside": int(inside.sum()),
+                          "coverage_pct": out["coverage_by_regime_pct"][var][name],
+                          "hac_z": round(main["cells"][j]["z"], 3), "hac_p": round(main["cells"][j]["p_value"], 4),
+                          "n_by_grid": n_grid, "inside_by_grid": in_grid,
+                          "binomial_p_by_grid": [round(float(stats.binomtest(i_g, n_g, 1 - CONFORMAL_ALPHA).pvalue), 4)
+                                                 if n_g else None for i_g, n_g in zip(in_grid, n_grid)]})
+        for g in range(vf.STEP):
+            on_grid = grids == g
+            lags = newey_west_lrv(miss[on_grid])[1]
+            by_grid_lags.append(int(lags))
+            by_grid_p.append(round(coverage_by_group_test(miss[on_grid], label[on_grid], k, CONFORMAL_ALPHA,
+                                                          lags)["equal"]["p_value"], 4))
+        out["conditional_coverage"][var] = {
+            "wald": round(main["equal"]["wald"], 3), "df": main["equal"]["df"],
+            "p_value": round(main["equal"]["p_value"], 4), "hac_lags": REGIME_HAC_LAGS, "cells": cells,
+            "robustness": {**{key: {"wald": round(v["wald"], 3), "p_value": round(v["p_value"], 4)}
+                              for key, v in robust.items()},
+                           "all_cells": {"wald": round(main["all_cells"]["wald"], 3), "df": main["all_cells"]["df"],
+                                         "p_value": round(main["all_cells"]["p_value"], 4)},
+                           "by_grid": {"hac_lags": by_grid_lags, "p_value": by_grid_p}}}
+    return out
+
+
+def regime_report(frame: pd.DataFrame, conf: dict[str, dict[str, Any]], regimes: dict[str, Any]) -> dict[str, Any]:
+    """Coverage and loss by regime (ROADMAP 2.2): the top-level `regimes` block, each banded model's additions to its
+    `conformal` entry, and every model's QLIKE by regime over every OOS day. Descriptive except the conditional
+    coverage tests; the band, the challenger's choice and the losses never read a label."""
+    labels = regimes["labels"]
+    act = frame["actual"].to_numpy()
+    block = {
+        "what": ("Labels at the decision (the 14:30 ET settlement of session t), each from what was known then: OVX "
+                 "of session t-1 and RV5 of the five returns to t against cut points from strictly earlier "
+                 "sessions, and whether the target window contains a contract roll (the exchange calendar)."),
+        "decision": "14:30 ET settlement of session t",
+        "variables": {
+            "ovx_tercile": {"levels": list(REGIMES["ovx_tercile"]), "value": "OVX close of session t-1 (vol points)",
+                            "cut_points": "thirds of every earlier session's value", "min_history": REGIME_MIN_HISTORY},
+            "ovx_rv_gap": {"levels": list(REGIMES["ovx_rv_gap"]), "value": "ln(OVX_{t-1}/100) - ln(RV5_t)",
+                           "cut_points": "median over the previous sessions", "window_sessions": REGIME_GAP_WINDOW},
+            "rv5_tercile": {"levels": list(REGIMES["rv5_tercile"]), "value": "RV5 of the five returns to t",
+                            "cut_points": "thirds of every earlier session's value", "min_history": REGIME_MIN_HISTORY},
+            "target_spans_roll": {"levels": list(REGIMES["target_spans_roll"]),
+                                  "value": "a roll day among the target's sessions t+1..t+5",
+                                  "source": "exchange calendar (roll_days)"}},
+        "n_days_by_regime": {var: {name: int((labels[var] == j).sum()) for j, name in enumerate(levels)}
+                             for var, levels in REGIMES.items()},
+        "cut_points": regimes["cut_points"],
+        "test": {"form": "equal miss rates across regimes (HAC Wald, chi-squared with K-1 df)",
+                 "hac": "Newey-West, Bartlett", "hac_lags": REGIME_HAC_LAGS, "robust_lags": list(REGIME_ROBUST_LAGS)},
+        "note": "Reported, never used to change the interval: the band's code never reads these labels.",
+    }
+    qlike_rows = {m: {var: _by_level(qlike(act, frame[m].to_numpy()), labels[var], levels, 4)
+                      for var, levels in REGIMES.items()} for m in MODEL_KEYS if m in frame}
+    banded = {m: _coverage_by_regime(frame, {**c, "_med": frame[f"{m}__med"].to_numpy()}, labels)
+              for m, c in conf.items()}
+    return {"regimes": block, "conformal": banded, "qlike": qlike_rows}
 
 
 def yearly(frame: pd.DataFrame, challenger: str) -> list[dict[str, Any]]:
@@ -1131,9 +1291,11 @@ def vol_cone(r: np.ndarray, dates: pd.DatetimeIndex, ovx_last: float | None) -> 
             "implied_ovx": None if ovx_last is None else round(float(ovx_last), 1)}
 
 
-def chart_series(frame: pd.DataFrame, conf: dict[str, dict[str, Any]], challenger: str) -> dict[str, list[Any]]:
+def chart_series(frame: pd.DataFrame, conf: dict[str, dict[str, Any]], challenger: str,
+                 regimes: dict[str, Any] | None = None) -> dict[str, list[Any]]:
     """Compact weekly arrays (grid 0, the production grid) for the dashboard: percent units with 1
-    decimal; elasticities with 3. VaR uses the grid's own filtered-historical-simulation quantiles."""
+    decimal; elasticities and the OVX/RV5 log gap (with its trailing median, the regime split) with 3. VaR uses
+    the grid's own filtered-historical-simulation quantiles."""
     def pct(a: Any) -> list[float | None]:
         return [None if not np.isfinite(v) else round(float(v) * 100, 1) for v in np.asarray(a, float)]
 
@@ -1157,6 +1319,8 @@ def chart_series(frame: pd.DataFrame, conf: dict[str, dict[str, Any]], challenge
         "var95": pct(-q95 * s5), "var99": pct(-q99 * s5),
         "ovx_elasticity": [round(float(v), 3) for v in wk["b_ovx"]],
         "rv_elasticity": [round(float(a + b + c), 3) for a, b, c in zip(wk["b_rv5"], wk["b_rv22"], wk["b_rv66"])],
+        **({"ovx_rv_gap": [round(float(v), 3) for v in regimes["gap"][mask]],
+            "ovx_rv_gap_median": [round(float(v), 3) for v in regimes["gap_median"][mask]]} if regimes else {}),
     }
 
 
@@ -1170,9 +1334,15 @@ def build_report(snapshot: market_data.MarketSnapshot, *, progress: Progress | N
     frame = walk_forward(design, progress=progress)
     challenger = choose_challenger(frame)
     conf = conformal_report(frame, challenger)
+    if len(frame) != len(design.ends):
+        raise RuntimeError("the OOS frame and the design's OOS rows disagree")
+    regimes = regime_labels(r, dates, ovx, design.pos[np.asarray(design.ends)])
+    by_regime = regime_report(frame, conf, regimes)
     var = var_backtest(frame, models=tuple(dict.fromkeys((CHAMPION, challenger, "gjr", "ewma", "raw_ovx"))))
     grid0 = frame[frame["grid"] == 0]
     board = leaderboard(frame)
+    for row in board["models"]:
+        row["qlike_by_regime"] = by_regime["qlike"][row["key"]]
     selection = oos_selection(frame)
     report = {
         "generated_from": snapshot.manifest,
@@ -1200,13 +1370,15 @@ def build_report(snapshot: market_data.MarketSnapshot, *, progress: Progress | N
         "leaderboard": board,
         "oos_selection": selection,
         "var_backtest": var,
-        "conformal": {k: {kk: vv for kk, vv in v.items() if not kk.startswith("_")} for k, v in conf.items()},
+        "conformal": {k: {**{kk: vv for kk, vv in v.items() if not kk.startswith("_")}, **by_regime["conformal"][k]}
+                      for k, v in conf.items()},
         "yearly": yearly(frame, challenger),
         "noise_floor": noise_floor(r, dates),
         "qlike_floor": qlike_floor(design),
+        "regimes": by_regime["regimes"],
         "har_iv_coefficients": coefficient_report(design),
         "vol_cone": vol_cone(r, dates, float(ovx[-1]) if np.isfinite(ovx[-1]) else None),
-        "series": chart_series(frame, conf, challenger),
+        "series": chart_series(frame, conf, challenger, regimes),
     }
     return report
 

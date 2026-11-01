@@ -192,6 +192,14 @@ Mincer-Zarnowitz regression of realized on forecast variance with a HAC covarian
 No sample rejects unbiasedness at 5% (joint p 0.161, 0.142, 0.543). The model of record's slope is unstable: it is below one on the every-day sample (0.86) and above one on the production weekly grid (1.22). A regression on variances is dominated by a few extreme weeks, and the two samples catch different ones. The model of record's intervals cover 80.0% of the 4,370 scored days against a target of 80%. Adaptive conformal inference steers long-run coverage to its target whatever the model, so that figure checks the method; the yearly coverage and the interval score are what differ between models. Coverage by calendar year ranges 71.3% to 88.0%; with about fifty independent weeks a year, one year's coverage has a standard error of about 6 points, so deviations of that size are expected.
 <!-- [[[end]]] -->
 
+**By regime at the decision.**
+
+<!-- [[[cog import scripts.readme_blocks as b; b.print_block("regime_block") ]]] -->
+<!-- [[[end]]] -->
+
+<!-- [[[cog import scripts.readme_blocks as b; b.print_block("regime_reading") ]]] -->
+<!-- [[[end]]] -->
+
 ### 2.4 Use as a risk input
 
 ![Weekly 99% VaR against realized five-session log returns](figures/var_backtest.svg)

@@ -253,6 +253,31 @@ distribution drifts. With daily forecasts an outcome is only observed five sessi
 lab uses the **delayed-feedback** version: the interval at *i* uses only errors and misses of rows
 `≤ i − 5`. Intervals are also scored with the interval score (Gneiting and Raftery 2007).
 
+- **By regime at the decision** (`vol_lab.regime_labels`, `regime_report`; ROADMAP 2.2). Each
+  out-of-sample day is labelled from what was known at its 14:30 ET settlement: OVX of the session
+  before (the model's own lagged input) and RV5 of the five returns to the decision, each against
+  thirds (`np.quantile` at 1/3 and 2/3, a value on a cut going to the lower third) of every
+  strictly earlier session's value, with at least 250 of them; ln(OVX/100) − ln(RV5) against its
+  median over the previous 250 sessions; and whether the target's sessions t+1..t+5 include a
+  contract roll (the exchange calendar). Later OVX values and returns leave every label up to t
+  unchanged (a test perturbs them). The test is a HAC Wald test of **equal miss rates across
+  regimes**: the miss indicator on a constant and regime dummies, Newey-West (Bartlett) with 10
+  lags (the lab's count for overlapping five-session targets, as in the coefficient report),
+  χ² with K − 1 df. Adaptive conformal inference pins the band's pooled miss rate, so testing every
+  regime's rate against 20% as well spends a degree of freedom on a level the method fixes; that
+  form is published as robustness, with 20 and 40 lags and each sampling grid on its own. Each
+  regime's own HAC z and an exact binomial on each non-overlapping grid are published without a
+  verdict: daily misses overlap (they share target weeks), so a daily binomial would treat
+  dependent days as independent. Coverage and interval scores are on the days with a band (after
+  the warm-up); QLIKE by regime covers every out-of-sample day and is descriptive (no test within a
+  regime, and nothing re-selects the challenger). The interval score is in vol points and grows
+  with the vol level; the log interval score, the same quantiles scored on the log scale, is
+  scale-free. The band's code never reads a label: a dependence found here is reported, never used
+  to change the band. The labels and the test's form were fixed after prototype runs on this
+  sample, so the eight ledger rows are not pre-specified. The OVX/RV5 log gap mixes OVX at t − 1
+  with RV5 at t, the information at the decision; it is not a variance risk premium in the sense of
+  Bekaert and Hoerova (2014), who subtract a forecast of realized variance.
+
 ## 10. Value-at-Risk backtests
 
 Weekly (five-session) VaR of a long front-month position, `VaR = −q · σ̂₅`, for the model of
@@ -516,10 +541,14 @@ pre-specified.
   the same question (the SPA row).
 - `pre_specified` is true only where the code documents the test as fixed before the data were
   seen; most of the project was exploratory.
+- **Families** name the kind of claim (direction model, leak anatomy, carry, variance risk premium,
+  volatility forecast, value at risk, forecast interval, supply shock); every row with a p-value
+  shares one multiplicity family, whatever its label.
 
 ## References
 
 - Alizadeh, S., Brandt, M., Diebold, F. (2002). Range-based estimation of stochastic volatility models. *Journal of Finance* 57(3).
+- Bekaert, G., Hoerova, M. (2014). The VIX, the variance premium and stock market volatility. *Journal of Econometrics* 183(2).
 - Benjamini, Y., Hochberg, Y. (1995). Controlling the false discovery rate: a practical and powerful approach to multiple testing. *Journal of the Royal Statistical Society B* 57(1).
 - Berger, R. L. (1982). Multiparameter hypothesis testing and acceptance sampling. *Technometrics* 24(4).
 - Bollerslev, T., Hood, B., Huss, J., Pedersen, L. H. (2018). Risk everywhere: modeling and managing volatility. *Review of Financial Studies* 31(7).

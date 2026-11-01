@@ -128,6 +128,23 @@ backs the new one.
 
 ### Research
 
+- **Coverage and loss by regime (ROADMAP 2.2, first part).** `data/vol_lab.json` labels every
+  out-of-sample day at the decision, from what was known then (OVX thirds and RV5 thirds against
+  earlier sessions only, OVX/RV5 against its trailing median, and whether the target window holds a
+  contract roll), and adds the band's coverage, misses, interval score (vol points and log) and a
+  HAC Wald test of equal miss rates across regimes for the model of record and the challenger, with
+  robustness (20 and 40 lags, every regime against the target, each sampling grid); every model's
+  QLIKE by regime, descriptive; the regime labels' cut points; and the OVX/RV5 log gap in the
+  weekly series. The research ledger gains a "forecast interval" family of eight rows (the two
+  banded models across the four splits), not pre-specified: the labels and the test's form were
+  fixed after prototype runs. None is significant at 5%; the model of record across OVX thirds is
+  inconclusive at 10 lags and not significant at 20 or 40. The family grows from 75 to 83 rows, so
+  most q-values rise slightly (the SPA row's among them); no supported row changes whether it
+  survives the adjustments. The generated docs print p- and q-values as the site does, so a value
+  near a threshold keeps the digits that keep it off the threshold. A dependence found here is
+  reported, never used to change the band. Rebuilt in the pinned container; every other value in
+  the artifact is unchanged.
+
 - **The proxy's QLIKE noise floor (ROADMAP 2.1, first part).** `data/vol_lab.json` gains
   `qlike_floor`: the expected QLIKE of a forecast equal to the true variance, against the
   five-return proxy (exact with normal returns of constant variance, −ψ(5/2) − ln(2/5), a lower

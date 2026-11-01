@@ -47,7 +47,7 @@ class LedgerIsCurrentTest(unittest.TestCase):
     def test_rows_cover_every_research_family(self):
         families = {r["family"] for r in _committed()["rows"]}
         self.assertEqual(families, {"direction model", "leak anatomy", "carry", "variance risk premium",
-                                    "volatility forecast", "value at risk", "supply shock"})
+                                    "volatility forecast", "value at risk", "forecast interval", "supply shock"})
 
     def test_statuses_follow_the_rules(self):
         for row in _committed()["rows"]:
@@ -240,6 +240,34 @@ class RowDefinitionTest(unittest.TestCase):
             row = next(r for r in rl.ledger_rows() if r.id == rid)
             self.assertEqual(row.beats, other)
             self.assertIsNone(row.expects)
+
+
+class BandRegimeRowsTest(unittest.TestCase):
+    """ROADMAP 2.2's rows: the 80% band's equal-coverage tests across regimes, both banded models, four splits."""
+
+    def test_band_regime_rows(self):
+        ledger = _committed()
+        lab = rl.load_artifact(rl.LAB)
+        rows = {r["id"]: r for r in ledger["rows"] if r["family"] == "forecast interval"}
+        expected = {f"band_regime_{var}_{model}" for var in ("ovx_tercile", "ovx_rv_gap", "rv5_tercile",
+                                                             "target_spans_roll") for model in ("har_iv", "har_iv_range")}
+        self.assertEqual(set(rows), expected)
+        for rid, row in rows.items():
+            model = "har_iv_range" if rid.endswith("har_iv_range") else "har_iv"
+            var = rid[len("band_regime_"):-len(model) - 1]
+            cc = lab["conformal"][model]["conditional_coverage"][var]
+            with self.subTest(rid):
+                self.assertEqual(row["p_value"], cc["p_value"])
+                self.assertEqual(row["p_two_sided"], cc["p_value"])
+                self.assertFalse(row["pre_specified"])
+                self.assertFalse(row["selected_after_search"])
+                self.assertIsNone(row["underpowered"])
+                self.assertEqual(row["context"]["n_days"], lab["conformal"][model]["n_days"])
+                self.assertEqual(row["context"]["df"], len(lab["regimes"]["variables"][var]["levels"]) - 1)
+                self.assertIn("never used to change the band", row["note"])
+        gap = rows["band_regime_ovx_rv_gap_har_iv"]["hypothesis"]
+        self.assertIn(f"previous {lab['regimes']['variables']['ovx_rv_gap']['window_sessions']} sessions", gap)
+        self.assertNotIn("{", gap)
 
 
 class ResolveTest(unittest.TestCase):
