@@ -195,7 +195,12 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   `in_mcs_qlike_range_proxy`) are null, because it is in no confidence set. Also `oos_selection`,
   `var_backtest{grid0{evaluation_weeks,methods[]}, summary{}}`, `conformal{<model>{coverage_pct,...}}`,
   `yearly[]`, `noise_floor`, `har_iv_coefficients{terms[]}`, `vol_cone{windows[], since, as_of,
-  implied_ovx}`, `ovx_source_agreement`, `generated_from` (the data snapshot manifest with SHA-256
+  implied_ovx}`, `ovx_source_agreement`, `cl_source_agreement` (`CL=F` against EIA's contract 1 and
+  Cushing spot: `tolerance_usd`, `contract1{first, last, common_days, share_same_cent,
+  share_within_one_tick, misses, misses_by_year, largest_gaps[], eia_sessions_missing_from_cl[],
+  since_sample_first}`, `spot{...}`), `roll_convention_audit` (`eia_through, contracts_checked,
+  on_lab_roll_day, mismatches[], indeterminate[], roll_days_after_eia`), `generated_from` (the data
+  snapshot manifest with SHA-256
   digests), and `series` (weekly, grid 0): `date, actual, rv5, ovx, har_iv, har_iv_median, challenger,
   lo80, hi80, ret5, var95, var99, ovx_elasticity, rv_elasticity` (percent units; elasticities
   unitless).

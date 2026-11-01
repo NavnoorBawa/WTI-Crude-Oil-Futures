@@ -201,6 +201,22 @@ test("the ledger's CSV exports what each flag cell shows, with the id, test and 
 });
 
 // ---------------------------------------------------------------------------------------- METH
+test("METH's sources state the CL second-source check and the roll audit from the artifact, and omit them without it", () => {
+  const lab = JSON.parse(readSource("data/vol_lab.json"));
+  const { cl_source_agreement: check, roll_convention_audit: rolls } = lab;
+  const withChecks = { ...research, vol_lab: { ...research.vol_lab, cl_source_agreement: check, roll_convention_audit: rolls } };
+  const text = spaced(visibleText(section(renderPage(withChecks).html, "meth")));
+  const c1 = check.contract1;
+  assert.ok(text.includes(`CL: Yahoo vs EIA contract 1 ${(c1.share_within_one_tick * 100).toFixed(2)}% within $${check.tolerance_usd.toFixed(2)}`), text);
+  assert.ok(text.includes(`${c1.misses} of ${c1.common_days.toLocaleString("en-US")} sessions further apart, ${c1.first} to ${c1.last}`), text);
+  const scored = c1.since_sample_first;
+  assert.ok(text.includes(`${scored.misses} of ${scored.common_days.toLocaleString("en-US")} scored sessions to ${c1.last}`), text);
+  assert.ok(text.includes(`CL around rolls vs EIA contract 1 ${rolls.on_lab_roll_day} of ${rolls.contracts_checked} equal`), text);
+  assert.ok(text.includes(`on the session before and the session of each roll, ${rolls.mismatches.length} on the next contract before the roll, ${rolls.indeterminate.length} cannot be told, ${rolls.roll_days_after_eia} roll days after ${rolls.eia_through} not checked`), text);
+  const without = spaced(visibleText(section(renderPage().html, "meth")));             // the fixture predates the checks
+  assert.ok(!without.includes("CL: Yahoo vs EIA") && !without.includes("CL around rolls"));
+});
+
 test("METH's Reproduce box names the pinned container and its commands, which exist in the repository", () => {
   const text = spaced(visibleText(section(renderPage().html, "meth")));
   assert.ok(text.includes("docker build -t wti-vol . then docker run --rm wti-vol make reproduce"), text);

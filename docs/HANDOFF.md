@@ -49,7 +49,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   workflow's `anchor` job tries to attest the record (best effort), logging its SHA-256 in
   Sigstore's public Rekor log; `scripts/verify_anchors.py` reads the times back (ROADMAP 1.3, in
   progress until the first anchored runs are checked).
-- **Tests.** 560 Python (unittest), 266 frontend (node --test) and 13 browser checks (Playwright,
+- **Tests.** 567 Python (unittest), 267 frontend (node --test) and 13 browser checks (Playwright,
   the "Interface" CI job: axe, layout shift, overflow, keyboard, print, script budget). CI also runs
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
   Reproduce rebuild. Releases: `scripts/bump_version.py`, and `.github/workflows/release.yml`
@@ -143,6 +143,24 @@ and its CI run is the test.
   taller neighbours; the price chart's log axis uses library tick positions.
 
 ### 5. Engineering
+- **The rest of ROADMAP 1.7.** The first part (#91) pinned EIA's contracts 1 and 2 and Cushing
+  spot in the snapshot and published `cl_source_agreement` and `roll_convention_audit`. Still to
+  do: a freeze-time check of the live `CL=F` history in `vol_forecast._load_data_full`, recorded
+  in a new top-level `vol_forecast.source_check` (never inside `live`, so sealed entries are
+  unchanged). Two checks were measured: (A) every pinned-snapshot session present in the download
+  and within one tick of it (0 failures on 2026-10-31); (B) for sessions after the snapshot, an
+  absolute log gap above 0.40 against EIA spot (the largest since 2000-08-23 is 0.354). (B) needs
+  a fresh EIA spot download at freeze time (the refresh job has `EIA_API_KEY`;
+  `supply_shock_playbook.fetch_wti_daily` fetches it), because the committed copy ends months
+  before the snapshot, and it must report "no spot rows" rather than pass when there are none.
+  The roll calendar has no independent check yet: the roll audit compares `CL=F` with EIA's
+  contract 1 around the lab's roll days, which an error in `contract_calendar.last_trade_date`
+  would pass; the acceptance test ROADMAP 1.7 names (roll days against EIA-derived switch days)
+  needs one, for example more known expiry dates from 2000 to 2010 in `LastTradeDateTest`. Decide first
+  whether a failure stops the freeze or only reports: Yahoo revising a past close would otherwise
+  block recording until a person refreshes the snapshot, and each missed session thins the pinned
+  promotion test; a report that Health lists as an incident is the safer default. Stooq `CL.F`
+  (the roadmap's second source) refuses connections from a cloud session; a person could add it.
 - ROADMAP 1.3 also asked to bind the commit SHA; the attestation's subject is the file only (its
   provenance predicate names the workflow run and the `main` commit, not the `live-data` commit).
 - **The rest of ROADMAP 1.3.** Show "anchored <time>" with a Rekor link on LIVE rows that have one
