@@ -78,7 +78,7 @@ generated from the committed artifacts (`scripts/readme_blocks.py`, checked in C
 
 | Metric | Model of record (`har-iv/2`) | Challenger (HAR-IV-range) | Reference |
 |---|---:|---:|---|
-| QLIKE, every OOS day (lower is better) | 0.370 | 0.353 | persistence 0.952; OVX-only regression 0.368; Raw OVX 0.374 |
+| QLIKE, every OOS day (lower is better) | 0.370 | 0.353 | persistence 0.952; OVX-only regression 0.368; Raw OVX 0.374; the proxy's noise floor 0.213 with normal returns, more with heavier tails (RESULTS section 2.1) |
 | Diebold-Mariano on QLIKE vs the model of record (pairwise) | — | +3.10 (p = 0.002; before adjusting for the search that chose it) | OVX-only regression +0.47 (p = 0.641) |
 | In the 90% Model Confidence Set (full sample; sampling grids) | no, MCS p 0.037 (2/5 grids) | yes, MCS p 1.000 (5/5 grids) | 4 of 13 feasible models; the timing control is excluded |
 | Hansen SPA, null: no model beats the model of record | p = 0.011 | — | 12 feasible alternatives; significant at 5%, not after the ledger's Benjamini-Hochberg adjustment (q = 0.090) |

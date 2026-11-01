@@ -658,14 +658,14 @@ def noise_floor_draws(r: np.ndarray, k: int) -> np.ndarray:
     """Simulation k of the direction noise floor: vol_forecast.noise_floor's own Student-t(5) returns (the same
     generator, seed and calls; tests/test_vol_lab.py pins the equality)."""
     rng = np.random.default_rng(vf.NOISE_FLOOR_SEED + k)
-    return rng.standard_t(5, len(r)) / np.sqrt(5 / 3) * float(np.std(r))
+    return np.asarray(rng.standard_t(5, len(r)) / np.sqrt(5 / 3) * float(np.std(r)), dtype=float)
 
 
 def _bridge(end: np.ndarray, var: np.ndarray, steps: int, rng: np.random.Generator) -> np.ndarray:
     """A Brownian bridge from 0 to `end` (per row) with total variance `var`: its steps + 1 grid points."""
     free = np.concatenate([np.zeros((end.size, 1)),
                            np.cumsum(rng.standard_normal((end.size, steps)) * np.sqrt(var / steps)[:, None], 1)], 1)
-    return free - (np.arange(steps + 1)[None, :] / steps) * (free[:, -1:] - end[:, None])
+    return np.asarray(free - (np.arange(steps + 1)[None, :] / steps) * (free[:, -1:] - end[:, None]), dtype=float)
 
 
 def _extremes(points: np.ndarray, step_var: np.ndarray, rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray]:

@@ -1314,7 +1314,7 @@ def robustness_block() -> str:
         f"Rogers-Satchell plus the overnight return, not rescaled to the close-to-close level) the model of "
         f"record's QLIKE is {_fmt(champ['qlike_range_proxy'])}, and the MCS on that proxy keeps {kept}"
         + ("." if champ["key"] in range_set else ", not the model of record.")
-        + (f" That proxy's own noise floor is lower ({_fmt(lab['qlike_floor']['range']['normal']['simulated_mean'])} "
+        + (f" That proxy's own noise floor is lower than the five-return proxy's ({_fmt(lab['qlike_floor']['range']['normal']['simulated_mean'])} "
            f"with normal returns, {_fmt(lab['qlike_floor']['range']['student_t5']['simulated_mean'])} with "
            f"Student-t(5); section 2.1), so loss levels are compared only within one proxy."),
         f"- **Choosing the model out of sample.** Picking, each day, the feasible model with the lowest trailing "
