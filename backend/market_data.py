@@ -334,7 +334,12 @@ def cl_source_agreement(snapshot: MarketSnapshot, sample_first: str | None = Non
         "misses_by_year": {str(year): int(count) for year, count in
                            miss[miss].groupby(pd.DatetimeIndex(miss[miss].index).year).size().items()},
         "largest_gaps": [row(day) for day in largest.index],
-        "eia_sessions_missing_from_cl": [day.strftime("%Y-%m-%d") for day in overlap if day not in close.index],
+        # Sessions EIA has that CL=F lacks: gaps in Yahoo's series, and apart from them the sessions the
+        # negative-price rule drops (a non-positive settlement has no logarithm; vol_forecast._completed).
+        "eia_sessions_missing_from_cl": [day.strftime("%Y-%m-%d") for day in overlap
+                                         if day not in close.index and float(cast(float, futures.at[day, "c1"])) > 0],
+        "nonpositive_sessions_dropped": [day.strftime("%Y-%m-%d") for day in overlap
+                                         if day not in close.index and float(cast(float, futures.at[day, "c1"])) <= 0],
     }
     if sample_first is not None:
         since = miss[miss.index >= pd.Timestamp(sample_first)]

@@ -185,13 +185,17 @@ def window_index(dates: pd.DatetimeIndex, day: pd.Timestamp) -> int:
 def roll_convention_audit(snapshot: market_data.MarketSnapshot) -> dict[str, Any]:
     """Whether Yahoo's CL=F switches contracts on the lab's roll days, checked against EIA's contracts 1 and 2.
 
-    For each contract that expires inside EIA's history, CL=F should match EIA's contract 1 (the expiring
-    contract) on the last session up to its last trade date and contract 1 again (the new front month)
-    on the lab's roll day, the next session; within one tick, as cl_source_agreement. A contract where it
-    does is counted; one where CL=F followed the next contract (EIA's contract 2) earlier is a mismatch,
-    with the session it switched; one that cannot be told (no EIA row, contracts 1 and 2 within a tick
-    of each other, or CL=F matching neither) is listed as indeterminate. Roll days after EIA's last
-    date are counted as not checked.
+    For each contract that expires while both CL=F and EIA's contracts 1 and 2 have data, CL=F should
+    equal EIA's contract 1 (which rolls at expiry) on the lab's last session before the roll and on the
+    lab's roll day; within one tick, as cl_source_agreement. A contract where it does is counted; one
+    where CL=F followed the next contract (EIA's contract 2) before the roll is a mismatch, with the
+    session it switched (searched back to the previous roll day); one that cannot be told (no EIA row,
+    contracts 1 and 2 within a tick of each other, or CL=F matching neither) is listed as indeterminate.
+    Roll days after EIA's last date are counted as not checked.
+
+    What it cannot show: an error in the lab's own calendar (contract_calendar.last_trade_date, tested
+    against known expiry dates). EIA's contract 1 rolls with the market, so if the lab's roll day were a
+    session early or late, CL=F would still equal contract 1 on both sessions checked.
     """
     if snapshot.eia_futures is None:
         raise ValueError("the snapshot has no EIA files (python -m backend.market_data --add-eia)")
@@ -204,6 +208,7 @@ def roll_convention_audit(snapshot: market_data.MarketSnapshot) -> dict[str, Any
         return bool(abs(float(cast(float, close.at[day])) - float(cast(float, eia.at[day, column]))) <= tol)
 
     checked, on_roll_day, mismatches, indeterminate, unchecked = 0, 0, [], [], 0
+    previous = 0                                       # the session after the previous roll (or the first session)
     year, month = dates[0].year, dates[0].month
     while (year, month) <= (dates[-1].year + 1, dates[-1].month):
         expiry: Any = pd.Timestamp(last_trade_date(year, month))     # numpy's stubs reject a Timestamp
@@ -212,6 +217,7 @@ def roll_convention_audit(snapshot: market_data.MarketSnapshot) -> dict[str, Any
         if not 0 < i < len(dates):
             continue
         roll, before = dates[i], dates[i - 1]
+        start, previous = previous, i
         if roll > eia.index.max():
             unchecked += 1
             continue
@@ -228,8 +234,9 @@ def roll_convention_audit(snapshot: market_data.MarketSnapshot) -> dict[str, Any
         if on(before, "c1") and on(roll, "c1"):
             on_roll_day += 1
             continue
-        # The first session from which CL=F follows the next contract through the roll day.
-        window = [day for day in dates[max(0, i - 8):i + 1] if day in eia.index]
+        # The first session from which CL=F follows the next contract through the roll day, searched back
+        # to the session after the previous roll.
+        window = [day for day in dates[start:i + 1] if day in eia.index]
         follows = [on(day, "c2") and not on(day, "c1") if day <= expiry else on(day, "c1") for day in window]
         switch = next((day for k, day in enumerate(window) if all(follows[k:])), None)
         if switch is not None and switch < roll:

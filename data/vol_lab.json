@@ -126,7 +126,9 @@
    "eia_sessions_missing_from_cl": [
     "2012-10-29",
     "2012-10-30",
-    "2018-12-05",
+    "2018-12-05"
+   ],
+   "nonpositive_sessions_dropped": [
     "2020-04-20"
    ],
    "since_sample_first": {

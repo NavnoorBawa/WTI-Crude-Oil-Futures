@@ -381,7 +381,9 @@ Tick items here with the PR number and date when they ship, and move any new fin
   `roll_convention_audit` in `data/vol_lab.json` (descriptive, every other number unchanged); the
   April 2020 rule written into METHODOLOGY (unchanged: kept, as production does). Not done: Stooq
   (unreachable from a session), a tight check for sessions after 2024-04-05 (EIA's contract-1 series
-  ends there), and the freeze-time check.
+  ends there), the freeze-time check, and the acceptance test of the roll days against EIA-derived
+  switch days: the audit checks `CL=F` against EIA's contract 1 around the lab's roll days, which
+  cannot show an error in the lab's calendar itself.
 - **1.6 Exact environment for reproduction** (#83, 2026-10-31): `Dockerfile` (images pinned by digest),
   `Makefile`, `.devcontainer/`; the Reproduce workflow's container job runs `make reproduce` in the
   image; METH's Reproduce box names it; `tests/test_container.py`.

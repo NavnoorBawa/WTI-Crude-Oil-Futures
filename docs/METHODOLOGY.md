@@ -14,12 +14,15 @@ into those pages from the artifacts.
 - **A second source for the prices.** The closes are compared, rounded to the cent, with EIA's
   NYMEX contract-1 settlement (the front month; EIA stopped the series after 2024-04-05) and, more
   loosely, with EIA's Cushing spot price (`market_data.cl_source_agreement`); a gap of more than
-  one tick ($0.01) from contract 1 counts as a disagreement. The contract rolls are checked the same
-  way (`vol_lab.roll_convention_audit`): on the last session up to a contract's last trade date
-  `CL=F` should be EIA's contract 1, and on the lab's roll day, the next session, the new contract 1.
-  Both are descriptive: no model reads EIA's prices. The counts are in the
-  [datasheet](DATASHEET.md#collection-and-cleaning); sessions after 2024-04-05, and the roll days
-  among them, have only the loose spot check.
+  one tick ($0.01) from contract 1 counts as a disagreement. Around each of the lab's roll days
+  (`vol_lab.roll_convention_audit`), `CL=F` should equal EIA's contract 1, which rolls at expiry, on
+  the session before the roll and on the roll day; that would show Yahoo rolling earlier than EIA,
+  but not an error in the lab's own calendar (`contract_calendar.last_trade_date`, tested against
+  known expiry dates), since `CL=F` and contract 1 would still agree on both sessions. Both checks
+  are descriptive: no model reads EIA's prices. The counts and spans are in the
+  [datasheet](DATASHEET.md#collection-and-cleaning). Sessions after EIA's contract-1 series ends
+  have only the loose spot check, which cannot tell contracts apart, and only while the committed
+  spot copy lasts; roll days after it are not checked.
 - **The negative settlement.** On 2020-04-20 the expiring May contract settled at −$37.63, which
   has no logarithm, so that session is dropped from the close series, in the lab as in production
   (`vol_forecast._completed` keeps positive closes only). The return dated 2020-04-21 therefore

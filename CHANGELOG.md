@@ -44,7 +44,8 @@ backs the new one.
   are unchanged). `data/vol_lab.json` gains `cl_source_agreement`
   (`market_data.cl_source_agreement`: the closes, rounded to the cent, against EIA's contract 1 to
   one tick and against spot loosely) and `roll_convention_audit` (`vol_lab.roll_convention_audit`:
-  whether `CL=F` switches contracts on the lab's roll day, contract by contract). Both are
+  whether `CL=F` equals EIA's contract 1 on the session before and the session of each of the
+  lab's roll days; it shows Yahoo rolling with EIA, not that the lab's calendar is right). Both are
   descriptive: no model reads EIA's prices, and every other number in the artifact is unchanged,
   bit for bit. The datasheet and RESULTS section 7 list the counts, and METH's sources show them.
   METHODOLOGY now states the rule for the 2020-04-20 negative settlement (the session is dropped, so

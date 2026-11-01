@@ -342,10 +342,11 @@ function Sources({ lab, researchStatus }) {
         agreement && { label: "OVX: Yahoo vs FRED", value: `corr ${fmtNum(agreement.correlation, 6)}`, note: `${fmtShare(agreement.share_within_0_05_pts, 2)} of ${fmtInt(agreement.common_days)} days within 0.05 pts; max gap ${fmtNum(agreement.max_abs_diff_pts, 2)}` },
         contract1 && tick !== null && { label: "CL: Yahoo vs EIA contract 1", value: `${fmtShare(contract1.share_within_one_tick, 2)} within $${fmtNum(tick, 2)}`, note: [
           `${fmtInt(contract1.misses)} of ${fmtInt(contract1.common_days)} sessions further apart, ${contract1.first} to ${contract1.last}`,
-          scored ? `${fmtInt(scored.misses)} in the scored sample` : null,
+          scored ? `${fmtInt(scored.misses)} of ${fmtInt(scored.common_days)} scored sessions to ${contract1.last}` : null,
         ].filter(Boolean).join("; ") },
-        rolls && { label: "CL rolls vs EIA", value: `${fmtInt(rolls.on_lab_roll_day)} of ${fmtInt(rolls.contracts_checked)} on the roll day`, note: [
-          `${fmtInt(asArray(rolls.mismatches).length)} earlier`,
+        rolls && { label: "CL around rolls vs EIA contract 1", value: `${fmtInt(rolls.on_lab_roll_day)} of ${fmtInt(rolls.contracts_checked)} equal`, note: [
+          "on the session before and the session of each roll",
+          `${fmtInt(asArray(rolls.mismatches).length)} on the next contract before the roll`,
           `${fmtInt(asArray(rolls.indeterminate).length)} cannot be told`,
           `${fmtInt(rolls.roll_days_after_eia)} roll days after ${rolls.eia_through} not checked`,
         ].join(", ") },
