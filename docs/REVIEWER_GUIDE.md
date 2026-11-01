@@ -134,10 +134,12 @@ and only the forward record can promote the challenger.
 ```bash
 python -c "import json; s = json.load(open('data/research_ledger.json'))['summary']; print(json.dumps(s['by_status'], indent=1))"
 python -B -m unittest tests.test_research_ledger
+python -c "import json; rows = json.load(open('data/research_ledger.json'))['rows']; [print(r['id'], r['p_value'], r['status']) for r in rows if r['family'] == 'forecast interval']"
 ```
 
 Passing: the counts by status, and the ledger test (which rebuilds the ledger from the artifacts and
-requires it to equal the committed file) prints `OK`. The
+requires it to equal the committed file) prints `OK`; the last command lists the band's tests by
+regime with the ledger's status for each. The
 [full results' ledger section](RESULTS.md#6-research-ledger) says how many supported rows survive
 Benjamini-Hochberg and Holm, and why the challenger's pairwise test is left out of that family (it
 was chosen by searching the same sample; Hansen's SPA test is its search-adjusted counterpart). The

@@ -233,7 +233,15 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   timing control, `har_iv_sameday`, which `mcs_excludes` lists and `mcs_note` explains); for that
   row the MCS fields (`mcs_qlike_p`, `in_mcs_qlike`, `mcs_mse_p`, `in_mcs_mse`, `in_mcs_qlike_grids`,
   `in_mcs_qlike_range_proxy`) are null, because it is in no confidence set. Also `oos_selection`,
-  `var_backtest{grid0{evaluation_weeks,methods[]}, summary{}}`, `conformal{<model>{coverage_pct,...}}`,
+  `var_backtest{grid0{evaluation_weeks,methods[]}, summary{}}`, `conformal{<model>{coverage_pct,...}}` (each
+  banded model also carries `coverage_by_regime_pct, n_days_by_regime, miss_above_by_regime_pct,
+  miss_below_by_regime_pct, interval_score_by_regime, log_interval_score, log_interval_score_by_regime`
+  and `conditional_coverage{<split>{wald, df, p_value, hac_lags, cells[{regime, n_days, inside,
+  coverage_pct, hac_z, hac_p, n_by_grid[], inside_by_grid[], binomial_p_by_grid[]}], robustness{hac_lags_20,
+  hac_lags_40, all_cells, by_grid{hac_lags[], p_value[]}}}}`; each split's counts sum to the model's
+  `n_days`, the days with a band), `regimes{what, decision, variables{ovx_tercile, ovx_rv_gap,
+  rv5_tercile, target_spans_roll}, n_days_by_regime, cut_points{first, last}, test, note}` (each split's
+  counts sum to `sample.n_days`), each `leaderboard.models[]` row's `qlike_by_regime{<split>{<level>}}`,
   `yearly[]`, `noise_floor`, `qlike_floor` (the proxy's QLIKE noise floor, never subtracted from a
   loss: `what, horizon_sessions, sims, seed, bar_seed_offset, seeds, rows_per_sim`,
   `five_return{proxy, normal{closed_form, formula, lower_bound, simulated_mean, simulated_range},
@@ -248,7 +256,8 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   on_lab_roll_day, mismatches[], indeterminate[], roll_days_after_eia`), `generated_from` (the data
   snapshot manifest with SHA-256
   digests), and `series` (weekly, grid 0): `date, actual, rv5, ovx, har_iv, har_iv_median, challenger,
-  lo80, hi80, ret5, var95, var99, ovx_elasticity, rv_elasticity` (percent units; elasticities
+  lo80, hi80, ret5, var95, var99, ovx_elasticity, rv_elasticity, ovx_rv_gap, ovx_rv_gap_median` (percent
+  units; the OVX/RV5 log gap and its trailing median are unitless; elasticities
   unitless).
 - `postmortem`: `five_year` and `ten_year`, each `{purged, leaked, config}`; a run is
   `{n, direction_acc_pct, p_value, sharpe, total_pnl_usd, max_drawdown_usd, mae_vs_best_baseline_pct, first, last,

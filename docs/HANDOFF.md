@@ -22,7 +22,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   test of the whole field (2.2.0; arch 8.0.0 ignores its `studentize` flag, so the 0.072 published
   before was the non-studentized test, see the CHANGELOG errata) rejects "no alternative beats the
   model of record" at p = 0.011 (0.005 to 0.027 across blocks and halves; the 2008–2016 leader is
-  the Combination), but not after the ledger's Benjamini-Hochberg adjustment (q = 0.090). The
+  the Combination), but not after the ledger's Benjamini-Hochberg adjustment (q = 0.0996). The
   challenger runs live under the pinned 52-week, one-look promotion test. `data/vol_lab.json`
   rebuilds bit for bit (Reproduce workflow: on every PR or push to `main` that touches the pipeline,
   its inputs or its pins, and weekly). The losses' level is read against the proxy's QLIKE noise
@@ -53,7 +53,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   accepted on 2026-11-01 after two scheduled publishes with anchors; LIVE and a second anchor
   remain). From #95 the Refresh workflow's three field jobs keep the unsealed shadow log of the
   whole field on the `field-data` branch (ROADMAP 1.8; `backend/field_record.py`, #94).
-- **Tests.** 629 Python (unittest), 273 frontend (node --test) and 13 browser checks (Playwright,
+- **Tests.** 645 Python (unittest), 273 frontend (node --test) and 13 browser checks (Playwright,
   the "Interface" CI job: axe, layout shift, overflow, keyboard, print, script budget). CI also runs
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
   Reproduce rebuild. Releases: `scripts/bump_version.py`, and `.github/workflows/release.yml`

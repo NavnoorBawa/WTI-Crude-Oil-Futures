@@ -3,14 +3,14 @@
   "alpha": 0.05,
   "hlz_t": 3.0,
   "summary": {
-    "rows": 76,
-    "rows_with_p_value": 76,
-    "rows_in_multiplicity_family": 75,
+    "rows": 84,
+    "rows_with_p_value": 84,
+    "rows_in_multiplicity_family": 83,
     "by_status": {
       "supported": 19,
-      "not_supported": 44,
+      "not_supported": 51,
       "retracted": 9,
-      "inconclusive": 4
+      "inconclusive": 5
     },
     "pre_specified_rows": 3,
     "selected_after_search": [
@@ -149,6 +149,17 @@
         "supported_surviving_bh_5pct": 0,
         "supported_clearing_hlz_t3": 0
       },
+      "forecast interval": {
+        "rows": 8,
+        "by_status": {
+          "supported": 0,
+          "not_supported": 7,
+          "retracted": 0,
+          "inconclusive": 1
+        },
+        "supported_surviving_bh_5pct": 0,
+        "supported_clearing_hlz_t3": 0
+      },
       "supply shock": {
         "rows": 19,
         "by_status": {
@@ -199,8 +210,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 1.6430196866753145e-05,
-      "p_holm": 0.00010581046782189024,
+      "q_value_bh": 1.8182751199206812e-05,
+      "p_holm": 0.00011807834814906592,
       "t_equivalent": 4.81,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -242,8 +253,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 3.3633658839031605e-09,
-      "p_holm": 1.88348489498577e-08,
+      "q_value_bh": 3.722124911519498e-09,
+      "p_holm": 2.0987403115555723e-08,
       "t_equivalent": 6.32,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -328,7 +339,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.9527312982523835,
+      "q_value_bh": 0.971984409904567,
       "p_holm": 1.0,
       "t_equivalent": 0.33,
       "survives_bh_5pct": false,
@@ -414,7 +425,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.9258173076923077,
+      "q_value_bh": 0.9346964912280702,
       "p_holm": 1.0,
       "t_equivalent": 0.48,
       "survives_bh_5pct": false,
@@ -457,7 +468,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.3253591475644193,
+      "q_value_bh": 0.34844915158512,
       "p_holm": 1.0,
       "t_equivalent": 1.51,
       "survives_bh_5pct": false,
@@ -500,7 +511,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.9527312982523835,
+      "q_value_bh": 0.971984409904567,
       "p_holm": 1.0,
       "t_equivalent": 0.32,
       "survives_bh_5pct": false,
@@ -542,8 +553,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.00023333333333333333,
-      "p_holm": 0.001876,
+      "q_value_bh": 0.00025822222222222224,
+      "p_holm": 0.0021,
       "t_equivalent": 4.19,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -588,8 +599,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 3.800402646951629e-16,
-      "p_holm": 1.1097175729098758e-15,
+      "q_value_bh": 4.2057789292931364e-16,
+      "p_holm": 1.2313304576123278e-15,
       "t_equivalent": 8.53,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -634,7 +645,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.9527312982523835,
+      "q_value_bh": 0.971984409904567,
       "p_holm": 1.0,
       "t_equivalent": 0.35,
       "survives_bh_5pct": false,
@@ -689,8 +700,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.0002652739496884036,
-      "p_holm": 0.0025302457384919577,
+      "q_value_bh": 0.0002935698376551667,
+      "p_holm": 0.0028401997546638412,
       "t_equivalent": 4.11,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -786,7 +797,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.12000000000000001,
+      "q_value_bh": 0.1328,
       "p_holm": 1.0,
       "t_equivalent": 2.11,
       "survives_bh_5pct": false,
@@ -822,7 +833,7 @@
         "context_fields": {},
         "name_fields": {}
       },
-      "q_value_bh": 0.1232608695652174,
+      "q_value_bh": 0.13640869565217392,
       "p_holm": 1.0,
       "t_equivalent": 2.08,
       "survives_bh_5pct": false,
@@ -902,7 +913,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.30026785714285714,
+      "q_value_bh": 0.32083793103448277,
       "p_holm": 1.0,
       "t_equivalent": 1.59,
       "survives_bh_5pct": false,
@@ -944,8 +955,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.06656250000000001,
-      "p_holm": 0.8520000000000001,
+      "q_value_bh": 0.0736625,
+      "p_holm": 0.9656,
       "t_equivalent": 2.45,
       "survives_bh_5pct": false,
       "survives_holm_5pct": false,
@@ -980,8 +991,8 @@
         "context_fields": {},
         "name_fields": {}
       },
-      "q_value_bh": 0.019285714285714288,
-      "p_holm": 0.22319999999999998,
+      "q_value_bh": 0.021342857142857143,
+      "p_holm": 0.252,
       "t_equivalent": 2.91,
       "survives_bh_5pct": true,
       "survives_holm_5pct": false,
@@ -1020,7 +1031,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.32578125,
+      "q_value_bh": 0.34960606060606064,
       "p_holm": 1.0,
       "t_equivalent": 1.48,
       "survives_bh_5pct": false,
@@ -1060,7 +1071,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.41777027027027025,
+      "q_value_bh": 0.45016578947368424,
       "p_holm": 1.0,
       "t_equivalent": 1.26,
       "survives_bh_5pct": false,
@@ -1106,7 +1117,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.8889130434782608,
+      "q_value_bh": 0.887286274509804,
       "p_holm": 1.0,
       "t_equivalent": 0.6,
       "survives_bh_5pct": false,
@@ -1228,7 +1239,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.9124468085106383,
+      "q_value_bh": 0.9126807692307691,
       "p_holm": 1.0,
       "t_equivalent": 0.57,
       "survives_bh_5pct": false,
@@ -1268,7 +1279,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.10875000000000001,
+      "q_value_bh": 0.12035,
       "p_holm": 1.0,
       "t_equivalent": 2.18,
       "survives_bh_5pct": false,
@@ -1308,7 +1319,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.6376923076923077,
+      "q_value_bh": 0.655304761904762,
       "p_holm": 1.0,
       "t_equivalent": 0.97,
       "survives_bh_5pct": false,
@@ -1348,7 +1359,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.5060526315789474,
+      "q_value_bh": 0.53203,
       "p_holm": 1.0,
       "t_equivalent": 1.13,
       "survives_bh_5pct": false,
@@ -1384,7 +1395,7 @@
         "context_fields": {},
         "name_fields": {}
       },
-      "q_value_bh": 0.08750000000000001,
+      "q_value_bh": 0.09683333333333334,
       "p_holm": 1.0,
       "t_equivalent": 2.31,
       "survives_bh_5pct": false,
@@ -1424,7 +1435,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.8889130434782608,
+      "q_value_bh": 0.885444,
       "p_holm": 1.0,
       "t_equivalent": 0.62,
       "survives_bh_5pct": false,
@@ -1467,8 +1478,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 3.083216548266387e-10,
-      "p_holm": 1.4593891661794232e-09,
+      "q_value_bh": 3.4120929800814685e-10,
+      "p_holm": 1.623827382086964e-09,
       "t_equivalent": 6.7,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -1513,7 +1524,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.9258173076923077,
+      "q_value_bh": 0.9346964912280702,
       "p_holm": 1.0,
       "t_equivalent": 0.47,
       "survives_bh_5pct": false,
@@ -1561,7 +1572,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.32578125,
+      "q_value_bh": 0.34960606060606064,
       "p_holm": 1.0,
       "t_equivalent": 1.48,
       "survives_bh_5pct": false,
@@ -1645,7 +1656,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.8197674418604651,
+      "q_value_bh": 0.8127083333333333,
       "p_holm": 1.0,
       "t_equivalent": 0.72,
       "survives_bh_5pct": false,
@@ -1687,8 +1698,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 2.582789268987176e-45,
-      "p_holm": 2.582789268987176e-45,
+      "q_value_bh": 2.858286791012475e-45,
+      "p_holm": 2.858286791012475e-45,
       "t_equivalent": 14.43,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -1775,8 +1786,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.00022274962459470585,
-      "p_holm": 0.0016156772770602665,
+      "q_value_bh": 0.00024650958455147445,
+      "p_holm": 0.0018057569567144155,
       "t_equivalent": 4.23,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -1817,8 +1828,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 3.344097829007499e-11,
-      "p_holm": 1.2841335663388797e-10,
+      "q_value_bh": 3.7008015974349654e-11,
+      "p_holm": 1.4268150737098662e-10,
       "t_equivalent": 7.05,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -1859,8 +1870,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.0002652739496884036,
-      "p_holm": 0.0025302457384919577,
+      "q_value_bh": 0.0002935698376551667,
+      "p_holm": 0.002836942191642498,
       "t_equivalent": 4.12,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -1901,7 +1912,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.31955263816454427,
+      "q_value_bh": 0.34185031113869246,
       "p_holm": 1.0,
       "t_equivalent": 1.54,
       "survives_bh_5pct": false,
@@ -2027,7 +2038,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.9258173076923077,
+      "q_value_bh": 0.9346964912280702,
       "p_holm": 1.0,
       "t_equivalent": 0.5,
       "survives_bh_5pct": false,
@@ -2069,8 +2080,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.0004153911274549097,
-      "p_holm": 0.004253605145138276,
+      "q_value_bh": 0.00045969951438343346,
+      "p_holm": 0.004785305788280561,
       "t_equivalent": 3.99,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -2153,7 +2164,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.9527312982523835,
+      "q_value_bh": 0.971984409904567,
       "p_holm": 1.0,
       "t_equivalent": 0.38,
       "survives_bh_5pct": false,
@@ -2195,7 +2206,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.09,
+      "q_value_bh": 0.09960000000000001,
       "p_holm": 1.0,
       "t_equivalent": 2.28,
       "survives_bh_5pct": false,
@@ -2242,7 +2253,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.22999999999999998,
+      "q_value_bh": 0.25453333333333333,
       "p_holm": 1.0,
       "t_equivalent": 1.79,
       "survives_bh_5pct": false,
@@ -2278,7 +2289,7 @@
         "context_fields": {},
         "name_fields": {}
       },
-      "q_value_bh": 0.7086585365853659,
+      "q_value_bh": 0.7184111111111111,
       "p_holm": 1.0,
       "t_equivalent": 0.88,
       "survives_bh_5pct": false,
@@ -2318,7 +2329,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.34478571428571425,
+      "q_value_bh": 0.37096388888888887,
       "p_holm": 1.0,
       "t_equivalent": 1.4,
       "survives_bh_5pct": false,
@@ -2354,8 +2365,8 @@
         "context_fields": {},
         "name_fields": {}
       },
-      "q_value_bh": 5.590720149206548e-38,
-      "p_holm": 1.103235442776759e-37,
+      "q_value_bh": 6.18706363178858e-38,
+      "p_holm": 1.2225041392931652e-37,
       "t_equivalent": 13.16,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -2443,8 +2454,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.0653263727191226,
-      "p_holm": 0.7969817471732957,
+      "q_value_bh": 0.07229451914249568,
+      "p_holm": 0.9015039435238918,
       "t_equivalent": 2.48,
       "survives_bh_5pct": false,
       "survives_holm_5pct": false,
@@ -2483,7 +2494,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.28527777777777774,
+      "q_value_bh": 0.3044321428571429,
       "p_holm": 1.0,
       "t_equivalent": 1.64,
       "survives_bh_5pct": false,
@@ -2523,7 +2534,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.7251905503773577,
+      "q_value_bh": 0.7327577561204258,
       "p_holm": 1.0,
       "t_equivalent": 0.83,
       "survives_bh_5pct": false,
@@ -2563,9 +2574,453 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.08750000000000001,
+      "q_value_bh": 0.09683333333333334,
       "p_holm": 1.0,
       "t_equivalent": 2.33,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "band_regime_ovx_tercile_har_iv",
+      "date": "2026-10-20",
+      "family": "forecast interval",
+      "hypothesis": "The model of record's 80% band misses at different rates across thirds of OVX at the decision (cut points from earlier sessions only).",
+      "test": "HAC Wald test of equal miss rates across regimes: the miss indicator on a constant and regime dummies, Newey-West (Bartlett) with the lags in context; chi-squared with K-1 df; two-sided",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 4.97
+      },
+      "context": {
+        "df": 2,
+        "hac_lags": 10,
+        "n_days": 4370,
+        "coverage_low_pct": 77.2,
+        "coverage_mid_pct": 80.5,
+        "coverage_high_pct": 82.8,
+        "p_hac_lags_20": 0.111,
+        "p_hac_lags_40": 0.1458,
+        "p_all_cells": 0.1728
+      },
+      "p_value": 0.0833,
+      "sided": "two",
+      "p_two_sided": 0.0833,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "inconclusive",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Regime definitions and the test's form were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 9). A dependence is reported, never used to change the band.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "conformal.har_iv.conditional_coverage.ovx_tercile.wald",
+        "p_value_fields": {
+          "conformal.har_iv.conditional_coverage.ovx_tercile.p_value": 0.0833
+        },
+        "context_fields": {
+          "df": "conformal.har_iv.conditional_coverage.ovx_tercile.df",
+          "hac_lags": "conformal.har_iv.conditional_coverage.ovx_tercile.hac_lags",
+          "n_days": "conformal.har_iv.n_days",
+          "coverage_low_pct": "conformal.har_iv.coverage_by_regime_pct.ovx_tercile.low",
+          "coverage_mid_pct": "conformal.har_iv.coverage_by_regime_pct.ovx_tercile.mid",
+          "coverage_high_pct": "conformal.har_iv.coverage_by_regime_pct.ovx_tercile.high",
+          "p_hac_lags_20": "conformal.har_iv.conditional_coverage.ovx_tercile.robustness.hac_lags_20.p_value",
+          "p_hac_lags_40": "conformal.har_iv.conditional_coverage.ovx_tercile.robustness.hac_lags_40.p_value",
+          "p_all_cells": "conformal.har_iv.conditional_coverage.ovx_tercile.robustness.all_cells.p_value"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.276556,
+      "p_holm": 1.0,
+      "t_equivalent": 1.73,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "band_regime_ovx_rv_gap_har_iv",
+      "date": "2026-10-20",
+      "family": "forecast interval",
+      "hypothesis": "The model of record's 80% band misses at different rates across days with OVX/RV5 above and at or below its median over the previous 250 sessions.",
+      "test": "HAC Wald test of equal miss rates across regimes: the miss indicator on a constant and regime dummies, Newey-West (Bartlett) with the lags in context; chi-squared with K-1 df; two-sided",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 0.0
+      },
+      "context": {
+        "df": 1,
+        "hac_lags": 10,
+        "n_days": 4370,
+        "coverage_at_or_below_pct": 80.0,
+        "coverage_above_pct": 80.0,
+        "p_hac_lags_20": 0.9873,
+        "p_hac_lags_40": 0.9876,
+        "p_all_cells": 0.9996
+      },
+      "p_value": 0.9871,
+      "sided": "two",
+      "p_two_sided": 0.9871,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Regime definitions and the test's form were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 9). A dependence is reported, never used to change the band.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "conformal.har_iv.conditional_coverage.ovx_rv_gap.wald",
+        "p_value_fields": {
+          "conformal.har_iv.conditional_coverage.ovx_rv_gap.p_value": 0.9871
+        },
+        "context_fields": {
+          "df": "conformal.har_iv.conditional_coverage.ovx_rv_gap.df",
+          "hac_lags": "conformal.har_iv.conditional_coverage.ovx_rv_gap.hac_lags",
+          "n_days": "conformal.har_iv.n_days",
+          "coverage_at_or_below_pct": "conformal.har_iv.coverage_by_regime_pct.ovx_rv_gap.at_or_below",
+          "coverage_above_pct": "conformal.har_iv.coverage_by_regime_pct.ovx_rv_gap.above",
+          "p_hac_lags_20": "conformal.har_iv.conditional_coverage.ovx_rv_gap.robustness.hac_lags_20.p_value",
+          "p_hac_lags_40": "conformal.har_iv.conditional_coverage.ovx_rv_gap.robustness.hac_lags_40.p_value",
+          "p_all_cells": "conformal.har_iv.conditional_coverage.ovx_rv_gap.robustness.all_cells.p_value"
+        },
+        "name_fields": {
+          "window": "regimes.variables.ovx_rv_gap.window_sessions"
+        }
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.02,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "band_regime_rv5_tercile_har_iv",
+      "date": "2026-10-20",
+      "family": "forecast interval",
+      "hypothesis": "The model of record's 80% band misses at different rates across thirds of RV5 at the decision (cut points from earlier sessions only).",
+      "test": "HAC Wald test of equal miss rates across regimes: the miss indicator on a constant and regime dummies, Newey-West (Bartlett) with the lags in context; chi-squared with K-1 df; two-sided",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 2.52
+      },
+      "context": {
+        "df": 2,
+        "hac_lags": 10,
+        "n_days": 4370,
+        "coverage_low_pct": 78.3,
+        "coverage_mid_pct": 81.6,
+        "coverage_high_pct": 80.8,
+        "p_hac_lags_20": 0.3088,
+        "p_hac_lags_40": 0.3362,
+        "p_all_cells": 0.4683
+      },
+      "p_value": 0.2837,
+      "sided": "two",
+      "p_two_sided": 0.2837,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Regime definitions and the test's form were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 9). A dependence is reported, never used to change the band.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "conformal.har_iv.conditional_coverage.rv5_tercile.wald",
+        "p_value_fields": {
+          "conformal.har_iv.conditional_coverage.rv5_tercile.p_value": 0.2837
+        },
+        "context_fields": {
+          "df": "conformal.har_iv.conditional_coverage.rv5_tercile.df",
+          "hac_lags": "conformal.har_iv.conditional_coverage.rv5_tercile.hac_lags",
+          "n_days": "conformal.har_iv.n_days",
+          "coverage_low_pct": "conformal.har_iv.coverage_by_regime_pct.rv5_tercile.low",
+          "coverage_mid_pct": "conformal.har_iv.coverage_by_regime_pct.rv5_tercile.mid",
+          "coverage_high_pct": "conformal.har_iv.coverage_by_regime_pct.rv5_tercile.high",
+          "p_hac_lags_20": "conformal.har_iv.conditional_coverage.rv5_tercile.robustness.hac_lags_20.p_value",
+          "p_hac_lags_40": "conformal.har_iv.conditional_coverage.rv5_tercile.robustness.hac_lags_40.p_value",
+          "p_all_cells": "conformal.har_iv.conditional_coverage.rv5_tercile.robustness.all_cells.p_value"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.574319512195122,
+      "p_holm": 1.0,
+      "t_equivalent": 1.07,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "band_regime_target_spans_roll_har_iv",
+      "date": "2026-10-20",
+      "family": "forecast interval",
+      "hypothesis": "The model of record's 80% band misses at different rates between target windows that contain a contract roll and those that do not.",
+      "test": "HAC Wald test of equal miss rates across regimes: the miss indicator on a constant and regime dummies, Newey-West (Bartlett) with the lags in context; chi-squared with K-1 df; two-sided",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 0.006
+      },
+      "context": {
+        "df": 1,
+        "hac_lags": 10,
+        "n_days": 4370,
+        "coverage_no_pct": 79.9,
+        "coverage_yes_pct": 80.1,
+        "p_hac_lags_20": 0.9398,
+        "p_hac_lags_40": 0.9368,
+        "p_all_cells": 0.9968
+      },
+      "p_value": 0.9393,
+      "sided": "two",
+      "p_two_sided": 0.9393,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Regime definitions and the test's form were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 9). A dependence is reported, never used to change the band.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "conformal.har_iv.conditional_coverage.target_spans_roll.wald",
+        "p_value_fields": {
+          "conformal.har_iv.conditional_coverage.target_spans_roll.p_value": 0.9393
+        },
+        "context_fields": {
+          "df": "conformal.har_iv.conditional_coverage.target_spans_roll.df",
+          "hac_lags": "conformal.har_iv.conditional_coverage.target_spans_roll.hac_lags",
+          "n_days": "conformal.har_iv.n_days",
+          "coverage_no_pct": "conformal.har_iv.coverage_by_regime_pct.target_spans_roll.no",
+          "coverage_yes_pct": "conformal.har_iv.coverage_by_regime_pct.target_spans_roll.yes",
+          "p_hac_lags_20": "conformal.har_iv.conditional_coverage.target_spans_roll.robustness.hac_lags_20.p_value",
+          "p_hac_lags_40": "conformal.har_iv.conditional_coverage.target_spans_roll.robustness.hac_lags_40.p_value",
+          "p_all_cells": "conformal.har_iv.conditional_coverage.target_spans_roll.robustness.all_cells.p_value"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.08,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "band_regime_ovx_tercile_har_iv_range",
+      "date": "2026-10-20",
+      "family": "forecast interval",
+      "hypothesis": "The challenger HAR-IV-range's 80% band misses at different rates across thirds of OVX at the decision (cut points from earlier sessions only).",
+      "test": "HAC Wald test of equal miss rates across regimes: the miss indicator on a constant and regime dummies, Newey-West (Bartlett) with the lags in context; chi-squared with K-1 df; two-sided",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 3.08
+      },
+      "context": {
+        "df": 2,
+        "hac_lags": 10,
+        "n_days": 4370,
+        "coverage_low_pct": 77.8,
+        "coverage_mid_pct": 80.3,
+        "coverage_high_pct": 82.2,
+        "p_hac_lags_20": 0.2557,
+        "p_hac_lags_40": 0.3028,
+        "p_all_cells": 0.3792
+      },
+      "p_value": 0.2144,
+      "sided": "two",
+      "p_two_sided": 0.2144,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Regime definitions and the test's form were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 9). A dependence is reported, never used to change the band.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "conformal.har_iv_range.conditional_coverage.ovx_tercile.wald",
+        "p_value_fields": {
+          "conformal.har_iv_range.conditional_coverage.ovx_tercile.p_value": 0.2144
+        },
+        "context_fields": {
+          "df": "conformal.har_iv_range.conditional_coverage.ovx_tercile.df",
+          "hac_lags": "conformal.har_iv_range.conditional_coverage.ovx_tercile.hac_lags",
+          "n_days": "conformal.har_iv_range.n_days",
+          "coverage_low_pct": "conformal.har_iv_range.coverage_by_regime_pct.ovx_tercile.low",
+          "coverage_mid_pct": "conformal.har_iv_range.coverage_by_regime_pct.ovx_tercile.mid",
+          "coverage_high_pct": "conformal.har_iv_range.coverage_by_regime_pct.ovx_tercile.high",
+          "p_hac_lags_20": "conformal.har_iv_range.conditional_coverage.ovx_tercile.robustness.hac_lags_20.p_value",
+          "p_hac_lags_40": "conformal.har_iv_range.conditional_coverage.ovx_tercile.robustness.hac_lags_40.p_value",
+          "p_all_cells": "conformal.har_iv_range.conditional_coverage.ovx_tercile.robustness.all_cells.p_value"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.4562871794871795,
+      "p_holm": 1.0,
+      "t_equivalent": 1.24,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "band_regime_ovx_rv_gap_har_iv_range",
+      "date": "2026-10-20",
+      "family": "forecast interval",
+      "hypothesis": "The challenger HAR-IV-range's 80% band misses at different rates across days with OVX/RV5 above and at or below its median over the previous 250 sessions.",
+      "test": "HAC Wald test of equal miss rates across regimes: the miss indicator on a constant and regime dummies, Newey-West (Bartlett) with the lags in context; chi-squared with K-1 df; two-sided",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 0.022
+      },
+      "context": {
+        "df": 1,
+        "hac_lags": 10,
+        "n_days": 4370,
+        "coverage_at_or_below_pct": 79.8,
+        "coverage_above_pct": 80.1,
+        "p_hac_lags_20": 0.8844,
+        "p_hac_lags_40": 0.8864,
+        "p_all_cells": 0.9877
+      },
+      "p_value": 0.8809,
+      "sided": "two",
+      "p_two_sided": 0.8809,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Regime definitions and the test's form were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 9). A dependence is reported, never used to change the band.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "conformal.har_iv_range.conditional_coverage.ovx_rv_gap.wald",
+        "p_value_fields": {
+          "conformal.har_iv_range.conditional_coverage.ovx_rv_gap.p_value": 0.8809
+        },
+        "context_fields": {
+          "df": "conformal.har_iv_range.conditional_coverage.ovx_rv_gap.df",
+          "hac_lags": "conformal.har_iv_range.conditional_coverage.ovx_rv_gap.hac_lags",
+          "n_days": "conformal.har_iv_range.n_days",
+          "coverage_at_or_below_pct": "conformal.har_iv_range.coverage_by_regime_pct.ovx_rv_gap.at_or_below",
+          "coverage_above_pct": "conformal.har_iv_range.coverage_by_regime_pct.ovx_rv_gap.above",
+          "p_hac_lags_20": "conformal.har_iv_range.conditional_coverage.ovx_rv_gap.robustness.hac_lags_20.p_value",
+          "p_hac_lags_40": "conformal.har_iv_range.conditional_coverage.ovx_rv_gap.robustness.hac_lags_40.p_value",
+          "p_all_cells": "conformal.har_iv_range.conditional_coverage.ovx_rv_gap.robustness.all_cells.p_value"
+        },
+        "name_fields": {
+          "window": "regimes.variables.ovx_rv_gap.window_sessions"
+        }
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.15,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "band_regime_rv5_tercile_har_iv_range",
+      "date": "2026-10-20",
+      "family": "forecast interval",
+      "hypothesis": "The challenger HAR-IV-range's 80% band misses at different rates across thirds of RV5 at the decision (cut points from earlier sessions only).",
+      "test": "HAC Wald test of equal miss rates across regimes: the miss indicator on a constant and regime dummies, Newey-West (Bartlett) with the lags in context; chi-squared with K-1 df; two-sided",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 1.699
+      },
+      "context": {
+        "df": 2,
+        "hac_lags": 10,
+        "n_days": 4370,
+        "coverage_low_pct": 78.9,
+        "coverage_mid_pct": 81.6,
+        "coverage_high_pct": 79.9,
+        "p_hac_lags_20": 0.4564,
+        "p_hac_lags_40": 0.4888,
+        "p_all_cells": 0.6368
+      },
+      "p_value": 0.4276,
+      "sided": "two",
+      "p_two_sided": 0.4276,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Regime definitions and the test's form were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 9). A dependence is reported, never used to change the band.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "conformal.har_iv_range.conditional_coverage.rv5_tercile.wald",
+        "p_value_fields": {
+          "conformal.har_iv_range.conditional_coverage.rv5_tercile.p_value": 0.4276
+        },
+        "context_fields": {
+          "df": "conformal.har_iv_range.conditional_coverage.rv5_tercile.df",
+          "hac_lags": "conformal.har_iv_range.conditional_coverage.rv5_tercile.hac_lags",
+          "n_days": "conformal.har_iv_range.n_days",
+          "coverage_low_pct": "conformal.har_iv_range.coverage_by_regime_pct.rv5_tercile.low",
+          "coverage_mid_pct": "conformal.har_iv_range.coverage_by_regime_pct.rv5_tercile.mid",
+          "coverage_high_pct": "conformal.har_iv_range.coverage_by_regime_pct.rv5_tercile.high",
+          "p_hac_lags_20": "conformal.har_iv_range.conditional_coverage.rv5_tercile.robustness.hac_lags_20.p_value",
+          "p_hac_lags_40": "conformal.har_iv_range.conditional_coverage.rv5_tercile.robustness.hac_lags_40.p_value",
+          "p_all_cells": "conformal.har_iv_range.conditional_coverage.rv5_tercile.robustness.all_cells.p_value"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.7551234042553191,
+      "p_holm": 1.0,
+      "t_equivalent": 0.79,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "band_regime_target_spans_roll_har_iv_range",
+      "date": "2026-10-20",
+      "family": "forecast interval",
+      "hypothesis": "The challenger HAR-IV-range's 80% band misses at different rates between target windows that contain a contract roll and those that do not.",
+      "test": "HAC Wald test of equal miss rates across regimes: the miss indicator on a constant and regime dummies, Newey-West (Bartlett) with the lags in context; chi-squared with K-1 df; two-sided",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 0.74
+      },
+      "context": {
+        "df": 1,
+        "hac_lags": 10,
+        "n_days": 4370,
+        "coverage_no_pct": 79.5,
+        "coverage_yes_pct": 81.2,
+        "p_hac_lags_20": 0.3935,
+        "p_hac_lags_40": 0.3704,
+        "p_all_cells": 0.6892
+      },
+      "p_value": 0.3895,
+      "sided": "two",
+      "p_two_sided": 0.3895,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Regime definitions and the test's form were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 9). A dependence is reported, never used to change the band.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "conformal.har_iv_range.conditional_coverage.target_spans_roll.wald",
+        "p_value_fields": {
+          "conformal.har_iv_range.conditional_coverage.target_spans_roll.p_value": 0.3895
+        },
+        "context_fields": {
+          "df": "conformal.har_iv_range.conditional_coverage.target_spans_roll.df",
+          "hac_lags": "conformal.har_iv_range.conditional_coverage.target_spans_roll.hac_lags",
+          "n_days": "conformal.har_iv_range.n_days",
+          "coverage_no_pct": "conformal.har_iv_range.coverage_by_regime_pct.target_spans_roll.no",
+          "coverage_yes_pct": "conformal.har_iv_range.coverage_by_regime_pct.target_spans_roll.yes",
+          "p_hac_lags_20": "conformal.har_iv_range.conditional_coverage.target_spans_roll.robustness.hac_lags_20.p_value",
+          "p_hac_lags_40": "conformal.har_iv_range.conditional_coverage.target_spans_roll.robustness.hac_lags_40.p_value",
+          "p_all_cells": "conformal.har_iv_range.conditional_coverage.target_spans_roll.robustness.all_cells.p_value"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.7184111111111111,
+      "p_holm": 1.0,
+      "t_equivalent": 0.86,
       "survives_bh_5pct": false,
       "survives_holm_5pct": false,
       "clears_hlz_t3": false
@@ -2608,8 +3063,8 @@
           "group": "groups[key=supply_lost].name"
         }
       },
-      "q_value_bh": 0.008653846153846154,
-      "p_holm": 0.0945,
+      "q_value_bh": 0.009576923076923077,
+      "p_holm": 0.1065,
       "t_equivalent": 3.17,
       "survives_bh_5pct": true,
       "survives_holm_5pct": false,
@@ -2653,7 +3108,7 @@
           "group": "groups[key=supply_lost].name"
         }
       },
-      "q_value_bh": 0.28527777777777774,
+      "q_value_bh": 0.3044321428571429,
       "p_holm": 1.0,
       "t_equivalent": 1.63,
       "survives_bh_5pct": false,
@@ -2698,7 +3153,7 @@
           "group": "groups[key=threat_only].name"
         }
       },
-      "q_value_bh": 0.9258173076923077,
+      "q_value_bh": 0.9346964912280702,
       "p_holm": 1.0,
       "t_equivalent": 0.47,
       "survives_bh_5pct": false,
@@ -2788,7 +3243,7 @@
           "group": "groups[key=opec_cut].name"
         }
       },
-      "q_value_bh": 0.26940000000000003,
+      "q_value_bh": 0.2866692307692308,
       "p_holm": 1.0,
       "t_equivalent": 1.7,
       "survives_bh_5pct": false,
@@ -2833,7 +3288,7 @@
           "group": "groups[key=opec_cut].name"
         }
       },
-      "q_value_bh": 0.32867647058823524,
+      "q_value_bh": 0.3533428571428571,
       "p_holm": 1.0,
       "t_equivalent": 1.44,
       "survives_bh_5pct": false,
@@ -2923,7 +3378,7 @@
           "group": "groups[key=weather].name"
         }
       },
-      "q_value_bh": 0.32867647058823524,
+      "q_value_bh": 0.3533428571428571,
       "p_holm": 1.0,
       "t_equivalent": 1.45,
       "survives_bh_5pct": false,
@@ -2968,7 +3423,7 @@
           "group": "groups[key=conflict].name"
         }
       },
-      "q_value_bh": 0.41777027027027025,
+      "q_value_bh": 0.45016578947368424,
       "p_holm": 1.0,
       "t_equivalent": 1.28,
       "survives_bh_5pct": false,
@@ -3013,7 +3468,7 @@
           "group": "groups[key=conflict].name"
         }
       },
-      "q_value_bh": 0.845625,
+      "q_value_bh": 0.8403326530612244,
       "p_holm": 1.0,
       "t_equivalent": 0.68,
       "survives_bh_5pct": false,
@@ -3058,7 +3513,7 @@
           "group": "groups[key=sanctions].name"
         }
       },
-      "q_value_bh": 0.9527312982523835,
+      "q_value_bh": 0.971984409904567,
       "p_holm": 1.0,
       "t_equivalent": 0.36,
       "survives_bh_5pct": false,
@@ -3103,7 +3558,7 @@
           "group": "groups[key=sanctions].name"
         }
       },
-      "q_value_bh": 0.9258173076923077,
+      "q_value_bh": 0.9346964912280702,
       "p_holm": 1.0,
       "t_equivalent": 0.49,
       "survives_bh_5pct": false,
@@ -3148,7 +3603,7 @@
           "group": "groups[key=iran_driven].name"
         }
       },
-      "q_value_bh": 0.9527312982523835,
+      "q_value_bh": 0.971984409904567,
       "p_holm": 1.0,
       "t_equivalent": 0.4,
       "survives_bh_5pct": false,
@@ -3283,7 +3738,7 @@
           "group": "groups[key=strait_risk].name"
         }
       },
-      "q_value_bh": 0.9846249999999999,
+      "q_value_bh": 1.0,
       "p_holm": 1.0,
       "t_equivalent": 0.27,
       "survives_bh_5pct": false,
@@ -3322,7 +3777,7 @@
           "threat": "groups[key=threat_only].name"
         }
       },
-      "q_value_bh": 0.11035714285714285,
+      "q_value_bh": 0.12212857142857143,
       "p_holm": 1.0,
       "t_equivalent": 2.16,
       "survives_bh_5pct": false,
@@ -3361,7 +3816,7 @@
           "threat": "groups[key=threat_only].name"
         }
       },
-      "q_value_bh": 0.7086585365853659,
+      "q_value_bh": 0.7184111111111111,
       "p_holm": 1.0,
       "t_equivalent": 0.86,
       "survives_bh_5pct": false,
@@ -3405,7 +3860,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.9527312982523835,
+      "q_value_bh": 0.971984409904567,
       "p_holm": 1.0,
       "t_equivalent": 0.33,
       "survives_bh_5pct": false,

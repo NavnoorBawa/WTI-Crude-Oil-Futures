@@ -16,6 +16,8 @@ two functions that need them), each checked against cases with a known answer in
   - kupiec / christoffersen /   VaR backtests: unconditional coverage (Kupiec 1995), independence and
     dq_test / basel_zone        conditional coverage (Christoffersen 1998), the Dynamic Quantile test
                                 (Engle-Manganelli 2004) and the Basel traffic light.
+  - coverage_by_group_test      HAC Wald tests of an interval's misses across groups (regimes): equal
+                                miss rates, every rate at its target, and a HAC z per group.
   - adaptive_conformal /        Adaptive conformal inference intervals (Gibbs and Candes 2021), and
     delayed_aci                 the same when each outcome is only observed `delay` rows later.
 """
@@ -238,6 +240,38 @@ def dq_test(exceed: npt.ArrayLike, var_level: npt.ArrayLike, p: float, lags: int
     beta, *_ = np.linalg.lstsq(Xd, yd, rcond=None)
     dq = float(beta @ Xd.T @ Xd @ beta) / (p * (1 - p))
     return {"dq": round(dq, 3), "df": int(Xd.shape[1]), "p_value": float(stats.chi2.sf(dq, Xd.shape[1]))}
+
+
+def coverage_by_group_test(miss: npt.ArrayLike, group: npt.ArrayLike, k: int, alpha: float, lags: int) -> dict[str, Any]:
+    """HAC Wald tests of interval misses across groups 0..k-1 (Newey-West, Bartlett weights 1 - j/(lags + 1), no
+    small-sample correction). The regression of (miss - alpha) on the k group dummies gives b_j = group j's miss rate
+    - alpha. `equal`: R b = 0, chi2(k - 1): every group's miss rate the same (the band's level is pinned by its
+    method, so this is the dependence test). `all_cells`: b = 0, chi2(k): every group's rate at alpha. `cells`: b_j
+    / se_j with its two-sided normal p. Every group must be non-empty."""
+    y = np.asarray(miss, dtype=float) - alpha
+    g = np.asarray(group, dtype=int)
+    dummies = np.column_stack([(g == j).astype(float) for j in range(k)])
+    if dummies.sum(axis=0).min() == 0:
+        raise ValueError("every group needs at least one observation")
+    b = np.array([y[g == j].mean() for j in range(k)])
+    u = y - dummies @ b
+    n = y.size
+    s = dummies * u[:, None]
+    meat = s.T @ s / n
+    for lag in range(1, lags + 1):
+        gamma = s[lag:].T @ s[:-lag] / n
+        meat += (1 - lag / (lags + 1)) * (gamma + gamma.T)
+    bread = np.linalg.inv(dummies.T @ dummies / n)
+    cov = bread @ meat @ bread / n
+    r = np.column_stack([-np.ones(k - 1), np.eye(k - 1)])
+    rb = r @ b
+    w_equal = float(rb @ np.linalg.solve(r @ cov @ r.T, rb))
+    w_all = float(b @ np.linalg.solve(cov, b))
+    z = b / np.sqrt(np.diag(cov))
+    return {"equal": {"wald": w_equal, "df": k - 1, "p_value": float(stats.chi2.sf(w_equal, k - 1))},
+            "all_cells": {"wald": w_all, "df": k, "p_value": float(stats.chi2.sf(w_all, k))},
+            "cells": [{"z": float(zj), "p_value": float(2 * stats.norm.sf(abs(zj)))} for zj in z],
+            "lags": int(lags)}
 
 
 def basel_zone(exceed_last_250: int) -> str:
