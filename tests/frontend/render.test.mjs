@@ -325,6 +325,7 @@ test("no source file restates a statistic from the fixtures as a literal", () =>
   walk(research.postmortem.five_year.leaked.sharpe); walk(research.postmortem.five_year.purged);
   walk(research.vol_lab.leaderboard.spa_qlike_vs_har_iv); walk(research.leak_anatomy.unpurged_dir_acc_pct_mean);
   walk(research.supply_study.placebo);
+  walk(JSON.parse(readSource("data/vol_lab.json")).qlike_floor);       // the proxy's noise floor (0.213 and the rest)
   // ... and fail on any of them written as a numeric literal in src/ (design constants are integers
   // or listed here with their reason).
   const allowed = new Set([

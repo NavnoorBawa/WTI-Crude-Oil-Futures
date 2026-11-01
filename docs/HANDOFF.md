@@ -25,7 +25,9 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   the Combination), but not after the ledger's Benjamini-Hochberg adjustment (q = 0.090). The
   challenger runs live under the pinned 52-week, one-look promotion test. `data/vol_lab.json`
   rebuilds bit for bit (Reproduce workflow: on every PR or push to `main` that touches the pipeline,
-  its inputs or its pins, and weekly).
+  its inputs or its pins, and weekly). The losses' level is read against the proxy's QLIKE noise
+  floor (`vol_lab.qlike_floor`, ROADMAP 2.1): at least 0.213 against the five-return proxy, more
+  with heavier tails; shown on the QLIKE tile and in MODL, never subtracted from a loss or test.
 - **Live record.** Daily calls are recorded and sealed in git on the `live-data` branch before their
   window opens; each call since 2026-10-28 also stores its fit, so it recomputes from its own entry.
   The first three windows resolved on 2026-10-29, 10-30 and 10-31: the Oct 20 call (47.3%, band
@@ -51,7 +53,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   accepted on 2026-11-01 after two scheduled publishes with anchors; LIVE and a second anchor
   remain). From #95 the Refresh workflow's three field jobs keep the unsealed shadow log of the
   whole field on the `field-data` branch (ROADMAP 1.8; `backend/field_record.py`, #94).
-- **Tests.** 629 Python (unittest), 267 frontend (node --test) and 13 browser checks (Playwright,
+- **Tests.** 629 Python (unittest), 273 frontend (node --test) and 13 browser checks (Playwright,
   the "Interface" CI job: axe, layout shift, overflow, keyboard, print, script budget). CI also runs
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
   Reproduce rebuild. Releases: `scripts/bump_version.py`, and `.github/workflows/release.yml`
