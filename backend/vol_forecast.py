@@ -193,7 +193,9 @@ def _load_data_full(period: str = HISTORY_PERIOD, now: datetime | None = None) -
         "ovx_source": None, "ovx_as_of": None, "ovx_error": None, "ohlc": None, "ohlc_error": None,
         # The live track record (backend/vol_record.py) scores forecasts on these closes.
         "recent_closes": {"date": [str(d.date()) for d in tail.index],
-                          "close": [round(float(v), 4) for v in tail.to_numpy()]}}
+                          "close": [round(float(v), 4) for v in tail.to_numpy()]},
+        # The closes themselves, for the freeze's source check (_source_check); never serialised.
+        "cl_close": close}
     try:
         try:
             from .market_data import clean_ohlc
@@ -232,6 +234,32 @@ def _load_data_full(period: str = HISTORY_PERIOD, now: datetime | None = None) -
             printed = raw[raw.index <= logret.index[-1]]
             meta["ovx_as_of"] = str(printed.index[-1].date()) if len(printed) else None
     return logret.to_numpy(dtype=float), pd.DatetimeIndex(logret.index), ovx, meta
+
+
+def _source_check(close: pd.Series | None) -> dict[str, Any] | None:
+    """The freeze's report on the live CL=F closes (market_data.freeze_source_check), or None without them.
+
+    It reports and never stops a freeze: any failure (no snapshot, no EIA data) gives
+    {"status": "unavailable", "reason": <the exception's class name>}. The message is left out on
+    purpose, here and in the log: an EIA request error carries its URL, and the URL the API key.
+    """
+    if close is None:
+        return None
+    try:
+        try:
+            from .market_data import freeze_source_check, load_snapshot
+            from .supply_shock_playbook import fetch_wti_daily
+        except ImportError:  # pragma: no cover - direct invocation
+            from market_data import freeze_source_check, load_snapshot  # type: ignore[no-redef]
+            from supply_shock_playbook import fetch_wti_daily  # type: ignore[import-not-found, no-redef]
+        rows = cast("list[tuple[str, float]]", fetch_wti_daily())  # type: ignore[no-untyped-call]
+        spot = pd.Series([float(price) for _, price in rows],
+                         index=pd.DatetimeIndex(pd.to_datetime([day for day, _ in rows])), dtype=float)
+        block = freeze_source_check(close, load_snapshot(), spot)
+        return cast("dict[str, Any]", json.loads(json.dumps(block, allow_nan=False)))
+    except Exception as exc:  # noqa: BLE001 - a report never stops the freeze
+        logger.warning("CL=F source check unavailable: %s", type(exc).__name__)
+        return {"status": "unavailable", "reason": type(exc).__name__}
 
 
 def _load_data(period: str = HISTORY_PERIOD, now: datetime | None = None) -> MarketData:
@@ -1072,6 +1100,8 @@ def forecast_bundle(period: str = HISTORY_PERIOD) -> dict[str, Any]:
         "economic": report.get("economic", {}),
         "recent_oos": _recent_series(frame) if use_ovx else None,
         "recent_closes": meta.get("recent_closes"),
+        # A report on the closes behind this forecast, outside `live`: never part of a sealed entry.
+        "source_check": _source_check(meta.get("cl_close")),
     }
 
 

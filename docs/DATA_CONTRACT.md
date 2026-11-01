@@ -75,6 +75,13 @@ runs `build_research_bundle.validate` on `research.json`).
     },
     "recent_oos": { "date": [], "actual": [], "forecast": [], "median": [], "rv5": [], "lo80": [], "hi80": [] },
     "recent_closes": { "date": [], "close": [] },     // the last 40 finished-session CL=F closes (the record scores on these)
+    "source_check": {                                 // optional; report only (market_data.freeze_source_check), or
+                                                      // {"status": "unavailable", "reason": "<exception class>"}
+      "snapshot": { "status": "pass", "first": "2000-08-23", "last": "2026-10-19", "sessions": 6564, "tolerance_usd": 0.01,
+                    "n_missing": 0, "n_added": 0, "n_beyond_tick": 0, "dates": [] },
+      "spot": { "status": "pass", "tolerance_abs_log_gap": 0.4, "after": "2026-06-15", "sessions_after": 95,
+                "spot_last": "2026-10-27", "paired": 90, "max_abs_log_gap": 0.0809, "n_above": 0, "dates": [] }
+    },
     "live_record": {                                  // backend/vol_record.py summarize(), added after the freeze
       "started": "2026-10-20",
       "n_recorded": 0, "n_resolved": 0, "n_pending": 0, "n_skipped_roll": 0, "n_expired": 0,
@@ -138,7 +145,14 @@ its pair (`model_version`, `challenger_key`: non-empty strings) and give the thr
 (non-negative integers); `champion.model_version` and `challenger.key` must be that pair; and the
 resolved entries must add up: `n_resolved = champion.n + promotion.n_excluded_other_version`, and
 `champion.n = challenger.n + promotion.n_excluded_other_challenger +
-promotion.n_excluded_no_challenger`. `chain` is optional (summaries written before the hash chain
+promotion.n_excluded_no_challenger`. `vol_forecast.source_check` is optional and only reports: the
+freeze's check of the live `CL=F` closes against the pinned snapshot (status `pass` or
+`beyond_tolerance`) and against a fresh EIA Cushing spot series after the pinned spot copy ends
+(`pass`, `beyond_tolerance` or `no_spot_rows`, never read as a pass), or `{status: "unavailable",
+reason}` with the exception's class name only. Counts are non-negative integers, `dates` at most ten
+ISO dates, `max_abs_log_gap` finite or null; a malformed block fails validation, and a finding is
+only a note (Health lists it). It is outside `live`, so no sealed record entry carries it.
+`chain` is optional (summaries written before the hash chain
 omit it); when present, `n_linked` is a non-negative integer no larger than `n_recorded` and
 `breaks` a list of ISO dates, empty unless a sealed entry's link is missing or does not match the entry before it. `next_result_due` must be present: an ISO date (`YYYY-MM-DD`)
 or null, and null when no entry is pending. The `recent[]` audit fields are optional (summaries

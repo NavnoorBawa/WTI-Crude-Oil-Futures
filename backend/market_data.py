@@ -66,6 +66,10 @@ EIA_FUTURES_JSON = DATA_ROOT / "eia_wti_futures_curve.json"
 EIA_SPOT_JSON = DATA_ROOT / "eia_wti_spot_daily.json"
 TICK = 0.01                    # CL's price increment, $/bbl: EIA publishes cents, Yahoo stores float32
 TICK_TOLERANCE = TICK + 1e-9           # on prices rounded to the cent (cents)
+# freeze_source_check: a gap from Cushing spot this large is a gross error, not a market move (the
+# largest since 2000-08-23 is 0.354, on 2020-03-30); dates listed per check in the payload.
+SPOT_LOG_GAP_TOLERANCE = 0.40
+SOURCE_CHECK_LISTED = 10
 FRED_OVX_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=OVXCLS"
 FLOAT_FORMAT = "%.6f"          # fixed formatting: identical inputs give identical bytes and digests
 OHLC = ["Open", "High", "Low", "Close"]
@@ -362,6 +366,56 @@ def cl_source_agreement(snapshot: MarketSnapshot, sample_first: str | None = Non
                  "max_gap_date": worst.strftime("%Y-%m-%d")},
     }
 
+
+
+def _iso(day: Any) -> str:
+    return pd.Timestamp(day).strftime("%Y-%m-%d")
+
+
+def freeze_source_check(close: pd.Series, snapshot: MarketSnapshot, spot: pd.Series | None) -> dict[str, Any]:
+    """The live CL=F closes a freeze uses, checked against the pinned snapshot and a fresh Cushing spot series.
+
+    Report only (vol_forecast._source_check puts it in the payload; nothing fails on it). `snapshot`:
+    every pinned session must be in the live series and within one tick of it, rounded to the cent
+    (cents), and no live session inside the pinned span may be new; a mismatch means Yahoo revised its
+    history (prices only: volume is never compared). `spot`: live sessions after the pinned spot copy
+    ends, paired with spot prices above zero, must be within SPOT_LOG_GAP_TOLERANCE in absolute log
+    terms, which catches only a gross error. With nothing to pair the status is no_spot_rows, never a
+    pass. Every value is an int, a float, a str or None (no NaN), so the block serialises as JSON.
+    """
+    live = cents(close)
+    pinned = cents(snapshot.cl["Close"])
+    first, last = pinned.index.min(), pinned.index.max()
+    within = live[(live.index >= first) & (live.index <= last)]
+    common = pinned.index.intersection(live.index)
+    gap = (live.loc[common] - pinned.loc[common]).abs()
+    missing = pinned.index.difference(live.index)
+    added = within.index.difference(pinned.index)
+    beyond = gap.index[gap.to_numpy() > TICK_TOLERANCE]
+    flagged = sorted({*missing, *added, *beyond})
+    pinned_check: dict[str, Any] = {
+        "status": "beyond_tolerance" if flagged else "pass",
+        "first": _iso(first), "last": _iso(last), "sessions": int(len(pinned)), "tolerance_usd": TICK,
+        "n_missing": int(len(missing)), "n_added": int(len(added)), "n_beyond_tick": int(len(beyond)),
+        "dates": [_iso(day) for day in flagged[:SOURCE_CHECK_LISTED]],
+    }
+    spot_from = snapshot.eia_spot.index.max() if snapshot.eia_spot is not None and len(snapshot.eia_spot) else last
+    after = close[(close.index > spot_from) & (close > 0)].rename("cl")
+    usable = spot[spot > 0].rename("spot") if spot is not None else pd.Series(dtype=float, name="spot")
+    paired = pd.concat([after, usable], axis=1, join="inner").dropna()
+    spot_check: dict[str, Any] = {
+        "status": "no_spot_rows", "tolerance_abs_log_gap": SPOT_LOG_GAP_TOLERANCE, "after": _iso(spot_from),
+        "sessions_after": int(len(after)), "spot_last": _iso(usable.index.max()) if len(usable) else None,
+        "paired": int(len(paired)), "max_abs_log_gap": None, "n_above": 0, "dates": [],
+    }
+    if len(paired):
+        log_gap = pd.Series(np.abs(np.log(paired["cl"].to_numpy(dtype=float) / paired["spot"].to_numpy(dtype=float))),
+                            index=paired.index)
+        above = log_gap.index[log_gap.to_numpy() > SPOT_LOG_GAP_TOLERANCE]
+        spot_check.update(status="beyond_tolerance" if len(above) else "pass",
+                          max_abs_log_gap=round(float(log_gap.max()), 4), n_above=int(len(above)),
+                          dates=[_iso(day) for day in above[:SOURCE_CHECK_LISTED]])
+    return {"snapshot": pinned_check, "spot": spot_check}
 
 def main(argv: list[str] | None = None) -> int:
     import argparse

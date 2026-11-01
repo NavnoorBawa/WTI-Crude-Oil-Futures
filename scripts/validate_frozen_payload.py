@@ -301,7 +301,64 @@ def _validate_vol_forecast(vol: Any, session: date | None, notes: list[str]) -> 
 
     if "live_record" in vol:
         errors.extend(_validate_live_record(vol["live_record"]))
+    if vol.get("source_check") is not None:
+        errors.extend(_validate_source_check(vol["source_check"], notes))
     return errors
+
+
+SOURCE_STATUSES = {"snapshot": {"pass", "beyond_tolerance"}, "spot": {"pass", "beyond_tolerance", "no_spot_rows"}}
+REASON = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
+
+
+def _validate_source_check(block: Any, notes: list[str]) -> list[str]:
+    """vol_forecast.source_check (market_data.freeze_source_check) is optional and only reports.
+
+    A malformed block is an error, as anything malformed is; a check that found something is only a
+    note, with fixed text, never an error: the freeze publishes and records as usual, and Health
+    lists it (scripts/record_health.py).
+    """
+    where = "vol_forecast.source_check"
+    if not isinstance(block, dict):
+        return [f"{where} must be an object or null"]
+    if block.get("status") == "unavailable":
+        if set(block) != {"status", "reason"} or not (isinstance(block["reason"], str) and REASON.fullmatch(block["reason"])):
+            return [f"{where}: an unavailable check carries only a status and an exception class name"]
+        notes.append(f"{where} could not run; Health lists it")
+        return []
+    if set(block) != {"snapshot", "spot"}:
+        return [f"{where} must have exactly the keys snapshot and spot, or be unavailable"]
+    errors: list[str] = []
+    for name, check in (("snapshot", block["snapshot"]), ("spot", block["spot"])):
+        check = _dict(check)
+        if check.get("status") not in SOURCE_STATUSES[name]:
+            errors.append(f"{where}.{name}.status must be one of {sorted(SOURCE_STATUSES[name])}")
+        counts = ("sessions", "n_missing", "n_added", "n_beyond_tick") if name == "snapshot" else (
+            "sessions_after", "paired", "n_above")
+        for key in counts:
+            if not _count(check.get(key)):
+                errors.append(f"{where}.{name}.{key} must be a non-negative integer")
+        dates = check.get("dates")
+        if not isinstance(dates, list) or not all(_strict_iso_date(day) for day in dates):
+            errors.append(f"{where}.{name}.dates must be a list of ISO dates")
+        for key in (("first", "last") if name == "snapshot" else ("after",)):
+            if not _strict_iso_date(check.get(key)):
+                errors.append(f"{where}.{name}.{key} must be an ISO date")
+    snapshot, spot = _dict(block["snapshot"]), _dict(block["spot"])
+    if not _finite_number(snapshot.get("tolerance_usd"), positive=True):
+        errors.append(f"{where}.snapshot.tolerance_usd must be finite and positive")
+    if not _finite_number(spot.get("tolerance_abs_log_gap"), positive=True):
+        errors.append(f"{where}.spot.tolerance_abs_log_gap must be finite and positive")
+    gap = spot.get("max_abs_log_gap")
+    if gap is not None and not _finite_number(gap):
+        errors.append(f"{where}.spot.max_abs_log_gap must be finite or null")
+    if spot.get("spot_last") is not None and not _strict_iso_date(spot["spot_last"]):
+        errors.append(f"{where}.spot.spot_last must be an ISO date or null")
+    if errors:
+        return errors
+    for name, check in (("snapshot", snapshot), ("spot", spot)):
+        if check["status"] == "beyond_tolerance":
+            notes.append(f"{where}.{name} found sessions beyond its tolerance; Health lists them")
+    return []
 
 
 def _validate_live_record(record: Any) -> list[str]:
