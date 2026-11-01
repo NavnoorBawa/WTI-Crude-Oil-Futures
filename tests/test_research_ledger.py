@@ -38,7 +38,7 @@ class LedgerIsCurrentTest(unittest.TestCase):
                 for label, path in row["artifact"]["context_fields"].items():
                     self.assertEqual(rl.resolve(doc, path), row["context"][label])
                 for path in row["artifact"]["name_fields"].values():
-                    self.assertIn(rl.resolve(doc, path), row["hypothesis"])
+                    self.assertIn(str(rl.resolve(doc, path)), row["hypothesis"])          # as the ledger formats it
                 if len(row["artifact"]["p_value_fields"]) == 1 and row["p_value"] is not None:
                     stored = next(iter(row["artifact"]["p_value_fields"].values()))
                     if isinstance(stored, float) and 0.0 <= stored <= 1.0:

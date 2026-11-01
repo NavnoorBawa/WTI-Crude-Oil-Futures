@@ -1027,12 +1027,12 @@ def _band_verdict(row: dict, cc: dict) -> str:
     p = cc["p_value"]
     if p < 0.05:
         survives = "survives" if row.get("survives_bh_5pct") else "does not survive"
-        text = (f"significant at 5% ({_peq_thr(p)}; it {survives} the ledger's Benjamini-Hochberg adjustment, "
+        text = (f"is significant at 5% ({_peq_thr(p)}; it {survives} the ledger's Benjamini-Hochberg adjustment, "
                 f"q = {_pthr(row['q_value_bh'])}")
     elif p < 0.10:
-        text = f"inconclusive ({_peq_thr(p)}; q = {_pthr(row['q_value_bh'])} after the ledger's adjustment"
+        text = f"is inconclusive ({_peq_thr(p)}; q = {_pthr(row['q_value_bh'])} after the ledger's adjustment"
     else:
-        text = f"no dependence detected ({_peq_thr(p)}"
+        text = f"detects no dependence ({_peq_thr(p)}"
     robust = cc["robustness"]
     for label, value in ((f"with {lags} HAC lags", robust[f"hac_lags_{lags}"]["p_value"]) for lags in (20, 40)):
         if _band(value) != _band(p):
@@ -1056,7 +1056,7 @@ def regime_block() -> str:
     for var, title in _REGIME_SPLITS.items():
         cells = {cell["regime"]: cell for cell in c["conditional_coverage"][var]["cells"]}
         for i, level in enumerate(lab["regimes"]["variables"][var]["levels"]):
-            rows.append(f"| {title if i == 0 else ''} | {_REGIME_LEVELS[level]} | {c['n_days_by_regime'][var][level]:,} | "
+            rows.append(f"| {title[0].upper() + title[1:] if i == 0 else ''} | {_REGIME_LEVELS[level]} | {c['n_days_by_regime'][var][level]:,} | "
                         f"{c['coverage_by_regime_pct'][var][level]}% | {c['miss_above_by_regime_pct'][var][level]}% / "
                         f"{c['miss_below_by_regime_pct'][var][level]}% | {c['interval_score_by_regime'][var][level]} | "
                         f"{_fmt(c['log_interval_score_by_regime'][var][level])} | {_pthr(cells[level]['hac_p'])} |")
@@ -1067,7 +1067,7 @@ def regime_block() -> str:
             cc = conf[key]["conditional_coverage"][var]
             row = _ledger_row(ledger, f"band_regime_{var}_{key}")
             robust = cc["robustness"]
-            rows.append(f"| {title} | {_model(lab, key)['label']} | {_fmt(cc['wald'], 2)} ({cc['df']}) | "
+            rows.append(f"| {title[0].upper() + title[1:]} | {_model(lab, key)['label']} | {_fmt(cc['wald'], 2)} ({cc['df']}) | "
                         f"{_pthr(cc['p_value'])} | {_pthr(row['q_value_bh'])} | {_pthr(robust['hac_lags_20']['p_value'])} | "
                         f"{_pthr(robust['hac_lags_40']['p_value'])} | {_pthr(robust['all_cells']['p_value'])} |")
     test = lab["regimes"]["test"]
@@ -1094,8 +1094,9 @@ def regime_reading() -> str:
         for var, title in _REGIME_SPLITS.items():
             cc = conf[key]["conditional_coverage"][var]
             coverage = conf[key]["coverage_by_regime_pct"][var]
-            span = f"{min(coverage.values())}% to {max(coverage.values())}%"
-            verdicts.append(f"across {title} it covered {span}, and equal coverage is "
+            low, high = min(coverage.values()), max(coverage.values())
+            span = f"{low}% in each" if low == high else f"{low}% to {high}%"
+            verdicts.append(f"across {title} it covered {span}, and the test of equal coverage "
                             f"{_band_verdict(_ledger_row(ledger, f'band_regime_{var}_{key}'), cc)}")
         parts.append(f"For {subject}, " + "; ".join(verdicts) + ".")
     return (" ".join(parts) + " Equal coverage is tested, not the coverage of any one regime: a single regime's "
