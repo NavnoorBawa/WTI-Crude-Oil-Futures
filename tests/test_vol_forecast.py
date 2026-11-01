@@ -187,6 +187,22 @@ class ValidateOfflineTest(unittest.TestCase):
                 mock.patch("backend.vol_lab.live_model_forecast", **(lab_forecast or {})):
             return vf.forecast_bundle()["live"]
 
+    def test_the_source_check_of_the_forecast_s_closes_is_published_beside_live_and_never_inside_it(self):
+        r, dates, ovx = self.data
+        closes = pd.Series(70.0, index=dates)
+        meta = {"ovx_source": "test", "ovx_as_of": None, "ovx_error": None, "ohlc": pd.DataFrame(index=dates),
+                "ohlc_error": None, "recent_closes": None, "cl_close": closes}
+        block = {"status": "unavailable", "reason": "Sentinel"}
+        with mock.patch.object(vf, "_load_data_full", return_value=(r, dates, ovx, meta)), \
+                mock.patch.object(vf, "validate", return_value=(self.report, self.frame)), \
+                mock.patch.object(vf, "_lab_challenger", return_value=("har_iv_range", None)), \
+                mock.patch("backend.vol_lab.live_model_forecast", return_value={"key": "har_iv_range"}), \
+                mock.patch.object(vf, "_source_check", return_value=block) as check:
+            bundle = vf.forecast_bundle()
+        self.assertIs(check.call_args.args[0], closes)
+        self.assertEqual(bundle["source_check"], block)
+        self.assertNotIn("source_check", bundle["live"])
+
     def test_the_challenger_is_published_with_no_error(self):
         live = self._bundle(lab_forecast={"return_value": {"key": "har_iv_range"}})
         self.assertEqual(live["challenger"], {"key": "har_iv_range"})

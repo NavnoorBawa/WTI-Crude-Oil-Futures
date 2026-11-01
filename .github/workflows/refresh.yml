@@ -148,8 +148,9 @@ jobs:
 
       - name: Freeze data snapshot -> public/data.json
         env:
-          # The only credential production uses: the supply-shock study's EIA spot history. It is
-          # optional; without it the study keeps its committed cache.
+          # The only credential production uses: EIA's Cushing spot history, for the supply-shock
+          # study and the freeze's CL=F source check (vol_forecast.source_check). Without it the study
+          # keeps its committed cache and the spot check covers nothing recent, which Health reports.
           EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
         run: python freeze.py --out public
 

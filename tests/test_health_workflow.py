@@ -175,6 +175,9 @@ class HealthWorkflowTest(unittest.TestCase):
         self.assertEqual(repo.run("2026-11-04T20:00:00Z"), 0, repo.last.stderr)
         self.assertEqual([i["state"] for i in repo.issues()], ["closed"])
         self.assertTrue(repo.issues()[0]["comments"][-1].startswith("Healthy at"))
+        # Closed by Health itself, so its body lists no incident keys: only a person's close acknowledges.
+        self.assertTrue(repo.issues()[0]["body"].startswith("Healthy at"))
+        self.assertNotIn("health-incidents", repo.issues()[0]["body"])
 
     def test_a_changed_problem_edits_the_issue_once_with_a_comment(self):
         repo = self.repo(record_with(["2026-11-02", "2026-11-03"]), {"frozen_at": "2026-11-03T20:00:00Z"})

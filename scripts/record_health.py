@@ -3,7 +3,7 @@
 
 .github/workflows/health.yml runs this daily and after every Refresh and Reproduce run on main, on
 `gh api` copies of live-data's runtime-state/vol_track_record.json and gh-pages' data.json and on
-`gh run list` output for the two workflows. It reports two kinds of problem.
+`gh run list` output for the two workflows. It reports three kinds of problem.
 
 Needs a person (the Health run fails until it clears):
 - the record does not load under vol_record.load_record's contract, or data.json is unreadable;
@@ -24,6 +24,12 @@ Needs a person (the Health run fails until it clears):
 - the last REFRESH_FAILURES completed Refresh runs on main all failed, or the latest completed
   Reproduce run on main failed (docs/ROADMAP.md, Stage 0: a red rebuild is a research incident).
   Runs triggered by pull requests are left out: a fork's branch can also be named main.
+
+Source checks (scripts/record_health.py source_problems): what the freeze's report-only check of the
+live CL=F closes found (market_data.freeze_source_check): sessions that differ from the pinned
+snapshot, a gross gap from EIA spot, a spot series too old to check against, or a check that could not
+run. Listed while the deployed data.json reports them; never needing a person; closing the issue
+acknowledges them.
 
 Recorded incidents (nothing can undo them; they are reported for LOOKBACK_DAYS so a person sees
 them, and closing the issue acknowledges them): a missed session that can no longer be recorded,
@@ -55,6 +61,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import sys
 import traceback
@@ -178,6 +185,77 @@ def record_problems(record: dict[str, Any], now: datetime) -> list[Problem]:
     return problems
 
 
+ISO = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+SPOT_STALE_SESSIONS = 10       # a spot series this many sessions behind the forecast is no longer a check
+
+
+def _iso_or_none(value: Any) -> str | None:
+    if not (isinstance(value, str) and ISO.fullmatch(value)):
+        return None
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return None
+    return value
+
+
+def _int_or_zero(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+
+
+def source_problems(payload: dict[str, Any]) -> list[Problem]:
+    """What the freeze's source check (data.json vol_forecast.source_check) found, as source incidents.
+
+    The check only reports (market_data.freeze_source_check): the forecast was published and recorded
+    as usual. Each finding is listed while the deployed data.json carries it, never needs a person, and
+    closing the issue acknowledges it. Only validated dates and counts reach the issue text.
+    """
+    vol = payload.get("vol_forecast")
+    block = vol.get("source_check") if isinstance(vol, dict) else None
+    if not isinstance(block, dict):
+        return []
+    if block.get("status") == "unavailable":
+        return [Problem("source:unavailable", "The freeze's CL=F source check could not run (the snapshot or EIA's "
+                        "spot data was unavailable); the forecast was published and recorded as usual.", False)]
+    problems: list[Problem] = []
+    snapshot = block.get("snapshot") if isinstance(block.get("snapshot"), dict) else {}
+    dates = [d for d in snapshot.get("dates", []) if _iso_or_none(d)] if isinstance(snapshot.get("dates"), list) else []
+    if snapshot.get("status") == "beyond_tolerance" and dates:
+        n = sum(_int_or_zero(snapshot.get(k)) for k in ("n_missing", "n_added", "n_beyond_tick"))
+        problems.append(Problem(f"source:snapshot:{dates[0]}:{n}", f"The freeze found {n} CL=F session(s) that differ "
+                                f"from the pinned snapshot (missing, added or more than a tick apart), the first "
+                                f"{dates[0]}: Yahoo may have revised its history. The forecast was published and recorded "
+                                f"as usual. A snapshot refresh changes the lab's numbers and is a research change (ledger).",
+                                False))
+    spot = block.get("spot") if isinstance(block.get("spot"), dict) else {}
+    spot_dates = [d for d in spot.get("dates", []) if _iso_or_none(d)] if isinstance(spot.get("dates"), list) else []
+    tolerance = spot.get("tolerance_abs_log_gap")
+    tolerance = tolerance if isinstance(tolerance, float) and math.isfinite(tolerance) else None
+    if spot.get("status") == "beyond_tolerance" and spot_dates:
+        problems.append(Problem(f"source:spot:{spot_dates[0]}", f"The freeze found {_int_or_zero(spot.get('n_above'))} "
+                                f"CL=F close(s) more than a {f'{tolerance:.2f}' if tolerance else 'stated'} absolute log "
+                                f"gap from EIA's Cushing spot, the first "
+                                f"{spot_dates[0]}: a gross error in one of the two series. The forecast was published "
+                                f"and recorded as usual.", False))
+    spot_last = _iso_or_none(spot.get("spot_last"))
+    as_of = _iso_or_none(vol.get("live", {}).get("as_of")) if isinstance(vol.get("live"), dict) else None
+    if as_of and (spot_last is None or _sessions_between(date.fromisoformat(spot_last), date.fromisoformat(as_of))
+                  > SPOT_STALE_SESSIONS):
+        problems.append(Problem(f"source:spot-stale:{spot_last or 'none'}", f"EIA's Cushing spot series the freeze "
+                                f"fetched ends {spot_last or 'nowhere'}, more than {SPOT_STALE_SESSIONS} sessions before "
+                                f"the forecast's {as_of}, so the gross-error check covers nothing recent (is "
+                                f"EIA_API_KEY working?).", False))
+    return problems
+
+
+def _sessions_between(start: date, end: date) -> int:
+    count, day = 0, start
+    while day < end:
+        day += timedelta(days=1)
+        count += is_business_day(day)
+    return count
+
+
 def payload_problems(payload: dict[str, Any], now: datetime) -> list[Problem]:
     """A deployed payload that is older than STALE_HOURS or carries no usable frozen_at."""
     stamp = payload.get("frozen_at")
@@ -265,6 +343,7 @@ def check(record_path: Path, payload_path: Path, now: datetime, refresh_runs: li
         problems.append(Problem("payload", f"The deployed data.json is unreadable: {exc}", True))
     else:
         problems += payload_problems(payload if isinstance(payload, dict) else {}, now)
+        problems += source_problems(payload if isinstance(payload, dict) else {})
     if refresh_runs is not None:
         problems += run_problems("Refresh", refresh_runs, REFRESH_FAILURES)
     if reproduce_runs is not None:
@@ -290,17 +369,21 @@ def markdown(problems: list[Problem], now: datetime) -> str:
     if not problems:
         return f"Healthy at {stamp}.\n"
     act = [p.text for p in problems if p.needs_a_person]
-    seen = [p.text for p in problems if not p.needs_a_person]
+    seen = [p.text for p in problems if not p.needs_a_person and not p.key.startswith("source:")]
+    sources = [p.text for p in problems if not p.needs_a_person and p.key.startswith("source:")]
     lines = [f"Checked {stamp}."]
     if act:
         lines += ["", "**Needs a person**", ""] + [f"- {text}" for text in act]
     if seen:
         lines += ["", f"**Recorded incidents** (nothing can undo them; they are listed for {LOOKBACK_DAYS} days, and "
                   "closing this issue acknowledges them)", ""] + [f"- {text}" for text in seen]
+    if sources:
+        lines += ["", "**Source checks** (the freeze published and recorded as usual; listed while the deployed "
+                  "data.json reports them, and closing this issue acknowledges them)", ""] + [f"- {t}" for t in sources]
     lines += ["", "Checked by `scripts/record_health.py` (`.github/workflows/health.yml`) on copies of the record on "
               "`live-data` and of `data.json` on `gh-pages`. This issue closes itself on the first healthy run.",
               "", f"<!-- health-digest: {digest(problems)} -->"]
-    if seen:
+    if seen or sources:
         lines.append(f"<!-- health-incidents: {' '.join(p.key for p in problems if not p.needs_a_person)} -->")
     return "\n".join(lines) + "\n"
 

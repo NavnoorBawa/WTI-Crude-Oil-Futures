@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import statistics
+import time
 from datetime import timezone
 from pathlib import Path
 
@@ -176,6 +177,12 @@ SHOCK_EVENTS = [
 ]
 
 
+# One EIA attempt that did not refresh the cache (an error or a short reply) is remembered for this
+# long, so a freeze that asks twice (the CL=F source check, then this study) waits on EIA once.
+_RETRY_AFTER_SECONDS = 600
+_last_failed_attempt = None
+
+
 def fetch_wti_daily(api_key=None, use_cache=True):
     """Return sorted [(YYYY-MM-DD, price)] of EIA daily WTI Cushing spot, paginated + cached.
 
@@ -198,6 +205,9 @@ def fetch_wti_daily(api_key=None, use_cache=True):
         if cached_rows:
             return cached_rows
         raise RuntimeError("EIA_API_KEY required to fetch WTI spot history")
+    global _last_failed_attempt
+    if cached_rows and _last_failed_attempt is not None and time.monotonic() - _last_failed_attempt < _RETRY_AFTER_SECONDS:
+        return cached_rows
 
     rows = {}
     try:
@@ -220,6 +230,7 @@ def fetch_wti_daily(api_key=None, use_cache=True):
                 if d.get("value") is not None:
                     rows[d["period"]] = float(d["value"])
     except Exception:
+        _last_failed_attempt = time.monotonic()
         if cached_rows:
             return cached_rows
         raise
@@ -227,6 +238,7 @@ def fetch_wti_daily(api_key=None, use_cache=True):
     # A 200 with an empty or truncated body (schema change, error payload) must never replace a
     # good history: every event below is historical, so a shorter series can only lose events.
     if cached_rows and len(out) < len(cached_rows):
+        _last_failed_attempt = time.monotonic()
         logger.warning("EIA returned %d rows (< %d cached); keeping the cache", len(out), len(cached_rows))
         return cached_rows
     if not out:

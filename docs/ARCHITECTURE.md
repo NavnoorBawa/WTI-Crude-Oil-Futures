@@ -75,7 +75,7 @@ are not regenerated in CI; Yahoo revises history, so a re-run differs in detail.
 flowchart TB
     subgraph build["refresh.yml / build job (read-only token)"]
         R1["restore runtime-state/vol_track_record.json<br/>from live-data (fails closed)"]
-        F1["freeze.py: quote and chart (backend/oil.py),<br/>vol_forecast (required), supply study, research.json"]
+        F1["freeze.py: quote and chart (backend/oil.py),<br/>vol_forecast (required; its source check reports only),<br/>supply study, research.json"]
         V1["validate_frozen_payload.py<br/>(data.json + research.json)"]
         VR["backend/vol_record.py<br/>record today's forecast, resolve matured ones"]
         NB["npm ci, lint, audit, vite build"]
@@ -144,7 +144,10 @@ flowchart TB
   an unreadable record or payload. Recorded incidents, which nothing can undo: a session that can no
   longer be recorded, a `late_commit` or `expired` entry, and a day on which a Refresh run's
   best-effort anchor job failed (read from the runs' job lists, since `continue-on-error` keeps
-  those runs green), each for a week. While anything is
+  those runs green), each for a week. Source checks: what the freeze's report-only check of the live
+  `CL=F` closes found (`vol_forecast.source_check`: sessions that differ from the pinned snapshot,
+  a gross gap from EIA spot, a spot series too old to check against), listed while the deployed
+  `data.json` reports it. While anything is
   reported, one issue labelled `health` stays open, edited only when the set of problems changes;
   closing it acknowledges the incidents. The workflow fails (its README badge turns red) only while
   something needs a person, and the first healthy run closes the issue. A drill (the `now` input)

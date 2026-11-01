@@ -223,6 +223,25 @@ class StudyArtifactTest(unittest.TestCase):
 
 
 class CacheSafetyTest(unittest.TestCase):
+    def setUp(self):
+        sp._last_failed_attempt = None                                     # each test starts with no failed attempt
+        self.addCleanup(setattr, sp, "_last_failed_attempt", None)
+
+    def test_a_failed_attempt_is_not_repeated_within_the_window(self):
+        # A freeze asks twice (the CL=F source check, then this study); a failing EIA costs one wait.
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp) / "spot.json"
+            cache.write_text(json.dumps({"fetched_at": "2000-01-01", "rows": [["2020-01-02", 61.2]]}))
+            with mock.patch.object(sp, "_CACHE", cache), \
+                    mock.patch.object(sp.requests, "get", side_effect=ConnectionError("down")) as get:
+                first = sp.fetch_wti_daily(api_key="test-key")
+                second = sp.fetch_wti_daily(api_key="test-key")
+                self.assertEqual(get.call_count, 1)
+                self.assertEqual(first, second)
+                with mock.patch.object(sp.time, "monotonic", return_value=sp._last_failed_attempt + 601):
+                    sp.fetch_wti_daily(api_key="test-key")
+                self.assertEqual(get.call_count, 2)                           # tried again after the window
+
     def test_empty_eia_response_never_replaces_a_good_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp) / "spot.json"

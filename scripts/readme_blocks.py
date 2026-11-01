@@ -2120,7 +2120,8 @@ def _cl_second_source_lines(lab: dict) -> list[str]:
         f"- `CL=F` vs EIA's Cushing spot (RWTC, a physical price, so a loose check that cannot tell contracts "
         f"apart), {spot['first']} to {spot['last']}: {spot['common_days']:,} common days, median absolute log "
         f"gap {spot['median_abs_log_gap']}, 99th percentile {spot['p99_abs_log_gap']}, largest "
-        f"{spot['max_abs_log_gap']} ({spot['max_gap_date']}). Later sessions have no second source.",
+        f"{spot['max_abs_log_gap']} ({spot['max_gap_date']}). Later sessions get a report-only check at each "
+        "freeze against a fresh spot download, for gross gaps only (`vol_forecast.source_check`).",
         f"- Contract rolls: of the {audit['contracts_checked']} contracts that expire while both `CL=F` and "
         f"EIA's contracts 1 and 2 have data ({c['first']} to {audit['eia_through']}), `CL=F` equals EIA's "
         f"contract 1 on the lab's last session before the roll and on its roll day for "
