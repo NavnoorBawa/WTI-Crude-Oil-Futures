@@ -25,6 +25,22 @@
       "first": "2007-05-10",
       "last": "2026-10-16",
       "source": "FRED OVXCLS (https://fred.stlouisfed.org/series/OVXCLS), keyless fredgraph CSV"
+    },
+    "eia_futures": {
+      "file": "eia_rclc_daily.csv",
+      "sha256": "658cd031d5aab815bc50f1fa28c70b03abfedecbd401b8ed16fa5598b38d6ad6",
+      "rows": 9492,
+      "first": "1985-01-02",
+      "last": "2024-04-05",
+      "source": "EIA NYMEX WTI futures settlement, contracts 1 and 2 (RCLC1, RCLC2), final through 2024-04-05; from data/eia_wti_futures_curve.json, a second source only"
+    },
+    "eia_spot": {
+      "file": "eia_rwtc_daily.csv",
+      "sha256": "99490110a75be443ae4283b591d7167213915a9992ee53059e809fde1a742a24",
+      "rows": 10186,
+      "first": "1986-01-02",
+      "last": "2026-06-15",
+      "source": "EIA Cushing WTI spot price (RWTC); from data/eia_wti_spot_daily.json, a second source only"
     }
   },
   "cl_data_quality": {

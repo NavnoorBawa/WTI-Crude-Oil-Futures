@@ -26,6 +26,22 @@
     "first": "2007-05-10",
     "last": "2026-10-16",
     "source": "FRED OVXCLS (https://fred.stlouisfed.org/series/OVXCLS), keyless fredgraph CSV"
+   },
+   "eia_futures": {
+    "file": "eia_rclc_daily.csv",
+    "sha256": "658cd031d5aab815bc50f1fa28c70b03abfedecbd401b8ed16fa5598b38d6ad6",
+    "rows": 9492,
+    "first": "1985-01-02",
+    "last": "2024-04-05",
+    "source": "EIA NYMEX WTI futures settlement, contracts 1 and 2 (RCLC1, RCLC2), final through 2024-04-05; from data/eia_wti_futures_curve.json, a second source only"
+   },
+   "eia_spot": {
+    "file": "eia_rwtc_daily.csv",
+    "sha256": "99490110a75be443ae4283b591d7167213915a9992ee53059e809fde1a742a24",
+    "rows": 10186,
+    "first": "1986-01-02",
+    "last": "2026-06-15",
+    "source": "EIA Cushing WTI spot price (RWTC); from data/eia_wti_spot_daily.json, a second source only"
    }
   },
   "cl_data_quality": {
@@ -57,6 +73,238 @@
     "fred": 37.56
    }
   ]
+ },
+ "cl_source_agreement": {
+  "tolerance_usd": 0.01,
+  "contract1": {
+   "first": "2000-08-23",
+   "last": "2024-04-05",
+   "common_days": 5805,
+   "share_same_cent": 0.9628,
+   "share_within_one_tick": 0.9692,
+   "misses": 179,
+   "misses_by_year": {
+    "2000": 55,
+    "2001": 46,
+    "2002": 74,
+    "2004": 1,
+    "2006": 1,
+    "2010": 2
+   },
+   "largest_gaps": [
+    {
+     "date": "2010-10-11",
+     "yahoo": 82.21,
+     "c1": 81.33,
+     "c2": 83.01
+    },
+    {
+     "date": "2000-12-19",
+     "yahoo": 28.8,
+     "c1": 29.33,
+     "c2": 27.96
+    },
+    {
+     "date": "2010-10-13",
+     "yahoo": 83.01,
+     "c1": 83.36,
+     "c2": 83.74
+    },
+    {
+     "date": "2002-05-21",
+     "yahoo": 27.0,
+     "c1": 27.33,
+     "c2": 26.43
+    },
+    {
+     "date": "2000-09-20",
+     "yahoo": 37.5,
+     "c1": 37.2,
+     "c2": 35.24
+    }
+   ],
+   "eia_sessions_missing_from_cl": [
+    "2012-10-29",
+    "2012-10-30",
+    "2018-12-05"
+   ],
+   "nonpositive_sessions_dropped": [
+    "2020-04-20"
+   ],
+   "since_sample_first": {
+    "first": "2008-05-08",
+    "common_days": 3990,
+    "misses": 2,
+    "miss_dates": [
+     "2010-10-11",
+     "2010-10-13"
+    ]
+   }
+  },
+  "spot": {
+   "first": "2000-08-23",
+   "last": "2026-06-15",
+   "common_days": 6457,
+   "median_abs_log_gap": 0.0012,
+   "p99_abs_log_gap": 0.0397,
+   "max_abs_log_gap": 0.354,
+   "max_gap_date": "2020-03-30"
+  }
+ },
+ "roll_convention_audit": {
+  "eia_through": "2024-04-05",
+  "contracts_checked": 283,
+  "on_lab_roll_day": 259,
+  "mismatches": [
+   {
+    "contract": "CLV02",
+    "last_trade": "2002-09-20",
+    "lab_roll_day": "2002-09-23",
+    "yahoo_switch": "2002-09-20",
+    "offset_sessions": -1
+   }
+  ],
+  "indeterminate": [
+   {
+    "contract": "CLV00",
+    "last_trade": "2000-09-20",
+    "lab_roll_day": "2000-09-21",
+    "reason": "CL=F matches neither contract on the session before or on the roll day"
+   },
+   {
+    "contract": "CLX00",
+    "last_trade": "2000-10-20",
+    "lab_roll_day": "2000-10-23",
+    "reason": "no EIA row on the session before or on the roll day"
+   },
+   {
+    "contract": "CLF01",
+    "last_trade": "2000-12-19",
+    "lab_roll_day": "2000-12-20",
+    "reason": "CL=F matches neither contract on the session before or on the roll day"
+   },
+   {
+    "contract": "CLG01",
+    "last_trade": "2001-01-22",
+    "lab_roll_day": "2001-01-23",
+    "reason": "CL=F matches neither contract on the session before or on the roll day"
+   },
+   {
+    "contract": "CLH01",
+    "last_trade": "2001-02-20",
+    "lab_roll_day": "2001-02-21",
+    "reason": "CL=F matches neither contract on the session before or on the roll day"
+   },
+   {
+    "contract": "CLJ01",
+    "last_trade": "2001-03-20",
+    "lab_roll_day": "2001-03-21",
+    "reason": "CL=F matches neither contract on the session before or on the roll day"
+   },
+   {
+    "contract": "CLU01",
+    "last_trade": "2001-08-21",
+    "lab_roll_day": "2001-08-22",
+    "reason": "CL=F matches neither contract on the session before or on the roll day"
+   },
+   {
+    "contract": "CLG02",
+    "last_trade": "2002-01-22",
+    "lab_roll_day": "2002-01-23",
+    "reason": "CL=F matches neither contract on the session before or on the roll day"
+   },
+   {
+    "contract": "CLH02",
+    "last_trade": "2002-02-20",
+    "lab_roll_day": "2002-02-21",
+    "reason": "CL=F matches neither contract on the session before or on the roll day"
+   },
+   {
+    "contract": "CLJ02",
+    "last_trade": "2002-03-20",
+    "lab_roll_day": "2002-03-21",
+    "reason": "no EIA row on the session before or on the roll day"
+   },
+   {
+    "contract": "CLK02",
+    "last_trade": "2002-04-22",
+    "lab_roll_day": "2002-04-23",
+    "reason": "CL=F matches neither contract on the session before or on the roll day"
+   },
+   {
+    "contract": "CLM02",
+    "last_trade": "2002-05-21",
+    "lab_roll_day": "2002-05-22",
+    "reason": "CL=F matches neither contract on the session before or on the roll day"
+   },
+   {
+    "contract": "CLN02",
+    "last_trade": "2002-06-20",
+    "lab_roll_day": "2002-06-21",
+    "reason": "no EIA row on the session before or on the roll day"
+   },
+   {
+    "contract": "CLZ03",
+    "last_trade": "2003-11-20",
+    "lab_roll_day": "2003-11-21",
+    "reason": "no EIA row on the session before or on the roll day"
+   },
+   {
+    "contract": "CLF04",
+    "last_trade": "2003-12-19",
+    "lab_roll_day": "2003-12-22",
+    "reason": "no EIA row on the session before or on the roll day"
+   },
+   {
+    "contract": "CLH05",
+    "last_trade": "2005-02-22",
+    "lab_roll_day": "2005-02-23",
+    "reason": "no EIA row on the session before or on the roll day"
+   },
+   {
+    "contract": "CLJ05",
+    "last_trade": "2005-03-21",
+    "lab_roll_day": "2005-03-22",
+    "reason": "no EIA row on the session before or on the roll day"
+   },
+   {
+    "contract": "CLZ05",
+    "last_trade": "2005-11-21",
+    "lab_roll_day": "2005-11-22",
+    "reason": "no EIA row on the session before or on the roll day"
+   },
+   {
+    "contract": "CLF06",
+    "last_trade": "2005-12-20",
+    "lab_roll_day": "2005-12-21",
+    "reason": "no EIA row on the session before or on the roll day"
+   },
+   {
+    "contract": "CLM06",
+    "last_trade": "2006-05-22",
+    "lab_roll_day": "2006-05-23",
+    "reason": "no EIA row on the session before or on the roll day"
+   },
+   {
+    "contract": "CLQ19",
+    "last_trade": "2019-07-22",
+    "lab_roll_day": "2019-07-23",
+    "reason": "contracts 1 and 2 within a tick of each other"
+   },
+   {
+    "contract": "CLV19",
+    "last_trade": "2019-09-20",
+    "lab_roll_day": "2019-09-23",
+    "reason": "contracts 1 and 2 within a tick of each other"
+   },
+   {
+    "contract": "CLJ21",
+    "last_trade": "2021-03-22",
+    "lab_roll_day": "2021-03-23",
+    "reason": "contracts 1 and 2 within a tick of each other"
+   }
+  ],
+  "roll_days_after_eia": 30
  },
  "config": {
   "horizon_sessions": 5,

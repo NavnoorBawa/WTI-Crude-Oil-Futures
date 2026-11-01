@@ -294,6 +294,11 @@ function Sources({ lab, researchStatus }) {
   const files = Object.entries(asObject(generated?.files) ?? {}).map(([key, file]) => ({ key, ...asObject(file) }));
   const quality = asObject(generated?.cl_data_quality);
   const agreement = asObject(lab?.ovx_source_agreement);
+  const clCheck = asObject(lab?.cl_source_agreement);
+  const contract1 = asObject(clCheck?.contract1);
+  const tick = num(clCheck?.tolerance_usd);
+  const scored = asObject(contract1?.since_sample_first);
+  const rolls = asObject(lab?.roll_convention_audit);
   return (
     <div className="method-block method-block--wide" id="meth-sources">
       <h3 className="study-title">Data sources</h3>
@@ -325,7 +330,8 @@ function Sources({ lab, researchStatus }) {
       ) : <ResearchUnavailable status={researchStatus} what="the data manifest" />}
       <p className="prose-note is-muted">
         {files.length ? "The digests pin the benchmark lab's inputs. " : ""}The production validation and the direction-model post-mortem are
-        committed records of runs on data downloaded at the time; the carry and supply-shock studies read committed EIA files.
+        committed records of runs on data downloaded at the time; the carry and supply-shock studies read committed EIA files,
+        whose copies here serve only as a second source for the CL closes and rolls.
       </p>
       <Facts items={[
         quality && { label: "CL sessions", value: fmtInt(quality.sessions), note: [
@@ -334,6 +340,16 @@ function Sources({ lab, researchStatus }) {
           num(quality.repaired_low_above_open_or_close) ? `${quality.repaired_low_above_open_or_close} lows repaired` : null,
         ].filter(Boolean).join(", ") || null },
         agreement && { label: "OVX: Yahoo vs FRED", value: `corr ${fmtNum(agreement.correlation, 6)}`, note: `${fmtShare(agreement.share_within_0_05_pts, 2)} of ${fmtInt(agreement.common_days)} days within 0.05 pts; max gap ${fmtNum(agreement.max_abs_diff_pts, 2)}` },
+        contract1 && tick !== null && { label: "CL: Yahoo vs EIA contract 1", value: `${fmtShare(contract1.share_within_one_tick, 2)} within $${fmtNum(tick, 2)}`, note: [
+          `${fmtInt(contract1.misses)} of ${fmtInt(contract1.common_days)} sessions further apart, ${contract1.first} to ${contract1.last}`,
+          scored ? `${fmtInt(scored.misses)} of ${fmtInt(scored.common_days)} scored sessions to ${contract1.last}` : null,
+        ].filter(Boolean).join("; ") },
+        rolls && { label: "CL around rolls vs EIA contract 1", value: `${fmtInt(rolls.on_lab_roll_day)} of ${fmtInt(rolls.contracts_checked)} equal`, note: [
+          "on the session before and the session of each roll",
+          `${fmtInt(asArray(rolls.mismatches).length)} on the next contract before the roll`,
+          `${fmtInt(asArray(rolls.indeterminate).length)} cannot be told`,
+          `${fmtInt(rolls.roll_days_after_eia)} roll days after ${rolls.eia_through} not checked`,
+        ].join(", ") },
       ]} />
     </div>
   );

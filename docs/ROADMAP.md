@@ -376,7 +376,15 @@ These stay out, whatever a review suggests, unless the owner changes the rules:
 Tick items here with the PR number and date when they ship, and move any new finding into
 `HANDOFF.md`'s backlog.
 
-- **1.6 Exact environment for reproduction** (#PRNUM, DATE): `Dockerfile` (images pinned by digest),
+- **1.7 Second-source cross-checks and a roll audit** (#91, 2026-11-01), first part: EIA
+  contracts 1 and 2 and Cushing spot pinned in the snapshot; `cl_source_agreement` and
+  `roll_convention_audit` in `data/vol_lab.json` (descriptive, every other number unchanged); the
+  April 2020 rule written into METHODOLOGY (unchanged: kept, as production does). Not done: Stooq
+  (unreachable from a session), a tight check for sessions after 2024-04-05 (EIA's contract-1 series
+  ends there), the freeze-time check, and the acceptance test of the roll days against EIA-derived
+  switch days: the audit checks `CL=F` against EIA's contract 1 around the lab's roll days, which
+  cannot show an error in the lab's calendar itself.
+- **1.6 Exact environment for reproduction** (#83, 2026-10-31): `Dockerfile` (images pinned by digest),
   `Makefile`, `.devcontainer/`; the Reproduce workflow's container job runs `make reproduce` in the
   image; METH's Reproduce box names it; `tests/test_container.py`.
 - **1.1 Tag and release every version, with checksums** (#75, 2026-10-30), except the tags:

@@ -2094,6 +2094,45 @@ def provenance_table() -> str:
     return "\n".join(rows)
 
 
+def _cl_second_source_lines(lab: dict) -> list[str]:
+    """CL=F against EIA's contract 1 and Cushing spot, and the roll audit (ROADMAP 1.7), from the artifact."""
+    c = lab["cl_source_agreement"]["contract1"]
+    tick = lab["cl_source_agreement"]["tolerance_usd"]
+    since = c["since_sample_first"]
+    spot = lab["cl_source_agreement"]["spot"]
+    audit = lab["roll_convention_audit"]
+    years = ", ".join(f"{year}: {n}" for year, n in c["misses_by_year"].items())
+    worst = c["largest_gaps"][0]
+    early = "; ".join(f"{m['contract']} from {m['yahoo_switch']}, {-m['offset_sessions']} session"
+                      f"{'s' if -m['offset_sessions'] != 1 else ''} before the lab's roll day"
+                      for m in audit["mismatches"]) or "none"
+    missing = ", ".join(c["eia_sessions_missing_from_cl"]) or "none"
+    dropped = ", ".join(c["nonpositive_sessions_dropped"]) or "none"
+    return [
+        f"- `CL=F` vs EIA's contract-1 settlement (RCLC1, the front month, final through {c['last']}): "
+        f"{c['common_days']:,} common sessions from {c['first']}, {c['share_same_cent'] * 100:.2f}% equal to the "
+        f"cent and {c['share_within_one_tick'] * 100:.2f}% within one tick (${tick:.2f}); {c['misses']} sessions "
+        f"further apart ({years}), the largest {worst['date']} (Yahoo {worst['yahoo']}, EIA {worst['c1']}). In "
+        f"the scored sample's sessions EIA covers ({since['first']} to {c['last']}): {since['misses']} of "
+        f"{since['common_days']:,} further apart than a tick ({', '.join(since['miss_dates']) or 'none'}). "
+        f"Sessions EIA has that the snapshot's `CL=F` lacks: {missing} (gaps in Yahoo's series), and "
+        f"{dropped} (a non-positive settlement, dropped by rule).",
+        f"- `CL=F` vs EIA's Cushing spot (RWTC, a physical price, so a loose check that cannot tell contracts "
+        f"apart), {spot['first']} to {spot['last']}: {spot['common_days']:,} common days, median absolute log "
+        f"gap {spot['median_abs_log_gap']}, 99th percentile {spot['p99_abs_log_gap']}, largest "
+        f"{spot['max_abs_log_gap']} ({spot['max_gap_date']}). Later sessions have no second source.",
+        f"- Contract rolls: of the {audit['contracts_checked']} contracts that expire while both `CL=F` and "
+        f"EIA's contracts 1 and 2 have data ({c['first']} to {audit['eia_through']}), `CL=F` equals EIA's "
+        f"contract 1 on the lab's last session before the roll and on its roll day for "
+        f"{audit['on_lab_roll_day']}; it followed the next contract before the roll for: {early}; "
+        f"{len(audit['indeterminate'])} cannot be told (EIA lacks a row, the two contracts are within a "
+        f"tick, or `CL=F` matches neither). The {audit['roll_days_after_eia']} roll days after "
+        f"{audit['eia_through']} are not checked. This shows Yahoo rolling with EIA's contract 1, not "
+        "that the lab's roll calendar is right: that comes from `contract_calendar.last_trade_date`, "
+        "tested against known expiry dates.",
+    ]
+
+
 def data_quality_block() -> str:
     """Data-quality facts of the pinned snapshot: repaired bars and the Yahoo vs FRED OVX check."""
     lab = _lab()
@@ -2108,6 +2147,7 @@ def data_quality_block() -> str:
         "closes are never changed).",
         f"- OVX, Yahoo vs FRED: {agree['common_days']:,} common days, {agree['share_within_0_05_pts'] * 100:.2f}% "
         f"within 0.05 points, correlation {agree['correlation']}, largest differences {worst}.",
+        *_cl_second_source_lines(lab),
         f"- Snapshot retrieved {lab['generated_from']['retrieved_at']}, finished sessions through "
         f"{lab['generated_from']['sessions_through']}.",
     ])
