@@ -6,7 +6,7 @@ import Panel, { REPRODUCE } from "../components/Panel";
 import { INTERVAL_LEVEL_PCT, calibrationAssertion, calibrationDetail } from "../lib/assertions";
 import { mzWeekly } from "../lib/cone";
 import { DASH, NBSP, fmtInt, fmtNum, fmtPValue, fmtPct, num } from "../lib/format";
-import { regimeCoverage, regimeCoverageAssertion } from "../lib/regimes";
+import { regimeCoverage, regimeCoverageAssertion, regimeLabelText } from "../lib/regimes";
 import { asObject, coverageByYear, getLab, getRoles, getVol, leaderboardRows, modelLabels, researchLedger, shortLabel } from "../lib/research";
 import { Facts, Legend, ResearchUnavailable } from "./common";
 
@@ -140,11 +140,7 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
       + `the every-day slope uses every out-of-sample day in the benchmark lab${labDays != null ? ` (${fmtInt(labDays)} days)` : ""}. `
       + "The two samples score the same forecasts on different days, so the slopes differ; each figure names its sample.",
     regimes.length
-      ? `Regimes are labelled at the decision from what was known then: OVX of the session before and RV5 of the five returns `
-        + `to the decision against thirds of every earlier session's value (so a third's OVX range moves over time), `
-        + `OVX/RV5 (log) against its median over the previous ${fmtInt(num(lab?.regimes?.variables?.ovx_rv_gap?.window_sessions))} `
-        + `sessions, and whether the target week holds a contract roll. Each split is tested for equal miss rates across its `
-        + `regimes (HAC Wald, ${fmtInt(num(lab?.regimes?.test?.hac_lags))} lags); a single regime's coverage carries no verdict. `
+      ? `${regimeLabelText(lab) ?? ""} Each split is tested for equal miss rates across its regimes (HAC Wald, ${fmtInt(num(lab?.regimes?.test?.hac_lags))} lags); a single regime's coverage carries no verdict. `
         + "The interval score is in vol points and grows with the vol level, so it compares the two models within a regime, not one "
         + "regime with another. Roll windows are never scored in the live record; that split describes the lab's band only."
       : null,

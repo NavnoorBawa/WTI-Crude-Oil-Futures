@@ -7,6 +7,7 @@ import { after, before, test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { escapeRegExp, loadDashboard, readFixture, readSource, visibleText } from "./load.mjs";
+import { committedLab, withRegimes } from "./splice.mjs";
 
 const FIXED_NOW = Date.parse("2026-10-21T12:00:00Z");
 Date.now = () => FIXED_NOW;
@@ -394,4 +395,100 @@ test("the floor's sentence leaves out what the block lacks", () => {
   assert.ok(bare.includes(`${floor.normal.toFixed(3)} with normal returns of constant variance`));
   assert.ok(!/Student-t|range proxy|moves within the week/.test(bare), bare);
   assert.equal(comparison.qlikeFloorNote(null), null);
+});
+
+// ------------------------------------------------------------------------- MODL by regime (ROADMAP 2.2)
+const REGIME_VIEWS = { ovx: "ovx_tercile", gap: "ovx_rv_gap", rv5: "rv5_tercile", roll: "target_spans_roll" };
+const cellsOf = (markup) => [...markup.split("<tbody>")[1].matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/g)]
+  .map((match) => [...match[1].matchAll(/<t[hd]\b[^>]*>([\s\S]*?)<\/t[hd]>/g)].map((cell) => visibleText(cell[1]).trim()));
+
+test("MODL by regime: every value is the artifact's QLIKE for that regime, each column names its days", () => {
+  const spliced = withRegimes(research).vol_lab;
+  const truth = committedLab();
+  const byKey = new Map(truth.leaderboard.models.map((model) => [model.key, model]));
+  const rows = m.research.leaderboardRows(spliced);
+  for (const [view, variable] of Object.entries(REGIME_VIEWS)) {
+    const split = m.regimes.regimeLossSplit(spliced, rows, view);
+    assert.ok(split, `${view} is offered`);
+    const levels = truth.regimes.variables[variable].levels;
+    assert.deepEqual(split.levels.map((level) => level.key), levels);
+    assert.deepEqual(split.levels.map((level) => level.n), levels.map((level) => truth.regimes.n_days_by_regime[variable][level]));
+    const markup = html(createElement(modl.RegimeTable, { rows, split }));
+    for (const level of split.levels) {
+      assert.ok(visibleText(markup).includes(`${level.label}, ${m.format.fmtInt(level.n)}`), `${view} ${level.key} names its days`);
+    }
+    const body = cellsOf(markup);
+    assert.equal(body.length, rows.length, "every model, once");
+    for (const cells of body) {
+      // The name cell holds the label (hyphens kept unbreakable) and its chips; the longest matching label wins
+      // ("HAR-IV-range" over "HAR-IV").
+      const name = cells[0].trim().replace(/\u2011/g, "-");
+      const row = rows.filter((candidate) => name.startsWith(m.research.shortLabel(candidate.label)))
+        .sort((a, b) => m.research.shortLabel(b.label).length - m.research.shortLabel(a.label).length)[0];
+      assert.ok(row, `a known model in ${cells[0]}`);
+      const expected = levels.map((level) => m.format.fmtNum(byKey.get(row.key).qlike_by_regime[variable][level], 4));
+      assert.deepEqual(cells.slice(-levels.length), expected, `${row.key} by ${view}`);
+    }
+    // The timing control stays below the ranking, as in the leaderboard.
+    assert.match(markup.split("<tbody>")[1].match(/<tr\b[^>]*>/g).at(-1), /is-timing-control/);
+  }
+});
+
+test("the regime footnote counts the challenger's lower-loss regimes from the payload and says it is not new evidence", () => {
+  const spliced = withRegimes(research).vol_lab;
+  const rows = m.research.leaderboardRows(spliced);
+  const names = { recordName: label(champion), challengerName: label(challenger) };
+  const count = (lab) => {
+    const models = new Map(lab.leaderboard.models.map((model) => [model.key, model.qlike_by_regime]));
+    let lower = 0;
+    let cells = 0;
+    for (const variable of Object.values(REGIME_VIEWS)) {
+      for (const level of lab.regimes.variables[variable].levels) {
+        cells += 1;
+        if (models.get(challenger)[variable][level] < models.get(champion)[variable][level]) lower += 1;
+      }
+    }
+    return { lower, cells };
+  };
+  const { lower, cells } = count(spliced);
+  const note = m.regimes.regimeLossNote(spliced, rows, names);
+  assert.ok(note.includes(`lower QLIKE than ${names.recordName} in ${lower} of ${cells} regimes`), note);
+  assert.match(note, /descriptive: no test is run within a regime/);
+  assert.match(note, /it is not new evidence, and nothing here re-selects it/);
+  assert.doesNotMatch(note, /hides|regime-dependent|evidence of|suggests|significant|premium/i);
+  // Move one cell: the count follows.
+  const moved = structuredClone(spliced);
+  const record = moved.leaderboard.models.find((model) => model.key === champion);
+  const ours = moved.leaderboard.models.find((model) => model.key === challenger);
+  const flip = ours.qlike_by_regime.ovx_tercile.low < record.qlike_by_regime.ovx_tercile.low;
+  ours.qlike_by_regime.ovx_tercile.low = record.qlike_by_regime.ovx_tercile.low + (flip ? 0.01 : -0.01);
+  const again = count(moved);
+  assert.equal(again.lower, lower + (flip ? -1 : 1));
+  assert.ok(m.regimes.regimeLossNote(moved, m.research.leaderboardRows(moved), names)
+    .includes(`in ${again.lower} of ${again.cells} regimes`));
+  // Without the roles' regime losses there is no count to state.
+  assert.equal(m.regimes.regimeLossNote(lab, m.research.leaderboardRows(lab), names), null);
+});
+
+test("MODL offers the regime views only with the regime blocks, the title never changes, and the control is labelled", () => {
+  const plain = section(renderDashboard(), "modl");
+  const spliced = section(renderDashboard(withRegimes(research)), "modl");
+  const title = (markup) => markup.match(/<h2\b[^>]*>([\s\S]*?)<\/h2>/)?.[1];
+  assert.ok(title(plain));
+  assert.equal(title(spliced), title(plain), "the title does not depend on the view");
+  assert.doesNotMatch(plain, /aria-label="Leaderboard view/);
+  const group = spliced.match(/<div class="segmented" role="group" aria-label="Leaderboard view[^"]*">([\s\S]*?)<\/div>/)?.[1];
+  assert.ok(group, "a labelled group");
+  const buttons = [...group.matchAll(/aria-pressed="(true|false)"[^>]*>([^<]*)</g)].map((match) => [match[2], match[1]]);
+  assert.deepEqual(buttons, [["All", "true"], ["OVX", "false"], ["OVX/RV5", "false"], ["RV5", "false"], ["Roll", "false"]]);
+  // The default view is the leaderboard itself; the regime note explains the labels.
+  assert.match(spliced, /id="modl-/);
+  assert.match(visibleText(spliced), /By regime: Regimes are labelled at the decision from what was known then/);
+  assert.doesNotMatch(visibleText(plain), /By regime:/);
+  // A payload missing one split's labels drops that view only.
+  const partial = withRegimes(research);
+  delete partial.vol_lab.regimes.variables.target_spans_roll;
+  const rows = m.research.leaderboardRows(partial.vol_lab);
+  assert.equal(m.regimes.regimeLossSplit(partial.vol_lab, rows, "roll"), null);
+  assert.ok(m.regimes.regimeLossSplit(partial.vol_lab, rows, "ovx"));
 });

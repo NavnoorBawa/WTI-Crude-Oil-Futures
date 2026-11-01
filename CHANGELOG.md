@@ -162,6 +162,19 @@ backs the new one.
 
 ### Dashboard
 
+- **Coverage and loss by regime in CALB and MODL (ROADMAP 2.2, second part).** CALB states the
+  model of record's coverage by regime from the lab's labels: the range of each split whose test of
+  equal coverage is significant or inconclusive, worded at that test's strength with the ledger's q
+  and the first robustness check that lands in another band, and the splits where none is detected
+  grouped with their p-values. A row of facts per split gives each regime's coverage and days, and
+  the table view adds the per-regime counts, misses, interval scores, each regime's own HAC p and the
+  per-grid binomial range, and the tests with their robustness and q. The old OVX split, which cut
+  the whole sample by thirds known only afterwards, is removed. MODL gains a view control (All,
+  OVX, OVX/RV5, RV5, Roll; the URL's `modl` key and the palette) that shows each model's QLIKE
+  within the regimes of one split, each column with its days. A footnote says it is descriptive
+  and that the challenger's lower loss than the record in each regime repeats the full-sample
+  comparison that picked it. The title never changes with the view.
+
 - **The proxy's noise floor on the QLIKE tile and in MODL (ROADMAP 2.1, second part).** The QLIKE
   tile's footnote adds "proxy's noise floor ≥ 0.213" (the closed form, read from the artifact); its
   glyph, value, comparisons and the other tiles are unchanged (a mark on the glyph would turn the

@@ -133,6 +133,7 @@ export const mcsLevel = (lab) => {
  * @property {number|null} utility        realized utility, % (higher is better)
  * @property {number|null} mzSlope
  * @property {number|null} mzSe
+ * @property {Record<string, Record<string, number>>|null} qlikeByRegime  QLIKE by regime label (descriptive)
  * @property {"record"|"challenger"|null} role
  * @property {Set<string>} info           see informationSet()
  */
@@ -177,6 +178,7 @@ export const leaderboardRows = (lab) => {
       mzP: num(model.mincer_zarnowitz?.p_unbiased),
       directionAcc: num(model.direction_acc_pct),
       qlikeByGrid: asArray(model.qlike_by_grid).map(num),
+      qlikeByRegime: asObject(model.qlike_by_regime),
       role: model.key === champion ? "record" : model.key === challenger ? "challenger" : null,
       info: informationSet(model, { comboMembers, byKey }),
     };

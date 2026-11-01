@@ -69,7 +69,7 @@ after(async () => {
 
 /** A page at `viewport` with console errors, page errors and failed requests collected, and the first
  * screen's layout shifts summed from navigation on (shifts right after input do not count, as in CLS). */
-const openPage = async (viewport, { now = FRESH, path = "/" } = {}) => {
+const openPage = async (viewport, { now = FRESH, path = "/", research = null } = {}) => {
   const context = await browser.newContext({
     viewport: { width: viewport.width, height: viewport.height }, locale: "en-US", timezoneId: "America/Chicago",
     reducedMotion: "reduce",
@@ -86,6 +86,8 @@ const openPage = async (viewport, { now = FRESH, path = "/" } = {}) => {
       for (const entry of list.getEntries()) if (!entry.hadRecentInput) window.__cls += entry.value;
     }).observe({ type: "layout-shift", buffered: true });
   });
+  // A payload other than the fixture (e.g. with blocks newer than it), served at the same path.
+  if (research != null) await page.route("**/research.json", (route) => route.fulfill({ contentType: TYPES[".json"], body: research }));
   await page.goto(`${origin}${path}`, { waitUntil: "networkidle" });
   return { context, page, problems };
 };
@@ -139,6 +141,56 @@ for (const viewport of VIEWPORTS) {
     }
   });
 }
+
+// The regime blocks (ROADMAP 2.2) are newer than the fixture, so the committed artifacts' blocks are spliced in
+// (tests/frontend/splice.mjs). MODL's regime view and CALB's regime tables must fit a phone and pass axe, and
+// the view control must write the URL.
+test("MODL by regime and CALB's regime tables fit 390 and 320 px, pass axe, and the control writes ?modl=", async () => {
+  const { withRegimes } = await import("../frontend/splice.mjs");
+  const research = JSON.stringify(withRegimes(JSON.parse(readFileSync(join(FIXTURES, PAYLOADS["/research.json"]), "utf8"))));
+  for (const width of [390, 320]) {
+    for (const [path, view] of [["/?modl=ovx&table=calb#modl", "OVX"], ["/?modl=roll#calb", "Roll"]]) {
+      const { context, page, problems } = await openPage({ width, height: 844 }, { path, research });
+      try {
+        await page.waitForSelector("#modl .segmented");
+        await mountEverything(page);
+        const state = await page.evaluate(() => ({
+          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          pressed: [...document.querySelectorAll("#modl .segmented-button[aria-pressed='true']")].map((button) => button.textContent),
+          caption: document.querySelector("#modl caption")?.textContent ?? "",
+          calbNote: [...document.querySelectorAll("#calb .prose-note")].some((note) => /Across OVX thirds|dependence detected/.test(note.textContent)),
+          calbTables: [...document.querySelectorAll("#calb caption")].map((caption) => caption.textContent),
+        }));
+        assert.ok(state.overflow <= 0, `${width}px ${path}: the page scrolls sideways by ${state.overflow}px`);
+        assert.deepEqual(state.pressed, [view], `${width}px ${path}: the URL's view is the pressed one`);
+        assert.match(state.caption, /^QLIKE by regime at the decision: /);
+        if (path.includes("table=calb")) {
+          assert.ok(state.calbTables.some((caption) => /coverage by regime at the decision/.test(caption)), "CALB's per-regime table");
+          assert.ok(state.calbTables.some((caption) => /Tests of equal coverage across regimes/.test(caption)), "CALB's tests table");
+        } else {
+          assert.ok(state.calbNote, "CALB states the regime result");
+        }
+        await page.evaluate(AXE);
+        const violations = await page.evaluate(async () => {
+          const result = await axe.run({ include: [["#modl"], ["#calb"]] }, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } });
+          return result.violations.filter((v) => v.impact === "serious" || v.impact === "critical")
+            .map((v) => `${v.id} (${v.impact}): ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(", ")}`);
+        });
+        assert.deepEqual(violations, [], `${width}px ${path}: serious or critical axe violations`);
+        // The control writes the URL and swaps the table; "All" returns to the bare URL.
+        await page.getByRole("button", { name: "RV5", exact: true }).click();
+        assert.match(page.url(), /[?&]modl=rv5\b/);
+        assert.match(await page.locator("#modl caption").first().textContent(), /RV5 to the decision/);
+        await page.getByRole("button", { name: "All", exact: true }).click();
+        assert.doesNotMatch(page.url(), /modl=/);
+        assert.ok(await page.locator("#modl-har_iv").count(), "the leaderboard is back");
+        assert.deepEqual(problems, [], "console errors, page errors or failed requests");
+      } finally {
+        await context.close();
+      }
+    }
+  }
+});
 
 // The price axis settles on its width after the first frames; a chart nobody has touched must still
 // sit on its range preset, so no "Reset view" is offered.

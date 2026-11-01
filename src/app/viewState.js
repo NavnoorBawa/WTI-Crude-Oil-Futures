@@ -10,6 +10,7 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
  *   var     RISK VaR level              99 | 95             (default 99)
  *   leak    LEAK window                 5y | 10y            (default 5y)
  *   mkt     MKT chart range             1w | 1m | 1y | all  (default all)
+ *   modl    MODL view                   all | ovx | gap | rv5 | roll (default all: every day; the others split by regime)
  *   table   sections in table view      comma list of section ids, e.g. table=fcst,modl
  *   family  LEDG family filter          a family key        (default: all families)
  *   status  LEDG status filter          a status key        (default: all statuses)
@@ -28,7 +29,7 @@ const EMPTY = Object.freeze({});
 
 /** Defaults of the reserved keys, used when a non-React caller writes a key no mounted panel reads. */
 export const VIEW_DEFAULTS = Object.freeze({
-  fcst: "3y", risk: "3y", var: "99", leak: "5y", mkt: "all", table: "", family: "all", status: "all", q: "", sort: "", ledg: "",
+  fcst: "3y", risk: "3y", var: "99", leak: "5y", mkt: "all", modl: "all", table: "", family: "all", status: "all", q: "", sort: "", ledg: "",
 });
 
 const registeredDefaults = new Map();

@@ -270,3 +270,15 @@ test("the top bar shows no section link until the dashboard is on screen", () =>
   assert.match(ready, /<span class="snapshot-old"> old<\/span>/);
   assert.match(ready, /<span class="sr-only">Snapshot [^<]+ old, frozen [^<]+<\/span>/);
 });
+
+test("the palette offers MODL's regime views only when the payload carries them", async () => {
+  const { withRegimes } = await import("./splice.mjs");
+  const view = (items) => items.filter((item) => item.run.type === "view" && item.run.key === "modl");
+  assert.deepEqual(view(build()), [], "no regime blocks, no view setting");
+  const items = view(commands.buildCommands({ data, research: withRegimes(researchJson), view: { modl: "rv5" } }));
+  assert.deepEqual(items.map((item) => [item.run.value, item.label, Boolean(item.current)]), [
+    ["all", "MODL view: All days", false], ["ovx", "MODL view: by OVX", false], ["gap", "MODL view: by OVX/RV5", false],
+    ["rv5", "MODL view: by RV5", true], ["roll", "MODL view: by roll", false],
+  ]);
+  for (const item of items) assert.equal(item.run.section, "modl");
+});
