@@ -73,9 +73,22 @@ backs the new one.
   rule (never marking expired a window whose closes have scrolled out of the payload); and
   validates from the file alone every rule it appends by (each line stores its append time, so the
   window can be rechecked). It is unsealed and descriptive: no other tracked file but the docs
-  names it (a test checks), and no test of the pinned pair is run on it. The jobs that run it in the Refresh workflow and the
-  `field-data` branch come next. On 2026-11-01 two runs against the live payload each logged all 13
-  models for 2026-10-30, in 16 and 8 seconds, and the merged log validated. (ROADMAP 1.8, first part.)
+  names it (a test checks), and no test of the pinned pair is run on it. On 2026-11-01 two runs
+  against the live payload each logged all 13 models for 2026-10-30, in 16 and 8 seconds, and the
+  merged log validated. (ROADMAP 1.8, first part, #94.)
+- **The shadow field log, second part (the jobs).** The orphan `field-data` branch holds the log, a
+  marker and a README. Three best-effort jobs in the Refresh workflow keep it: `field_build`
+  (read-only, no secret) counts the open models with the standard library and, only if some are
+  open, installs and issues their lines; `field` (the repository-wide contents-write token, its
+  script pushing only `field-data`; nothing installed) appends after a successful publish,
+  validates the merged file against the old one, commits on top of the tip and pushes without
+  force, then fails if the log trails the payload by more than three sessions
+  (`field_record.py --lag`); `field_anchor` tries to attest each pushed version in Rekor. Health
+  reports a failed field job as a recorded incident, once per run. They never name the record, its
+  branch, the seal or the site's branch, and within a run nothing the seal depends on waits on them;
+  like the anchor job, while they run they hold the workflow's concurrency group, so the next
+  queued refresh can wait up to their timeouts (`tests/test_workflow_guards.py`); `tests/test_field_workflow.py` runs the `field` job's own shell
+  against a local copy of the branch with numpy unimportable. (ROADMAP 1.8, second part, #95.)
 
 ### Engineering
 

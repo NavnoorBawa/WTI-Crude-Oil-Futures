@@ -205,9 +205,35 @@ class EntryStatusTest(unittest.TestCase):
         self.assertEqual([p.key for p in found], ["anchor:2026-11-04"])
         self.assertEqual(rh.status(found), rh.INCIDENTS)
 
-    def test_the_anchor_job_name_is_refresh_yml_s(self):
+    def test_a_failed_field_job_is_an_incident_per_day_and_never_needs_a_person(self):
+        def job(conclusion, started, name):
+            return {"name": name, "conclusion": conclusion, "started_at": started, "html_url": f"https://x/{started}"}
+        issue, append, anchor = rh.FIELD_JOBS
+        listings = [
+            {"jobs": [job("failure", "2026-11-04T16:05:00Z", append), job("failure", "2026-11-04T16:01:00Z", rh.ANCHOR_JOB),
+                      job("failure", "2026-11-04T16:07:00Z", anchor)]},          # one run, two field jobs: counted once
+            {"jobs": [job("failure", "2026-11-04T12:05:00Z", issue), job("skipped", "2026-11-04T12:09:00Z", append)]},
+            {"jobs": [job("failure", "2026-11-03T08:05:00Z", anchor), job("success", "2026-11-03T08:01:00Z", append)]},
+            {"jobs": [job("success", "2026-11-02T08:05:00Z", issue), job("cancelled", "2026-11-02T04:05:00Z", append)]},
+        ]
+        problems = rh.field_problems(listings, at("2026-11-04T18:00:00Z"))
+        self.assertEqual([(p.key, p.needs_a_person) for p in problems], [("field:2026-11-03", False),
+                                                                         ("field:2026-11-04", False)])
+        self.assertIn("On 2026-11-04, 2 Refresh runs did not keep the shadow field log", problems[1].text)
+        self.assertIn("the latest is https://x/2026-11-04T16:05:00Z", problems[1].text)
+        self.assertIn("the sealed record is unaffected", problems[1].text)
+        files = Files(record_with(["2026-11-02", "2026-11-03"]), payload={"frozen_at": "2026-11-04T16:00:00Z"})
+        found = rh.check(files.record, files.payload, at("2026-11-04T18:00:00Z"), anchor_jobs=listings,
+                         acknowledged={"field:2026-11-03"})
+        self.assertEqual([p.key for p in found], ["anchor:2026-11-04", "field:2026-11-04"])
+        self.assertEqual(rh.status(found), rh.INCIDENTS)
+
+    def test_the_job_names_are_refresh_yml_s(self):
         source = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "refresh.yml").read_text(encoding="utf-8")
         self.assertIn(f"\n  anchor:\n    name: {rh.ANCHOR_JOB}\n", source)
+        for job_id, name in zip(("field_build", "field", "field_anchor"), rh.FIELD_JOBS):
+            with self.subTest(job_id):
+                self.assertIn(f"\n  {job_id}:\n    name: {name}\n", source)
 
     def test_a_recent_expired_entry_is_an_incident_and_an_old_one_is_not_reported(self):
         record = record_with(["2026-11-02"])

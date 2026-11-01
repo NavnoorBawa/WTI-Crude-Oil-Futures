@@ -371,15 +371,15 @@ data).
   the challenger's historical edge is computed in the full results (section 3) from the noncentral t with
   the same 51 degrees of freedom.
 
-- **The shadow field log (unsealed; its code is merged, the jobs that run it come next).**
-  `backend/field_record.py` will keep the live forecast of every model in the lab's field
+- **The shadow field log (unsealed).** From November 2026 the Refresh workflow's field jobs run
+  `backend/field_record.py`, which keeps the live forecast of every model in the lab's field
   (`vol_lab.FEASIBLE`, never the timing control) for each published session whose fresh download
   reproduces the published har-iv/2 forecast and challenger, with the record's window rule and
   resolution rule, in an append-only file on a separate branch; a session that never passes that
   check while it is the published one stays unlogged. It is a research asset for asking later
   whether the lab's ranking held out of sample, and it is not evidence: it has no seal and no hash
-  chain, and no other tracked file but the docs names it, so nothing in the pipeline, the site or
-  the promotion test can read it (a test checks). No test of `har_iv` against `har_iv_range` is run
+  chain, and no tracked file names it but the docs, its module and tests, and the jobs that keep
+  it, so nothing in the pipeline, the site or the promotion test can read it (a test checks). No test of `har_iv` against `har_iv_range` is run
   on it: the pinned promotion test is the only one. Every line for a session shares one window, and
   a window that opened before the payload's oldest close is never marked expired.
 

@@ -10,7 +10,8 @@ name: Refresh frozen dashboard
 # reads. The `publish` job holds the write token and nothing else, and installs and builds
 # nothing: besides GitHub's own checkout, artifact and Python setup actions, it runs only git
 # and this repository's own standard-library scripts against the artifacts `build` produced,
-# and deploys with a plain git push.
+# and deploys with a plain git push. The best-effort jobs after them (the record's anchor and the
+# unsealed shadow field log's three jobs) follow the same split; see their comments below.
 
 on:
   schedule:
@@ -582,3 +583,240 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: runtime-state/vol_track_record.json
+
+  # The shadow field log (docs/ROADMAP.md, Stage 1, item 8): every model in the lab's field, logged
+  # unsealed by backend/field_record.py on the field-data branch. It is not evidence and nothing reads
+  # it (tests/test_field_record.py). These three jobs only add to it, after build and beside and after
+  # publish, never inside it: they run on their own runners and never name the record, its branch,
+  # the seal or the site's branch, so this run's seal step, its inputs and its four-minute budget are
+  # untouched. While they run they hold the workflow's concurrency group, like the anchor job, so they
+  # can hold the next queued refresh for at most their timeouts (15, 5 and 5 minutes).
+  # continue-on-error keeps any failure here from failing the run; Health lists a failed field job as
+  # a recorded incident. The build side holds no write token and no secret; the write side installs
+  # nothing and its script pushes only field-data, without force (its token, like publish's, could
+  # write any branch: tests/test_workflow_guards.py checks the script).
+  field_build:
+    name: Issue the field's forecasts (unsealed)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    continue-on-error: true
+    permissions:
+      contents: read
+    # GitHub reports a failed continue-on-error job to the jobs after it as a success, so `field`
+    # waits on this output (set only once the lines are uploaded), never on this job's result.
+    outputs:
+      issued: ${{ steps.lines.outputs.artifact-id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Download site
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: site
+          path: dist
+
+      # Standard library only, before anything is installed: most runs find every model logged.
+      - name: Count the models still to log
+        id: open
+        env:
+          FIELD_BRANCH: field-data
+          FIELD_DIR: ${{ runner.temp }}/field
+        run: |
+          set -euo pipefail
+          mkdir -p "$FIELD_DIR"
+          for attempt in 1 2 3; do
+            if git fetch --no-tags --depth=1 origin "+refs/heads/${FIELD_BRANCH}:refs/remotes/origin/${FIELD_BRANCH}"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Unable to fetch ${FIELD_BRANCH} after 3 attempts" >&2
+              exit 1
+            fi
+            sleep "$((attempt * 5))"
+          done
+          git show "origin/${FIELD_BRANCH}:vol_field_record.jsonl" > "$FIELD_DIR/log.jsonl"
+          : > "$FIELD_DIR/new.jsonl"
+          if ! open="$(PYTHONDONTWRITEBYTECODE=1 python backend/field_record.py --open-keys \
+            --payload dist/data.json --log "$FIELD_DIR/log.jsonl")"; then
+            echo "$open" >&2
+            exit 1
+          fi
+          echo "${open} of the field's models are still to log for this session"
+          echo "open=${open}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Python dependencies
+        if: ${{ steps.open.outputs.open != '0' }}
+        run: python -m pip install --disable-pip-version-check --retries 5 --timeout 60 -r requirements.txt
+
+      # One fresh download; lines only if it reproduces the published har-iv/2 forecast and challenger.
+      - name: Issue the open models' forecasts
+        if: ${{ steps.open.outputs.open != '0' }}
+        env:
+          FIELD_DIR: ${{ runner.temp }}/field
+        run: python backend/field_record.py --issue --payload dist/data.json --log "$FIELD_DIR/log.jsonl" --out "$FIELD_DIR/new.jsonl"
+
+      # Always uploaded (often empty): the write side also settles windows on runs that log nothing.
+      - name: Upload the issued lines
+        id: lines
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: field-lines
+          path: ${{ runner.temp }}/field/new.jsonl
+          if-no-files-found: error
+          retention-days: 3
+
+  field:
+    name: Append to the field log (unsealed)
+    needs: [publish, field_build]
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.field_build.outputs.issued != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: write              # pushes the field-data branch, never another
+    outputs:
+      pushed: ${{ steps.append.outputs.pushed }}
+    steps:
+      # As in publish: GitHub's own actions, git and this repository's standard-library field_record.py
+      # from a fresh checkout of this commit; nothing installed, no secret (tests/test_workflow_guards.py).
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download site
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: site
+          path: dist
+
+      - name: Download the issued lines
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: field-lines
+          path: ${{ runner.temp }}/field-lines
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      # The new lines get the record's window at this append time; the merged file must keep the old
+      # one as a byte prefix. The commit holds the branch's own files with only the log replaced, and
+      # goes on top of the tip it was built from (a raced push fails and is retried, never forced).
+      - name: Append to the field log and push it
+        id: append
+        env:
+          FIELD_BRANCH: field-data
+          FIELD_FILE: vol_field_record.jsonl
+          FIELD_MARKER: .initialized-v1
+          FIELD_DIR: ${{ runner.temp }}/field
+          NEW_LINES: ${{ runner.temp }}/field-lines/new.jsonl
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          expected_origin="https://github.com/${GITHUB_REPOSITORY}"
+          origin_url="$(git remote get-url origin)"
+          if [ "${origin_url%.git}" != "$expected_origin" ]; then
+            echo "Refusing unexpected git origin" >&2
+            exit 1
+          fi
+
+          auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::${auth_header}"
+          export PYTHONDONTWRITEBYTECODE=1
+          mkdir -p "$FIELD_DIR"
+
+          for attempt in 1 2 3; do
+            if ! git fetch --no-tags --depth=1 origin "+refs/heads/${FIELD_BRANCH}:refs/remotes/origin/${FIELD_BRANCH}"; then
+              echo "git fetch failed on attempt ${attempt}" >&2
+            else
+              parent="$(git rev-parse "origin/${FIELD_BRANCH}")"
+              listing="$(git ls-tree "$parent")"
+              # Regular files only, the marker and the log among them; anything else fails closed.
+              other="$(printf '%s\n' "$listing" | awk '$1 != "100644" || $2 != "blob"')"
+              names="$(printf '%s\n' "$listing" | cut -f2)"
+              if [ -n "$other" ] || ! grep -qxF -- "$FIELD_MARKER" <<< "$names" \
+                || ! grep -qxF -- "$FIELD_FILE" <<< "$names"; then
+                echo "Refusing: ${FIELD_BRANCH} does not hold an initialized field log" >&2
+                exit 1
+              fi
+              git show "${parent}:${FIELD_FILE}" > "$FIELD_DIR/old.jsonl"
+              python backend/field_record.py --append --payload dist/data.json --log "$FIELD_DIR/old.jsonl" \
+                --new "$NEW_LINES" --out "$FIELD_DIR/merged.jsonl"
+              python backend/field_record.py --validate --log "$FIELD_DIR/merged.jsonl" \
+                --previous "$FIELD_DIR/old.jsonl"
+              cp "$FIELD_DIR/merged.jsonl" "$FIELD_DIR/current.jsonl"
+              if cmp -s "$FIELD_DIR/old.jsonl" "$FIELD_DIR/merged.jsonl"; then
+                echo "The field log is unchanged"
+                exit 0
+              fi
+
+              blob="$(git hash-object -w "$FIELD_DIR/merged.jsonl")"
+              tree="$(printf '%s\n' "$listing" \
+                | awk -F'\t' -v blob="$blob" -v file="$FIELD_FILE" \
+                  '$2 == file { print "100644 blob " blob "\t" $2; next } { print }' \
+                | git mktree)"
+              commit="$(GIT_AUTHOR_NAME="WTI Field Log Bot" \
+                GIT_AUTHOR_EMAIL="41898282+github-actions[bot]@users.noreply.github.com" \
+                GIT_COMMITTER_NAME="WTI Field Log Bot" \
+                GIT_COMMITTER_EMAIL="41898282+github-actions[bot]@users.noreply.github.com" \
+                git commit-tree "$tree" -p "$parent" -m "chore: append to the field log [skip ci]")"
+              if git \
+                -c http.https://github.com/.extraheader="AUTHORIZATION: basic ${auth_header}" \
+                -c http.followRedirects=false \
+                push origin "${commit}:refs/heads/${FIELD_BRANCH}"; then
+                echo "pushed=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "git push to ${FIELD_BRANCH} failed on attempt ${attempt}" >&2
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              echo "Unable to append to the field log after 3 attempts" >&2
+              exit 1
+            fi
+            sleep "$((attempt * 5))"
+          done
+
+      # A session can go unlogged; a log more than field_record.MAX_LAG_SESSIONS sessions behind the
+      # payload has stopped growing, and this step fails the job so Health reports it.
+      - name: Check that the field log keeps up
+        if: ${{ !cancelled() && steps.append.outcome == 'success' }}
+        env:
+          FIELD_DIR: ${{ runner.temp }}/field
+        run: PYTHONDONTWRITEBYTECODE=1 python backend/field_record.py --lag --payload dist/data.json --log "$FIELD_DIR/current.jsonl"
+
+  # As the record's anchor: Sigstore signs the field log as just pushed and logs its digest in Rekor.
+  field_anchor:
+    name: Anchor the field log in a public log
+    needs: field
+    if: ${{ !cancelled() && needs.field.outputs.pushed == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: read
+      id-token: write              # Sigstore's short-lived signing certificate for this workflow
+      attestations: write          # keep the attestation with the repository as well
+    steps:
+      - name: Checkout the field log as pushed
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: field-data
+          persist-credentials: false
+
+      - name: Attest the field log
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: vol_field_record.jsonl
