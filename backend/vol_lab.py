@@ -631,7 +631,8 @@ _FLOOR_LNW = np.linspace(-40.0, 8.0, 6001)  # trapezoid grid in ln(W / nu) for t
 def normal_qlike_floor(n: int = vf.H) -> float:
     """E[X - ln X - 1] with X ~ chi2(n)/n: the expected QLIKE of a forecast equal to the true variance, scored
     against the realized variance of n returns that are normal with a constant variance (the target is not
-    demeaned), -digamma(n/2) - ln(2/n). A lower bound for returns that are normal given their variance."""
+    demeaned), -digamma(n/2) - ln(2/n). A lower bound for returns that are normal given a variance that does not
+    depend on the week's own shocks (Jensen's inequality and the Schur-concavity of E ln sum w_i z_i^2)."""
     return float(np.log(n / 2) - special.digamma(n / 2))
 
 
@@ -659,6 +660,13 @@ def noise_floor_draws(r: np.ndarray, k: int) -> np.ndarray:
     generator, seed and calls; tests/test_vol_lab.py pins the equality)."""
     rng = np.random.default_rng(vf.NOISE_FLOOR_SEED + k)
     return np.asarray(rng.standard_t(5, len(r)) / np.sqrt(5 / 3) * float(np.std(r)), dtype=float)
+
+
+def t5_day_variance(t5: np.ndarray, sd: float, rng: np.random.Generator) -> np.ndarray:
+    """Each Student-t(5) day's variance drawn given its return: T = N sqrt(S'), S' = 5/chi2(5), so
+    S' | T = t ~ (5 + t^2) / chi2(6); scaled so the day variances average sd^2 (T has variance 5/3)."""
+    t = np.asarray(t5, dtype=float) / sd * np.sqrt(5 / 3)
+    return np.asarray((5 + t ** 2) / rng.chisquare(6, len(t)) * (3 / 5) * sd ** 2, dtype=float)
 
 
 def _bridge(end: np.ndarray, var: np.ndarray, steps: int, rng: np.random.Generator) -> np.ndarray:
@@ -701,8 +709,10 @@ def floor_bars(z: np.ndarray, day_var: np.ndarray, dates: pd.DatetimeIndex, rng:
 
 def _floor_scores(z: np.ndarray, dates: pd.DatetimeIndex, forecast: np.ndarray | float,
                   v_range: np.ndarray | None = None) -> float:
-    """Mean QLIKE over the lab's OOS rows (from MIN_TRAIN on) of `forecast` against the five-return target of
-    `z`, or against the range target when the daily range variances `v_range` are given."""
+    """Mean QLIKE of `forecast` over every row of the OVX-free feature matrix of `z` from MIN_TRAIN on
+    (rows_per_sim; not the lab's 2008- OOS sample: the simulated series have the length and dates of the real
+    returns), against the five-return target of `z`, or against the range target when the daily range
+    variances `v_range` are given."""
     _, y, _, pos = vf._build_matrix(z, dates, None, return_positions=True)
     y, pos = y[vf.MIN_TRAIN:], pos[vf.MIN_TRAIN:]
     if v_range is not None:
@@ -712,8 +722,9 @@ def _floor_scores(z: np.ndarray, dates: pd.DatetimeIndex, forecast: np.ndarray |
 
 
 def _summary(values: list[float]) -> dict[str, Any]:
-    return {"simulated_mean": round(float(np.mean(values)), 4),
-            "simulated_range": [round(float(min(values)), 4), round(float(max(values)), 4)]}
+    # Six decimals, so a value shown at three is rounded once (a 4-dp store would round 0.36353 down to 0.363).
+    return {"simulated_mean": round(float(np.mean(values)), 6),
+            "simulated_range": [round(float(min(values)), 6), round(float(max(values)), 6)]}
 
 
 def qlike_floor(d: Design) -> dict[str, Any]:
@@ -722,8 +733,8 @@ def qlike_floor(d: Design) -> dict[str, Any]:
     proxy and the assumed returns, never to a model, and nothing subtracts it from any loss or test.
 
     The simulations are the direction noise floor's (NOISE_FLOOR_SIMS draws of i.i.d. Student-t(5) returns with
-    the sample's volatility, seeds NOISE_FLOOR_SEED + k), scored on the lab's OOS rows; the normal ones use the
-    same seeds. Range bars are Brownian bridges through each simulated return (floor_bars), drawn from a second
+    the sample's volatility, seeds NOISE_FLOOR_SEED + k), scored on every row of the OVX-free feature matrix from
+    MIN_TRAIN on (rows_per_sim); the normal ones use the same seeds. Range bars are Brownian bridges through each simulated return (floor_bars), drawn from a second
     stream (seed + QLIKE_FLOOR_BAR_SEED_OFFSET + k) so the first is untouched. 'Kurtosis-matched' is the
     conditional kurtosis of the lab's GARCH(1,1)-t fitted to all returns (chosen after the unconditional kurtosis,
     which puts the floor above most models' losses, and a within-week dispersion match, which a variance moving
@@ -759,9 +770,8 @@ def qlike_floor(d: Design) -> dict[str, Any]:
         # Range proxy: bars through the same returns. A Student-t(5) day's variance is drawn given its return
         # (T = N sqrt(S'), S' | t ~ (5 + t^2) / chi2(6)), so every bar keeps the noise floor's draw.
         bars_rng = np.random.default_rng(vf.NOISE_FLOOR_SEED + QLIKE_FLOOR_BAR_SEED_OFFSET + k)
-        t_draw = t5 / sd * np.sqrt(5 / 3)
         for name, z, day_var in (("range_normal", normal, np.full(len(r), sd ** 2)),
-                                 ("range_t5", t5, (5 + t_draw ** 2) / bars_rng.chisquare(6, len(r)) * (3 / 5) * sd ** 2)):
+                                 ("range_t5", t5, t5_day_variance(t5, sd, bars_rng))):
             v = range_variance(floor_bars(z, day_var, dates, bars_rng), z, None)
             scores[name].append(_floor_scores(z, dates, true_vol, v_range=v))
             _, _, _, pos = vf._build_matrix(z, dates, None, return_positions=True)
@@ -783,12 +793,12 @@ def qlike_floor(d: Design) -> dict[str, Any]:
         "five_return": {
             "proxy": "realized vol of the 5 target sessions' close-to-close returns, not demeaned",
             "normal": {"closed_form": normal_qlike_floor(vf.H), "formula": "-digamma(5/2) - ln(2/5)",
-                       "lower_bound": "for returns normal given their variance",
+                       "lower_bound": "for returns normal given a variance that does not depend on the week's own shocks",
                        **_summary(scores["normal"])},
             "student_t5": {"df": 5, "kurtosis": 9.0,
                            "process": "i.i.d. Student-t(5), constant volatility (nothing to forecast)",
-                           "exact": round(t_qlike_floor(5.0), 4), **_summary(scores["t5"])},
-            "kurtosis_matched": {"df": round(nu, 2), "kurtosis": round(kurtosis, 2), "exact": round(t_qlike_floor(nu), 4),
+                           "exact": t_qlike_floor(5.0), **_summary(scores["t5"])},
+            "kurtosis_matched": {"df": round(nu, 2), "kurtosis": round(kurtosis, 2), "exact": t_qlike_floor(nu),
                                  "source": ("conditional kurtosis of the GARCH(1,1)-t fit to all returns (the lab's "
                                             "GARCH spec); i.i.d. Student-t returns with that kurtosis and constant "
                                             "variance")},
@@ -803,10 +813,10 @@ def qlike_floor(d: Design) -> dict[str, Any]:
                     "settlement; share 2.5/23 of the day's variance after the settlement; exact extremes between "
                     "bridge points"),
             "normal": {**_summary(scores["range_normal"]),
-                       "proxy_to_true_variance": round(float(np.mean(ratios["range_normal"])), 4)},
+                       "proxy_to_true_variance": round(float(np.mean(ratios["range_normal"])), 6)},
             "student_t5": {**_summary(scores["range_t5"]),
-                           "proxy_to_true_variance": round(float(np.mean(ratios["range_t5"])), 4)},
-            "data_proxy_to_close_variance": round(float(np.mean(range_var) / np.mean(close_var)), 4),
+                           "proxy_to_true_variance": round(float(np.mean(ratios["range_t5"])), 6)},
+            "data_proxy_to_close_variance": round(float(np.mean(range_var) / np.mean(close_var)), 6),
         },
     }
 

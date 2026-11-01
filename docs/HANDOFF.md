@@ -51,7 +51,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   accepted on 2026-11-01 after two scheduled publishes with anchors; LIVE and a second anchor
   remain). From #95 the Refresh workflow's three field jobs keep the unsealed shadow log of the
   whole field on the `field-data` branch (ROADMAP 1.8; `backend/field_record.py`, #94).
-- **Tests.** 619 Python (unittest), 267 frontend (node --test) and 13 browser checks (Playwright,
+- **Tests.** 629 Python (unittest), 267 frontend (node --test) and 13 browser checks (Playwright,
   the "Interface" CI job: axe, layout shift, overflow, keyboard, print, script budget). CI also runs
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
   Reproduce rebuild. Releases: `scripts/bump_version.py`, and `.github/workflows/release.yml`

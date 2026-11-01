@@ -469,6 +469,45 @@ class QlikeFloorTest(unittest.TestCase):
         self.assertTrue((bars["Low"] <= np.minimum(bars["Open"], bars["Close"]) + 1e-12).all())
         self.assertTrue((bars["High"] >= np.maximum(bars["Open"], bars["Close"]) - 1e-12).all())
 
+    def test_a_bridge_starts_at_zero_ends_at_its_end_and_has_bridge_increments(self):
+        rng = np.random.default_rng(3)
+        end = rng.standard_normal(200_000)
+        path = lab._bridge(end, np.full(end.size, 2.0), 10, rng)
+        np.testing.assert_array_equal(path[:, 0], 0.0)
+        np.testing.assert_allclose(path[:, -1], end, atol=1e-12)
+        increments = np.diff(path, axis=1) - end[:, None] / 10        # given its end, each step has variance v/n (1 - 1/n)
+        self.assertLess(abs(increments.var() / (2.0 / 10 * (1 - 1 / 10)) - 1), 0.02)
+
+    def test_the_overnight_part_is_the_bridge_point_at_the_reopen(self):
+        n, var = 200_000, 0.0004
+        rng = np.random.default_rng(4)
+        z = rng.standard_normal(n) * np.sqrt(var)
+        bars = lab.floor_bars(z, np.full(n, var), pd.bdate_range("2000-01-03", periods=n), rng)
+        overnight = np.log(bars["Open"].to_numpy())[1:] - np.log(bars["Close"].to_numpy())[:-1]
+        slope, intercept = np.polyfit(z[1:], overnight, 1)
+        share = lab.RANGE_FLOOR_SETTLE_SHARE
+        self.assertLess(abs(slope - share), 0.005)
+        residual = overnight - slope * z[1:] - intercept
+        self.assertLess(abs(residual.var() / (share * (1 - share) * var) - 1), 0.02)
+
+    def test_a_student_t_day_s_variance_averages_the_sample_s_and_rises_with_its_return(self):
+        rng = np.random.default_rng(6)
+        sd = 0.02
+        t5 = rng.standard_t(5, 400_000) / np.sqrt(5 / 3) * sd
+        days = lab.t5_day_variance(t5, sd, np.random.default_rng(7))
+        self.assertLess(abs(days.mean() / sd ** 2 - 1), 0.02)
+        small, large = np.abs(t5) < np.quantile(np.abs(t5), 0.5), np.abs(t5) > np.quantile(np.abs(t5), 0.9)
+        self.assertGreater(days[large].mean(), 2 * days[small].mean())
+
+    def test_qlike_floor_scores_the_noise_floor_s_draws(self):
+        r, dates, ovx, ohlc = _synthetic_market()
+        d = lab.build_design(r, dates, ovx, ohlc)
+        with mock.patch.object(lab, "noise_floor_draws", wraps=lab.noise_floor_draws) as draws:
+            block = lab.qlike_floor(d)
+        self.assertEqual([call.args[1] for call in draws.call_args_list], list(range(vf.NOISE_FLOOR_SIMS)))
+        self.assertTrue(all(call.args[0] is d.r for call in draws.call_args_list))
+        self.assertEqual(block["sims"], vf.NOISE_FLOOR_SIMS)
+
     def test_the_exact_extremes_make_rogers_satchell_unbiased(self):
         # With nothing after the settlement, a bar is one settlement-to-settlement diffusion with constant
         # variance, for which Rogers-Satchell is unbiased; extremes read at the grid points would bias it low.
@@ -668,6 +707,7 @@ class ArtifactContractTest(unittest.TestCase):
         md.load_snapshot()                                                    # digests verify
 
     def test_the_qlike_floor_is_current_and_never_subtracted(self):
+        import ast
         import inspect
 
         from backend import research_ledger as rl
@@ -689,9 +729,22 @@ class ArtifactContractTest(unittest.TestCase):
         # It describes the proxy: nothing that scores, ranks or tests a model reads it, and no test row cites it.
         for key in ("leaderboard", "oos_selection", "conformal", "var_backtest", "yearly"):
             self.assertNotIn("floor", json.dumps(self.report[key]), key)
-        for function in (lab.leaderboard, lab._losses, lab.spa_vs_champion, fe.dm_test):
-            self.assertNotIn("qlike_floor", inspect.getsource(function), function.__name__)
+        names = {"qlike_floor", "normal_qlike_floor", "t_qlike_floor", "_floor_scores", "floor_bars",
+                 "noise_floor_draws", "t5_day_variance"}
+        for module, readers in ((lab, {"qlike_floor", "t_qlike_floor", "build_report"}), (fe, set()), (rl, set())):
+            tree = ast.parse(inspect.getsource(module))
+            found = {node.name for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                     and any(isinstance(n, (ast.Name, ast.Attribute)) and (getattr(n, "id", None) in names
+                             or getattr(n, "attr", None) in names) for n in ast.walk(node))}
+            self.assertEqual(found, readers, module.__name__)
         self.assertNotIn("qlike_floor", inspect.getsource(rl))
+        # Plausible magnitudes: the range values sit below the five-return floor; the bars' level is stated.
+        rng = block["range"]
+        self.assertLess(rng["normal"]["simulated_mean"], rng["student_t5"]["simulated_mean"])
+        self.assertLess(rng["student_t5"]["simulated_mean"], five["normal"]["closed_form"])
+        for name in ("normal", "student_t5"):
+            self.assertTrue(1 < rng[name]["proxy_to_true_variance"] < 1.3)
+        self.assertTrue(0.8 < rng["data_proxy_to_close_variance"] < 1.3)
 
     def test_the_second_source_blocks_are_current_and_say_what_the_docs_say(self):
         snapshot = md.load_snapshot()

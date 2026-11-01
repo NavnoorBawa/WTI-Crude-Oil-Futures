@@ -5285,36 +5285,36 @@
    "normal": {
     "closed_form": 0.21313409122891191,
     "formula": "-digamma(5/2) - ln(2/5)",
-    "lower_bound": "for returns normal given their variance",
-    "simulated_mean": 0.2163,
+    "lower_bound": "for returns normal given a variance that does not depend on the week's own shocks",
+    "simulated_mean": 0.216308,
     "simulated_range": [
-     0.2083,
-     0.2303
+     0.208272,
+     0.230336
     ]
    },
    "student_t5": {
     "df": 5,
     "kurtosis": 9.0,
     "process": "i.i.d. Student-t(5), constant volatility (nothing to forecast)",
-    "exact": 0.3695,
-    "simulated_mean": 0.3624,
+    "exact": 0.3695131668907834,
+    "simulated_mean": 0.362412,
     "simulated_range": [
-     0.3332,
-     0.3902
+     0.333192,
+     0.390186
     ]
    },
    "kurtosis_matched": {
     "df": 7.37,
     "kurtosis": 4.78,
-    "exact": 0.2983,
+    "exact": 0.2983051014600525,
     "source": "conditional kurtosis of the GARCH(1,1)-t fit to all returns (the lab's GARCH spec); i.i.d. Student-t returns with that kurtosis and constant variance"
    },
    "garch_t_dynamics": {
     "process": "the fitted GARCH(1,1)-t itself; the forecast is its conditional mean of the proxy, so the floor includes variance moves within the week that no forecast made at the decision can know",
-    "simulated_mean": 0.3635,
+    "simulated_mean": 0.363531,
     "simulated_range": [
-     0.3306,
-     0.3888
+     0.330627,
+     0.388809
     ]
    }
   },
@@ -5322,22 +5322,22 @@
    "proxy": "range_variance of the 5 target sessions (Rogers-Satchell plus the overnight return), not rescaled",
    "bar": "Brownian bridge through each simulated return; High/Low to 17:00 ET, 2.5 h after the 14:30 settlement; share 2.5/23 of the day's variance after the settlement; exact extremes between bridge points",
    "normal": {
-    "simulated_mean": 0.0361,
+    "simulated_mean": 0.036138,
     "simulated_range": [
-     0.0336,
-     0.0382
+     0.033625,
+     0.038221
     ],
-    "proxy_to_true_variance": 1.1391
+    "proxy_to_true_variance": 1.139078
    },
    "student_t5": {
-    "simulated_mean": 0.1424,
+    "simulated_mean": 0.142383,
     "simulated_range": [
-     0.129,
-     0.1498
+     0.12897,
+     0.149835
     ],
-    "proxy_to_true_variance": 1.1597
+    "proxy_to_true_variance": 1.159676
    },
-   "data_proxy_to_close_variance": 1.0349
+   "data_proxy_to_close_variance": 1.034929
   }
  },
  "har_iv_coefficients": {
