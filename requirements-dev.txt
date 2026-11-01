@@ -6,7 +6,7 @@
 mypy==2.4.0
 pandas-stubs==3.0.5.260914
 scipy-stubs==1.18.1.1
-types-requests==2.33.0.20260906
+types-requests==2.33.0.20261006
 
 # Property-based tests (tests/test_properties.py) and coverage
 hypothesis==6.170.1
