@@ -84,13 +84,14 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   with nothing wrong; a failed anchor job shows in the Health issue as a recorded incident. If a
   run's log names GitHub's Sigstore instance instead of Public Good, the attestation is not in the
   public log: report that rather than working around it.
-- **The shadow field log (ROADMAP 1.8).** After the jobs' first scheduled run, check the
-  `field-data` branch: 13 forecast lines for the published session, each `appended_at` before its
-  window's settlement, `python backend/field_record.py --validate --log FILE` OK, and a Rekor entry
-  from `field_anchor`. If they are there within a day, record 1.8 in ROADMAP's Done list. Later runs
-  settle windows (a `skipped_roll` outcome lands at once for a window across a roll). A run whose
-  fresh download does not reproduce the published forecast logs nothing (the `field_build` log says
-  why); a field job failure is a Health incident, and so is a log more than three sessions behind.
+- **The shadow field log (ROADMAP 1.8, done).** The first run (2026-11-01, Refresh run
+  41299948946) logged 13 forecast lines for 2026-10-30 on `field-data`; Rekor log index 3627645998.
+  Now and then: `git fetch origin field-data && git show origin/field-data:vol_field_record.jsonl >
+  /tmp/f.jsonl && python backend/field_record.py --validate --log /tmp/f.jsonl` should print OK, and
+  each session should gain 13 lines (later runs settle windows; one across a roll gets
+  `skipped_roll` at once). A run whose fresh download does not reproduce the published forecast logs
+  nothing (the `field_build` log says why); a failed field job is a Health incident, and so is a log
+  more than three sessions behind.
 - At 10 independent weeks LIVE starts comparing the two models on the same calls; check that
   wording when it first appears (around January 2027).
 - Do not touch the promotion test. It decides once, at 52 independent paired weeks (late 2027).
