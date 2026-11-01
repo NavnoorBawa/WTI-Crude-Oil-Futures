@@ -36,6 +36,23 @@ backs the new one.
   from its first run on. (ROADMAP 1.3, in progress: its acceptance waits on scheduled runs; the
   LIVE display and a second, OpenTimestamps anchor are not done.)
 
+### Data
+
+- **A second source for the CL=F prices, and a roll audit.** Copies of the committed EIA files
+  (contracts 1 and 2, final through 2024-04-05, and Cushing spot) are now pinned in the snapshot's
+  manifest (`python -m backend.market_data --add-eia`; the three existing files and their digests
+  are unchanged). `data/vol_lab.json` gains `cl_source_agreement`
+  (`market_data.cl_source_agreement`: the closes, rounded to the cent, against EIA's contract 1 to
+  one tick and against spot loosely) and `roll_convention_audit` (`vol_lab.roll_convention_audit`:
+  whether `CL=F` equals EIA's contract 1 on the session before and the session of each of the
+  lab's roll days; it shows Yahoo rolling with EIA, not that the lab's calendar is right). Both are
+  descriptive: no model reads EIA's prices, and every other number in the artifact is unchanged,
+  bit for bit. The datasheet and RESULTS section 7 list the counts, and METH's sources show them.
+  METHODOLOGY now states the rule for the 2020-04-20 negative settlement (the session is dropped, so
+  the 04-21 return spans two sessions of the same contract, and it is kept), which the code
+  already followed. (ROADMAP 1.7, first part: Stooq, which the item names, cannot be reached from
+  the session, and the freeze-time check is the next step.)
+
 ### Engineering
 
 - **A pinned reproduce environment.** A `Dockerfile` (Python 3.12.14 and Node 24.21.0 images pinned

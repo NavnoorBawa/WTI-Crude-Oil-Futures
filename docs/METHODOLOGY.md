@@ -7,10 +7,31 @@ into those pages from the artifacts.
 
 ## 1. Data, timing and provenance
 
-- **Prices.** Yahoo `CL=F`, the continuous front-month NYMEX WTI future, unadjusted. Its daily
-  close equals EIA's contract-1 settlement on almost every day. Only finished sessions are used
-  (`backend/contract_calendar.py`: a CME session runs 18:00 ET to 17:00 ET; settlement is 14:30 ET).
-  The daily high and low run to 17:00 ET, two and a half hours after the settlement.
+- **Prices.** Yahoo `CL=F`, the continuous front-month NYMEX WTI future, unadjusted. Only
+  finished sessions are used (`backend/contract_calendar.py`: a CME session runs 18:00 ET to
+  17:00 ET; settlement is 14:30 ET). The daily high and low run to 17:00 ET, two and a half hours
+  after the settlement.
+- **A second source for the prices.** The closes are compared, rounded to the cent, with EIA's
+  NYMEX contract-1 settlement (the front month; EIA stopped the series after 2024-04-05) and, more
+  loosely, with EIA's Cushing spot price (`market_data.cl_source_agreement`); a gap of more than
+  one tick ($0.01) from contract 1 counts as a disagreement. Around each of the lab's roll days
+  (`vol_lab.roll_convention_audit`), `CL=F` should equal EIA's contract 1, which rolls at expiry, on
+  the session before the roll and on the roll day; that would show Yahoo rolling earlier than EIA,
+  but not an error in the lab's own calendar (`contract_calendar.last_trade_date`, tested against
+  known expiry dates), since `CL=F` and contract 1 would still agree on both sessions. Both checks
+  are descriptive: no model reads EIA's prices. The counts and spans are in the
+  [datasheet](DATASHEET.md#collection-and-cleaning). Sessions after EIA's contract-1 series ends
+  have only the loose spot check, which cannot tell contracts apart, and only while the committed
+  spot copy lasts; roll days after it are not checked.
+- **The negative settlement.** On 2020-04-20 the expiring May contract settled at −$37.63, which
+  has no logarithm, so that session is dropped from the close series, in the lab as in production
+  (`vol_forecast._completed` keeps positive closes only). The return dated 2020-04-21 therefore
+  spans two sessions of the same May contract, from the 04-17 close to the 04-21 close, and enters
+  the target and the features like any other; that bar has no usable range, so the range measures
+  fall back to its squared return. It is the largest daily move in the sample and is kept, not
+  dropped or set to zero: it is a real move of the contract the series followed, the live model is
+  fitted on the same series, and changing the rule would change the inputs of the sealed record's
+  model partway through it.
 - **Implied volatility.** OVX, the Cboe Crude Oil ETF Volatility Index: a 30-calendar-day implied
   vol computed from options on the USO ETF (not on CL futures), settled at 16:15 ET.
 - **Entry-time rule.** A forecast for session *t* may use only information available at *t*'s 14:30 ET
@@ -27,8 +48,9 @@ into those pages from the artifacts.
     The Reproduce workflow rebuilds `data/vol_lab.json` in full on changes to its inputs and every
     week; the unit suite re-runs a subset of the leak anatomy's runs.
   - `data/carry_signal_test.json` and `data/supply_shock_study.json` read committed EIA files
-    (`data/eia_wti_futures_curve.json`, `data/eia_wti_spot_daily.json`), which are not in the
-    snapshot's manifest. The unit suite rebuilds both and requires them to equal the committed files,
+    (`data/eia_wti_futures_curve.json`, `data/eia_wti_spot_daily.json`). Copies of both are pinned
+    in the snapshot's manifest as second sources for `CL=F` (`python -m backend.market_data
+    --add-eia`); the studies read the JSON files. The unit suite rebuilds both and requires them to equal the committed files,
     and rebuilds `data/research_ledger.json` from the artifacts.
   - `data/vol_forecast_validation.json` (the production validation) and `data/wf_*.json` (the
     direction post-mortem) are records of runs on data downloaded from Yahoo Finance (and FRED).

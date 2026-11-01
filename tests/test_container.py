@@ -56,6 +56,19 @@ class ContainerTest(unittest.TestCase):
         self.assertEqual(config["build"], {"dockerfile": "../Dockerfile", "context": ".."})
         self.assertIn("--ignore-scripts", config["postCreateCommand"])
 
+    def test_dependabot_keeps_the_images_on_ci_s_python_and_node_lines(self):
+        # A Python 3.14 or Node 26 image would no longer match the runtimes CI tests and rebuilds on.
+        workflows = "\n".join(path.read_text(encoding="utf-8")
+                              for path in (ROOT / ".github" / "workflows").glob("*.yml"))
+        self.assertEqual(set(re.findall(r"python-version: '([\d.]+)'", workflows)), {"3.12"})
+        self.assertEqual(set(re.findall(r"node-version: '(\d+)'", workflows)), {"24"})
+        self.assertRegex(DOCKERFILE, r"(?m)^FROM python:3\.12\.\d+-")
+        self.assertRegex(DOCKERFILE, r"(?m)^FROM node:24\.\d+\.\d+-")
+        config = (ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
+        docker = config[config.index("package-ecosystem: docker"):]
+        self.assertIn('- dependency-name: python\n        versions: [">= 3.13"]', docker)
+        self.assertIn('- dependency-name: node\n        versions: [">= 25"]', docker)
+
     def test_the_makefile_runs_the_reproduce_test_ci_runs(self):
         self.assertIn("tests.test_vol_lab.ArtifactContractTest.test_artifact_reproduces_from_the_snapshot", MAKEFILE)
         self.assertIn("RUN_SLOW=1", MAKEFILE)

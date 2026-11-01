@@ -19,7 +19,7 @@ flowchart LR
     end
     subgraph pinned["Committed inputs (git)"]
         S["data/market/*.csv<br/>MANIFEST.json (SHA-256)"]
-        EC["data/eia_*.json<br/>(not in the manifest)"]
+        EC["data/eia_*.json<br/>(copies pinned in the manifest,<br/>a second source for CL=F)"]
     end
     subgraph offline["Rebuilt in CI from committed inputs"]
         L["backend/vol_lab.py<br/>14 models, MCS, SPA, VaR, conformal<br/>(Reproduce workflow, weekly)"]
@@ -41,6 +41,7 @@ flowchart LR
     Y --> S
     F --> S
     E --> EC
+    EC -. "market_data --add-eia" .-> S
     S --> L --> A1
     S --> LA --> A4
     EC --> C --> A3

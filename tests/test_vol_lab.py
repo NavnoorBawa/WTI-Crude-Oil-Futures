@@ -428,7 +428,8 @@ class SnapshotTest(unittest.TestCase):
         now = datetime(2024, 1, 10, tzinfo=timezone.utc)
         cl, quality = md.clean_ohlc(self._frame(), now)
         ovx = pd.Series([30.0, 31.0, 32.0], index=cl.index, name="Close")
-        snap = md.MarketSnapshot(cl, ovx, ovx.rename("OVXCLS"), {})
+        eia = pd.DataFrame({"c1": [70.5, 72.5, 71.8], "c2": [70.9, 72.8, 72.1]}, index=cl.index)
+        snap = md.MarketSnapshot(cl, ovx, ovx.rename("OVXCLS"), {}, eia, eia["c1"].rename("spot"))
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
             first = md.write_snapshot(snap, quality, now, directory)
@@ -440,6 +441,141 @@ class SnapshotTest(unittest.TestCase):
             path.write_text(path.read_text().replace("72.500000", "72.600000"))
             with self.assertRaises(md.SnapshotIntegrityError):
                 md.load_snapshot(directory)
+            with self.assertRaisesRegex(ValueError, "EIA second sources"):
+                md.write_snapshot(md.MarketSnapshot(cl, ovx, ovx.rename("OVXCLS"), {}), quality, now, directory)
+
+
+def _sessions(first: str, last: str) -> pd.DatetimeIndex:
+    from backend.contract_calendar import is_business_day
+
+    days = pd.date_range(first, last, freq="D")
+    return pd.DatetimeIndex([day for day in days if is_business_day(day.date())])
+
+
+def _snapshot(close: pd.Series, eia: pd.DataFrame, spot: pd.Series | None = None) -> md.MarketSnapshot:
+    cl = pd.DataFrame({"Open": close, "High": close, "Low": close, "Close": close, "Volume": 1.0})
+    ovx = pd.Series(30.0, index=close.index)
+    return md.MarketSnapshot(cl, ovx, ovx, {}, eia, close.rename("spot") if spot is None else spot)
+
+
+class SecondSourceTest(unittest.TestCase):
+    """CL=F against EIA (docs/ROADMAP.md, Stage 1, item 7): the snapshot files, the agreement, the roll audit."""
+
+    def test_add_eia_keeps_every_other_file_and_its_digest(self):
+        import shutil
+
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            for name in ("cl_f_daily.csv", "ovx_yahoo_daily.csv", "ovxcls_fred.csv", md.MANIFEST_NAME):
+                shutil.copy(md.SNAPSHOT_DIR / name, directory / name)
+            before = json.loads((directory / md.MANIFEST_NAME).read_text())
+            before["files"] = {k: v for k, v in before["files"].items() if k not in ("eia_futures", "eia_spot")}
+            (directory / md.MANIFEST_NAME).write_text(json.dumps(before, indent=2) + "\n")
+            first = md.add_eia(directory)
+            self.assertEqual(md.add_eia(directory), first)                    # idempotent, same digests
+            self.assertEqual({k: v for k, v in first.items() if k != "files"},
+                             {k: v for k, v in before.items() if k != "files"})  # retrieval time and quality kept
+            for key, entry in before["files"].items():
+                self.assertEqual(first["files"][key], entry)
+            self.assertEqual(list(first["files"]), list(md.FILES))
+            loaded = md.load_snapshot(directory)
+            futures, spot = md.eia_frames()
+            pd.testing.assert_frame_equal(loaded.eia_futures, futures, check_names=False, check_freq=False)
+            pd.testing.assert_series_equal(loaded.eia_spot, spot, check_names=False, check_freq=False)
+            self.assertEqual(float(loaded.eia_futures.loc["2020-04-20", "c1"]), -37.63)   # published as is
+
+    def test_the_pinned_eia_copies_are_the_committed_json_up_to_their_last_date(self):
+        # The JSON files are caches the supply-shock study refreshes; the pinned copies stop at the
+        # dates the manifest records, so a newer cache neither breaks this nor moves a digest.
+        snapshot = md.load_snapshot()
+        files = snapshot.manifest["files"]
+        futures, spot = md.eia_frames()
+        pd.testing.assert_frame_equal(snapshot.eia_futures, futures.loc[:files["eia_futures"]["last"]],
+                                      check_names=False, check_freq=False)
+        pd.testing.assert_series_equal(snapshot.eia_spot, spot.loc[:files["eia_spot"]["last"]],
+                                       check_names=False, check_freq=False)
+
+    def test_agreement_counts_ticks_on_cents_misses_and_missing_sessions(self):
+        days = _sessions("2024-03-01", "2024-03-14")                         # 10 sessions
+        # Yahoo stores float32: 80.970001 is 80.97, and 81.010001 is one tick from 81.00 only once rounded.
+        close = pd.Series([80.0, 80.970001, 81.010001, 81.5, 82.0, 82.5, 83.0, 83.5, 84.0, 84.5], index=days)
+        c1 = close.round(2).copy()
+        c1.iloc[2] = 81.0                                                      # one tick apart: agreement
+        c1.iloc[4] = 82.5                                                      # fifty cents: a miss
+        c1.iloc[5] = 82.52                                                     # two ticks: a miss
+        c1.iloc[8] = -5.0                                                      # a negative settlement
+        eia = pd.DataFrame({"c1": c1, "c2": c1 + 1.0})
+        snapshot = _snapshot(close.drop([days[7], days[8]]), eia, (close * 1.02).rename("spot"))  # gaps in CL=F
+        found = md.cl_source_agreement(snapshot, sample_first=str(days[3].date()))
+        c = found["contract1"]
+        self.assertEqual((c["common_days"], c["misses"], c["misses_by_year"]), (8, 2, {"2024": 2}))
+        self.assertEqual(c["share_same_cent"], round(5 / 8, 4))
+        self.assertEqual(c["share_within_one_tick"], round(6 / 8, 4))
+        self.assertEqual(c["largest_gaps"][0], {"date": str(days[4].date()), "yahoo": 82.0, "c1": 82.5, "c2": 83.5})
+        self.assertEqual(c["eia_sessions_missing_from_cl"], [str(days[7].date())])     # a gap in Yahoo's series
+        self.assertEqual(c["nonpositive_sessions_dropped"], [str(days[8].date())])   # the rule, not a gap
+        self.assertEqual(c["since_sample_first"], {"first": str(days[3].date()), "common_days": 5, "misses": 2,
+                                                   "miss_dates": [str(days[4].date()), str(days[5].date())]})
+        self.assertAlmostEqual(found["spot"]["max_abs_log_gap"], round(float(np.log(1.02)), 4))
+        self.assertEqual(found["spot"]["common_days"], 8)
+
+    def _roll_case(self, before_c1, roll_c1, cl_before, cl_roll, drop=None, c2_before=None):
+        # CLF24 last traded 2023-12-19; the lab's roll day is the next session, 2023-12-20.
+        days = _sessions("2023-12-07", "2023-12-22")
+        close = pd.Series(70.0, index=days)
+        eia = pd.DataFrame({"c1": 70.0, "c2": 71.0}, index=days)
+        before, roll = pd.Timestamp("2023-12-19"), pd.Timestamp("2023-12-20")
+        eia.loc[before, "c1"], eia.loc[roll, "c1"] = before_c1, roll_c1
+        if c2_before is not None:
+            eia.loc[before, "c2"] = c2_before
+        close.loc[before], close.loc[roll] = cl_before, cl_roll
+        if drop is not None:
+            eia = eia.drop(pd.Timestamp(drop))
+        return lab.roll_convention_audit(_snapshot(close, eia))
+
+    def test_roll_audit_counts_switches_on_the_roll_day_and_names_early_ones(self):
+        on_day = self._roll_case(before_c1=70.0, roll_c1=71.2, cl_before=70.0, cl_roll=71.2)
+        self.assertEqual((on_day["contracts_checked"], on_day["on_lab_roll_day"], on_day["mismatches"]), (1, 1, []))
+        early = self._roll_case(before_c1=70.0, roll_c1=71.2, cl_before=71.0, cl_roll=71.2)   # on contract 2 a day early
+        self.assertEqual(early["mismatches"], [{"contract": "CLF24", "last_trade": "2023-12-19",
+                                                "lab_roll_day": "2023-12-20", "yahoo_switch": "2023-12-19",
+                                                "offset_sessions": -1}])
+        reasons = {
+            "no EIA row on the session before or on the roll day": dict(drop="2023-12-19"),
+            "contracts 1 and 2 within a tick of each other": dict(c2_before=70.01),
+            "CL=F matches neither contract on the session before or on the roll day": dict(cl_before=75.0),
+        }
+        for reason, change in reasons.items():
+            with self.subTest(reason=reason):
+                args = {**dict(before_c1=70.0, roll_c1=71.2, cl_before=70.0, cl_roll=71.2), **change}
+                found = self._roll_case(**args)
+                self.assertEqual([i["reason"] for i in found["indeterminate"]], [reason])
+                self.assertEqual(found["on_lab_roll_day"], 0)
+        late = self._roll_case(before_c1=70.0, roll_c1=71.2, cl_before=70.0, cl_roll=71.2, drop="2023-12-22")
+        self.assertEqual(late["eia_through"], "2023-12-21")
+
+    def test_an_early_switch_is_found_however_far_back_it_starts(self):
+        # CL=F follows the next contract (EIA's contract 2) for the 12 sessions up to CLF24's last trade
+        # date (2023-12-19): the switch is found back to the session after CLZ23's roll (2023-11-21).
+        days = _sessions("2023-11-01", "2023-12-22")
+        eia = pd.DataFrame({"c1": 70.0, "c2": 71.0}, index=days)
+        eia.loc[days >= pd.Timestamp("2023-12-20"), "c1"] = 71.2
+        close = eia["c1"].copy()
+        early = (days >= pd.Timestamp("2023-12-04")) & (days <= pd.Timestamp("2023-12-19"))
+        close[early] = eia.loc[early, "c2"]
+        found = lab.roll_convention_audit(_snapshot(close, eia))
+        self.assertEqual(found["mismatches"], [{"contract": "CLF24", "last_trade": "2023-12-19",
+                                                "lab_roll_day": "2023-12-20", "yahoo_switch": "2023-12-04",
+                                                "offset_sessions": -12}])
+        self.assertEqual(found["on_lab_roll_day"], 1)                          # CLZ23 rolled on its roll day
+
+    def test_roll_days_after_eia_are_counted_not_checked(self):
+        days = _sessions("2023-11-01", "2024-01-31")
+        close = pd.Series(70.0, index=days)
+        eia = pd.DataFrame({"c1": 70.0, "c2": 71.0}, index=days[days <= pd.Timestamp("2023-12-15")])
+        found = lab.roll_convention_audit(_snapshot(close, eia))
+        self.assertEqual(found["roll_days_after_eia"], 2)                     # CLF24 and CLG24 roll after 12-15
+        self.assertEqual(found["contracts_checked"], 1)                       # CLZ23 (last trade 2023-11-20)
 
 
 class ArtifactContractTest(unittest.TestCase):
@@ -453,6 +589,20 @@ class ArtifactContractTest(unittest.TestCase):
         manifest = json.loads((ROOT / "data" / "market" / "MANIFEST.json").read_text())
         self.assertEqual(self.report["generated_from"], manifest)
         md.load_snapshot()                                                    # digests verify
+
+    def test_the_second_source_blocks_are_current_and_say_what_the_docs_say(self):
+        snapshot = md.load_snapshot()
+        agreement = md.cl_source_agreement(snapshot, self.report["sample"]["first"])
+        audit = lab.roll_convention_audit(snapshot)
+        self.assertEqual(self.report["cl_source_agreement"], agreement)
+        self.assertEqual(self.report["roll_convention_audit"], audit)
+        # In the scored sessions EIA covers, CL=F is EIA's contract 1 to the tick but on a handful of
+        # days, and around the lab's roll days it equals contract 1 wherever EIA can tell (which says
+        # nothing about the lab's calendar itself: roll_convention_audit's docstring).
+        since = agreement["contract1"]["since_sample_first"]
+        self.assertLessEqual(since["misses"], 5)
+        self.assertTrue(all(m["last_trade"] < self.report["sample"]["first"] for m in audit["mismatches"]))
+        self.assertGreater(audit["on_lab_roll_day"], 0.9 * audit["contracts_checked"])
 
     def test_series_lengths_and_sample(self):
         series = self.report["series"]

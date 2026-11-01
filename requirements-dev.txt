@@ -6,10 +6,10 @@
 mypy==2.4.0
 pandas-stubs==3.0.5.260914
 scipy-stubs==1.18.1.1
-types-requests==2.33.0.20260906
+types-requests==2.33.0.20261006
 
 # Property-based tests (tests/test_properties.py) and coverage
-hypothesis==6.169.0
+hypothesis==6.170.1
 coverage==7.16.2
 
 # Generated documentation: README/model-card/datasheet numbers (cog) and figures (matplotlib)
@@ -17,6 +17,6 @@ cogapp==3.6.0
 matplotlib==3.11.2
 
 # Lint, security scan and dependency audit (the same versions the Tests workflow gates on)
-ruff==0.17.0
+ruff==0.17.1
 bandit==1.9.4
 pip-audit==2.10.1
