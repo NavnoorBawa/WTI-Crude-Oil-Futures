@@ -71,10 +71,11 @@ backs the new one.
   challenger; appends lines by the record's window rule (first issuance per session and model
   wins, one window per session, the file only grows); settles windows by the record's resolution
   rule (never marking expired a window whose closes have scrolled out of the payload); and
-  validates the file. It is unsealed and descriptive: nothing else reads it (a test enforces that),
-  and no test of the pinned pair is run on it. The jobs that run it in the Refresh workflow and the
-  `field-data` branch come next. On 2026-11-01 a run against the live payload logged all 13 models
-  for 2026-10-30 in 16 seconds. (ROADMAP 1.8, first part.)
+  validates from the file alone every rule it appends by (each line stores its append time, so the
+  window can be rechecked). It is unsealed and descriptive: no other tracked file but the docs
+  names it (a test checks), and no test of the pinned pair is run on it. The jobs that run it in the Refresh workflow and the
+  `field-data` branch come next. On 2026-11-01 two runs against the live payload each logged all 13
+  models for 2026-10-30, in 16 and 8 seconds, and the merged log validated. (ROADMAP 1.8, first part.)
 
 ### Engineering
 

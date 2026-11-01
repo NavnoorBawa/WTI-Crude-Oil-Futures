@@ -193,16 +193,23 @@ before the settlement that opens its window can be resolved, skipped or expired.
 ### The shadow field log (unsealed)
 
 `vol_field_record.jsonl` (backend/field_record.py) is JSON Lines, append-only, one canonical object
-per line (sorted keys, compact, ASCII, no NaN), every line with `sealed: false`. A `forecast` line:
-`as_of`, `issued_at`, `model_key` (one of `field_record.FIELD_KEYS`, the lab's field without the
-timing control), `forecast_pct`, `median_pct`, `inputs_sha256` (the exact inputs, never outputs),
-`ovx_source`, `code_sha`, `spec_sha256` (backend/vol_lab.py and backend/vol_forecast.py), and the
-window `base_session`, `target_start`, `target_end` by the record's rule at append time; one per
-(`as_of`, `model_key`), one window per `as_of`. An `outcome` line: `base_session`, `status`
-(`resolved`, `skipped_roll` or `expired`), `closes` and `realized_pct` (resolved only, recomputable),
-`resolved_at`; one per window. `python backend/field_record.py --validate --log FILE [--previous
-EARLIER]` checks all of this and that the earlier copy is a byte prefix. It is not sealed evidence,
-never feeds the promotion test, and no other module or page reads it.
+per line (sorted keys, compact, ASCII, no NaN, each line ending in `\n`), every line with
+`sealed: false`. A `forecast` line: `as_of` (a session, `YYYY-MM-DD`), `issued_at`, `appended_at`,
+`model_key` (one of `field_record.FIELD_KEYS`, the lab's field without the timing control),
+`forecast_pct` and `median_pct` (positive), `inputs_sha256` (the exact inputs, never outputs),
+`ovx_source`, `code_sha` (the commit, or null), `spec_sha256` (backend/vol_lab.py and
+backend/vol_forecast.py), and the window `base_session`, `target_start`, `target_end`: the record's
+rule (`vol_record.target_window`) applied to the later of `issued_at` and `appended_at`, plus the
+one-hour commit margin. One line per (`as_of`, `model_key`), one window per `as_of`, sessions never
+going back. An `outcome` line: `base_session` (a window a line above opened), `status`, `closes`,
+`realized_pct`, `resolved_at`; one per window. `skipped_roll` exactly when the window spans a
+contract roll; `resolved` carries the six closes dated from `base_session` to `target_end` and the
+`realized_pct` they give, after the last of them settled; `expired` only more than ten sessions
+after `target_end`; the other two carry null `closes` and `realized_pct`. Lines are in time order
+(`appended_at`, `resolved_at`). `python backend/field_record.py --validate --log FILE [--previous
+EARLIER]` checks all of this from the file alone, and that the earlier copy is a byte prefix; what it
+cannot check is which closes the payload held when a window was settled. It is not sealed evidence,
+never feeds the promotion test, and no other tracked file but the docs names it (a test checks).
 
 ## `research.json` (schema_version 1)
 
