@@ -1072,14 +1072,16 @@ def regime_block() -> str:
                         f"{_pthr(robust['hac_lags_40']['p_value'])} | {_pthr(robust['all_cells']['p_value'])} |")
     test = lab["regimes"]["test"]
     gap = lab["regimes"]["variables"]["ovx_rv_gap"]
-    rows += ["", f"Every out-of-sample day with a band ({c['n_days']:,} of {lab['sample']['n_days']:,}; the first are "
-             f"the interval's warm-up). Regimes are labelled at the decision from what was known then: OVX of the "
+    rows += ["", f"First table: the model of record's band ({_model(lab, champ_key)['label']}), on every out-of-sample "
+             f"day with a band ({c['n_days']:,} of {lab['sample']['n_days']:,}; the first are the interval's warm-up); "
+             f"each regime's HAC p tests that regime's miss rate against the target and is shown without a verdict. "
+             f"Regimes are labelled at the decision from what was known then: OVX of the "
              f"session before and RV5 of the five returns to the decision, against thirds of every earlier session's "
              f"value; OVX/RV5 (log) against its median over the previous {gap['window_sessions']} sessions; and whether "
              f"the target's five sessions include a contract roll. Test: {test['form']}, {test['hac']} with "
              f"{test['hac_lags']} lags; q from the ledger's Benjamini-Hochberg adjustment over its multiplicity family. "
-             f"The interval score is in vol points and grows with the vol level, so it compares the two models within a "
-             f"regime, not one regime with another; the log interval score is scale-free. Source: lab."]
+             f"The interval score is in vol points and grows with the vol level, so it does not compare one regime with "
+             f"another; the log interval score is scale-free. Source: lab."]
     return "\n".join(rows)
 
 
@@ -1099,8 +1101,8 @@ def regime_reading() -> str:
             verdicts.append(f"across {title} it covered {span}, and the test of equal coverage "
                             f"{_band_verdict(_ledger_row(ledger, f'band_regime_{var}_{key}'), cc)}")
         parts.append(f"For {subject}, " + "; ".join(verdicts) + ".")
-    return (" ".join(parts) + " Equal coverage is tested, not the coverage of any one regime: a single regime's "
-            "coverage carries no verdict. A dependence found here is reported, never used to change the band.")
+    return (" ".join(parts) + " Only the test of equal coverage carries a verdict; each regime's own p-value in the "
+            "table is shown without one. A dependence found here is reported, never used to change the band.")
 
 
 def calibration_reading() -> str:

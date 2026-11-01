@@ -131,6 +131,50 @@ class NoLookAheadTest(unittest.TestCase):
                 moved_somewhere |= bool((base[var][k + 1:] != moved[var][k + 1:]).any())
         self.assertTrue(moved_somewhere, "the perturbation must be able to change later labels")
 
+    def test_every_regime_cut_point_reads_strictly_earlier_sessions(self):
+        # The exact inputs, row by row: each third's history is every finite value before t, the gap's median is over
+        # the previous REGIME_GAP_WINDOW gaps, and each label compares the value at t with those cut points. A
+        # perturbation test can miss a cut point that peeks a session or two ahead; this cannot.
+        r, dates, ovx, ohlc = _synthetic_market()
+        design = lab.build_design(r, dates, ovx, ohlc)
+        pos = design.pos[np.asarray(design.ends)]
+        ovx_l, rv5, gap = lab.regime_inputs(r, ovx)
+        calls = []
+        tercile = lab._tercile
+
+        def spy(value, history):
+            calls.append((value, np.array(history, copy=True)))
+            return tercile(value, history)
+
+        with mock.patch.object(lab, "_tercile", side_effect=spy):
+            out = lab.regime_labels(r, dates, ovx, pos)
+        self.assertEqual(len(calls), 2 * pos.size)
+        for i, t in enumerate(pos):
+            (ovx_value, ovx_hist), (rv5_value, rv5_hist) = calls[2 * i], calls[2 * i + 1]
+            np.testing.assert_array_equal(ovx_hist, ovx_l[:t][np.isfinite(ovx_l[:t])])
+            np.testing.assert_array_equal(rv5_hist, rv5[:t][np.isfinite(rv5[:t])])
+            self.assertEqual((ovx_value, rv5_value), (ovx_l[t], rv5[t]))
+            earlier = gap[:t][np.isfinite(gap[:t])][-lab.REGIME_GAP_WINDOW:]
+            self.assertEqual(out["gap_median"][i], np.median(earlier))
+            self.assertEqual(out["labels"]["ovx_rv_gap"][i], int(gap[t] > np.median(earlier)))
+            for var, value, history in (("ovx_tercile", ovx_l[t], ovx_hist), ("rv5_tercile", rv5[t], rv5_hist)):
+                c1, c2 = np.quantile(history, [1 / 3, 2 / 3])
+                self.assertEqual(out["labels"][var][i], int(value > c1) + int(value > c2), (var, i))
+
+    def test_regime_labels_survive_an_extreme_future_at_every_25th_row(self):
+        r, dates, ovx, ohlc = _synthetic_market()
+        design = lab.build_design(r, dates, ovx, ohlc)
+        pos = design.pos[np.asarray(design.ends)]
+        base = self._labels(r, dates, ovx, pos)
+        for k in range(0, pos.size, 25):
+            t = int(pos[k])
+            ovx2, r2 = ovx.copy(), r.copy()
+            ovx2[t:] *= 50.0
+            r2[t + 1:] *= 0.02
+            moved = self._labels(r2, dates, ovx2, pos)
+            for var in lab.REGIMES:
+                np.testing.assert_array_equal(base[var][: k + 1], moved[var][: k + 1], err_msg=f"{var} at {k}")
+
     def test_regime_labels_read_the_models_inputs_and_need_history(self):
         r, dates, ovx, ohlc = _synthetic_market()
         design = lab.build_design(r, dates, ovx, ohlc)

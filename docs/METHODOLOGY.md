@@ -265,7 +265,8 @@ lab uses the **delayed-feedback** version: the interval at *i* uses only errors 
   lags (the lab's count for overlapping five-session targets, as in the coefficient report),
   χ² with K − 1 df. Adaptive conformal inference pins the band's pooled miss rate, so testing every
   regime's rate against 20% as well spends a degree of freedom on a level the method fixes; that
-  form is published as robustness, with 20 and 40 lags and each sampling grid on its own. Each
+  form is published as robustness at 10 lags, and the equal-rates test is also published with 20
+  and 40 lags and on each sampling grid on its own (Newey-West automatic bandwidth). Each
   regime's own HAC z and an exact binomial on each non-overlapping grid are published without a
   verdict: daily misses overlap (they share target weeks), so a daily binomial would treat
   dependent days as independent. Coverage and interval scores are on the days with a band (after
@@ -542,8 +543,9 @@ pre-specified.
 - `pre_specified` is true only where the code documents the test as fixed before the data were
   seen; most of the project was exploratory.
 - **Families** name the kind of claim (direction model, leak anatomy, carry, variance risk premium,
-  volatility forecast, value at risk, forecast interval, supply shock); every row with a p-value
-  shares one multiplicity family, whatever its label.
+  volatility forecast, value at risk, forecast interval, supply shock); the label does not split the
+  adjustment: every row with a p-value, except one selected after a search (above), shares one
+  multiplicity family.
 
 ## References
 
