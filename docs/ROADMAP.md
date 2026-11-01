@@ -376,7 +376,7 @@ These stay out, whatever a review suggests, unless the owner changes the rules:
 Tick items here with the PR number and date when they ship, and move any new finding into
 `HANDOFF.md`'s backlog.
 
-- **2.1 The QLIKE floor set by proxy noise** (#97, #PRNUM21, 2026-11-01): `vol_lab.qlike_floor` with
+- **2.1 The QLIKE floor set by proxy noise** (#97, #98, 2026-11-01): `vol_lab.qlike_floor` with
   the closed form (−ψ(5/2) − ln(2/5) = 0.213, the roadmap's figure: the target is not demeaned), the
   exact Student-t floor, the floor on the direction noise floor's own simulations, a kurtosis-matched
   floor (the conditional kurtosis of the lab's GARCH(1,1)-t fit, chosen after two alternatives were

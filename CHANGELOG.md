@@ -155,7 +155,7 @@ backs the new one.
   floor; that the range values are not lower bounds; and that nothing on the page subtracts it.
   Tests check that every number comes from the artifact and moves with it, that no loss minus a
   floor or ratio of the two appears, that the rows, CSV and tests are byte-identical with and
-  without the block, and that no floor value is typed in `src/`.
+  without the block, and that no floor value is typed in `src/`. (#98)
 
 ## 2.2.0 — 2026-10-30
 
