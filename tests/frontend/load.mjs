@@ -8,6 +8,7 @@ const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 // Module-private helpers exposed to the tests by name (the module must still define each one).
 const PRIVATE_HELPERS = {
   "/src/charts/PriceChart.jsx": ["buildActualPoints", "buildPriceViews", "formatWallTime"],
+  "/src/charts/ForecastChart.jsx": ["describeRow"],
 };
 
 export const readFixture = (name) =>

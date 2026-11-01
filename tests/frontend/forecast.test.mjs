@@ -7,6 +7,7 @@ import { after, before, test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { escapeRegExp, loadDashboard, readFixture, visibleText } from "./load.mjs";
+import { withRegimes } from "./splice.mjs";
 
 const FIXED_NOW = Date.parse("2026-10-21T12:00:00Z");
 Date.now = () => FIXED_NOW;
@@ -179,4 +180,50 @@ test("the table view lists the latest weeks newest first, with miss, log error a
   assert.deepEqual([values["80% band low"], values["80% band high"], values["Miss (pts)"], values.QLIKE, values["Log error"]],
     [row.lo, row.hi, Number((row.actual - row.forecast).toFixed(6)), row.qlike, Math.log(row.actual / row.forecast)]);
   assert.equal(values.Inside, row.actual >= row.lo && row.actual <= row.hi ? "yes" : "no");
+});
+
+test("the OVX/RV5 gap is the lab's, equals ln(OVX/RV5) of the same week, and shows in the table, CSV and keyboard reading", async () => {
+  const spliced = withRegimes(research).vol_lab;
+  const series = spliced.series;
+  const rows = errors.withErrors(m.research.forecastRows(spliced, data.vol_forecast.recent_oos));
+  const labIndex = new Map(series.date.map((date, i) => [date, i]));
+  let checked = 0;
+  for (const row of rows) {
+    const j = labIndex.get(row.date);
+    if (j == null) {
+      assert.equal(row.gap, null, `${row.date}: a week only production covers has no gap`);
+      continue;
+    }
+    assert.equal(row.gap, series.ovx_rv_gap[j], row.date);
+    assert.equal(row.gapMedian, series.ovx_rv_gap_median[j], row.date);
+    // The gap uses the OVX the table shows (the session before) and RV5 to the decision: within the rounding
+    // of the three printed values.
+    if (row.gap != null && row.ovx > 0 && row.rv5 > 0) {
+      const bound = 0.0005 + 0.05 / row.ovx + 0.05 / row.rv5;
+      assert.ok(Math.abs(row.gap - Math.log(row.ovx / row.rv5)) <= bound, `${row.date}: ${row.gap} vs ln(${row.ovx}/${row.rv5})`);
+      checked += 1;
+    }
+  }
+  assert.ok(checked > 800, `${checked} weeks checked`);
+
+  const html = renderToStaticMarkup(createElement(panel.ForecastTable, { rows, modelName: "HAR-IV" }));
+  const headers = [...html.matchAll(/<th scope="col"[^>]*>([\s\S]*?)<\/th>/g)].map((match) => visibleText(match[1]).replace(/[↕↑↓]/g, "").trim());
+  assert.deepEqual(headers.slice(headers.indexOf("OVX"), headers.indexOf("OVX") + 2), ["OVX", "OVX/RV5 (log)"]);
+  const csv = m.table.csvColumns(panel.forecastTableColumns("HAR-IV", { gap: true }));
+  assert.deepEqual(csv.slice(-3).map((column) => column.label), ["OVX", "OVX/RV5 (log)", "OVX/RV5 (log) trailing median"]);
+  const week = rows.findLast((row) => row.gap != null);
+  const values = Object.fromEntries(csv.map((column) => [column.label, column.value(week)]));
+  assert.deepEqual([values["OVX/RV5 (log)"], values["OVX/RV5 (log) trailing median"]], [week.gap, week.gapMedian]);
+  assert.ok(visibleText(html).includes(m.format.fmtSigned(week.gap, 2)), "the newest week's gap is shown");
+  // Without the gap in the payload, no column.
+  const plain = renderToStaticMarkup(createElement(panel.ForecastTable, {
+    rows: errors.withErrors(m.research.forecastRows(research.vol_lab, data.vol_forecast.recent_oos)), modelName: "HAR-IV",
+  }));
+  assert.doesNotMatch(plain, /OVX\/RV5/);
+  // The keyboard reading of a week names the gap and its trailing median, as printed values.
+  const chart = await m.load("/src/charts/ForecastChart.jsx");
+  const spoken = chart.describeRow(week, "HAR-IV", true);
+  assert.ok(spoken.endsWith(`; OVX/RV5 log gap ${m.format.fmtSigned(week.gap, 2)}, trailing median ${m.format.fmtSigned(week.gapMedian, 2)}`), spoken);
+  assert.doesNotMatch(spoken, /premium/i);
+  assert.doesNotMatch(chart.describeRow({ ...week, gap: null }, "HAR-IV", true), /OVX\/RV5/);
 });

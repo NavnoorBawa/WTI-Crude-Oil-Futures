@@ -174,6 +174,10 @@ backs the new one.
   within the regimes of one split, each column with its days. A footnote says it is descriptive
   and that the challenger's lower loss than the record in each regime repeats the full-sample
   comparison that picked it. The title never changes with the view.
+- **The OVX/RV5 gap on FCST (ROADMAP 2.2, third part).** The FCST table (from 1000 px) gains the
+  week's OVX/RV5 log gap at the decision, the quantity the regime split cuts at its trailing median;
+  the CSV adds that median, and the chart's keyboard reading of a week names both. A test checks
+  that the gap equals ln(OVX/RV5) of the same row within the printed values' rounding.
 
 - **The proxy's noise floor on the QLIKE tile and in MODL (ROADMAP 2.1, second part).** The QLIKE
   tile's footnote adds "proxy's noise floor ≥ 0.213" (the closed form, read from the artifact); its

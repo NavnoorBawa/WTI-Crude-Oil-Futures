@@ -332,6 +332,8 @@ export const forecastRows = (lab, recentOos) => {
         ovx: num(series.ovx?.[index]),
         challenger: num(series.challenger?.[index]),
         rv5: num(series.rv5?.[index]),
+        gap: num(series.ovx_rv_gap?.[index]),
+        gapMedian: num(series.ovx_rv_gap_median?.[index]),
       });
     });
   }
@@ -346,7 +348,7 @@ export const forecastRows = (lab, recentOos) => {
       const rv5 = num(recent.rv5?.[index]);
       const row = rows.get(date);
       if (!row) {
-        rows.set(date, { date, source: "live", actual, forecast, lo, hi, ovx: null, challenger: null, rv5 });
+        rows.set(date, { date, source: "live", actual, forecast, lo, hi, ovx: null, challenger: null, rv5, gap: null, gapMedian: null });
         return;
       }
       if (lo != null && hi != null) Object.assign(row, { lo, hi, source: "live" });
