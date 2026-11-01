@@ -5,7 +5,7 @@ import { num } from "./format";
 
 /**
  * One week's QLIKE loss on the variance scale, from annualized vols: with r = (actual / forecast)²,
- * QLIKE = r − ln r − 1 (0 for a perfect forecast). The validation's QLIKE is the mean of these
+ * QLIKE = r − ln r − 1 (0 when the forecast equals the realized value). The validation's QLIKE is the mean of these
  * over its weeks. Null unless both vols are positive.
  */
 export const weekQlike = (actual, forecast) => {

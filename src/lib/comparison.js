@@ -2,7 +2,7 @@
 // the payload carries, the scale of the leaderboard's QLIKE strip, the yearly QLIKE gaps to the
 // model of record, and the record against the challenger on the weekly series. Every function
 // tolerates a missing or malformed field and returns null or [] instead of throwing.
-import { num } from "./format";
+import { NBSP, fmtNum, num } from "./format";
 import { weekQlike } from "./forecastErrors";
 import { asArray, asObject, asText, leaderboardRows, shortLabel, yearsBetter } from "./research";
 
@@ -10,6 +10,33 @@ import { asArray, asObject, asText, leaderboardRows, shortLabel, yearsBetter } f
 
 /** One week's QLIKE from vols in percent; the same function FCST uses (src/lib/forecastErrors.js). */
 export { weekQlike };
+
+/**
+ * MODL's sentence on the proxy's noise floor (research.qlikeFloor): each value with the assumption it rests
+ * on, and what it is not. It never names a model's loss, never compares one with a floor and never subtracts
+ * one; a part the block lacks is left out. Null without the floor.
+ */
+export const qlikeFloorNote = (floor, garchLabel = "GARCH(1,1)-t") => {
+  if (!floor) return null;
+  const f = (value) => fmtNum(value, 3);
+  const returns = floor.horizon != null ? `${floor.horizon}${NBSP}daily returns` : "daily returns";
+  const values = [
+    `${f(floor.normal)} with normal returns of constant variance (exact, and a lower bound while the variance does not react to the week's own shocks)`,
+    floor.matched != null
+      ? `${f(floor.matched)} with Student-t tails matched to the ${garchLabel} fit's kurtosis${floor.matchedKurtosis != null ? ` (${fmtNum(floor.matchedKurtosis, 1)})` : ""}`
+      : null,
+    floor.studentT != null
+      ? `${f(floor.studentT)} on the Student-t(5) returns of the direction noise-floor simulation${floor.studentTRange
+        ? ` (${f(floor.studentTRange[0])}–${f(floor.studentTRange[1])}${floor.sims != null ? ` across ${floor.sims} simulations` : ""})` : ""}`
+      : null,
+    floor.dynamics != null ? `${f(floor.dynamics)} when the ${garchLabel}'s variance moves within the week` : null,
+  ].filter(Boolean);
+  const list = values.length > 1 ? `${values.slice(0, -1).join(", ")} and ${values.at(-1)}` : values[0];
+  const range = floor.rangeNormal != null && floor.rangeStudentT != null
+    ? ` Against the range proxy the same forecast scores ${f(floor.rangeNormal)} and ${f(floor.rangeStudentT)} on simulated bars whose proxy overstates the variance, so those two are not lower bounds.`
+    : "";
+  return `The proxy's noise floor: scored against realized vol from ${returns}, even a forecast equal to the true variance has an expected QLIKE above zero: ${list}. Daily closes cannot say which applies.${range} It belongs to the proxy, not to any model; no loss, DM t or confidence set on this page subtracts it.`;
+};
 
 // ------------------------------------------------------------------------- QLIKE strip (MODL)
 

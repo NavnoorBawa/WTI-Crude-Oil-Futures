@@ -376,6 +376,16 @@ These stay out, whatever a review suggests, unless the owner changes the rules:
 Tick items here with the PR number and date when they ship, and move any new finding into
 `HANDOFF.md`'s backlog.
 
+- **2.1 The QLIKE floor set by proxy noise** (#97, #PRNUM21, 2026-11-01): `vol_lab.qlike_floor` with
+  the closed form (−ψ(5/2) − ln(2/5) = 0.213, the roadmap's figure: the target is not demeaned), the
+  exact Student-t floor, the floor on the direction noise floor's own simulations, a kurtosis-matched
+  floor (the conditional kurtosis of the lab's GARCH(1,1)-t fit, chosen after two alternatives were
+  found unusable, and disclosed as such), that GARCH with its variance moving within the week, and
+  the range proxy's value on simulated bars (not a lower bound); shown on the QLIKE tile (the lower
+  bound) and in MODL (every value with its assumption), never subtracted from a loss or test.
+  Departures: no research-ledger row (the floor is a property of the proxy, not a test; a row would
+  read as "inconclusive" or move most q-values); the simulation that agrees within 0.01 is the
+  normal one, and the Student-t(5) one agrees with its own exact value.
 - **1.3 Independent timestamp anchor** (#82, first anchor 2026-10-31), first part: the Refresh
   workflow's `anchor` job attests `runtime-state/vol_track_record.json` after each publish
   (best effort; sealing never waits on it), which logs the file's SHA-256 in Sigstore's public

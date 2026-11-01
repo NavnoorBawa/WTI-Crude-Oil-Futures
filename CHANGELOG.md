@@ -143,6 +143,17 @@ backs the new one.
   its q-values, the SPA row's among them. Rebuilt in the pinned container; every other value in the
   artifact is unchanged.
 
+### Dashboard
+
+- **The proxy's noise floor on the QLIKE tile and in MODL (ROADMAP 2.1, second part).** The QLIKE
+  tile's footnote adds "proxy's noise floor ≥ 0.213" (the closed form, read from the artifact) and
+  its glyph a faint tick there; its value, comparisons and the other tiles are unchanged. MODL adds
+  one note with every published floor and its assumption, says that daily closes cannot say which
+  applies and that the range values are not lower bounds, and that nothing on the page subtracts
+  it. Tests check that every number comes from the artifact, that no loss minus a floor appears,
+  that the rows, CSV and tests are byte-identical with and without the block, and that no floor
+  value is typed in `src/`.
+
 ## 2.2.0 — 2026-10-30
 
 A minor release: one research result changed. Hansen's SPA test was not studentized (arch 8.0.0

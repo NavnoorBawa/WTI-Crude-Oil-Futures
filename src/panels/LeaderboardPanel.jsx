@@ -4,11 +4,11 @@ import DataTable from "../components/DataTable";
 import Panel from "../components/Panel";
 import keepHyphenated from "../components/keepHyphenated";
 import { ALPHA, leaderboardAssertion, leaderboardDetail, spaAssertion } from "../lib/assertions";
-import { mcsRobustness, qlikeScale } from "../lib/comparison";
+import { mcsRobustness, qlikeFloorNote, qlikeScale } from "../lib/comparison";
 import { DASH, NBSP, fmtInt, fmtNum, fmtP, fmtPValue, fmtSpan, num, withCentralTime } from "../lib/format";
 import {
-  asArray, asObject, asText, getLab, getVol, hasMcsResults, leaderboardRows, mcsLevel, modelLabels, researchLedger, shortLabel,
-  withModelLabels,
+  asArray, asObject, asText, getLab, getVol, hasMcsResults, leaderboardRows, mcsLevel, modelLabels, qlikeFloor, researchLedger,
+  shortLabel, withModelLabels,
 } from "../lib/research";
 import { ResearchUnavailable } from "./common";
 
@@ -266,6 +266,10 @@ export default function LeaderboardPanel({ data, research, researchStatus }) {
   const mseColumn = robustness?.columns.find((column) => column.key === "mse");
   const mseKept = mseColumn ? robustness.rows.filter((row) => row.cells.mse).length : null;
 
+  // The proxy's noise floor: what a perfect forecast would still score against this proxy. It qualifies
+  // the losses' level, never a model's position, so it sits with the visible notes, not in the strip.
+  const floorNote = qlikeFloorNote(qlikeFloor(lab), shortLabel(labels.get("garch")) || undefined);
+
   // Visible under the ranking: what qualifies the record's comparison (the SPA test) and how to
   // read DM t. Everything else is method, in the notes.
   const footnote = (
@@ -280,6 +284,7 @@ export default function LeaderboardPanel({ data, research, researchStatus }) {
         DM t: Diebold-Mariano t of the every-day QLIKE difference vs {recordName}; positive means lower loss than {recordName}.
         <span className="dm-range-note"> Brackets give its range across the sampling grids.</span>
       </li>
+      {floorNote && <li className="qlike-floor-note">{floorNote}</li>}
     </ul>
   );
 

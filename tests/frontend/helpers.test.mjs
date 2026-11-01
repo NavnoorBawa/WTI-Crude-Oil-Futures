@@ -3,7 +3,7 @@
 // the payload when it is regenerated.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { loadDashboard, readFixture } from "./load.mjs";
+import { loadDashboard, readFixture, readSource } from "./load.mjs";
 
 const FIXED_NOW = Date.parse("2026-10-21T12:00:00Z");
 Date.now = () => FIXED_NOW;
@@ -773,4 +773,28 @@ test("logToSimplePct converts a log return in percent to a simple return in perc
   assert.equal(logToSimplePct(0), 0);
   assert.ok(Math.abs(logToSimplePct(-80.6) - (Math.exp(-0.806) - 1) * 100) < 1e-9);
   assert.equal(logToSimplePct(null), null);
+});
+
+// ------------------------------------------------------------------------- the proxy's noise floor
+test("qlikeFloor reads the lab's floor block and nothing else, and is null without its closed form", () => {
+  const block = JSON.parse(readSource("data/vol_lab.json")).qlike_floor;
+  const floor = m.research.qlikeFloor({ qlike_floor: block });
+  const five = block.five_return;
+  assert.equal(floor.lo, five.normal.closed_form);
+  assert.equal(floor.normal, five.normal.closed_form);
+  assert.equal(floor.studentT, five.student_t5.simulated_mean);
+  assert.deepEqual(floor.studentTRange, five.student_t5.simulated_range);
+  assert.equal(floor.matched, five.kurtosis_matched.exact);
+  assert.equal(floor.dynamics, five.garch_t_dynamics.simulated_mean);
+  assert.equal(floor.rangeNormal, block.range.normal.simulated_mean);
+  assert.equal(floor.sims, block.sims);
+  // The closed form, written out again: -digamma(5/2) - ln(2/5) = Euler's gamma + ln 10 - 8/3.
+  assert.ok(Math.abs(floor.normal - (0.5772156649015329 + Math.log(10) - 8 / 3)) < 1e-9);
+  assert.ok(Math.abs(five.normal.simulated_mean - floor.normal) < 0.01);
+  for (const lab of [null, {}, { qlike_floor: {} }, { qlike_floor: { five_return: { normal: { closed_form: "x" } } } },
+    { qlike_floor: { five_return: { normal: { closed_form: Number.NaN } } } }]) {
+    assert.equal(m.research.qlikeFloor(lab), null);
+  }
+  const partial = m.research.qlikeFloor({ qlike_floor: { five_return: { normal: { closed_form: 0.2 } } } });
+  assert.deepEqual([partial.lo, partial.studentT, partial.studentTRange, partial.rangeNormal], [0.2, null, null, null]);
 });

@@ -190,6 +190,37 @@ export const leaderboardRows = (lab) => {
 export const hasMcsResults = (lab) => Array.isArray(asObject(lab?.leaderboard)?.mcs_qlike_included);
 
 /**
+ * The proxy's QLIKE noise floor (vol_lab.qlike_floor): the expected QLIKE of a forecast equal to the true
+ * variance, against the five-return proxy under stated return processes, and against the range proxy on
+ * simulated bars. It belongs to the proxy, never to a model, and nothing on the page subtracts it from a loss.
+ * Null unless the closed form is a finite number; any other part the block lacks is null. `lo` is the closed
+ * form, the lower bound the tile states.
+ */
+export const qlikeFloor = (lab) => {
+  const block = asObject(lab?.qlike_floor);
+  const five = asObject(block?.five_return);
+  const normal = num(asObject(five?.normal)?.closed_form);
+  if (normal == null) return null;
+  const studentT = asObject(five?.student_t5);
+  const matched = asObject(five?.kurtosis_matched);
+  const range = asObject(block?.range);
+  const span = asArray(studentT?.simulated_range).map(num);
+  return {
+    lo: normal,
+    normal,
+    horizon: num(block?.horizon_sessions),
+    sims: num(block?.sims),
+    studentT: num(studentT?.simulated_mean),
+    studentTRange: span.length === 2 && span.every((value) => value != null) ? span : null,
+    matched: num(matched?.exact),
+    matchedKurtosis: num(matched?.kurtosis),
+    dynamics: num(asObject(five?.garch_t_dynamics)?.simulated_mean),
+    rangeNormal: num(asObject(range?.normal)?.simulated_mean),
+    rangeStudentT: num(asObject(range?.student_t5)?.simulated_mean),
+  };
+};
+
+/**
  * Model Confidence Set headline numbers over the eligible models. `survivors` is null when the
  * payload carries no MCS results (never a count of zero it did not compute).
  * @returns {{total:number, eligible:number, survivors:number|null, level:number|null, gridCount:number,

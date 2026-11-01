@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { escapeRegExp, loadDashboard, readFixture, visibleText } from "./load.mjs";
+import { escapeRegExp, loadDashboard, readFixture, readSource, visibleText } from "./load.mjs";
 
 const FIXED_NOW = Date.parse("2026-10-21T12:00:00Z");
 Date.now = () => FIXED_NOW;
@@ -310,4 +310,57 @@ test("the DM axis notes run outward from zero and shorten under 300 px of plot",
     assert.ok(worse.x < better.x, `${zero}`);
     assert.ok(better.x + better.text.length * 6.6 <= right + 1e-9, "inside the plot on the right");
   }
+});
+
+// ------------------------------------------------------------------------- the proxy's noise floor
+const floorBlock = JSON.parse(readSource("data/vol_lab.json")).qlike_floor;
+const withFloor = { ...research, vol_lab: { ...lab, qlike_floor: floorBlock } };
+const OVERCLAIM = /near(ly)? perfect|most of the way|at the floor|of the loss is noise|net of the floor|gap to the floor|attainable gain|the model's error/i;
+
+test("MODL states the proxy's noise floor from the artifact, with its assumptions, and omits it without the block", () => {
+  const floor = m.research.qlikeFloor(withFloor.vol_lab);
+  const garch = m.research.shortLabel(board.models.find((model) => model.key === "garch").label);
+  const expected = comparison.qlikeFloorNote(floor, garch);
+  const text = visibleText(section(renderDashboard(withFloor), "modl"));
+  assert.ok(text.includes(expected.replace(/\u00a0/g, " ")), text);
+  const five = floorBlock.five_return;
+  for (const value of [five.normal.closed_form, five.kurtosis_matched.exact, five.student_t5.simulated_mean,
+    five.garch_t_dynamics.simulated_mean, floorBlock.range.normal.simulated_mean, floorBlock.range.student_t5.simulated_mean]) {
+    assert.ok(expected.includes(value.toFixed(3)), `${value} shown`);
+  }
+  assert.match(expected, /a lower bound while the variance does not react to the week's own shocks/);
+  assert.match(expected, /Daily closes cannot say which applies/);
+  assert.match(expected, /not lower bounds/);
+  assert.match(expected, /no loss, DM t or confidence set on this page subtracts it/);
+  assert.doesNotMatch(expected, OVERCLAIM);
+  assert.ok(!visibleText(section(renderDashboard(), "modl")).includes("noise floor:"), "the fixture predates the block");
+});
+
+test("the floor changes no loss, row or test in MODL, and no loss minus a floor appears", () => {
+  // The note is the only markup the floor adds (rows, CSV, strip, title and tests are byte-identical) ...
+  const markup = section(renderDashboard(withFloor), "modl");
+  const note = markup.match(/<li class="qlike-floor-note">([\s\S]*?)<\/li>/)?.[1] ?? "";
+  assert.ok(note.length > 0);
+  assert.equal(markup.replace(`<li class="qlike-floor-note">${note}</li>`, ""), section(renderDashboard(), "modl"));
+  // ... and it shows no loss minus a floor: the subtraction the floor must never invite.
+  const block = floorBlock.five_return;
+  const floors = [block.normal.closed_form, block.student_t5.simulated_mean, block.kurtosis_matched.exact,
+    block.garch_t_dynamics.simulated_mean, floorBlock.range.normal.simulated_mean, floorBlock.range.student_t5.simulated_mean];
+  const own = new Set(floors.map((value) => value.toFixed(3)));
+  for (const model of board.models) {
+    for (const loss of [model.qlike, model.qlike_range_proxy].filter((value) => typeof value === "number")) {
+      for (const floor of floors) {
+        const gap = Math.abs(loss - floor).toFixed(3);
+        if (!own.has(gap)) assert.ok(!note.includes(gap), `${loss} − ${floor} = ${gap} shown`);
+      }
+    }
+  }
+});
+
+test("the floor's sentence leaves out what the block lacks", () => {
+  const floor = m.research.qlikeFloor(withFloor.vol_lab);
+  const bare = comparison.qlikeFloorNote({ ...floor, matched: null, studentT: null, dynamics: null, rangeNormal: null });
+  assert.ok(bare.includes(`${floor.normal.toFixed(3)} with normal returns of constant variance`));
+  assert.ok(!/Student-t|range proxy|moves within the week/.test(bare), bare);
+  assert.equal(comparison.qlikeFloorNote(null), null);
 });

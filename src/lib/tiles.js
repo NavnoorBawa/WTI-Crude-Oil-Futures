@@ -11,7 +11,7 @@ import { INTERVAL_LEVEL_PCT } from "./assertions";
 import { DASH, NBSP, fmtInt, fmtNum, fmtP, fmtPct, fmtSpan, num, ordinal } from "./format";
 import {
   OVX_ONLY_KEY, asArray, asObject, asText, coverageByYear, getLab, getRoles, getVol, leaderboardRows, mcsSummary, modelLabels,
-  ovxOnlyBenchmark, ovxOnlyLabel, persistenceBenchmark, recordVar, shortLabel, varRows,
+  ovxOnlyBenchmark, ovxOnlyLabel, persistenceBenchmark, qlikeFloor, recordVar, shortLabel, varRows,
 } from "./research";
 
 const PERSISTENCE_KEY = "persistence";
@@ -117,8 +117,11 @@ const qlikeComparators = (ovx, persistence, ovxName) => {
   return ["vs ", ...named.flatMap((parts, index) => (index ? [", ", ...parts] : parts)), " · lower is better"];
 };
 
-/** A one-axis glyph: zero to persistence, the record as a dot and OVX alone as a ring around it. */
-const qlikeGlyph = (record, ovx, persistence) => {
+/**
+ * A one-axis glyph: zero to persistence, the record as a dot and OVX alone as a ring around it. With the
+ * lab's QLIKE floor, a faint tick at its lower bound (the proxy's, not a model's: never a band up to a loss).
+ */
+const qlikeGlyph = (record, ovx, persistence, floor = null) => {
   if (record == null) return null;
   const hi = persistence ?? Math.max(record, ovx ?? 0) * 2;
   if (!(hi > 0)) return null;
@@ -126,6 +129,7 @@ const qlikeGlyph = (record, ovx, persistence) => {
     kind: "axis",
     domain: [0, hi],
     marks: [
+      floor != null ? { type: "tick", at: floor, tone: "faint" } : null,
       persistence != null ? { type: "tick", at: persistence, tone: "muted" } : null,
       { type: "dot", at: record, tone: "model" },
       ovx != null ? { type: "ring", at: ovx, tone: "implied" } : null,
@@ -152,12 +156,14 @@ function qlikeTile({ lab, rows, validation, research, researchStatus }) {
 
   if (record?.qlike != null) {
     const { nDays } = labSample(lab);
+    const floor = qlikeFloor(lab)?.lo ?? null;
     return {
       ...tile,
       value: fmtNum(record.qlike, 3),
-      glyph: qlikeGlyph(record.qlike, ovxRow?.qlike, persistenceRow?.qlike),
+      glyph: qlikeGlyph(record.qlike, ovxRow?.qlike, persistenceRow?.qlike, floor),
       baseline: qlikeComparators(ovxRow?.qlike, persistenceRow?.qlike, ovxName),
-      foot: joinDot([`every OOS day${nDays != null ? `, ${fmtInt(nDays)}${NBSP}d` : ""}`, weeklyText]),
+      foot: joinDot([`every OOS day${nDays != null ? `, ${fmtInt(nDays)}${NBSP}d` : ""}`,
+        floor != null ? `proxy's noise floor ≥${NBSP}${fmtNum(floor, 3)}` : null, weeklyText]),
     };
   }
   if (researchStatus === "loading" || weekly.har == null) {
