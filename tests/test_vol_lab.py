@@ -389,6 +389,244 @@ class CoverageByGroupTest(unittest.TestCase):
             fe.coverage_by_group_test(np.zeros(10), np.zeros(10, dtype=int), 2, 0.2, 2)
 
 
+def _ar1(rng, n, rho, burn=500):
+    e = rng.standard_normal(n + burn)
+    x = np.empty(n + burn)
+    x[0] = e[0]
+    for t in range(1, n + burn):
+        x[t] = rho * x[t - 1] + e[t]
+    return x[burn:]
+
+
+def _gw_draw(rng, n, beta=0.0, phi=0.0):
+    """A 5-step differential d_t = e_{t+1} + ... + e_{t+5} (MA(4), matured at t + 5) with instruments known at t: its
+    value 5 rows earlier and two AR(1) states with OVX's and the gap's persistence (0.986, 0.772). beta makes its
+    mean move with the first state; phi makes it depend on its matured lag."""
+    h = vf.H
+    e = rng.standard_normal(n + h)
+    c = np.r_[0.0, np.cumsum(e)]
+    d = c[h + 1:n + h + 1] - c[1:n + 1]
+    x1, x2 = _ar1(rng, n, 0.986), _ar1(rng, n, 0.772)
+    d = d + beta * np.sqrt(5.0) * (x1 - x1.mean()) / x1.std()
+    if phi:
+        out = d.copy()
+        for t in range(h, n):
+            out[t] = phi * out[t - h] + d[t]
+        d = out
+    lagged = np.r_[np.full(h, np.nan), d[:-h]]
+    ok = np.isfinite(lagged)
+    return d[ok], np.column_stack([lagged, x1, x2])[ok]
+
+
+def _rolling_dm_prefix(d, window, *, lags, kernel="truncated"):
+    """A second implementation of forecast_eval.rolling_dm from prefix sums (centred within each window:
+    sum (d_t - m)(d_{t-j} - m) = sum d_t d_{t-j} - m (sum d_t + sum d_{t-j}) + (window - j) m^2)."""
+    d = np.asarray(d, float)
+    n = d.size
+    c = np.r_[0.0, np.cumsum(d)]
+    s = c[window:] - c[:-window]
+    mean = s / window
+    a = np.arange(n - window + 1)
+    weights = [1.0] + [2.0 * (1.0 if kernel == "truncated" else 1.0 - j / (lags + 1.0)) for j in range(1, lags + 1)]
+    lrv = np.zeros(a.size)
+    for j, w in enumerate(weights):
+        prod = np.r_[0.0, np.cumsum(d[j:] * d[:n - j])]
+        lrv += w * ((prod[a + window - j] - prod[a]) - mean * (c[a + window] - c[a + j])
+                    - mean * (c[a + window - j] - c[a]) + (window - j) * mean ** 2) / window
+    return s / np.sqrt(window * lrv)
+
+
+_NULLS: dict = {}
+
+
+def _cached_null(n, windows, *, draws, seed, batch=1000):
+    """forecast_eval.fluctuation_null, computed once per module for each (n, windows, draws, seed)."""
+    key = (n, tuple(windows), draws, tuple(seed))
+    if key not in _NULLS:
+        _NULLS[key] = fe.fluctuation_null(n, windows, draws=draws, seed=seed, batch=batch)
+    return _NULLS[key]
+
+
+_FAST: dict = {}
+
+
+def _fast_lab():
+    """The snapshot's fast walk-forward frame (no GARCH, GJR, LightGBM or combination), with what 2.2 and 2.3 read."""
+    if not _FAST:
+        r, dates, ovx, ohlc = md.research_inputs(md.load_snapshot())
+        ovx = vf._pick_ovx(ovx)
+        design = lab.build_design(r, dates, ovx, ohlc)
+        frame = lab.walk_forward(design, include_slow=False)
+        pos = design.pos[np.asarray(design.ends)]
+        _FAST.update(r=r, dates=dates, ovx=ovx, design=design, frame=frame, pos=pos,
+                     regimes=lab.regime_labels(r, dates, ovx, pos))
+    return _FAST
+
+
+class GiacominiWhiteTest(unittest.TestCase):
+    """forecast_eval.gw_test: ROADMAP 2.3's acceptance (size when the differential is not predictable, power when it
+    is) and cases with a known answer."""
+
+    def test_it_holds_its_size_and_rejects_a_predictable_differential(self):
+        rng = np.random.default_rng(np.random.SeedSequence([20261020, 2303]))
+        full = cond = 0
+        draws = 2000
+        for _ in range(draws):
+            g = fe.gw_test(*_gw_draw(rng, 4000), lags=vf.H - 1)
+            full += g["p_value"] < 0.05
+            cond += g["conditional"]["p_value"] < 0.05
+        self.assertTrue(0.035 <= full / draws <= 0.065, full / draws)
+        self.assertTrue(0.035 <= cond / draws <= 0.065, cond / draws)
+        for kw in ({"beta": 0.25}, {"phi": 0.15}):
+            hits = [fe.gw_test(*_gw_draw(rng, 4000, **kw), lags=vf.H - 1) for _ in range(150)]
+            self.assertGreater(np.mean([g["p_value"] < 0.05 for g in hits]), 0.9, kw)
+            self.assertGreater(np.mean([g["conditional"]["p_value"] < 0.05 for g in hits]), 0.9, kw)
+
+    def test_known_answers_and_invariances(self):
+        rng = np.random.default_rng(7)
+        d, x = _gw_draw(rng, 1500, beta=0.1)
+        n = d.size
+        # With no lags, W = n R^2 of a vector of ones regressed on Z (and W_c on u).
+        g0 = fe.gw_test(d, x, lags=0)
+        z = np.column_stack([np.ones(n), x]) * d[:, None]
+        ones = np.ones(n)
+        fit = z @ np.linalg.lstsq(z, ones, rcond=None)[0]
+        self.assertAlmostEqual(g0["stat"], n * (fit @ fit) / n, places=8)
+        u = (x - x.mean(axis=0)) * (d - d.mean())[:, None]
+        fit = u @ np.linalg.lstsq(u, ones, rcond=None)[0]
+        self.assertAlmostEqual(g0["conditional"]["stat"], fit @ fit, places=8)
+        # The conditional part ignores a constant shift of the differential; the full test does not.
+        g = fe.gw_test(d, x, lags=4)
+        shifted = fe.gw_test(d + 3.0, x, lags=4)
+        self.assertAlmostEqual(g["conditional"]["stat"], shifted["conditional"]["stat"], places=8)
+        self.assertNotAlmostEqual(g["stat"], shifted["stat"], places=3)
+        # An invertible affine map of the instruments, as (ln OVX, gap) -> (ln OVX, ln RV5), changes no statistic.
+        levels = np.column_stack([x[:, 0], x[:, 1], x[:, 1] - x[:, 2]])
+        lv = fe.gw_test(d, levels, lags=4)
+        self.assertAlmostEqual(lv["stat"], g["stat"], places=8)
+        self.assertAlmostEqual(lv["conditional"]["stat"], g["conditional"]["stat"], places=8)
+        b = g["coef"]
+        np.testing.assert_allclose(lv["coef"], [b[0], b[1], b[2] + b[3], -b[3]], atol=1e-10)
+        self.assertEqual((g["df"], g["conditional"]["df"], g["n"], g["lags"], g["kernel"]), (4, 3, n, 4, "truncated"))
+
+    def test_an_indefinite_hac_matrix_or_a_bad_input_is_refused(self):
+        t = np.arange(1200)
+        d = np.cos(2 * np.pi * 0.15 * t)            # truncated-kernel sum over lags -4..4 at frequency 0.15 is negative
+        x = (1.0 + 0.01 * np.random.default_rng(1).standard_normal(1200))[:, None]
+        with self.assertRaises(np.linalg.LinAlgError):
+            fe.gw_test(d, x, lags=4)
+        with self.assertRaises(ValueError):
+            fe.gw_test(np.r_[d[:-1], np.nan], x, lags=4)
+        with self.assertRaises(ValueError):
+            fe.gw_test(d[:-1], x, lags=4)
+
+    def test_the_instruments_are_known_at_the_decision(self):
+        rng = np.random.default_rng(3)
+        pos = np.r_[np.arange(300, 700), np.arange(705, 900)]       # a missing stretch of sessions
+        d = rng.standard_normal(pos.size)
+        ln_ovx, gap = rng.standard_normal(pos.size), rng.standard_normal(pos.size)
+        x, ok = lab.gw_instruments(d, pos, ln_ovx, gap)
+        for i in range(pos.size):
+            earlier = np.flatnonzero(pos == pos[i] - vf.H)
+            self.assertEqual(bool(ok[i]), earlier.size == 1, i)
+            if earlier.size:
+                self.assertEqual(x[i, 0], d[earlier[0]])            # the last matured differential
+        for i in (10, 250, 410, 594):
+            future = d.copy()
+            future[i - vf.H + 1:] = rng.standard_normal(future.size - (i - vf.H + 1)) * 50   # rows t-4.. and after
+            x2, ok2 = lab.gw_instruments(future, pos, ln_ovx, gap)
+            np.testing.assert_array_equal(x2[: i + 1][ok[: i + 1]], x[: i + 1][ok[: i + 1]])
+        self.assertEqual(int(ok.sum()), pos.size - 2 * vf.H)
+
+
+class FluctuationTest(unittest.TestCase):
+    """forecast_eval's fluctuation test: the path against brute force (ROADMAP 2.3's acceptance), the pinned null,
+    the critical values and p-values, the window-length adjustment, and the size of the per-window test."""
+
+    WINDOWS = (463, 927, 1390, 1854, 2317)
+    SEED = [20261020, 23, 4634]
+
+    def null(self):
+        return _cached_null(4634, self.WINDOWS, draws=lab.FLUCT_NULL_DRAWS, seed=self.SEED)
+
+    def test_the_path_is_a_brute_force_rolling_dm(self):
+        rng = np.random.default_rng(1)
+        d, _ = _gw_draw(rng, 2000)
+        fast, lrv = fe.rolling_dm(d, 400, lags=4)
+        loop = np.array([w.mean() / np.sqrt(fe.hac_lrv(w, 4, centred=True)[0, 0] / 400)
+                         for w in (d[i:i + 400] for i in range(d.size - 399))])
+        np.testing.assert_allclose(fast, loop, rtol=0, atol=1e-10)
+        np.testing.assert_allclose(fast, _rolling_dm_prefix(d, 400, lags=4), rtol=0, atol=1e-10)
+        bart, _ = fe.rolling_dm(d, 400, lags=40, kernel="bartlett")
+        np.testing.assert_allclose(bart, _rolling_dm_prefix(d, 400, lags=40, kernel="bartlett"), rtol=0, atol=1e-10)
+        loop = np.array([w.mean() / np.sqrt(fe.hac_lrv(w, 40, kernel="bartlett", centred=True)[0, 0] / 400)
+                         for w in (d[i:i + 400] for i in range(0, d.size - 399, 97))])
+        np.testing.assert_allclose(bart[::97], loop, rtol=0, atol=1e-10)
+        self.assertEqual(fast.size, d.size - 399)
+        with self.assertRaises(ValueError):
+            fe.rolling_dm(np.r_[np.ones(500), rng.standard_normal(500)], 400, lags=4)   # a constant window
+        # On the snapshot: three of the lab's differentials.
+        fast_lab = _fast_lab()
+        frame = fast_lab["frame"]
+        for model in ("har_iv_range", "ovx_only", "persistence"):
+            dd = fe.qlike(frame["actual"], frame["har_iv"]) - fe.qlike(frame["actual"], frame[model])
+            np.testing.assert_allclose(fe.rolling_dm(dd, 927, lags=4)[0], _rolling_dm_prefix(dd, 927, lags=4),
+                                       rtol=0, atol=1e-10)
+
+    def test_the_hac_variance_is_the_double_sum(self):
+        x = np.random.default_rng(2).standard_normal(300)
+        e = x - x.mean()
+        direct = sum(e[i] * e[j] for i in range(300) for j in range(300) if abs(i - j) <= 4) / 300
+        self.assertAlmostEqual(float(fe.hac_lrv(x, 4, centred=True)[0, 0]), direct, places=10)
+        self.assertAlmostEqual(float(fe.hac_lrv(x, 0, centred=True)[0, 0]), float(np.var(x)), places=12)
+        bart = e @ e / 300 + 2 * sum((1 - j / 11) * (e[j:] @ e[:-j]) / 300 for j in range(1, 11))
+        self.assertAlmostEqual(float(fe.hac_lrv(x, 10, kernel="bartlett", centred=True)[0, 0]), bart, places=10)
+
+    def test_the_null_is_pinned_and_its_critical_values_and_p_values_agree(self):
+        null = self.null()
+        reference = fe.fluctuation_reference(null)
+        result = fe.fluctuation_test([0.0] * 5, null, reference)
+        got = [(round(c["0.05"], 4), round(c["0.1"], 4)) for c in result["critical"]]
+        self.assertEqual(got, [(3.4951, 3.2657), (3.2434, 2.9997), (3.0812, 2.8227), (2.9394, 2.6625),
+                               (2.8127, 2.5369)])
+        # The sample's resolution puts the 5% value above Giacomini and Rossi's coarse-grid table, below the limit.
+        self.assertTrue(lab.GR2010_TABLE1[0.2][0] < got[1][0] < 3.30)
+        draws = null.shape[0]
+        for value in np.linspace(2.5, 4.2, 35):
+            res = fe.fluctuation_test([value] * 5, null, reference)
+            for j in range(5):
+                p = res["marginal_p"][j]
+                self.assertGreaterEqual(p, 1 / (draws + 1))
+                self.assertEqual(p < 0.05, value > res["critical"][j]["0.05"])
+                self.assertEqual(p < 0.10, value > res["critical"][j]["0.1"])
+            self.assertGreaterEqual(res["p_value"], res["min_p"])
+            self.assertEqual(res["min_p"], min(res["marginal_p"]))
+        one = null[:, [1]]
+        single = fe.fluctuation_test([3.1], one, fe.fluctuation_reference(one))
+        self.assertEqual(single["p_value"], single["marginal_p"][0])
+        with self.assertRaises(ValueError):
+            small = null[:1000]
+            fe.fluctuation_test([3.0] * 5, small, fe.fluctuation_reference(small))
+
+    def test_the_draws_are_fixed_by_the_seed_not_the_batch(self):
+        a = fe.fluctuation_null(500, (50, 100), draws=999, seed=[1, 2, 3])
+        b = fe.fluctuation_null(500, (50, 100), draws=999, seed=[1, 2, 3], batch=97)
+        np.testing.assert_array_equal(a, b)
+        self.assertFalse(np.array_equal(a, fe.fluctuation_null(500, (50, 100), draws=999, seed=[1, 2, 4])))
+
+    def test_the_per_window_test_holds_its_size_under_the_overlap(self):
+        null = self.null()
+        c5 = fe.fluctuation_test([0.0] * 5, null, fe.fluctuation_reference(null))["critical"][1]["0.05"]
+        rng = np.random.default_rng(np.random.SeedSequence([20261020, 2304]))
+        rejected = []
+        for _ in range(1500):
+            e = rng.standard_normal(4634 + vf.H)
+            c = np.r_[0.0, np.cumsum(e)]
+            d = c[vf.H + 1:] - c[1:-vf.H]                        # MA(4): the overlap and nothing else
+            rejected.append(np.abs(_rolling_dm_prefix(d, 927, lags=4)).max() > c5)
+        self.assertTrue(0.03 <= np.mean(rejected) <= 0.08, np.mean(rejected))
+
+
 class LossAndTestTest(unittest.TestCase):
     def test_qlike_zero_only_at_truth(self):
         self.assertAlmostEqual(float(fe.qlike(np.array([0.3]), np.array([0.3]))[0]), 0.0)

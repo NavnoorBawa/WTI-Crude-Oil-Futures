@@ -18,12 +18,21 @@ two functions that need them), each checked against cases with a known answer in
                                 (Engle-Manganelli 2004) and the Basel traffic light.
   - coverage_by_group_test      HAC Wald tests of an interval's misses across groups (regimes): equal
                                 miss rates, every rate at its target, and a HAC z per group.
+  - hac_lrv / gw_test           Long-run covariance with the truncated or Bartlett kernel, and the
+                                Giacomini-White (2006) test of equal conditional predictive ability
+                                (the full test and its conditional part, the instruments' slopes).
+  - rolling_dm /                The Giacomini-Rossi (2010) fluctuation test: a rolling Diebold-Mariano t,
+    fluctuation_null /          each window on its own long-run variance; its two-sided null simulated on
+    fluctuation_reference /     Gaussian random walks at the sample's resolution, one set for every window
+    fluctuation_test            length; marginal p-values, critical values, and the p adjusted for the
+                                choice among the window lengths.
   - adaptive_conformal /        Adaptive conformal inference intervals (Gibbs and Candes 2021), and
     delayed_aci                 the same when each outcome is only observed `delay` rows later.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -34,6 +43,7 @@ if TYPE_CHECKING:
     import numpy.typing as npt
 
     FloatArray = npt.NDArray[np.float64]
+    IntArray = npt.NDArray[np.int64]
 
 
 def newey_west_lrv(x: npt.ArrayLike, lags: int | None = None) -> tuple[float, int]:
@@ -272,6 +282,155 @@ def coverage_by_group_test(miss: npt.ArrayLike, group: npt.ArrayLike, k: int, al
             "all_cells": {"wald": w_all, "df": k, "p_value": float(stats.chi2.sf(w_all, k))},
             "cells": [{"z": float(zj), "p_value": float(2 * stats.norm.sf(abs(zj)))} for zj in z],
             "lags": int(lags)}
+
+
+def _kernel_weights(lags: int, kernel: str) -> FloatArray:
+    """Weights of lags 1..lags: 1 ("truncated") or 1 - j/(lags + 1) ("bartlett")."""
+    j = np.arange(1, lags + 1, dtype=float)
+    if kernel == "truncated":
+        return np.ones(lags)
+    if kernel == "bartlett":
+        return 1.0 - j / (lags + 1.0)
+    raise ValueError(f"unknown kernel {kernel!r}")
+
+
+def hac_lrv(x: npt.ArrayLike, lags: int, *, kernel: str = "truncated", centred: bool = False) -> FloatArray:
+    """Long-run covariance of the rows of x (n x k; a 1-D x is one column): G0 + sum_{j=1..lags} w_j (Gj + Gj'),
+    Gj = n^-1 sum_t x_t x_{t-j}'. w_j = 1 ("truncated": Giacomini-White's estimator for tau-step forecasts at
+    lags = tau - 1) or 1 - j/(lags + 1) ("bartlett"). Around zero (the null imposed) unless centred. Not
+    guaranteed positive semi-definite with the truncated kernel; callers check."""
+    z = np.asarray(x, dtype=float)
+    if z.ndim == 1:
+        z = z[:, None]
+    if centred:
+        z = z - z.mean(axis=0)
+    n = z.shape[0]
+    omega = z.T @ z / n
+    for j, w in zip(range(1, lags + 1), _kernel_weights(lags, kernel)):
+        g = z[j:].T @ z[:-j] / n
+        omega = omega + w * (g + g.T)
+    return cast("FloatArray", omega)
+
+
+def _wald(mean: FloatArray, omega: FloatArray, n: int) -> float:
+    eig = np.linalg.eigvalsh(omega)
+    if eig.min() <= 1e-12 * max(float(eig.max()), 1e-300):
+        raise np.linalg.LinAlgError(f"the HAC matrix is not positive definite (smallest eigenvalue {eig.min():.3g})")
+    return float(n * mean @ np.linalg.solve(omega, mean))
+
+
+def gw_test(diff: npt.ArrayLike, instruments: npt.ArrayLike, *, lags: int, kernel: str = "truncated") -> dict[str, Any]:
+    """Giacomini-White (2006) test of equal conditional predictive ability. diff[t] is the loss differential of the
+    forecasts made at t; instruments[t] (n x k, no constant) must be known when they were made: the caller aligns
+    them and drops rows without a value. Full test: Z = [1, x] * d, W = n Zbar' Omega^-1 Zbar ~ chi2(k + 1), Omega =
+    hac_lrv(Z, lags, kernel) uncentred (the null imposed). Conditional part: u = (x - xbar)(d - dbar), W_c ~
+    chi2(k), unchanged by adding a constant to d (but not independent of dbar). `coef`: OLS of d on [1, x]. Raises
+    numpy.linalg.LinAlgError when either HAC matrix is not positive definite (smallest eigenvalue <= 1e-12 x
+    largest), and ValueError on a non-finite input."""
+    d = np.asarray(diff, dtype=float)
+    x = np.asarray(instruments, dtype=float)
+    if x.ndim == 1:
+        x = x[:, None]
+    if not (np.isfinite(d).all() and np.isfinite(x).all()) or d.size != x.shape[0]:
+        raise ValueError("the differential and the instruments must be finite and aligned row by row")
+    n, k = x.shape
+    h = np.column_stack([np.ones(n), x])
+    z = h * d[:, None]
+    w_full = _wald(z.mean(axis=0), hac_lrv(z, lags, kernel=kernel), n)
+    u = (x - x.mean(axis=0)) * (d - d.mean())[:, None]
+    w_cond = _wald(u.mean(axis=0), hac_lrv(u, lags, kernel=kernel), n)
+    coef, *_ = np.linalg.lstsq(h, d, rcond=None)
+    return {"stat": w_full, "df": k + 1, "p_value": float(stats.chi2.sf(w_full, k + 1)), "n": int(n),
+            "lags": int(lags), "kernel": kernel,
+            "conditional": {"stat": w_cond, "df": k, "p_value": float(stats.chi2.sf(w_cond, k))},
+            "coef": [float(c) for c in coef]}
+
+
+def rolling_dm(diff: npt.ArrayLike, window: int, *, lags: int, kernel: str = "truncated") -> tuple[FloatArray, FloatArray]:
+    """Diebold-Mariano t on every run of `window` consecutive values: element i is the window ending at
+    i + window - 1, sum / sqrt(window * lrv_i) with lrv_i = hac_lrv(slice, lags, kernel, centred=True). No HLN
+    factor. Returns (t, lrv). Raises ValueError when a window's long-run variance is not positive."""
+    d = np.asarray(diff, dtype=float)
+    win = np.lib.stride_tricks.sliding_window_view(d, window)
+    e = win - win.mean(axis=1, keepdims=True)
+    lrv = (e * e).sum(axis=1) / window
+    for j, w in zip(range(1, lags + 1), _kernel_weights(lags, kernel)):
+        lrv = lrv + 2.0 * w * (e[:, j:] * e[:, :-j]).sum(axis=1) / window
+    if (lrv <= 0).any():
+        raise ValueError("a window's long-run variance is not positive")
+    return win.sum(axis=1) / np.sqrt(window * lrv), lrv
+
+
+def fluctuation_null(n: int, windows: Sequence[int], *, draws: int, seed: Sequence[int],
+                     batch: int = 1000) -> FloatArray:
+    """(draws, len(windows)), unsorted: row b, column j = max_i |S_i - S_{i-m_j}| / sqrt(m_j) for the b-th Gaussian
+    random walk S = [0, cumsum(e)] of n steps (numpy default_rng(SeedSequence(seed)), batches of `batch`, which do
+    not change the draws). Column j is Giacomini and Rossi's (2010) two-sided limit sup |B(s) - B(s - mu)| / sqrt(mu),
+    mu = m_j / n, at the sample's own resolution; the rows are the joint null of the window-length search."""
+    rng = np.random.default_rng(np.random.SeedSequence(list(seed)))
+    out = np.empty((draws, len(windows)))
+    k = 0
+    while k < draws:
+        bb = min(batch, draws - k)
+        e = rng.standard_normal((bb, n))
+        c = np.concatenate([np.zeros((bb, 1)), np.cumsum(e, axis=1)], axis=1)
+        for j, m in enumerate(windows):
+            out[k:k + bb, j] = np.abs(c[:, m:] - c[:, :-m]).max(axis=1) / np.sqrt(m)
+        k += bb
+    return out
+
+
+def fluctuation_reference(null: npt.ArrayLike) -> tuple[list[FloatArray], IntArray]:
+    """(each column sorted, ranks) with ranks[b, j] = #{i : null[i, j] >= null[b, j]}; computed once per null."""
+    arr = np.asarray(null, dtype=float)
+    draws = arr.shape[0]
+    cols = [np.sort(arr[:, j]) for j in range(arr.shape[1])]
+    ranks = np.empty(arr.shape, dtype=np.int64)
+    for j, col in enumerate(cols):
+        ranks[:, j] = draws - np.searchsorted(col, arr[:, j], side="left")
+    return cols, ranks
+
+
+def fluctuation_test(sups: Sequence[float], null: npt.ArrayLike, reference: tuple[list[FloatArray], IntArray], *,
+                     alphas: tuple[float, ...] = (0.05, 0.10)) -> dict[str, Any]:
+    """sups[j] = the observed sup |t| for the null's column j. Per column: p_j = (1 + #{null[:, j] >= sups[j]}) /
+    (B + 1) and the critical values c_a with sup > c_a <=> p < a (which needs (B + 1) * a to be an integer, e.g.
+    49,999 draws for 5% and 10%): c_a = sorted_j[B - k], k = round(a * (B + 1)) - 1. Search-adjusted, exact under
+    exchangeability: the observed sups and the B draws are B + 1 exchangeable values; draw b's marginal p in column
+    j is (ranks[b, j] + [sups[j] >= null[b, j]]) / (B + 1); min_p = min_j p_j; p = (1 + #{b : min_j p_bj <= min_p})
+    / (B + 1). With one column it equals the marginal p; it is never below min_p."""
+    arr = np.asarray(null, dtype=float)
+    cols, ranks = reference
+    draws = arr.shape[0]
+    obs = np.asarray(sups, dtype=float)
+    if obs.size != arr.shape[1]:
+        raise ValueError("one observed sup per column of the null")
+    critical: list[dict[str, float]] = []
+    for col in cols:
+        values = {}
+        for a in alphas:
+            k = round(a * (draws + 1)) - 1
+            if not np.isclose(a * (draws + 1), k + 1):
+                raise ValueError(f"(draws + 1) * {a} must be an integer for an exact critical value")
+            values[str(a)] = float(col[draws - k])
+        critical.append(values)
+    marginal = (1 + (arr >= obs[None, :]).sum(axis=0)) / (draws + 1)
+    draw_p = (ranks + (obs[None, :] >= arr)) / (draws + 1)
+    min_p = float(marginal.min())
+    adjusted = (1 + int((draw_p.min(axis=1) <= min_p).sum())) / (draws + 1)
+    return {"marginal_p": [float(p) for p in marginal], "critical": critical, "min_p": min_p,
+            "min_at": int(np.argmin(marginal)), "p_value": float(adjusted), "draws": int(draws)}
+
+
+def critical_value_mc_se(sorted_col: npt.ArrayLike, alpha: float) -> float:
+    """Monte Carlo standard error of the alpha critical value of a sorted null column: half the spread of the order
+    statistics one binomial standard deviation of the count either side of it."""
+    col = np.asarray(sorted_col, dtype=float)
+    draws = col.size
+    k = round(alpha * (draws + 1)) - 1
+    i = draws - k
+    step = round(float(np.sqrt(draws * alpha * (1 - alpha))))
+    return float((col[min(i + step, draws - 1)] - col[max(i - step, 0)]) / 2.0)
 
 
 def basel_zone(exceed_last_250: int) -> str:

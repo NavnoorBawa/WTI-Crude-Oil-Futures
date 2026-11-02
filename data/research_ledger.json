@@ -1,20 +1,22 @@
 {
-  "method": "One row per tested hypothesis; statistics and p-values read from the named artifact fields (or computed from them by the formula in `test`). Status uses the p-value as the test was run: supported below alpha 0.05, inconclusive from 0.05 to 0.10, not_supported at 0.10 or above or when the estimate points the wrong way (a failure to reject, not evidence against the hypothesis; underpowered marks a test whose recorded power is below its target). Benjamini-Hochberg q-values and Holm adjusted p-values are computed across the rows with a p-value, on p_two_sided (the directional one-sided p doubled, capped at 1), leaving out rows selected_after_search (a model picked as the best of a field on the same sample; their adjusted fields are null and their note names the search-adjusted test). t_equivalent = normal quantile of p_two_sided; clears_hlz_t3 applies the Harvey-Liu-Zhu (2016) t > 3 hurdle.",
+  "method": "One row per tested hypothesis; statistics and p-values read from the named artifact fields (or computed from them by the formula in `test`). Status uses the p-value as the test was run: supported below alpha 0.05, inconclusive from 0.05 to 0.10, not_supported at 0.10 or above or when the estimate points the wrong way (a failure to reject, not evidence against the hypothesis; underpowered marks a test whose recorded power is below its target). Benjamini-Hochberg q-values and Holm adjusted p-values are computed across the rows with a p-value, on p_two_sided (the directional one-sided p doubled, capped at 1), leaving out rows selected_after_search (a model picked as the best of a field on the same sample; their adjusted fields are null and their note names the search-adjusted test where one exists or says none does) and rows whose test the artifact could not compute. t_equivalent = normal quantile of p_two_sided; clears_hlz_t3 applies the Harvey-Liu-Zhu (2016) t > 3 hurdle.",
   "alpha": 0.05,
   "hlz_t": 3.0,
   "summary": {
-    "rows": 84,
-    "rows_with_p_value": 84,
-    "rows_in_multiplicity_family": 83,
+    "rows": 110,
+    "rows_with_p_value": 110,
+    "rows_in_multiplicity_family": 107,
     "by_status": {
-      "supported": 19,
-      "not_supported": 51,
+      "supported": 33,
+      "not_supported": 61,
       "retracted": 9,
-      "inconclusive": 5
+      "inconclusive": 7
     },
     "pre_specified_rows": 3,
     "selected_after_search": [
-      "vol_challenger_qlike"
+      "vol_challenger_qlike",
+      "vol_gw_har_iv_range",
+      "vol_fluct_har_iv_range"
     ],
     "underpowered": [
       "carry_spread_post2007"
@@ -37,6 +39,20 @@
       "vol_ovx_coefficient",
       "var_normal_99_coverage",
       "var_hs_95_clustering",
+      "vol_gw_persistence",
+      "vol_fluct_persistence",
+      "vol_gw_ewma",
+      "vol_fluct_ewma",
+      "vol_fluct_garch",
+      "vol_fluct_gjr",
+      "vol_gw_har_rv",
+      "vol_fluct_har_rv",
+      "vol_gw_har_rs",
+      "vol_fluct_har_rs",
+      "vol_fluct_har_range",
+      "vol_fluct_har_iv_sameday",
+      "vol_gw_lgbm",
+      "vol_fluct_lgbm",
       "shock_supply_lost_peak",
       "shock_removal_vs_threat_peak"
     ],
@@ -48,6 +64,15 @@
       "vol_ovx_gain_qlike",
       "vol_same_day_ovx",
       "vol_ovx_coefficient",
+      "vol_gw_persistence",
+      "vol_fluct_persistence",
+      "vol_fluct_ewma",
+      "vol_fluct_garch",
+      "vol_fluct_gjr",
+      "vol_fluct_har_rv",
+      "vol_fluct_har_rs",
+      "vol_fluct_har_iv_sameday",
+      "vol_fluct_lgbm",
       "shock_supply_lost_peak"
     ],
     "supported_surviving_holm_5pct": [
@@ -56,7 +81,14 @@
       "vol_qlike_vs_persistence",
       "vol_ovx_gain_qlike",
       "vol_same_day_ovx",
-      "vol_ovx_coefficient"
+      "vol_ovx_coefficient",
+      "vol_gw_persistence",
+      "vol_fluct_persistence",
+      "vol_fluct_ewma",
+      "vol_fluct_garch",
+      "vol_fluct_har_rv",
+      "vol_fluct_har_rs",
+      "vol_fluct_lgbm"
     ],
     "supported_clearing_hlz_t3": [
       "leak_forest_noise_unpurged",
@@ -65,6 +97,14 @@
       "vol_ovx_gain_qlike",
       "vol_same_day_ovx",
       "vol_ovx_coefficient",
+      "vol_gw_persistence",
+      "vol_fluct_persistence",
+      "vol_fluct_ewma",
+      "vol_fluct_garch",
+      "vol_fluct_har_rv",
+      "vol_fluct_har_rs",
+      "vol_fluct_har_iv_sameday",
+      "vol_fluct_lgbm",
       "shock_supply_lost_peak"
     ],
     "supported_failing_bh_5pct": [
@@ -77,6 +117,11 @@
       "vol_mcs_excludes_record",
       "var_normal_99_coverage",
       "var_hs_95_clustering",
+      "vol_gw_ewma",
+      "vol_gw_har_rv",
+      "vol_gw_har_rs",
+      "vol_fluct_har_range",
+      "vol_gw_lgbm",
       "shock_removal_vs_threat_peak"
     ],
     "supported_selected_after_search": [
@@ -160,6 +205,28 @@
         "supported_surviving_bh_5pct": 0,
         "supported_clearing_hlz_t3": 0
       },
+      "conditional predictive ability": {
+        "rows": 13,
+        "by_status": {
+          "supported": 5,
+          "not_supported": 8,
+          "retracted": 0,
+          "inconclusive": 0
+        },
+        "supported_surviving_bh_5pct": 1,
+        "supported_clearing_hlz_t3": 1
+      },
+      "stability over time": {
+        "rows": 13,
+        "by_status": {
+          "supported": 9,
+          "not_supported": 2,
+          "retracted": 0,
+          "inconclusive": 2
+        },
+        "supported_surviving_bh_5pct": 8,
+        "supported_clearing_hlz_t3": 7
+      },
       "supply shock": {
         "rows": 19,
         "by_status": {
@@ -210,8 +277,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 1.8182751199206812e-05,
-      "p_holm": 0.00011807834814906592,
+      "q_value_bh": 2.3440414196567817e-05,
+      "p_holm": 0.00015488198913059297,
       "t_equivalent": 4.81,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -253,8 +320,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 3.722124911519498e-09,
-      "p_holm": 2.0987403115555723e-08,
+      "q_value_bh": 4.798401994368509e-09,
+      "p_holm": 2.744506561264979e-08,
       "t_equivalent": 6.32,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -339,7 +406,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.971984409904567,
+      "q_value_bh": 0.9143827194087987,
       "p_holm": 1.0,
       "t_equivalent": 0.33,
       "survives_bh_5pct": false,
@@ -425,7 +492,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.9346964912280702,
+      "q_value_bh": 0.8694088607594938,
       "p_holm": 1.0,
       "t_equivalent": 0.48,
       "survives_bh_5pct": false,
@@ -468,7 +535,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.34844915158512,
+      "q_value_bh": 0.302725467733851,
       "p_holm": 1.0,
       "t_equivalent": 1.51,
       "survives_bh_5pct": false,
@@ -511,7 +578,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.971984409904567,
+      "q_value_bh": 0.9143827194087987,
       "p_holm": 1.0,
       "t_equivalent": 0.32,
       "survives_bh_5pct": false,
@@ -553,8 +620,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.00025822222222222224,
-      "p_holm": 0.0021,
+      "q_value_bh": 0.00033288888888888886,
+      "p_holm": 0.002772,
       "t_equivalent": 4.19,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -599,8 +666,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 4.2057789292931364e-16,
-      "p_holm": 1.2313304576123278e-15,
+      "q_value_bh": 5.421907776317658e-16,
+      "p_holm": 1.5961691117196843e-15,
       "t_equivalent": 8.53,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -645,7 +712,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.971984409904567,
+      "q_value_bh": 0.9143827194087987,
       "p_holm": 1.0,
       "t_equivalent": 0.35,
       "survives_bh_5pct": false,
@@ -700,8 +767,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.0002935698376551667,
-      "p_holm": 0.0028401997546638412,
+      "q_value_bh": 0.00035666666666666664,
+      "p_holm": 0.0037739640575670218,
       "t_equivalent": 4.11,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -797,7 +864,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.1328,
+      "q_value_bh": 0.11413333333333335,
       "p_holm": 1.0,
       "t_equivalent": 2.11,
       "survives_bh_5pct": false,
@@ -833,7 +900,7 @@
         "context_fields": {},
         "name_fields": {}
       },
-      "q_value_bh": 0.13640869565217392,
+      "q_value_bh": 0.11556,
       "p_holm": 1.0,
       "t_equivalent": 2.08,
       "survives_bh_5pct": false,
@@ -913,7 +980,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.32083793103448277,
+      "q_value_bh": 0.2726068181818182,
       "p_holm": 1.0,
       "t_equivalent": 1.59,
       "survives_bh_5pct": false,
@@ -955,8 +1022,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.0736625,
-      "p_holm": 0.9656,
+      "q_value_bh": 0.05843846153846154,
+      "p_holm": 1.0,
       "t_equivalent": 2.45,
       "survives_bh_5pct": false,
       "survives_holm_5pct": false,
@@ -991,8 +1058,8 @@
         "context_fields": {},
         "name_fields": {}
       },
-      "q_value_bh": 0.021342857142857143,
-      "p_holm": 0.252,
+      "q_value_bh": 0.017509090909090908,
+      "p_holm": 0.3096,
       "t_equivalent": 2.91,
       "survives_bh_5pct": true,
       "survives_holm_5pct": false,
@@ -1031,7 +1098,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.34960606060606064,
+      "q_value_bh": 0.3098541666666667,
       "p_holm": 1.0,
       "t_equivalent": 1.48,
       "survives_bh_5pct": false,
@@ -1071,7 +1138,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.45016578947368424,
+      "q_value_bh": 0.3937982142857143,
       "p_holm": 1.0,
       "t_equivalent": 1.26,
       "survives_bh_5pct": false,
@@ -1117,7 +1184,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.887286274509804,
+      "q_value_bh": 0.7991287671232877,
       "p_holm": 1.0,
       "t_equivalent": 0.6,
       "survives_bh_5pct": false,
@@ -1239,7 +1306,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.9126807692307691,
+      "q_value_bh": 0.826791891891892,
       "p_holm": 1.0,
       "t_equivalent": 0.57,
       "survives_bh_5pct": false,
@@ -1279,7 +1346,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.12035,
+      "q_value_bh": 0.1000967741935484,
       "p_holm": 1.0,
       "t_equivalent": 2.18,
       "survives_bh_5pct": false,
@@ -1319,7 +1386,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.655304761904762,
+      "q_value_bh": 0.5722774193548388,
       "p_holm": 1.0,
       "t_equivalent": 0.97,
       "survives_bh_5pct": false,
@@ -1359,7 +1426,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.53203,
+      "q_value_bh": 0.4730137931034483,
       "p_holm": 1.0,
       "t_equivalent": 1.13,
       "survives_bh_5pct": false,
@@ -1395,7 +1462,7 @@
         "context_fields": {},
         "name_fields": {}
       },
-      "q_value_bh": 0.09683333333333334,
+      "q_value_bh": 0.08025000000000002,
       "p_holm": 1.0,
       "t_equivalent": 2.31,
       "survives_bh_5pct": false,
@@ -1435,7 +1502,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.885444,
+      "q_value_bh": 0.7926916666666667,
       "p_holm": 1.0,
       "t_equivalent": 0.62,
       "survives_bh_5pct": false,
@@ -1478,8 +1545,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 3.4120929800814685e-10,
-      "p_holm": 1.623827382086964e-09,
+      "q_value_bh": 4.398722275526713e-10,
+      "p_holm": 2.117142029809586e-09,
       "t_equivalent": 6.7,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -1524,7 +1591,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.9346964912280702,
+      "q_value_bh": 0.8694088607594938,
       "p_holm": 1.0,
       "t_equivalent": 0.47,
       "survives_bh_5pct": false,
@@ -1572,7 +1639,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.34960606060606064,
+      "q_value_bh": 0.3098541666666667,
       "p_holm": 1.0,
       "t_equivalent": 1.48,
       "survives_bh_5pct": false,
@@ -1656,7 +1723,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.8127083333333333,
+      "q_value_bh": 0.7184285714285714,
       "p_holm": 1.0,
       "t_equivalent": 0.72,
       "survives_bh_5pct": false,
@@ -1698,8 +1765,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 2.858286791012475e-45,
-      "p_holm": 2.858286791012475e-45,
+      "q_value_bh": 3.6847793570883713e-45,
+      "p_holm": 3.6847793570883713e-45,
       "t_equivalent": 14.43,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -1786,8 +1853,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.00024650958455147445,
-      "p_holm": 0.0018057569567144155,
+      "q_value_bh": 0.00031778946442178035,
+      "p_holm": 0.0023759959956768622,
       "t_equivalent": 4.23,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -1828,8 +1895,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 3.7008015974349654e-11,
-      "p_holm": 1.4268150737098662e-10,
+      "q_value_bh": 4.7709129027173656e-11,
+      "p_holm": 1.8548595958228262e-10,
       "t_equivalent": 7.05,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -1870,8 +1937,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.0002935698376551667,
-      "p_holm": 0.002836942191642498,
+      "q_value_bh": 0.00035666666666666664,
+      "p_holm": 0.003757031551094119,
       "t_equivalent": 4.12,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -1912,7 +1979,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.34185031113869246,
+      "q_value_bh": 0.29379906258506094,
       "p_holm": 1.0,
       "t_equivalent": 1.54,
       "survives_bh_5pct": false,
@@ -2038,7 +2105,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.9346964912280702,
+      "q_value_bh": 0.8694088607594938,
       "p_holm": 1.0,
       "t_equivalent": 0.5,
       "survives_bh_5pct": false,
@@ -2080,8 +2147,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.00045969951438343346,
-      "p_holm": 0.004785305788280561,
+      "q_value_bh": 0.0005470381616944658,
+      "p_holm": 0.006313945137314629,
       "t_equivalent": 3.99,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -2164,7 +2231,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.971984409904567,
+      "q_value_bh": 0.9143827194087987,
       "p_holm": 1.0,
       "t_equivalent": 0.38,
       "survives_bh_5pct": false,
@@ -2206,7 +2273,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.09960000000000001,
+      "q_value_bh": 0.08412413793103449,
       "p_holm": 1.0,
       "t_equivalent": 2.28,
       "survives_bh_5pct": false,
@@ -2253,7 +2320,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.25453333333333333,
+      "q_value_bh": 0.2019282051282051,
       "p_holm": 1.0,
       "t_equivalent": 1.79,
       "survives_bh_5pct": false,
@@ -2289,7 +2356,7 @@
         "context_fields": {},
         "name_fields": {}
       },
-      "q_value_bh": 0.7184111111111111,
+      "q_value_bh": 0.6314621212121213,
       "p_holm": 1.0,
       "t_equivalent": 0.88,
       "survives_bh_5pct": false,
@@ -2329,7 +2396,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.37096388888888887,
+      "q_value_bh": 0.33108269230769233,
       "p_holm": 1.0,
       "t_equivalent": 1.4,
       "survives_bh_5pct": false,
@@ -2365,8 +2432,8 @@
         "context_fields": {},
         "name_fields": {}
       },
-      "q_value_bh": 6.18706363178858e-38,
-      "p_holm": 1.2225041392931652e-37,
+      "q_value_bh": 7.976094079534675e-38,
+      "p_holm": 1.5803102288423842e-37,
       "t_equivalent": 13.16,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -2454,8 +2521,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.07229451914249568,
-      "p_holm": 0.9015039435238918,
+      "q_value_bh": 0.05591937504756895,
+      "p_holm": 1.0,
       "t_equivalent": 2.48,
       "survives_bh_5pct": false,
       "survives_holm_5pct": false,
@@ -2494,7 +2561,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.3044321428571429,
+      "q_value_bh": 0.25555581395348836,
       "p_holm": 1.0,
       "t_equivalent": 1.64,
       "survives_bh_5pct": false,
@@ -2534,7 +2601,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.7327577561204258,
+      "q_value_bh": 0.6390208496854599,
       "p_holm": 1.0,
       "t_equivalent": 0.83,
       "survives_bh_5pct": false,
@@ -2574,7 +2641,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.09683333333333334,
+      "q_value_bh": 0.07891096587966669,
       "p_holm": 1.0,
       "t_equivalent": 2.33,
       "survives_bh_5pct": false,
@@ -2630,7 +2697,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.276556,
+      "q_value_bh": 0.2228275,
       "p_holm": 1.0,
       "t_equivalent": 1.73,
       "survives_bh_5pct": false,
@@ -2742,7 +2809,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.574319512195122,
+      "q_value_bh": 0.5102258600801916,
       "p_holm": 1.0,
       "t_equivalent": 1.07,
       "survives_bh_5pct": false,
@@ -2852,7 +2919,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.4562871794871795,
+      "q_value_bh": 0.4024701754385965,
       "p_holm": 1.0,
       "t_equivalent": 1.24,
       "survives_bh_5pct": false,
@@ -2964,7 +3031,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.7551234042553191,
+      "q_value_bh": 0.6630898550724638,
       "p_holm": 1.0,
       "t_equivalent": 0.79,
       "survives_bh_5pct": false,
@@ -3018,9 +3085,1569 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.7184111111111111,
+      "q_value_bh": 0.6314621212121213,
       "p_holm": 1.0,
       "t_equivalent": 0.86,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_gw_persistence",
+      "date": "2026-10-20",
+      "family": "conditional predictive ability",
+      "hypothesis": "The QLIKE difference between the model of record and Persistence (RV5) moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 21.002
+      },
+      "context": {
+        "df": 3,
+        "p_with_constant": 6.917924085294703e-12,
+        "dm_p": 1.7835188421373328e-12,
+        "p_bartlett_10": 9.903287913278406e-05,
+        "p_bartlett_40": 0.00023085114562918015,
+        "n_days": 4629
+      },
+      "p_value": 0.00010516057803681004,
+      "sided": "two",
+      "p_two_sided": 0.00010516057803681004,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The instruments, the kernel and its lags were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7). The test with the constant (context p_with_constant) mostly repeats the full-sample DM test, so the ledger registers the conditional part.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=persistence].gw_qlike_vs_har_iv.conditional.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=persistence].gw_qlike_vs_har_iv.conditional.p_value": 0.00010516057803681004
+        },
+        "context_fields": {
+          "df": "leaderboard.models[key=persistence].gw_qlike_vs_har_iv.conditional.df",
+          "p_with_constant": "leaderboard.models[key=persistence].gw_qlike_vs_har_iv.p_value",
+          "dm_p": "leaderboard.models[key=persistence].dm_qlike_vs_har_iv.p_value",
+          "p_bartlett_10": "leaderboard.models[key=persistence].gw_qlike_vs_har_iv.robustness.bartlett_10.conditional_p_value",
+          "p_bartlett_40": "leaderboard.models[key=persistence].gw_qlike_vs_har_iv.robustness.bartlett_40.conditional_p_value",
+          "n_days": "leaderboard.models[key=persistence].gw_qlike_vs_har_iv.n_days"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=persistence].label"
+        }
+      },
+      "q_value_bh": 0.0007501454566625783,
+      "p_holm": 0.009779933757423333,
+      "t_equivalent": 3.88,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "vol_fluct_persistence",
+      "date": "2026-10-20",
+      "family": "stability over time",
+      "hypothesis": "Given what was known at each decision, the model of record and Persistence (RV5) were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "smallest p over window lengths",
+        "value": 2e-05
+      },
+      "context": {
+        "sign": -1,
+        "window_end": "2018-03-08",
+        "window_start": "2014-07-01",
+        "sup": 5.205,
+        "p_mu_0_2": 6e-05,
+        "critical_5pct": 3.2434,
+        "p_mu_0_1": 2e-05,
+        "p_mu_0_3": 2e-05,
+        "p_mu_0_4": 2e-05,
+        "p_mu_0_5": 2e-05,
+        "p_bartlett_40": 2e-05,
+        "p_full_sample_variance": 2e-05,
+        "grids_outside_5pct": 5,
+        "dm_p": 1.7835188421373328e-12
+      },
+      "p_value": 4e-05,
+      "sided": "two",
+      "p_two_sided": 4e-05,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The window lengths (mu = 0.1-0.5), the per-window variance and the simulated critical values were fixed after prototype runs on this sample; the p-value adjusts for the choice among the five window lengths, and the seed was fixed before the production build. The null includes equal average loss, so where the full-sample DM test rejects (context dm_p) the row mostly repeats it. Each window is scaled by its own variability, so the window of the largest |t| is where the difference was most consistent, not where it was largest. The mu = 0.1 p in context is anti-conservative under the null (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=persistence].fluctuation_qlike_vs_har_iv.search_adjusted.min_p",
+        "p_value_fields": {
+          "leaderboard.models[key=persistence].fluctuation_qlike_vs_har_iv.search_adjusted.p_value": 4e-05
+        },
+        "context_fields": {
+          "sign": "leaderboard.models[key=persistence].fluctuation_qlike_vs_har_iv.sign",
+          "window_end": "leaderboard.models[key=persistence].fluctuation_qlike_vs_har_iv.at",
+          "window_start": "leaderboard.models[key=persistence].fluctuation_qlike_vs_har_iv.window_start",
+          "sup": "leaderboard.models[key=persistence].fluctuation_qlike_vs_har_iv.sup",
+          "p_mu_0_2": "leaderboard.models[key=persistence].fluctuation_qlike_vs_har_iv.p_value",
+          "critical_5pct": "stability.fluctuation.critical_values.five_pct",
+          "p_mu_0_1": "leaderboard.models[key=persistence].fluctuation_qlike_vs_har_iv.by_mu.mu_0_1.p_value",
+          "p_mu_0_3": "leaderboard.models[key=persistence].fluctuation_qlike_vs_har_iv.by_mu.mu_0_3.p_value",
+          "p_mu_0_4": "leaderboard.models[key=persistence].fluctuation_qlike_vs_har_iv.by_mu.mu_0_4.p_value",
+          "p_mu_0_5": "leaderboard.models[key=persistence].fluctuation_qlike_vs_har_iv.by_mu.mu_0_5.p_value",
+          "p_bartlett_40": "leaderboard.models[key=persistence].fluctuation_qlike_vs_har_iv.robustness.bartlett_40.p_value",
+          "p_full_sample_variance": "leaderboard.models[key=persistence].fluctuation_qlike_vs_har_iv.robustness.full_sample_variance.p_value",
+          "grids_outside_5pct": "leaderboard.models[key=persistence].fluctuation_qlike_vs_har_iv.robustness.by_grid.outside_5pct",
+          "dm_p": "leaderboard.models[key=persistence].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=persistence].label"
+        }
+      },
+      "q_value_bh": 0.00035666666666666664,
+      "p_holm": 0.0038400000000000005,
+      "t_equivalent": 4.11,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "vol_gw_raw_ovx",
+      "date": "2026-10-20",
+      "family": "conditional predictive ability",
+      "hypothesis": "The QLIKE difference between the model of record and Raw OVX moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 1.392
+      },
+      "context": {
+        "df": 3,
+        "p_with_constant": 0.8085352111791564,
+        "dm_p": 0.6195055986055698,
+        "p_bartlett_10": 0.6873286074365936,
+        "p_bartlett_40": 0.6694853743382454,
+        "n_days": 4629
+      },
+      "p_value": 0.7075183552988519,
+      "sided": "two",
+      "p_two_sided": 0.7075183552988519,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The instruments, the kernel and its lags were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7). The test with the constant (context p_with_constant) mostly repeats the full-sample DM test, so the ledger registers the conditional part.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=raw_ovx].gw_qlike_vs_har_iv.conditional.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=raw_ovx].gw_qlike_vs_har_iv.conditional.p_value": 0.7075183552988519
+        },
+        "context_fields": {
+          "df": "leaderboard.models[key=raw_ovx].gw_qlike_vs_har_iv.conditional.df",
+          "p_with_constant": "leaderboard.models[key=raw_ovx].gw_qlike_vs_har_iv.p_value",
+          "dm_p": "leaderboard.models[key=raw_ovx].dm_qlike_vs_har_iv.p_value",
+          "p_bartlett_10": "leaderboard.models[key=raw_ovx].gw_qlike_vs_har_iv.robustness.bartlett_10.conditional_p_value",
+          "p_bartlett_40": "leaderboard.models[key=raw_ovx].gw_qlike_vs_har_iv.robustness.bartlett_40.conditional_p_value",
+          "n_days": "leaderboard.models[key=raw_ovx].gw_qlike_vs_har_iv.n_days"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=raw_ovx].label"
+        }
+      },
+      "q_value_bh": 0.9143827194087987,
+      "p_holm": 1.0,
+      "t_equivalent": 0.38,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_fluct_raw_ovx",
+      "date": "2026-10-20",
+      "family": "stability over time",
+      "hypothesis": "Given what was known at each decision, the model of record and Raw OVX were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "smallest p over window lengths",
+        "value": 0.2058
+      },
+      "context": {
+        "sign": -1,
+        "window_end": "2024-07-11",
+        "window_start": "2020-11-02",
+        "sup": 2.703,
+        "p_mu_0_2": 0.2058,
+        "critical_5pct": 3.2434,
+        "p_mu_0_1": 0.30536,
+        "p_mu_0_3": 0.34336,
+        "p_mu_0_4": 0.89478,
+        "p_mu_0_5": 0.83722,
+        "p_bartlett_40": 0.4526,
+        "p_full_sample_variance": 0.75882,
+        "grids_outside_5pct": 1,
+        "dm_p": 0.6195055986055698
+      },
+      "p_value": 0.40446,
+      "sided": "two",
+      "p_two_sided": 0.40446,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The window lengths (mu = 0.1-0.5), the per-window variance and the simulated critical values were fixed after prototype runs on this sample; the p-value adjusts for the choice among the five window lengths, and the seed was fixed before the production build. The null includes equal average loss, so where the full-sample DM test rejects (context dm_p) the row mostly repeats it. Each window is scaled by its own variability, so the window of the largest |t| is where the difference was most consistent, not where it was largest. The mu = 0.1 p in context is anti-conservative under the null (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=raw_ovx].fluctuation_qlike_vs_har_iv.search_adjusted.min_p",
+        "p_value_fields": {
+          "leaderboard.models[key=raw_ovx].fluctuation_qlike_vs_har_iv.search_adjusted.p_value": 0.40446
+        },
+        "context_fields": {
+          "sign": "leaderboard.models[key=raw_ovx].fluctuation_qlike_vs_har_iv.sign",
+          "window_end": "leaderboard.models[key=raw_ovx].fluctuation_qlike_vs_har_iv.at",
+          "window_start": "leaderboard.models[key=raw_ovx].fluctuation_qlike_vs_har_iv.window_start",
+          "sup": "leaderboard.models[key=raw_ovx].fluctuation_qlike_vs_har_iv.sup",
+          "p_mu_0_2": "leaderboard.models[key=raw_ovx].fluctuation_qlike_vs_har_iv.p_value",
+          "critical_5pct": "stability.fluctuation.critical_values.five_pct",
+          "p_mu_0_1": "leaderboard.models[key=raw_ovx].fluctuation_qlike_vs_har_iv.by_mu.mu_0_1.p_value",
+          "p_mu_0_3": "leaderboard.models[key=raw_ovx].fluctuation_qlike_vs_har_iv.by_mu.mu_0_3.p_value",
+          "p_mu_0_4": "leaderboard.models[key=raw_ovx].fluctuation_qlike_vs_har_iv.by_mu.mu_0_4.p_value",
+          "p_mu_0_5": "leaderboard.models[key=raw_ovx].fluctuation_qlike_vs_har_iv.by_mu.mu_0_5.p_value",
+          "p_bartlett_40": "leaderboard.models[key=raw_ovx].fluctuation_qlike_vs_har_iv.robustness.bartlett_40.p_value",
+          "p_full_sample_variance": "leaderboard.models[key=raw_ovx].fluctuation_qlike_vs_har_iv.robustness.full_sample_variance.p_value",
+          "grids_outside_5pct": "leaderboard.models[key=raw_ovx].fluctuation_qlike_vs_har_iv.robustness.by_grid.outside_5pct",
+          "dm_p": "leaderboard.models[key=raw_ovx].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=raw_ovx].label"
+        }
+      },
+      "q_value_bh": 0.6390208496854599,
+      "p_holm": 1.0,
+      "t_equivalent": 0.83,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_gw_ewma",
+      "date": "2026-10-20",
+      "family": "conditional predictive ability",
+      "hypothesis": "The QLIKE difference between the model of record and EWMA (RiskMetrics) moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 8.21
+      },
+      "context": {
+        "df": 3,
+        "p_with_constant": 0.00020121534395743104,
+        "dm_p": 1.7595275290353193e-05,
+        "p_bartlett_10": 0.03149279632715765,
+        "p_bartlett_40": 0.09721302000498794,
+        "n_days": 4629
+      },
+      "p_value": 0.041872814123521875,
+      "sided": "two",
+      "p_two_sided": 0.041872814123521875,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The instruments, the kernel and its lags were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7). The test with the constant (context p_with_constant) mostly repeats the full-sample DM test, so the ledger registers the conditional part.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=ewma].gw_qlike_vs_har_iv.conditional.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=ewma].gw_qlike_vs_har_iv.conditional.p_value": 0.041872814123521875
+        },
+        "context_fields": {
+          "df": "leaderboard.models[key=ewma].gw_qlike_vs_har_iv.conditional.df",
+          "p_with_constant": "leaderboard.models[key=ewma].gw_qlike_vs_har_iv.p_value",
+          "dm_p": "leaderboard.models[key=ewma].dm_qlike_vs_har_iv.p_value",
+          "p_bartlett_10": "leaderboard.models[key=ewma].gw_qlike_vs_har_iv.robustness.bartlett_10.conditional_p_value",
+          "p_bartlett_40": "leaderboard.models[key=ewma].gw_qlike_vs_har_iv.robustness.bartlett_40.conditional_p_value",
+          "n_days": "leaderboard.models[key=ewma].gw_qlike_vs_har_iv.n_days"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=ewma].label"
+        }
+      },
+      "q_value_bh": 0.12230012707414697,
+      "p_holm": 1.0,
+      "t_equivalent": 2.03,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_fluct_ewma",
+      "date": "2026-10-20",
+      "family": "stability over time",
+      "hypothesis": "Given what was known at each decision, the model of record and EWMA (RiskMetrics) were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "smallest p over window lengths",
+        "value": 6e-05
+      },
+      "context": {
+        "sign": -1,
+        "window_end": "2018-11-07",
+        "window_start": "2015-03-05",
+        "sup": 5.167,
+        "p_mu_0_2": 6e-05,
+        "critical_5pct": 3.2434,
+        "p_mu_0_1": 0.00508,
+        "p_mu_0_3": 0.00048,
+        "p_mu_0_4": 0.00026,
+        "p_mu_0_5": 0.00022,
+        "p_bartlett_40": 6e-05,
+        "p_full_sample_variance": 6e-05,
+        "grids_outside_5pct": 5,
+        "dm_p": 1.7595275290353193e-05
+      },
+      "p_value": 0.00024,
+      "sided": "two",
+      "p_two_sided": 0.00024,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The window lengths (mu = 0.1-0.5), the per-window variance and the simulated critical values were fixed after prototype runs on this sample; the p-value adjusts for the choice among the five window lengths, and the seed was fixed before the production build. The null includes equal average loss, so where the full-sample DM test rejects (context dm_p) the row mostly repeats it. Each window is scaled by its own variability, so the window of the largest |t| is where the difference was most consistent, not where it was largest. The mu = 0.1 p in context is anti-conservative under the null (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=ewma].fluctuation_qlike_vs_har_iv.search_adjusted.min_p",
+        "p_value_fields": {
+          "leaderboard.models[key=ewma].fluctuation_qlike_vs_har_iv.search_adjusted.p_value": 0.00024
+        },
+        "context_fields": {
+          "sign": "leaderboard.models[key=ewma].fluctuation_qlike_vs_har_iv.sign",
+          "window_end": "leaderboard.models[key=ewma].fluctuation_qlike_vs_har_iv.at",
+          "window_start": "leaderboard.models[key=ewma].fluctuation_qlike_vs_har_iv.window_start",
+          "sup": "leaderboard.models[key=ewma].fluctuation_qlike_vs_har_iv.sup",
+          "p_mu_0_2": "leaderboard.models[key=ewma].fluctuation_qlike_vs_har_iv.p_value",
+          "critical_5pct": "stability.fluctuation.critical_values.five_pct",
+          "p_mu_0_1": "leaderboard.models[key=ewma].fluctuation_qlike_vs_har_iv.by_mu.mu_0_1.p_value",
+          "p_mu_0_3": "leaderboard.models[key=ewma].fluctuation_qlike_vs_har_iv.by_mu.mu_0_3.p_value",
+          "p_mu_0_4": "leaderboard.models[key=ewma].fluctuation_qlike_vs_har_iv.by_mu.mu_0_4.p_value",
+          "p_mu_0_5": "leaderboard.models[key=ewma].fluctuation_qlike_vs_har_iv.by_mu.mu_0_5.p_value",
+          "p_bartlett_40": "leaderboard.models[key=ewma].fluctuation_qlike_vs_har_iv.robustness.bartlett_40.p_value",
+          "p_full_sample_variance": "leaderboard.models[key=ewma].fluctuation_qlike_vs_har_iv.robustness.full_sample_variance.p_value",
+          "grids_outside_5pct": "leaderboard.models[key=ewma].fluctuation_qlike_vs_har_iv.robustness.by_grid.outside_5pct",
+          "dm_p": "leaderboard.models[key=ewma].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=ewma].label"
+        }
+      },
+      "q_value_bh": 0.001351578947368421,
+      "p_holm": 0.02208,
+      "t_equivalent": 3.67,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "vol_gw_garch",
+      "date": "2026-10-20",
+      "family": "conditional predictive ability",
+      "hypothesis": "The QLIKE difference between the model of record and GARCH(1,1)-t moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 4.777
+      },
+      "context": {
+        "df": 3,
+        "p_with_constant": 0.0072095813196152905,
+        "dm_p": 0.0002036148288102483,
+        "p_bartlett_10": 0.1542808949627103,
+        "p_bartlett_40": 0.23423735489775643,
+        "n_days": 4629
+      },
+      "p_value": 0.18886034695391993,
+      "sided": "two",
+      "p_two_sided": 0.18886034695391993,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The instruments, the kernel and its lags were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7). The test with the constant (context p_with_constant) mostly repeats the full-sample DM test, so the ledger registers the conditional part.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=garch].gw_qlike_vs_har_iv.conditional.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=garch].gw_qlike_vs_har_iv.conditional.p_value": 0.18886034695391993
+        },
+        "context_fields": {
+          "df": "leaderboard.models[key=garch].gw_qlike_vs_har_iv.conditional.df",
+          "p_with_constant": "leaderboard.models[key=garch].gw_qlike_vs_har_iv.p_value",
+          "dm_p": "leaderboard.models[key=garch].dm_qlike_vs_har_iv.p_value",
+          "p_bartlett_10": "leaderboard.models[key=garch].gw_qlike_vs_har_iv.robustness.bartlett_10.conditional_p_value",
+          "p_bartlett_40": "leaderboard.models[key=garch].gw_qlike_vs_har_iv.robustness.bartlett_40.conditional_p_value",
+          "n_days": "leaderboard.models[key=garch].gw_qlike_vs_har_iv.n_days"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=garch].label"
+        }
+      },
+      "q_value_bh": 0.3742232800753599,
+      "p_holm": 1.0,
+      "t_equivalent": 1.31,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_fluct_garch",
+      "date": "2026-10-20",
+      "family": "stability over time",
+      "hypothesis": "Given what was known at each decision, the model of record and GARCH(1,1)-t were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "smallest p over window lengths",
+        "value": 6e-05
+      },
+      "context": {
+        "sign": -1,
+        "window_end": "2019-04-16",
+        "window_start": "2015-08-07",
+        "sup": 5.071,
+        "p_mu_0_2": 6e-05,
+        "critical_5pct": 3.2434,
+        "p_mu_0_1": 0.00734,
+        "p_mu_0_3": 0.00046,
+        "p_mu_0_4": 0.00038,
+        "p_mu_0_5": 0.0023,
+        "p_bartlett_40": 0.00018,
+        "p_full_sample_variance": 0.00076,
+        "grids_outside_5pct": 5,
+        "dm_p": 0.0002036148288102483
+      },
+      "p_value": 0.00024,
+      "sided": "two",
+      "p_two_sided": 0.00024,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The window lengths (mu = 0.1-0.5), the per-window variance and the simulated critical values were fixed after prototype runs on this sample; the p-value adjusts for the choice among the five window lengths, and the seed was fixed before the production build. The null includes equal average loss, so where the full-sample DM test rejects (context dm_p) the row mostly repeats it. Each window is scaled by its own variability, so the window of the largest |t| is where the difference was most consistent, not where it was largest. The mu = 0.1 p in context is anti-conservative under the null (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=garch].fluctuation_qlike_vs_har_iv.search_adjusted.min_p",
+        "p_value_fields": {
+          "leaderboard.models[key=garch].fluctuation_qlike_vs_har_iv.search_adjusted.p_value": 0.00024
+        },
+        "context_fields": {
+          "sign": "leaderboard.models[key=garch].fluctuation_qlike_vs_har_iv.sign",
+          "window_end": "leaderboard.models[key=garch].fluctuation_qlike_vs_har_iv.at",
+          "window_start": "leaderboard.models[key=garch].fluctuation_qlike_vs_har_iv.window_start",
+          "sup": "leaderboard.models[key=garch].fluctuation_qlike_vs_har_iv.sup",
+          "p_mu_0_2": "leaderboard.models[key=garch].fluctuation_qlike_vs_har_iv.p_value",
+          "critical_5pct": "stability.fluctuation.critical_values.five_pct",
+          "p_mu_0_1": "leaderboard.models[key=garch].fluctuation_qlike_vs_har_iv.by_mu.mu_0_1.p_value",
+          "p_mu_0_3": "leaderboard.models[key=garch].fluctuation_qlike_vs_har_iv.by_mu.mu_0_3.p_value",
+          "p_mu_0_4": "leaderboard.models[key=garch].fluctuation_qlike_vs_har_iv.by_mu.mu_0_4.p_value",
+          "p_mu_0_5": "leaderboard.models[key=garch].fluctuation_qlike_vs_har_iv.by_mu.mu_0_5.p_value",
+          "p_bartlett_40": "leaderboard.models[key=garch].fluctuation_qlike_vs_har_iv.robustness.bartlett_40.p_value",
+          "p_full_sample_variance": "leaderboard.models[key=garch].fluctuation_qlike_vs_har_iv.robustness.full_sample_variance.p_value",
+          "grids_outside_5pct": "leaderboard.models[key=garch].fluctuation_qlike_vs_har_iv.robustness.by_grid.outside_5pct",
+          "dm_p": "leaderboard.models[key=garch].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=garch].label"
+        }
+      },
+      "q_value_bh": 0.001351578947368421,
+      "p_holm": 0.02208,
+      "t_equivalent": 3.67,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "vol_gw_gjr",
+      "date": "2026-10-20",
+      "family": "conditional predictive ability",
+      "hypothesis": "The QLIKE difference between the model of record and GJR-GARCH(1,1)-t moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 3.781
+      },
+      "context": {
+        "df": 3,
+        "p_with_constant": 0.050258133350117626,
+        "dm_p": 0.0015185983014437054,
+        "p_bartlett_10": 0.24473108816234776,
+        "p_bartlett_40": 0.35550298019422144,
+        "n_days": 4629
+      },
+      "p_value": 0.2861079589234719,
+      "sided": "two",
+      "p_two_sided": 0.2861079589234719,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The instruments, the kernel and its lags were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7). The test with the constant (context p_with_constant) mostly repeats the full-sample DM test, so the ledger registers the conditional part.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=gjr].gw_qlike_vs_har_iv.conditional.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=gjr].gw_qlike_vs_har_iv.conditional.p_value": 0.2861079589234719
+        },
+        "context_fields": {
+          "df": "leaderboard.models[key=gjr].gw_qlike_vs_har_iv.conditional.df",
+          "p_with_constant": "leaderboard.models[key=gjr].gw_qlike_vs_har_iv.p_value",
+          "dm_p": "leaderboard.models[key=gjr].dm_qlike_vs_har_iv.p_value",
+          "p_bartlett_10": "leaderboard.models[key=gjr].gw_qlike_vs_har_iv.robustness.bartlett_10.conditional_p_value",
+          "p_bartlett_40": "leaderboard.models[key=gjr].gw_qlike_vs_har_iv.robustness.bartlett_40.conditional_p_value",
+          "n_days": "leaderboard.models[key=gjr].gw_qlike_vs_har_iv.n_days"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=gjr].label"
+        }
+      },
+      "q_value_bh": 0.5102258600801916,
+      "p_holm": 1.0,
+      "t_equivalent": 1.07,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_fluct_gjr",
+      "date": "2026-10-20",
+      "family": "stability over time",
+      "hypothesis": "Given what was known at each decision, the model of record and GJR-GARCH(1,1)-t were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "smallest p over window lengths",
+        "value": 0.00218
+      },
+      "context": {
+        "sign": -1,
+        "window_end": "2019-05-03",
+        "window_start": "2015-08-25",
+        "sup": 4.126,
+        "p_mu_0_2": 0.00218,
+        "critical_5pct": 3.2434,
+        "p_mu_0_1": 0.0578,
+        "p_mu_0_3": 0.03516,
+        "p_mu_0_4": 0.04578,
+        "p_mu_0_5": 0.01554,
+        "p_bartlett_40": 0.00716,
+        "p_full_sample_variance": 0.0157,
+        "grids_outside_5pct": 5,
+        "dm_p": 0.0015185983014437054
+      },
+      "p_value": 0.00698,
+      "sided": "two",
+      "p_two_sided": 0.00698,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The window lengths (mu = 0.1-0.5), the per-window variance and the simulated critical values were fixed after prototype runs on this sample; the p-value adjusts for the choice among the five window lengths, and the seed was fixed before the production build. The null includes equal average loss, so where the full-sample DM test rejects (context dm_p) the row mostly repeats it. Each window is scaled by its own variability, so the window of the largest |t| is where the difference was most consistent, not where it was largest. The mu = 0.1 p in context is anti-conservative under the null (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=gjr].fluctuation_qlike_vs_har_iv.search_adjusted.min_p",
+        "p_value_fields": {
+          "leaderboard.models[key=gjr].fluctuation_qlike_vs_har_iv.search_adjusted.p_value": 0.00698
+        },
+        "context_fields": {
+          "sign": "leaderboard.models[key=gjr].fluctuation_qlike_vs_har_iv.sign",
+          "window_end": "leaderboard.models[key=gjr].fluctuation_qlike_vs_har_iv.at",
+          "window_start": "leaderboard.models[key=gjr].fluctuation_qlike_vs_har_iv.window_start",
+          "sup": "leaderboard.models[key=gjr].fluctuation_qlike_vs_har_iv.sup",
+          "p_mu_0_2": "leaderboard.models[key=gjr].fluctuation_qlike_vs_har_iv.p_value",
+          "critical_5pct": "stability.fluctuation.critical_values.five_pct",
+          "p_mu_0_1": "leaderboard.models[key=gjr].fluctuation_qlike_vs_har_iv.by_mu.mu_0_1.p_value",
+          "p_mu_0_3": "leaderboard.models[key=gjr].fluctuation_qlike_vs_har_iv.by_mu.mu_0_3.p_value",
+          "p_mu_0_4": "leaderboard.models[key=gjr].fluctuation_qlike_vs_har_iv.by_mu.mu_0_4.p_value",
+          "p_mu_0_5": "leaderboard.models[key=gjr].fluctuation_qlike_vs_har_iv.by_mu.mu_0_5.p_value",
+          "p_bartlett_40": "leaderboard.models[key=gjr].fluctuation_qlike_vs_har_iv.robustness.bartlett_40.p_value",
+          "p_full_sample_variance": "leaderboard.models[key=gjr].fluctuation_qlike_vs_har_iv.robustness.full_sample_variance.p_value",
+          "grids_outside_5pct": "leaderboard.models[key=gjr].fluctuation_qlike_vs_har_iv.robustness.by_grid.outside_5pct",
+          "dm_p": "leaderboard.models[key=gjr].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=gjr].label"
+        }
+      },
+      "q_value_bh": 0.032472173913043474,
+      "p_holm": 0.5933,
+      "t_equivalent": 2.7,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_gw_har_rv",
+      "date": "2026-10-20",
+      "family": "conditional predictive ability",
+      "hypothesis": "The QLIKE difference between the model of record and HAR-RV moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 8.188
+      },
+      "context": {
+        "df": 3,
+        "p_with_constant": 0.0011618269701494,
+        "dm_p": 3.833705664381754e-05,
+        "p_bartlett_10": 0.03135559997792801,
+        "p_bartlett_40": 0.10743806076798557,
+        "n_days": 4629
+      },
+      "p_value": 0.04229069814713494,
+      "sided": "two",
+      "p_two_sided": 0.04229069814713494,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The instruments, the kernel and its lags were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7). The test with the constant (context p_with_constant) mostly repeats the full-sample DM test, so the ledger registers the conditional part.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=har_rv].gw_qlike_vs_har_iv.conditional.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=har_rv].gw_qlike_vs_har_iv.conditional.p_value": 0.04229069814713494
+        },
+        "context_fields": {
+          "df": "leaderboard.models[key=har_rv].gw_qlike_vs_har_iv.conditional.df",
+          "p_with_constant": "leaderboard.models[key=har_rv].gw_qlike_vs_har_iv.p_value",
+          "dm_p": "leaderboard.models[key=har_rv].dm_qlike_vs_har_iv.p_value",
+          "p_bartlett_10": "leaderboard.models[key=har_rv].gw_qlike_vs_har_iv.robustness.bartlett_10.conditional_p_value",
+          "p_bartlett_40": "leaderboard.models[key=har_rv].gw_qlike_vs_har_iv.robustness.bartlett_40.conditional_p_value",
+          "n_days": "leaderboard.models[key=har_rv].gw_qlike_vs_har_iv.n_days"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=har_rv].label"
+        }
+      },
+      "q_value_bh": 0.12230012707414697,
+      "p_holm": 1.0,
+      "t_equivalent": 2.03,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_fluct_har_rv",
+      "date": "2026-10-20",
+      "family": "stability over time",
+      "hypothesis": "Given what was known at each decision, the model of record and HAR-RV were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "smallest p over window lengths",
+        "value": 6e-05
+      },
+      "context": {
+        "sign": -1,
+        "window_end": "2019-04-12",
+        "window_start": "2015-08-05",
+        "sup": 5.214,
+        "p_mu_0_2": 6e-05,
+        "critical_5pct": 3.2434,
+        "p_mu_0_1": 0.00218,
+        "p_mu_0_3": 0.0002,
+        "p_mu_0_4": 0.00028,
+        "p_mu_0_5": 0.0004,
+        "p_bartlett_40": 6e-05,
+        "p_full_sample_variance": 0.0002,
+        "grids_outside_5pct": 5,
+        "dm_p": 3.833705664381754e-05
+      },
+      "p_value": 0.00024,
+      "sided": "two",
+      "p_two_sided": 0.00024,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The window lengths (mu = 0.1-0.5), the per-window variance and the simulated critical values were fixed after prototype runs on this sample; the p-value adjusts for the choice among the five window lengths, and the seed was fixed before the production build. The null includes equal average loss, so where the full-sample DM test rejects (context dm_p) the row mostly repeats it. Each window is scaled by its own variability, so the window of the largest |t| is where the difference was most consistent, not where it was largest. The mu = 0.1 p in context is anti-conservative under the null (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=har_rv].fluctuation_qlike_vs_har_iv.search_adjusted.min_p",
+        "p_value_fields": {
+          "leaderboard.models[key=har_rv].fluctuation_qlike_vs_har_iv.search_adjusted.p_value": 0.00024
+        },
+        "context_fields": {
+          "sign": "leaderboard.models[key=har_rv].fluctuation_qlike_vs_har_iv.sign",
+          "window_end": "leaderboard.models[key=har_rv].fluctuation_qlike_vs_har_iv.at",
+          "window_start": "leaderboard.models[key=har_rv].fluctuation_qlike_vs_har_iv.window_start",
+          "sup": "leaderboard.models[key=har_rv].fluctuation_qlike_vs_har_iv.sup",
+          "p_mu_0_2": "leaderboard.models[key=har_rv].fluctuation_qlike_vs_har_iv.p_value",
+          "critical_5pct": "stability.fluctuation.critical_values.five_pct",
+          "p_mu_0_1": "leaderboard.models[key=har_rv].fluctuation_qlike_vs_har_iv.by_mu.mu_0_1.p_value",
+          "p_mu_0_3": "leaderboard.models[key=har_rv].fluctuation_qlike_vs_har_iv.by_mu.mu_0_3.p_value",
+          "p_mu_0_4": "leaderboard.models[key=har_rv].fluctuation_qlike_vs_har_iv.by_mu.mu_0_4.p_value",
+          "p_mu_0_5": "leaderboard.models[key=har_rv].fluctuation_qlike_vs_har_iv.by_mu.mu_0_5.p_value",
+          "p_bartlett_40": "leaderboard.models[key=har_rv].fluctuation_qlike_vs_har_iv.robustness.bartlett_40.p_value",
+          "p_full_sample_variance": "leaderboard.models[key=har_rv].fluctuation_qlike_vs_har_iv.robustness.full_sample_variance.p_value",
+          "grids_outside_5pct": "leaderboard.models[key=har_rv].fluctuation_qlike_vs_har_iv.robustness.by_grid.outside_5pct",
+          "dm_p": "leaderboard.models[key=har_rv].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=har_rv].label"
+        }
+      },
+      "q_value_bh": 0.001351578947368421,
+      "p_holm": 0.02208,
+      "t_equivalent": 3.67,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "vol_gw_har_rs",
+      "date": "2026-10-20",
+      "family": "conditional predictive ability",
+      "hypothesis": "The QLIKE difference between the model of record and HAR-RV + downside semivol moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 8.505
+      },
+      "context": {
+        "df": 3,
+        "p_with_constant": 0.0015454928509481328,
+        "dm_p": 6.326039089367759e-05,
+        "p_bartlett_10": 0.026738189996033848,
+        "p_bartlett_40": 0.08489358041843222,
+        "n_days": 4629
+      },
+      "p_value": 0.0366556014412677,
+      "sided": "two",
+      "p_two_sided": 0.0366556014412677,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The instruments, the kernel and its lags were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7). The test with the constant (context p_with_constant) mostly repeats the full-sample DM test, so the ledger registers the conditional part.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=har_rs].gw_qlike_vs_har_iv.conditional.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=har_rs].gw_qlike_vs_har_iv.conditional.p_value": 0.0366556014412677
+        },
+        "context_fields": {
+          "df": "leaderboard.models[key=har_rs].gw_qlike_vs_har_iv.conditional.df",
+          "p_with_constant": "leaderboard.models[key=har_rs].gw_qlike_vs_har_iv.p_value",
+          "dm_p": "leaderboard.models[key=har_rs].dm_qlike_vs_har_iv.p_value",
+          "p_bartlett_10": "leaderboard.models[key=har_rs].gw_qlike_vs_har_iv.robustness.bartlett_10.conditional_p_value",
+          "p_bartlett_40": "leaderboard.models[key=har_rs].gw_qlike_vs_har_iv.robustness.bartlett_40.conditional_p_value",
+          "n_days": "leaderboard.models[key=har_rs].gw_qlike_vs_har_iv.n_days"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=har_rs].label"
+        }
+      },
+      "q_value_bh": 0.11535733394751893,
+      "p_holm": 1.0,
+      "t_equivalent": 2.09,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_fluct_har_rs",
+      "date": "2026-10-20",
+      "family": "stability over time",
+      "hypothesis": "Given what was known at each decision, the model of record and HAR-RV + downside semivol were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "smallest p over window lengths",
+        "value": 6e-05
+      },
+      "context": {
+        "sign": -1,
+        "window_end": "2019-04-12",
+        "window_start": "2015-08-05",
+        "sup": 5.125,
+        "p_mu_0_2": 6e-05,
+        "critical_5pct": 3.2434,
+        "p_mu_0_1": 0.00252,
+        "p_mu_0_3": 0.00036,
+        "p_mu_0_4": 0.00032,
+        "p_mu_0_5": 0.0008,
+        "p_bartlett_40": 6e-05,
+        "p_full_sample_variance": 0.00068,
+        "grids_outside_5pct": 5,
+        "dm_p": 6.326039089367759e-05
+      },
+      "p_value": 0.00024,
+      "sided": "two",
+      "p_two_sided": 0.00024,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The window lengths (mu = 0.1-0.5), the per-window variance and the simulated critical values were fixed after prototype runs on this sample; the p-value adjusts for the choice among the five window lengths, and the seed was fixed before the production build. The null includes equal average loss, so where the full-sample DM test rejects (context dm_p) the row mostly repeats it. Each window is scaled by its own variability, so the window of the largest |t| is where the difference was most consistent, not where it was largest. The mu = 0.1 p in context is anti-conservative under the null (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=har_rs].fluctuation_qlike_vs_har_iv.search_adjusted.min_p",
+        "p_value_fields": {
+          "leaderboard.models[key=har_rs].fluctuation_qlike_vs_har_iv.search_adjusted.p_value": 0.00024
+        },
+        "context_fields": {
+          "sign": "leaderboard.models[key=har_rs].fluctuation_qlike_vs_har_iv.sign",
+          "window_end": "leaderboard.models[key=har_rs].fluctuation_qlike_vs_har_iv.at",
+          "window_start": "leaderboard.models[key=har_rs].fluctuation_qlike_vs_har_iv.window_start",
+          "sup": "leaderboard.models[key=har_rs].fluctuation_qlike_vs_har_iv.sup",
+          "p_mu_0_2": "leaderboard.models[key=har_rs].fluctuation_qlike_vs_har_iv.p_value",
+          "critical_5pct": "stability.fluctuation.critical_values.five_pct",
+          "p_mu_0_1": "leaderboard.models[key=har_rs].fluctuation_qlike_vs_har_iv.by_mu.mu_0_1.p_value",
+          "p_mu_0_3": "leaderboard.models[key=har_rs].fluctuation_qlike_vs_har_iv.by_mu.mu_0_3.p_value",
+          "p_mu_0_4": "leaderboard.models[key=har_rs].fluctuation_qlike_vs_har_iv.by_mu.mu_0_4.p_value",
+          "p_mu_0_5": "leaderboard.models[key=har_rs].fluctuation_qlike_vs_har_iv.by_mu.mu_0_5.p_value",
+          "p_bartlett_40": "leaderboard.models[key=har_rs].fluctuation_qlike_vs_har_iv.robustness.bartlett_40.p_value",
+          "p_full_sample_variance": "leaderboard.models[key=har_rs].fluctuation_qlike_vs_har_iv.robustness.full_sample_variance.p_value",
+          "grids_outside_5pct": "leaderboard.models[key=har_rs].fluctuation_qlike_vs_har_iv.robustness.by_grid.outside_5pct",
+          "dm_p": "leaderboard.models[key=har_rs].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=har_rs].label"
+        }
+      },
+      "q_value_bh": 0.001351578947368421,
+      "p_holm": 0.02208,
+      "t_equivalent": 3.67,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "vol_gw_har_range",
+      "date": "2026-10-20",
+      "family": "conditional predictive ability",
+      "hypothesis": "The QLIKE difference between the model of record and HAR-range moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 3.182
+      },
+      "context": {
+        "df": 3,
+        "p_with_constant": 0.4755113173743192,
+        "dm_p": 0.628946361223542,
+        "p_bartlett_10": 0.3239973785512193,
+        "p_bartlett_40": 0.3530513196144819,
+        "n_days": 4629
+      },
+      "p_value": 0.3643893686660636,
+      "sided": "two",
+      "p_two_sided": 0.3643893686660636,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The instruments, the kernel and its lags were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7). The test with the constant (context p_with_constant) mostly repeats the full-sample DM test, so the ledger registers the conditional part.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=har_range].gw_qlike_vs_har_iv.conditional.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=har_range].gw_qlike_vs_har_iv.conditional.p_value": 0.3643893686660636
+        },
+        "context_fields": {
+          "df": "leaderboard.models[key=har_range].gw_qlike_vs_har_iv.conditional.df",
+          "p_with_constant": "leaderboard.models[key=har_range].gw_qlike_vs_har_iv.p_value",
+          "dm_p": "leaderboard.models[key=har_range].dm_qlike_vs_har_iv.p_value",
+          "p_bartlett_10": "leaderboard.models[key=har_range].gw_qlike_vs_har_iv.robustness.bartlett_10.conditional_p_value",
+          "p_bartlett_40": "leaderboard.models[key=har_range].gw_qlike_vs_har_iv.robustness.bartlett_40.conditional_p_value",
+          "n_days": "leaderboard.models[key=har_range].gw_qlike_vs_har_iv.n_days"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=har_range].label"
+        }
+      },
+      "q_value_bh": 0.6188835309090287,
+      "p_holm": 1.0,
+      "t_equivalent": 0.91,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_fluct_har_range",
+      "date": "2026-10-20",
+      "family": "stability over time",
+      "hypothesis": "Given what was known at each decision, the model of record and HAR-range were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "smallest p over window lengths",
+        "value": 0.00392
+      },
+      "context": {
+        "sign": -1,
+        "window_end": "2019-05-06",
+        "window_start": "2015-08-26",
+        "sup": 3.623,
+        "p_mu_0_2": 0.01508,
+        "critical_5pct": 3.2434,
+        "p_mu_0_1": 0.00392,
+        "p_mu_0_3": 0.1665,
+        "p_mu_0_4": 0.59434,
+        "p_mu_0_5": 0.8845,
+        "p_bartlett_40": 0.05104,
+        "p_full_sample_variance": 0.79254,
+        "grids_outside_5pct": 4,
+        "dm_p": 0.628946361223542
+      },
+      "p_value": 0.01216,
+      "sided": "two",
+      "p_two_sided": 0.01216,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The window lengths (mu = 0.1-0.5), the per-window variance and the simulated critical values were fixed after prototype runs on this sample; the p-value adjusts for the choice among the five window lengths, and the seed was fixed before the production build. The null includes equal average loss, so where the full-sample DM test rejects (context dm_p) the row mostly repeats it. Each window is scaled by its own variability, so the window of the largest |t| is where the difference was most consistent, not where it was largest. The mu = 0.1 p in context is anti-conservative under the null (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=har_range].fluctuation_qlike_vs_har_iv.search_adjusted.min_p",
+        "p_value_fields": {
+          "leaderboard.models[key=har_range].fluctuation_qlike_vs_har_iv.search_adjusted.p_value": 0.01216
+        },
+        "context_fields": {
+          "sign": "leaderboard.models[key=har_range].fluctuation_qlike_vs_har_iv.sign",
+          "window_end": "leaderboard.models[key=har_range].fluctuation_qlike_vs_har_iv.at",
+          "window_start": "leaderboard.models[key=har_range].fluctuation_qlike_vs_har_iv.window_start",
+          "sup": "leaderboard.models[key=har_range].fluctuation_qlike_vs_har_iv.sup",
+          "p_mu_0_2": "leaderboard.models[key=har_range].fluctuation_qlike_vs_har_iv.p_value",
+          "critical_5pct": "stability.fluctuation.critical_values.five_pct",
+          "p_mu_0_1": "leaderboard.models[key=har_range].fluctuation_qlike_vs_har_iv.by_mu.mu_0_1.p_value",
+          "p_mu_0_3": "leaderboard.models[key=har_range].fluctuation_qlike_vs_har_iv.by_mu.mu_0_3.p_value",
+          "p_mu_0_4": "leaderboard.models[key=har_range].fluctuation_qlike_vs_har_iv.by_mu.mu_0_4.p_value",
+          "p_mu_0_5": "leaderboard.models[key=har_range].fluctuation_qlike_vs_har_iv.by_mu.mu_0_5.p_value",
+          "p_bartlett_40": "leaderboard.models[key=har_range].fluctuation_qlike_vs_har_iv.robustness.bartlett_40.p_value",
+          "p_full_sample_variance": "leaderboard.models[key=har_range].fluctuation_qlike_vs_har_iv.robustness.full_sample_variance.p_value",
+          "grids_outside_5pct": "leaderboard.models[key=har_range].fluctuation_qlike_vs_har_iv.robustness.by_grid.outside_5pct",
+          "dm_p": "leaderboard.models[key=har_range].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=har_range].label"
+        }
+      },
+      "q_value_bh": 0.054213333333333336,
+      "p_holm": 1.0,
+      "t_equivalent": 2.51,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_gw_ovx_only",
+      "date": "2026-10-20",
+      "family": "conditional predictive ability",
+      "hypothesis": "The QLIKE difference between the model of record and OVX-only regression moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 1.204
+      },
+      "context": {
+        "df": 3,
+        "p_with_constant": 0.8547550615047363,
+        "dm_p": 0.6412362939345346,
+        "p_bartlett_10": 0.7119113772444031,
+        "p_bartlett_40": 0.6917785761542139,
+        "n_days": 4629
+      },
+      "p_value": 0.7520156944670494,
+      "sided": "two",
+      "p_two_sided": 0.7520156944670494,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The instruments, the kernel and its lags were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7). The test with the constant (context p_with_constant) mostly repeats the full-sample DM test, so the ledger registers the conditional part.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=ovx_only].gw_qlike_vs_har_iv.conditional.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=ovx_only].gw_qlike_vs_har_iv.conditional.p_value": 0.7520156944670494
+        },
+        "context_fields": {
+          "df": "leaderboard.models[key=ovx_only].gw_qlike_vs_har_iv.conditional.df",
+          "p_with_constant": "leaderboard.models[key=ovx_only].gw_qlike_vs_har_iv.p_value",
+          "dm_p": "leaderboard.models[key=ovx_only].dm_qlike_vs_har_iv.p_value",
+          "p_bartlett_10": "leaderboard.models[key=ovx_only].gw_qlike_vs_har_iv.robustness.bartlett_10.conditional_p_value",
+          "p_bartlett_40": "leaderboard.models[key=ovx_only].gw_qlike_vs_har_iv.robustness.bartlett_40.conditional_p_value",
+          "n_days": "leaderboard.models[key=ovx_only].gw_qlike_vs_har_iv.n_days"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=ovx_only].label"
+        }
+      },
+      "q_value_bh": 0.9143827194087987,
+      "p_holm": 1.0,
+      "t_equivalent": 0.32,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_fluct_ovx_only",
+      "date": "2026-10-20",
+      "family": "stability over time",
+      "hypothesis": "Given what was known at each decision, the model of record and OVX-only regression were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "smallest p over window lengths",
+        "value": 0.0203
+      },
+      "context": {
+        "sign": 1,
+        "window_end": "2019-03-13",
+        "window_start": "2015-07-06",
+        "sup": 3.533,
+        "p_mu_0_2": 0.0203,
+        "critical_5pct": 3.2434,
+        "p_mu_0_1": 0.02636,
+        "p_mu_0_3": 0.18504,
+        "p_mu_0_4": 0.7773,
+        "p_mu_0_5": 0.80212,
+        "p_bartlett_40": 0.01068,
+        "p_full_sample_variance": 0.18606,
+        "grids_outside_5pct": 3,
+        "dm_p": 0.6412362939345346
+      },
+      "p_value": 0.05552,
+      "sided": "two",
+      "p_two_sided": 0.05552,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "inconclusive",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The window lengths (mu = 0.1-0.5), the per-window variance and the simulated critical values were fixed after prototype runs on this sample; the p-value adjusts for the choice among the five window lengths, and the seed was fixed before the production build. The null includes equal average loss, so where the full-sample DM test rejects (context dm_p) the row mostly repeats it. Each window is scaled by its own variability, so the window of the largest |t| is where the difference was most consistent, not where it was largest. The mu = 0.1 p in context is anti-conservative under the null (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=ovx_only].fluctuation_qlike_vs_har_iv.search_adjusted.min_p",
+        "p_value_fields": {
+          "leaderboard.models[key=ovx_only].fluctuation_qlike_vs_har_iv.search_adjusted.p_value": 0.05552
+        },
+        "context_fields": {
+          "sign": "leaderboard.models[key=ovx_only].fluctuation_qlike_vs_har_iv.sign",
+          "window_end": "leaderboard.models[key=ovx_only].fluctuation_qlike_vs_har_iv.at",
+          "window_start": "leaderboard.models[key=ovx_only].fluctuation_qlike_vs_har_iv.window_start",
+          "sup": "leaderboard.models[key=ovx_only].fluctuation_qlike_vs_har_iv.sup",
+          "p_mu_0_2": "leaderboard.models[key=ovx_only].fluctuation_qlike_vs_har_iv.p_value",
+          "critical_5pct": "stability.fluctuation.critical_values.five_pct",
+          "p_mu_0_1": "leaderboard.models[key=ovx_only].fluctuation_qlike_vs_har_iv.by_mu.mu_0_1.p_value",
+          "p_mu_0_3": "leaderboard.models[key=ovx_only].fluctuation_qlike_vs_har_iv.by_mu.mu_0_3.p_value",
+          "p_mu_0_4": "leaderboard.models[key=ovx_only].fluctuation_qlike_vs_har_iv.by_mu.mu_0_4.p_value",
+          "p_mu_0_5": "leaderboard.models[key=ovx_only].fluctuation_qlike_vs_har_iv.by_mu.mu_0_5.p_value",
+          "p_bartlett_40": "leaderboard.models[key=ovx_only].fluctuation_qlike_vs_har_iv.robustness.bartlett_40.p_value",
+          "p_full_sample_variance": "leaderboard.models[key=ovx_only].fluctuation_qlike_vs_har_iv.robustness.full_sample_variance.p_value",
+          "grids_outside_5pct": "leaderboard.models[key=ovx_only].fluctuation_qlike_vs_har_iv.robustness.by_grid.outside_5pct",
+          "dm_p": "leaderboard.models[key=ovx_only].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=ovx_only].label"
+        }
+      },
+      "q_value_bh": 0.15633263157894736,
+      "p_holm": 1.0,
+      "t_equivalent": 1.91,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_gw_har_iv_sameday",
+      "date": "2026-10-20",
+      "family": "conditional predictive ability",
+      "hypothesis": "The QLIKE difference between the model of record and HAR-IV, same-day OVX (v1 timing) moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 3.614
+      },
+      "context": {
+        "df": 3,
+        "p_with_constant": 9.754807734055579e-06,
+        "dm_p": 6.646258039278556e-05,
+        "p_bartlett_10": 0.2320150421429624,
+        "p_bartlett_40": 0.1197487129786041,
+        "n_days": 4629
+      },
+      "p_value": 0.306331272303095,
+      "sided": "two",
+      "p_two_sided": 0.306331272303095,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The instruments, the kernel and its lags were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7). The test with the constant (context p_with_constant) mostly repeats the full-sample DM test, so the ledger registers the conditional part.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=har_iv_sameday].gw_qlike_vs_har_iv.conditional.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=har_iv_sameday].gw_qlike_vs_har_iv.conditional.p_value": 0.306331272303095
+        },
+        "context_fields": {
+          "df": "leaderboard.models[key=har_iv_sameday].gw_qlike_vs_har_iv.conditional.df",
+          "p_with_constant": "leaderboard.models[key=har_iv_sameday].gw_qlike_vs_har_iv.p_value",
+          "dm_p": "leaderboard.models[key=har_iv_sameday].dm_qlike_vs_har_iv.p_value",
+          "p_bartlett_10": "leaderboard.models[key=har_iv_sameday].gw_qlike_vs_har_iv.robustness.bartlett_10.conditional_p_value",
+          "p_bartlett_40": "leaderboard.models[key=har_iv_sameday].gw_qlike_vs_har_iv.robustness.bartlett_40.conditional_p_value",
+          "n_days": "leaderboard.models[key=har_iv_sameday].gw_qlike_vs_har_iv.n_days"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=har_iv_sameday].label"
+        }
+      },
+      "q_value_bh": 0.5373351825644453,
+      "p_holm": 1.0,
+      "t_equivalent": 1.02,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_fluct_har_iv_sameday",
+      "date": "2026-10-20",
+      "family": "stability over time",
+      "hypothesis": "Given what was known at each decision, the model of record and HAR-IV, same-day OVX (v1 timing) were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "smallest p over window lengths",
+        "value": 0.00054
+      },
+      "context": {
+        "sign": 1,
+        "window_end": "2019-02-14",
+        "window_start": "2015-06-09",
+        "sup": 4.058,
+        "p_mu_0_2": 0.0031,
+        "critical_5pct": 3.2434,
+        "p_mu_0_1": 0.02106,
+        "p_mu_0_3": 0.00132,
+        "p_mu_0_4": 0.0022,
+        "p_mu_0_5": 0.00054,
+        "p_bartlett_40": 0.00362,
+        "p_full_sample_variance": 0.01678,
+        "grids_outside_5pct": 1,
+        "dm_p": 6.646258039278556e-05
+      },
+      "p_value": 0.00178,
+      "sided": "two",
+      "p_two_sided": 0.00178,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The window lengths (mu = 0.1-0.5), the per-window variance and the simulated critical values were fixed after prototype runs on this sample; the p-value adjusts for the choice among the five window lengths, and the seed was fixed before the production build. The null includes equal average loss, so where the full-sample DM test rejects (context dm_p) the row mostly repeats it. Each window is scaled by its own variability, so the window of the largest |t| is where the difference was most consistent, not where it was largest. The mu = 0.1 p in context is anti-conservative under the null (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=har_iv_sameday].fluctuation_qlike_vs_har_iv.search_adjusted.min_p",
+        "p_value_fields": {
+          "leaderboard.models[key=har_iv_sameday].fluctuation_qlike_vs_har_iv.search_adjusted.p_value": 0.00178
+        },
+        "context_fields": {
+          "sign": "leaderboard.models[key=har_iv_sameday].fluctuation_qlike_vs_har_iv.sign",
+          "window_end": "leaderboard.models[key=har_iv_sameday].fluctuation_qlike_vs_har_iv.at",
+          "window_start": "leaderboard.models[key=har_iv_sameday].fluctuation_qlike_vs_har_iv.window_start",
+          "sup": "leaderboard.models[key=har_iv_sameday].fluctuation_qlike_vs_har_iv.sup",
+          "p_mu_0_2": "leaderboard.models[key=har_iv_sameday].fluctuation_qlike_vs_har_iv.p_value",
+          "critical_5pct": "stability.fluctuation.critical_values.five_pct",
+          "p_mu_0_1": "leaderboard.models[key=har_iv_sameday].fluctuation_qlike_vs_har_iv.by_mu.mu_0_1.p_value",
+          "p_mu_0_3": "leaderboard.models[key=har_iv_sameday].fluctuation_qlike_vs_har_iv.by_mu.mu_0_3.p_value",
+          "p_mu_0_4": "leaderboard.models[key=har_iv_sameday].fluctuation_qlike_vs_har_iv.by_mu.mu_0_4.p_value",
+          "p_mu_0_5": "leaderboard.models[key=har_iv_sameday].fluctuation_qlike_vs_har_iv.by_mu.mu_0_5.p_value",
+          "p_bartlett_40": "leaderboard.models[key=har_iv_sameday].fluctuation_qlike_vs_har_iv.robustness.bartlett_40.p_value",
+          "p_full_sample_variance": "leaderboard.models[key=har_iv_sameday].fluctuation_qlike_vs_har_iv.robustness.full_sample_variance.p_value",
+          "grids_outside_5pct": "leaderboard.models[key=har_iv_sameday].fluctuation_qlike_vs_har_iv.robustness.by_grid.outside_5pct",
+          "dm_p": "leaderboard.models[key=har_iv_sameday].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=har_iv_sameday].label"
+        }
+      },
+      "q_value_bh": 0.009069523809523809,
+      "p_holm": 0.15486,
+      "t_equivalent": 3.12,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "vol_gw_har_iv_range",
+      "date": "2026-10-20",
+      "family": "conditional predictive ability",
+      "hypothesis": "The QLIKE difference between the model of record and HAR-IV-range moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 3.632
+      },
+      "context": {
+        "df": 3,
+        "p_with_constant": 0.011537940694772016,
+        "dm_p": 0.0019392254394052656,
+        "p_bartlett_10": 0.30742832459452774,
+        "p_bartlett_40": 0.3216711064748468,
+        "n_days": 4629
+      },
+      "p_value": 0.3039843894165119,
+      "sided": "two",
+      "p_two_sided": 0.3039843894165119,
+      "pre_specified": false,
+      "selected_after_search": true,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Selected after a search: the challenger is the lowest-QLIKE model of the field on this same sample. This statistic is unchanged by a constant shift of the difference, but its moments move with the mean the challenger was picked on whenever the difference's variance moves with the instruments, so its p-value ignores the search. The row is left out of the multiplicity family; no search-adjusted version of this test exists.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=har_iv_range].gw_qlike_vs_har_iv.conditional.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=har_iv_range].gw_qlike_vs_har_iv.conditional.p_value": 0.3039843894165119
+        },
+        "context_fields": {
+          "df": "leaderboard.models[key=har_iv_range].gw_qlike_vs_har_iv.conditional.df",
+          "p_with_constant": "leaderboard.models[key=har_iv_range].gw_qlike_vs_har_iv.p_value",
+          "dm_p": "leaderboard.models[key=har_iv_range].dm_qlike_vs_har_iv.p_value",
+          "p_bartlett_10": "leaderboard.models[key=har_iv_range].gw_qlike_vs_har_iv.robustness.bartlett_10.conditional_p_value",
+          "p_bartlett_40": "leaderboard.models[key=har_iv_range].gw_qlike_vs_har_iv.robustness.bartlett_40.conditional_p_value",
+          "n_days": "leaderboard.models[key=har_iv_range].gw_qlike_vs_har_iv.n_days"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=har_iv_range].label"
+        }
+      },
+      "q_value_bh": null,
+      "p_holm": null,
+      "t_equivalent": 1.03,
+      "survives_bh_5pct": null,
+      "survives_holm_5pct": null,
+      "clears_hlz_t3": null
+    },
+    {
+      "id": "vol_fluct_har_iv_range",
+      "date": "2026-10-20",
+      "family": "stability over time",
+      "hypothesis": "Given what was known at each decision, the model of record and HAR-IV-range were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "smallest p over window lengths",
+        "value": 0.02644
+      },
+      "context": {
+        "sign": 1,
+        "window_end": "2015-06-29",
+        "window_start": "2011-10-20",
+        "sup": 3.45,
+        "p_mu_0_2": 0.02644,
+        "critical_5pct": 3.2434,
+        "p_mu_0_1": 0.02782,
+        "p_mu_0_3": 0.03186,
+        "p_mu_0_4": 0.20926,
+        "p_mu_0_5": 0.1412,
+        "p_bartlett_40": 0.0599,
+        "p_full_sample_variance": 0.01012,
+        "grids_outside_5pct": 3,
+        "dm_p": 0.0019392254394052656
+      },
+      "p_value": 0.07036,
+      "sided": "two",
+      "p_two_sided": 0.07036,
+      "pre_specified": false,
+      "selected_after_search": true,
+      "status": "inconclusive",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Selected after a search: the challenger is the lowest-QLIKE model of the field on this same sample, and this test's null includes that mean, so its p-value ignores the search. The row is left out of the multiplicity family. No search-adjusted fluctuation test exists; vol_spa_beats_record adjusts the full-sample comparison for the search.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=har_iv_range].fluctuation_qlike_vs_har_iv.search_adjusted.min_p",
+        "p_value_fields": {
+          "leaderboard.models[key=har_iv_range].fluctuation_qlike_vs_har_iv.search_adjusted.p_value": 0.07036
+        },
+        "context_fields": {
+          "sign": "leaderboard.models[key=har_iv_range].fluctuation_qlike_vs_har_iv.sign",
+          "window_end": "leaderboard.models[key=har_iv_range].fluctuation_qlike_vs_har_iv.at",
+          "window_start": "leaderboard.models[key=har_iv_range].fluctuation_qlike_vs_har_iv.window_start",
+          "sup": "leaderboard.models[key=har_iv_range].fluctuation_qlike_vs_har_iv.sup",
+          "p_mu_0_2": "leaderboard.models[key=har_iv_range].fluctuation_qlike_vs_har_iv.p_value",
+          "critical_5pct": "stability.fluctuation.critical_values.five_pct",
+          "p_mu_0_1": "leaderboard.models[key=har_iv_range].fluctuation_qlike_vs_har_iv.by_mu.mu_0_1.p_value",
+          "p_mu_0_3": "leaderboard.models[key=har_iv_range].fluctuation_qlike_vs_har_iv.by_mu.mu_0_3.p_value",
+          "p_mu_0_4": "leaderboard.models[key=har_iv_range].fluctuation_qlike_vs_har_iv.by_mu.mu_0_4.p_value",
+          "p_mu_0_5": "leaderboard.models[key=har_iv_range].fluctuation_qlike_vs_har_iv.by_mu.mu_0_5.p_value",
+          "p_bartlett_40": "leaderboard.models[key=har_iv_range].fluctuation_qlike_vs_har_iv.robustness.bartlett_40.p_value",
+          "p_full_sample_variance": "leaderboard.models[key=har_iv_range].fluctuation_qlike_vs_har_iv.robustness.full_sample_variance.p_value",
+          "grids_outside_5pct": "leaderboard.models[key=har_iv_range].fluctuation_qlike_vs_har_iv.robustness.by_grid.outside_5pct",
+          "dm_p": "leaderboard.models[key=har_iv_range].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=har_iv_range].label"
+        }
+      },
+      "q_value_bh": null,
+      "p_holm": null,
+      "t_equivalent": 1.81,
+      "survives_bh_5pct": null,
+      "survives_holm_5pct": null,
+      "clears_hlz_t3": null
+    },
+    {
+      "id": "vol_gw_lgbm",
+      "date": "2026-10-20",
+      "family": "conditional predictive ability",
+      "hypothesis": "The QLIKE difference between the model of record and LightGBM moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 9.446
+      },
+      "context": {
+        "df": 3,
+        "p_with_constant": 4.669855628295653e-06,
+        "dm_p": 2.183421431810427e-08,
+        "p_bartlett_10": 0.022185107317842574,
+        "p_bartlett_40": 0.09716832286163807,
+        "n_days": 4629
+      },
+      "p_value": 0.023911251837223885,
+      "sided": "two",
+      "p_two_sided": 0.023911251837223885,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The instruments, the kernel and its lags were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7). The test with the constant (context p_with_constant) mostly repeats the full-sample DM test, so the ledger registers the conditional part.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=lgbm].gw_qlike_vs_har_iv.conditional.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=lgbm].gw_qlike_vs_har_iv.conditional.p_value": 0.023911251837223885
+        },
+        "context_fields": {
+          "df": "leaderboard.models[key=lgbm].gw_qlike_vs_har_iv.conditional.df",
+          "p_with_constant": "leaderboard.models[key=lgbm].gw_qlike_vs_har_iv.p_value",
+          "dm_p": "leaderboard.models[key=lgbm].dm_qlike_vs_har_iv.p_value",
+          "p_bartlett_10": "leaderboard.models[key=lgbm].gw_qlike_vs_har_iv.robustness.bartlett_10.conditional_p_value",
+          "p_bartlett_40": "leaderboard.models[key=lgbm].gw_qlike_vs_har_iv.robustness.bartlett_40.conditional_p_value",
+          "n_days": "leaderboard.models[key=lgbm].gw_qlike_vs_har_iv.n_days"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=lgbm].label"
+        }
+      },
+      "q_value_bh": 0.08528346488609852,
+      "p_holm": 1.0,
+      "t_equivalent": 2.26,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_fluct_lgbm",
+      "date": "2026-10-20",
+      "family": "stability over time",
+      "hypothesis": "Given what was known at each decision, the model of record and LightGBM were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "smallest p over window lengths",
+        "value": 2e-05
+      },
+      "context": {
+        "sign": -1,
+        "window_end": "2025-11-11",
+        "window_start": "2022-03-07",
+        "sup": 3.904,
+        "p_mu_0_2": 0.00546,
+        "critical_5pct": 3.2434,
+        "p_mu_0_1": 2e-05,
+        "p_mu_0_3": 0.00194,
+        "p_mu_0_4": 0.00088,
+        "p_mu_0_5": 0.0003,
+        "p_bartlett_40": 0.03774,
+        "p_full_sample_variance": 2e-05,
+        "grids_outside_5pct": 5,
+        "dm_p": 2.183421431810427e-08
+      },
+      "p_value": 8e-05,
+      "sided": "two",
+      "p_two_sided": 8e-05,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The window lengths (mu = 0.1-0.5), the per-window variance and the simulated critical values were fixed after prototype runs on this sample; the p-value adjusts for the choice among the five window lengths, and the seed was fixed before the production build. The null includes equal average loss, so where the full-sample DM test rejects (context dm_p) the row mostly repeats it. Each window is scaled by its own variability, so the window of the largest |t| is where the difference was most consistent, not where it was largest. The mu = 0.1 p in context is anti-conservative under the null (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=lgbm].fluctuation_qlike_vs_har_iv.search_adjusted.min_p",
+        "p_value_fields": {
+          "leaderboard.models[key=lgbm].fluctuation_qlike_vs_har_iv.search_adjusted.p_value": 8e-05
+        },
+        "context_fields": {
+          "sign": "leaderboard.models[key=lgbm].fluctuation_qlike_vs_har_iv.sign",
+          "window_end": "leaderboard.models[key=lgbm].fluctuation_qlike_vs_har_iv.at",
+          "window_start": "leaderboard.models[key=lgbm].fluctuation_qlike_vs_har_iv.window_start",
+          "sup": "leaderboard.models[key=lgbm].fluctuation_qlike_vs_har_iv.sup",
+          "p_mu_0_2": "leaderboard.models[key=lgbm].fluctuation_qlike_vs_har_iv.p_value",
+          "critical_5pct": "stability.fluctuation.critical_values.five_pct",
+          "p_mu_0_1": "leaderboard.models[key=lgbm].fluctuation_qlike_vs_har_iv.by_mu.mu_0_1.p_value",
+          "p_mu_0_3": "leaderboard.models[key=lgbm].fluctuation_qlike_vs_har_iv.by_mu.mu_0_3.p_value",
+          "p_mu_0_4": "leaderboard.models[key=lgbm].fluctuation_qlike_vs_har_iv.by_mu.mu_0_4.p_value",
+          "p_mu_0_5": "leaderboard.models[key=lgbm].fluctuation_qlike_vs_har_iv.by_mu.mu_0_5.p_value",
+          "p_bartlett_40": "leaderboard.models[key=lgbm].fluctuation_qlike_vs_har_iv.robustness.bartlett_40.p_value",
+          "p_full_sample_variance": "leaderboard.models[key=lgbm].fluctuation_qlike_vs_har_iv.robustness.full_sample_variance.p_value",
+          "grids_outside_5pct": "leaderboard.models[key=lgbm].fluctuation_qlike_vs_har_iv.robustness.by_grid.outside_5pct",
+          "dm_p": "leaderboard.models[key=lgbm].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=lgbm].label"
+        }
+      },
+      "q_value_bh": 0.0006114285714285715,
+      "p_holm": 0.007520000000000001,
+      "t_equivalent": 3.94,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "vol_gw_combo",
+      "date": "2026-10-20",
+      "family": "conditional predictive ability",
+      "hypothesis": "The QLIKE difference between the model of record and Combination moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "Wald chi2",
+        "value": 5.419
+      },
+      "context": {
+        "df": 3,
+        "p_with_constant": 0.18995573397554447,
+        "dm_p": 0.6837513191348054,
+        "p_bartlett_10": 0.14804817734777748,
+        "p_bartlett_40": 0.3820601422429677,
+        "n_days": 4629
+      },
+      "p_value": 0.1435650308013788,
+      "sided": "two",
+      "p_two_sided": 0.1435650308013788,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The instruments, the kernel and its lags were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7). The test with the constant (context p_with_constant) mostly repeats the full-sample DM test, so the ledger registers the conditional part.",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=combo].gw_qlike_vs_har_iv.conditional.stat",
+        "p_value_fields": {
+          "leaderboard.models[key=combo].gw_qlike_vs_har_iv.conditional.p_value": 0.1435650308013788
+        },
+        "context_fields": {
+          "df": "leaderboard.models[key=combo].gw_qlike_vs_har_iv.conditional.df",
+          "p_with_constant": "leaderboard.models[key=combo].gw_qlike_vs_har_iv.p_value",
+          "dm_p": "leaderboard.models[key=combo].dm_qlike_vs_har_iv.p_value",
+          "p_bartlett_10": "leaderboard.models[key=combo].gw_qlike_vs_har_iv.robustness.bartlett_10.conditional_p_value",
+          "p_bartlett_40": "leaderboard.models[key=combo].gw_qlike_vs_har_iv.robustness.bartlett_40.conditional_p_value",
+          "n_days": "leaderboard.models[key=combo].gw_qlike_vs_har_iv.n_days"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=combo].label"
+        }
+      },
+      "q_value_bh": 0.31260784313725487,
+      "p_holm": 1.0,
+      "t_equivalent": 1.46,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_fluct_combo",
+      "date": "2026-10-20",
+      "family": "stability over time",
+      "hypothesis": "Given what was known at each decision, the model of record and Combination were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "statistic": {
+        "name": "smallest p over window lengths",
+        "value": 0.07688
+      },
+      "context": {
+        "sign": 1,
+        "window_end": "2012-02-08",
+        "window_start": "2008-06-06",
+        "sup": 2.53,
+        "p_mu_0_2": 0.2984,
+        "critical_5pct": 3.2434,
+        "p_mu_0_1": 0.31542,
+        "p_mu_0_3": 0.3025,
+        "p_mu_0_4": 0.08716,
+        "p_mu_0_5": 0.07688,
+        "p_bartlett_40": 0.31138,
+        "p_full_sample_variance": 0.11514,
+        "grids_outside_5pct": 0,
+        "dm_p": 0.6837513191348054
+      },
+      "p_value": 0.18196,
+      "sided": "two",
+      "p_two_sided": 0.18196,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The window lengths (mu = 0.1-0.5), the per-window variance and the simulated critical values were fixed after prototype runs on this sample; the p-value adjusts for the choice among the five window lengths, and the seed was fixed before the production build. The null includes equal average loss, so where the full-sample DM test rejects (context dm_p) the row mostly repeats it. Each window is scaled by its own variability, so the window of the largest |t| is where the difference was most consistent, not where it was largest. The mu = 0.1 p in context is anti-conservative under the null (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "leaderboard.models[key=combo].fluctuation_qlike_vs_har_iv.search_adjusted.min_p",
+        "p_value_fields": {
+          "leaderboard.models[key=combo].fluctuation_qlike_vs_har_iv.search_adjusted.p_value": 0.18196
+        },
+        "context_fields": {
+          "sign": "leaderboard.models[key=combo].fluctuation_qlike_vs_har_iv.sign",
+          "window_end": "leaderboard.models[key=combo].fluctuation_qlike_vs_har_iv.at",
+          "window_start": "leaderboard.models[key=combo].fluctuation_qlike_vs_har_iv.window_start",
+          "sup": "leaderboard.models[key=combo].fluctuation_qlike_vs_har_iv.sup",
+          "p_mu_0_2": "leaderboard.models[key=combo].fluctuation_qlike_vs_har_iv.p_value",
+          "critical_5pct": "stability.fluctuation.critical_values.five_pct",
+          "p_mu_0_1": "leaderboard.models[key=combo].fluctuation_qlike_vs_har_iv.by_mu.mu_0_1.p_value",
+          "p_mu_0_3": "leaderboard.models[key=combo].fluctuation_qlike_vs_har_iv.by_mu.mu_0_3.p_value",
+          "p_mu_0_4": "leaderboard.models[key=combo].fluctuation_qlike_vs_har_iv.by_mu.mu_0_4.p_value",
+          "p_mu_0_5": "leaderboard.models[key=combo].fluctuation_qlike_vs_har_iv.by_mu.mu_0_5.p_value",
+          "p_bartlett_40": "leaderboard.models[key=combo].fluctuation_qlike_vs_har_iv.robustness.bartlett_40.p_value",
+          "p_full_sample_variance": "leaderboard.models[key=combo].fluctuation_qlike_vs_har_iv.robustness.full_sample_variance.p_value",
+          "grids_outside_5pct": "leaderboard.models[key=combo].fluctuation_qlike_vs_har_iv.robustness.by_grid.outside_5pct",
+          "dm_p": "leaderboard.models[key=combo].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "leaderboard.models[key=combo].label"
+        }
+      },
+      "q_value_bh": 0.3673532075471699,
+      "p_holm": 1.0,
+      "t_equivalent": 1.33,
       "survives_bh_5pct": false,
       "survives_holm_5pct": false,
       "clears_hlz_t3": false
@@ -3063,8 +4690,8 @@
           "group": "groups[key=supply_lost].name"
         }
       },
-      "q_value_bh": 0.009576923076923077,
-      "p_holm": 0.1065,
+      "q_value_bh": 0.008025000000000001,
+      "p_holm": 0.132,
       "t_equivalent": 3.17,
       "survives_bh_5pct": true,
       "survives_holm_5pct": false,
@@ -3108,7 +4735,7 @@
           "group": "groups[key=supply_lost].name"
         }
       },
-      "q_value_bh": 0.3044321428571429,
+      "q_value_bh": 0.25555581395348836,
       "p_holm": 1.0,
       "t_equivalent": 1.63,
       "survives_bh_5pct": false,
@@ -3153,7 +4780,7 @@
           "group": "groups[key=threat_only].name"
         }
       },
-      "q_value_bh": 0.9346964912280702,
+      "q_value_bh": 0.8694088607594938,
       "p_holm": 1.0,
       "t_equivalent": 0.47,
       "survives_bh_5pct": false,
@@ -3243,7 +4870,7 @@
           "group": "groups[key=opec_cut].name"
         }
       },
-      "q_value_bh": 0.2866692307692308,
+      "q_value_bh": 0.23435609756097564,
       "p_holm": 1.0,
       "t_equivalent": 1.7,
       "survives_bh_5pct": false,
@@ -3288,7 +4915,7 @@
           "group": "groups[key=opec_cut].name"
         }
       },
-      "q_value_bh": 0.3533428571428571,
+      "q_value_bh": 0.31260784313725487,
       "p_holm": 1.0,
       "t_equivalent": 1.44,
       "survives_bh_5pct": false,
@@ -3378,7 +5005,7 @@
           "group": "groups[key=weather].name"
         }
       },
-      "q_value_bh": 0.3533428571428571,
+      "q_value_bh": 0.31260784313725487,
       "p_holm": 1.0,
       "t_equivalent": 1.45,
       "survives_bh_5pct": false,
@@ -3423,7 +5050,7 @@
           "group": "groups[key=conflict].name"
         }
       },
-      "q_value_bh": 0.45016578947368424,
+      "q_value_bh": 0.39220363636363637,
       "p_holm": 1.0,
       "t_equivalent": 1.28,
       "survives_bh_5pct": false,
@@ -3468,7 +5095,7 @@
           "group": "groups[key=conflict].name"
         }
       },
-      "q_value_bh": 0.8403326530612244,
+      "q_value_bh": 0.747643661971831,
       "p_holm": 1.0,
       "t_equivalent": 0.68,
       "survives_bh_5pct": false,
@@ -3513,7 +5140,7 @@
           "group": "groups[key=sanctions].name"
         }
       },
-      "q_value_bh": 0.971984409904567,
+      "q_value_bh": 0.9143827194087987,
       "p_holm": 1.0,
       "t_equivalent": 0.36,
       "survives_bh_5pct": false,
@@ -3558,7 +5185,7 @@
           "group": "groups[key=sanctions].name"
         }
       },
-      "q_value_bh": 0.9346964912280702,
+      "q_value_bh": 0.8694088607594938,
       "p_holm": 1.0,
       "t_equivalent": 0.49,
       "survives_bh_5pct": false,
@@ -3603,7 +5230,7 @@
           "group": "groups[key=iran_driven].name"
         }
       },
-      "q_value_bh": 0.971984409904567,
+      "q_value_bh": 0.9143827194087987,
       "p_holm": 1.0,
       "t_equivalent": 0.4,
       "survives_bh_5pct": false,
@@ -3738,7 +5365,7 @@
           "group": "groups[key=strait_risk].name"
         }
       },
-      "q_value_bh": 1.0,
+      "q_value_bh": 0.9470101123595505,
       "p_holm": 1.0,
       "t_equivalent": 0.27,
       "survives_bh_5pct": false,
@@ -3777,7 +5404,7 @@
           "threat": "groups[key=threat_only].name"
         }
       },
-      "q_value_bh": 0.12212857142857143,
+      "q_value_bh": 0.10332187500000001,
       "p_holm": 1.0,
       "t_equivalent": 2.16,
       "survives_bh_5pct": false,
@@ -3816,7 +5443,7 @@
           "threat": "groups[key=threat_only].name"
         }
       },
-      "q_value_bh": 0.7184111111111111,
+      "q_value_bh": 0.6314621212121213,
       "p_holm": 1.0,
       "t_equivalent": 0.86,
       "survives_bh_5pct": false,
@@ -3860,7 +5487,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.971984409904567,
+      "q_value_bh": 0.9143827194087987,
       "p_holm": 1.0,
       "t_equivalent": 0.33,
       "survives_bh_5pct": false,

@@ -29,8 +29,10 @@ the Harvey-Liu-Zhu (2016) hurdle t > 3 for a new factor claim. `pre_specified` i
 code documents the test as fixed before the data were seen; most of this project was exploratory.
 A row marked `selected_after_search` tests a model picked as the best of a field on the same sample:
 its pairwise p-value ignores that search, so the row is left out of the multiplicity family and its
-q-value, Holm p-value and survival flags are null; the search-adjusted test of the same question is
-a separate row, named in its note.
+q-value, Holm p-value and survival flags are null; its note names the search-adjusted test where one
+exists (the SPA row adjusts the full-sample comparison) or says none does. A row whose artifact
+could not compute its test (a stored p-value of null) has no p-value, is inconclusive, and is outside
+the family.
 
 Usage: python -m backend.research_ledger   (rewrites data/research_ledger.json from the artifacts)
 """
@@ -50,7 +52,7 @@ if TYPE_CHECKING:
     # A parsed JSON artifact, and a p-value source: called on an artifact, it returns the p-value and
     # the fields it read (field path -> value).
     Artifact = dict[str, Any]
-    PValueSource = Callable[[Artifact], tuple[float, dict[str, Any]]]
+    PValueSource = Callable[[Artifact], tuple[float | None, dict[str, Any]]]
 
     # _power's result: context labels (label -> field path) and the underpowered_if pair, or neither.
     class Power(TypedDict, total=False):
@@ -102,11 +104,16 @@ def resolve(doc: Any, path: str) -> Any:
 # ── p-value sources (each returns the p-value and the fields it read) ─────────
 @dataclass(frozen=True)
 class Field:
-    """A p-value stored in the artifact."""
+    """A p-value stored in the artifact. With `optional`, a stored null (a test the artifact could not compute)
+    reads as no p-value."""
     path: str
+    optional: bool = False
 
-    def __call__(self, doc: Artifact) -> tuple[float, dict[str, Any]]:
-        return float(resolve(doc, self.path)), {self.path: resolve(doc, self.path)}
+    def __call__(self, doc: Artifact) -> tuple[float | None, dict[str, Any]]:
+        value = resolve(doc, self.path)
+        if value is None and self.optional:
+            return None, {self.path: None}
+        return float(value), {self.path: value}
 
 
 @dataclass(frozen=True)
@@ -691,9 +698,88 @@ def _band_rows() -> list[Row]:
     return rows
 
 
+# The lab's models other than the model of record, in its order (backend/vol_lab.py MODELS; the ledger never
+# imports the lab, and a test checks the two agree).
+LAB_COMPARED = ("persistence", "raw_ovx", "ewma", "garch", "gjr", "har_rv", "har_rs", "har_range", "ovx_only",
+                "har_iv_sameday", "har_iv_range", "lgbm", "combo")
+CHALLENGER = "har_iv_range"
+_APPROXIMATE = ("The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding "
+                "and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.")
+
+
+def _conditional_rows() -> list[Row]:
+    """Conditional predictive ability and stability over time (ROADMAP 2.3): for every model against the model of
+    record, the Giacomini-White conditional part and the Giacomini-Rossi fluctuation test adjusted for the window
+    lengths. Two-sided; no `expects`. The challenger's two rows are selected after a search (it was picked on this
+    sample) and stay out of the family. The chi2(4) Giacomini-White form, which includes the full-sample mean the DM
+    rows already test, and every robustness variant stay in the artifact as context."""
+    rows = []
+    for m in LAB_COMPARED:
+        gw = f"{_LM.format(m)}.gw_qlike_vs_har_iv"
+        fl = f"{_LM.format(m)}.fluctuation_qlike_vs_har_iv"
+        dm_p = f"{_LM.format(m)}.dm_qlike_vs_har_iv.p_value"
+        picked = m == CHALLENGER
+        rows.append(Row(
+            id=f"vol_gw_{m}", family="conditional predictive ability", source=LAB,
+            hypothesis=("The QLIKE difference between the model of record and {model} moves with what is known at the "
+                        "decision: its last matured value, OVX and the OVX/RV5 gap."),
+            test=("Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln "
+                  "OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at "
+                  "4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. " + _APPROXIMATE),
+            statistic=("Wald chi2", f"{gw}.conditional.stat"), p=Field(f"{gw}.conditional.p_value", optional=True),
+            sided="two",
+            context={"df": f"{gw}.conditional.df", "p_with_constant": f"{gw}.p_value", "dm_p": dm_p,
+                     "p_bartlett_10": f"{gw}.robustness.bartlett_10.conditional_p_value",
+                     "p_bartlett_40": f"{gw}.robustness.bartlett_40.conditional_p_value", "n_days": f"{gw}.n_days"},
+            names={"model": f"{_LM.format(m)}.label"},
+            note=(("Selected after a search: the challenger is the lowest-QLIKE model of the field on this same "
+                   "sample. This statistic is unchanged by a constant shift of the difference, but its moments move "
+                   "with the mean the challenger was picked on whenever the difference's variance moves with the "
+                   "instruments, so its p-value ignores the search. The row is left out of the multiplicity family; "
+                   "no search-adjusted version of this test exists.") if picked else
+                  ("The instruments, the kernel and its lags were fixed after prototype runs on this sample "
+                   "(docs/METHODOLOGY.md section 7). The test with the constant (context p_with_constant) mostly "
+                   "repeats the full-sample DM test, so the ledger registers the conditional part.")),
+            selected_after_search=picked))
+        rows.append(Row(
+            id=f"vol_fluct_{m}", family="stability over time", source=LAB,
+            hypothesis=("Given what was known at each decision, the model of record and {model} were not equally "
+                        "accurate in expectation at every date: in some window of the out-of-sample days their "
+                        "expected QLIKE difference is not zero."),
+            test=("Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, "
+                  "0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance "
+                  "(truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup "
+                  "|t| for each window length against the test's limit, simulated with a fixed seed at this sample's "
+                  "length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; "
+                  "two-sided. " + _APPROXIMATE),
+            statistic=("smallest p over window lengths", f"{fl}.search_adjusted.min_p"),
+            p=Field(f"{fl}.search_adjusted.p_value", optional=True), sided="two",
+            context={"sign": f"{fl}.sign", "window_end": f"{fl}.at", "window_start": f"{fl}.window_start",
+                     "sup": f"{fl}.sup", "p_mu_0_2": f"{fl}.p_value",
+                     "critical_5pct": "stability.fluctuation.critical_values.five_pct",
+                     **{f"p_mu_0_{k}": f"{fl}.by_mu.mu_0_{k}.p_value" for k in (1, 3, 4, 5)},
+                     "p_bartlett_40": f"{fl}.robustness.bartlett_40.p_value",
+                     "p_full_sample_variance": f"{fl}.robustness.full_sample_variance.p_value",
+                     "grids_outside_5pct": f"{fl}.robustness.by_grid.outside_5pct", "dm_p": dm_p},
+            names={"model": f"{_LM.format(m)}.label"},
+            note=(("Selected after a search: the challenger is the lowest-QLIKE model of the field on this same "
+                   "sample, and this test's null includes that mean, so its p-value ignores the search. The row is "
+                   "left out of the multiplicity family. No search-adjusted fluctuation test exists; "
+                   "vol_spa_beats_record adjusts the full-sample comparison for the search.") if picked else
+                  ("The window lengths (mu = 0.1-0.5), the per-window variance and the simulated critical values were "
+                   "fixed after prototype runs on this sample; the p-value adjusts for the choice among the five "
+                   "window lengths, and the seed was fixed before the production build. The null includes equal "
+                   "average loss, so where the full-sample DM test rejects (context dm_p) the row mostly repeats it. "
+                   "Each window is scaled by its own variability, so the window of the largest |t| is where the "
+                   "difference was most consistent, not where it was largest. The mu = 0.1 p in context is "
+                   "anti-conservative under the null (docs/METHODOLOGY.md section 7).")),
+            selected_after_search=picked))
+    return rows
+
+
 def ledger_rows() -> list[Row]:
     return (_direction_rows() + _leak_rows() + _carry_rows() + _vrp_rows() + _vol_rows() + _var_rows() + _band_rows()
-            + _shock_rows())
+            + _conditional_rows() + _shock_rows())
 
 
 def source_names() -> set[str]:
@@ -880,9 +966,10 @@ def build(load: Callable[[str], Artifact] | None = None) -> dict[str, Any]:
                    "its target). Benjamini-Hochberg q-values and Holm adjusted p-values are computed across "
                    "the rows with a p-value, on p_two_sided (the directional one-sided p doubled, capped at "
                    "1), leaving out rows selected_after_search (a model picked as the best of a field on the "
-                   "same sample; their adjusted fields are null and their note names the search-adjusted "
-                   "test). t_equivalent = normal quantile of p_two_sided; clears_hlz_t3 applies the "
-                   "Harvey-Liu-Zhu (2016) t > 3 hurdle."),
+                   "same sample; their adjusted fields are null and their note names the search-adjusted test "
+                   "where one exists or says none does) and rows whose test the artifact could not compute. "
+                   "t_equivalent = normal quantile of p_two_sided; clears_hlz_t3 applies the Harvey-Liu-Zhu "
+                   "(2016) t > 3 hurdle."),
         "alpha": ALPHA,
         "hlz_t": HLZ_T,
         "summary": summary,
