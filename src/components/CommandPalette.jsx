@@ -1,7 +1,6 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import {
-  buildCommands, downloadFile, getPrimarySection, groupCommands, jumpTo, MAX_RESULTS, rankCommands, sectionUrl, snapshotReference,
-} from "../app/commands";
+import { downloadFile, getPrimarySection, jumpTo, sectionUrl } from "../app/commands";
+import { buildCommands, groupCommands, MAX_RESULTS, rankCommands, snapshotReference } from "../app/paletteCommands";
 import { GIT_SHA, REPO_URL, RESEARCH_URL, STATIC_DATA_URL } from "../app/config";
 import { SECTIONS } from "../app/sections";
 import { PALETTE_KEYS, SHORTCUTS, setSingleKeysEnabled, useSingleKeys } from "../app/useShortcuts";

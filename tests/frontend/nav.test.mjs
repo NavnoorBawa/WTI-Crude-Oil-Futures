@@ -17,7 +17,8 @@ let TopBar;
 let research;
 before(async () => {
   m = await loadDashboard();
-  commands = await m.load("/src/app/commands.js");
+  // The palette's list and ranking (paletteCommands.js, loaded with the palette) and the in-page moves (commands.js).
+  commands = { ...(await m.load("/src/app/commands.js")), ...(await m.load("/src/app/paletteCommands.js")) };
   shortcuts = await m.load("/src/app/useShortcuts.js");
   TopBar = (await m.load("/src/app/TopBar.jsx")).default;
   research = await m.load("/src/lib/research.js");
