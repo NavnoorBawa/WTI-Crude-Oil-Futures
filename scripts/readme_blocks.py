@@ -1389,7 +1389,8 @@ def distribution_block() -> str:
              f"means the model scored lower. Calibration: Berkowitz's (2001) LR3 on each sampling grid's non-overlapping "
              f"weeks, Bonferroni over the {len(dist['weeks_per_grid'])} grids, for the trailing-rank PITs against a "
              f"simulated null ({null['draws']:,} seeded draws); for the quantile HAR a doubly censored χ²(2) form, which "
-             f"tests its distribution between and beyond the 5% and 95% quantiles, not independence. {chall['label']}'s "
+             f"tests its distribution between and beyond the {_pct_level(taus[0])} and {_pct_level(taus[-1])} quantiles, "
+             f"not independence. {chall['label']}'s "
              f"score rows are excluded from the ledger's family because the challenger was picked on this sample. "
              f"Source: lab."]
     return "\n".join(rows)
@@ -1401,16 +1402,27 @@ def _dist_registered(model: dict, dm: dict) -> bool:
     return (dm["stat"] > 0) == (model["key"] == "quantile_har")
 
 
-def _bh_clause(names: str, n: int, rows: list[dict], *, subject: str = "") -> str:
-    """'Neither survives ...' etc. for n significant rows, with their q."""
+def _bh_clause(names: str, n: int, rows: list[dict], *, subject: str | None = None) -> str:
+    """'Neither survives ...' etc. for n significant rows, with their q. `subject` names the results when the sentence
+    before also lists results the clause does not cover."""
     survive = [r for r in rows if r["survives_bh_5pct"]]
     qs = ", ".join(_pthr(r["q_value_bh"]) for r in rows)
-    if not survive:
-        who = "It does not survive" if n == 1 else ("Neither survives" if n == 2 else "None survives")
+    each = "neither" if n == 2 else "none"
+    if subject is None:
+        if not survive:
+            who = "It does not survive" if n == 1 else f"{each.capitalize()} survives"
+        elif len(survive) == n:
+            who = "It survives" if n == 1 else ("Both survive" if n == 2 else "All survive")
+        else:
+            who = f"Only {names} {'survives' if len(survive) == 1 else 'survive'}"
+    elif not survive:
+        who = (f"The result against {subject} does not survive" if n == 1 else
+               f"Of the results against {subject}, {each} survives")
     elif len(survive) == n:
-        who = "It survives" if n == 1 else ("Both survive" if n == 2 else "All survive")
+        who = (f"The result against {subject} survives" if n == 1 else
+               f"The results against {subject} {'both' if n == 2 else 'all'} survive")
     else:
-        who = f"Only {names} {'survives' if len(survive) == 1 else 'survive'}"
+        who = f"Of the results against {subject}, only {names} {'survives' if len(survive) == 1 else 'survive'}"
     return f" {who} the ledger's Benjamini-Hochberg adjustment (q = {qs})."
 
 
@@ -1446,11 +1458,13 @@ def _dist_verdicts(lab: dict, ledger: dict, score: str, tag: str, phrase: str) -
     text = f"On {phrase}, " + "; ".join(parts) + "."
     sig = record_lower + model_lower
     registered = [(m, dm) for m, dm in sig if _dist_registered(m, dm)]
+    opposite = [m for m, dm in sig if not _dist_registered(m, dm)]
     if registered:
         rows = [_ledger_row(ledger, f"vol_{tag}_{m['key']}") for m, _ in registered]
         survive = [m for (m, _), r in zip(registered, rows) if r["survives_bh_5pct"]]
-        text += _bh_clause(_dist_names(survive), len(registered), rows)
-    opposite = [m for m, dm in sig if not _dist_registered(m, dm)]
+        # Name the subject when the sentence before also lists results the ledger did not register.
+        subject = _dist_names([m for m, _ in registered]) if opposite else None
+        text += _bh_clause(_dist_names(survive), len(registered), rows, subject=subject)
     if opposite:
         text += (f" The difference against {_dist_names(opposite)} runs opposite to the direction the ledger "
                  f"registered, so {'its row is' if len(opposite) == 1 else 'their rows are'} not counted as support.")
@@ -1528,11 +1542,11 @@ def distribution_reading() -> str:
         dm = cd[s_key]
         if dm["p_value"] >= 0.10:
             continue
-        who, periods = ((chall["label"], dm["periods_model_lower"]) if dm["stat"] > 0
-                        else ("the model of record", dm["periods_har_iv_lower"]))
+        who, other, periods = ((chall["label"], "the model of record", dm["periods_model_lower"]) if dm["stat"] > 0
+                               else ("the model of record", chall["label"], dm["periods_har_iv_lower"]))
         detail = f"{_fmt(dm['stat'], 2, True)}, {_peq_thr(dm['p_value'])}, lower in {periods} of {dm['groups']} periods"
-        items.append(f"{who} scores significantly lower on {phrase} ({detail})" if dm["p_value"] < 0.05 else
-                     f"{who} scores lower on {phrase}, inconclusively ({detail})")
+        items.append(f"{who} scores significantly lower than {other} on {phrase} ({detail})" if dm["p_value"] < 0.05 else
+                     f"{who} scores lower than {other} on {phrase}, inconclusively ({detail})")
     if items:
         text = _join(items)
         parts.append(text[0].upper() + text[1:] + "; the challenger was picked on this sample, so this is not new "
@@ -1603,7 +1617,7 @@ def distribution_reading() -> str:
         parts.append(f"The quantile HAR, used as a point forecast and added to the field for this check only, has a QLIKE "
                      f"of {_fmt(field['qlike'], 4)} against {_fmt(_champ(lab)['qlike'], 4)} for the model of record "
                      f"(batch-means {_peq_thr(bm['batch_means']['p_value'])}; {_peq_thr(bm['dm_test']['p_value'])} with "
-                     f"the usual 9 lags). It is {'inside' if in_head else 'outside'} the headline "
+                     f"the usual {bm['dm_test']['lags']} lags). It is {'inside' if in_head else 'outside'} the headline "
                      f"{_mcs_level(lab)} Model Confidence Set (p = {_fmt(mcs_p, 3)})"
                      + (f"; it is inside it {_join(inside)}" if inside else "")
                      + (f", and outside it {_join(outside)}" if outside else "")
@@ -2455,7 +2469,8 @@ def ledger_reading() -> str:
                      "their data; Benjamini-Hochberg assumes that dependence is positive, and Holm holds under any.")
         fragile = _fragile_t3(dist)
         if fragile:
-            sentence += (f" {_word(len(fragile)).capitalize()} of the calibration rows clear the t > 3 hurdle narrowly: "
+            sentence += (f" {_word(len(fragile)).capitalize()} of the calibration rows "
+                         f"{'clears' if len(fragile) == 1 else 'clear'} the t > 3 hurdle narrowly: "
                          + "; ".join(fragile) + ".")
         text.append(sentence)
     retracted = s["by_status"]["retracted"]

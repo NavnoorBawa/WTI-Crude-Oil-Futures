@@ -370,7 +370,8 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
     the simulated reference), `dm{registered, groups, context[]}`, `pit_bins`, `chance_band`.
   - `models[]`, in the order model of record, challenger, `ovx_only`, `garch`, `gjr`, `ewma`, `quantile_har`
     (`garch` and `gjr` only with the slow walk, whose parameter columns they need; without them `mcs_crps` is
-    null; the quantile HAR is never in `leaderboard`): `key, label, method,
+    null, and `quantile_har_field` needs every model's column, so the block as published needs the slow walk; the
+    quantile HAR is never in `leaderboard`): `key, label, method,
     pit_construction` (`trailing_rank`, `exact` or `estimated_quantiles`), `crps_grid_pct, crps_grid_log,
     pinball_10_pct, pinball_90_pct` (3 dp; the log score 4 dp), `coverage_10_90_pct` (1 dp),
     `mae_median_pct` (the CRPS a point forecast at the predictive median would score), `pit_decile_share_pct[10]`

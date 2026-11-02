@@ -204,13 +204,15 @@ class DistributionBlocksTest(StabilityBlocksTest.__base__):
 
     def test_the_challenger_s_scores_are_worded_by_direction_and_level(self):
         chall = self.dist(self.lab["config"]["challenger"])["dm_vs_har_iv"]
-        self.assertIn("HAR-IV-range scores significantly lower on the 90% pinball loss", self.patched(rb.distribution_reading))
+        self.assertIn("HAR-IV-range scores significantly lower than the model of record on the 90% pinball loss",
+                      self.patched(rb.distribution_reading))
         chall["pinball_10"].update(stat=-2.4, p_value=0.03)
         chall["crps_grid"].update(stat=2.0, p_value=0.07)
         text = self.patched(rb.distribution_reading)
-        self.assertIn("the model of record scores significantly lower on the 10% pinball loss (−2.40, p = 0.030, lower in "
-                      f"{chall['pinball_10']['periods_har_iv_lower']} of 12 periods)", text)
-        self.assertIn("HAR-IV-range scores lower on CRPS over 19 quantiles, inconclusively (+2.00, p = 0.070", text)
+        self.assertIn("the model of record scores significantly lower than HAR-IV-range on the 10% pinball loss (−2.40, "
+                      f"p = 0.030, lower in {chall['pinball_10']['periods_har_iv_lower']} of 12 periods)", text)
+        self.assertIn("HAR-IV-range scores lower than the model of record on CRPS over 19 quantiles, inconclusively "
+                      "(+2.00, p = 0.070", text)
         self.assertIn("the challenger was picked on this sample, so this is not new evidence", text)
 
     def test_the_calibration_reading_always_states_the_adjustment(self):
@@ -234,8 +236,16 @@ class DistributionBlocksTest(StabilityBlocksTest.__base__):
     def test_a_result_against_the_registered_direction_cites_no_adjusted_support(self):
         self.dist("quantile_har")["dm_vs_har_iv"]["crps_grid"].update(stat=-2.6, p_value=0.03)
         text = self.patched(rb.distribution_reading)
-        self.assertIn("the model of record scores significantly lower than the quantile HAR (p = 0.030)", text)
-        self.assertIn("The difference against the quantile HAR runs opposite to the direction the ledger registered", text)
+        crps = text[text.index("On CRPS over 19 quantiles"):text.index("On the 10% pinball loss")]
+        self.assertIn("the model of record scores significantly lower than the quantile HAR (p = 0.030)", crps)
+        self.assertIn("The difference against the quantile HAR runs opposite to the direction the ledger registered", crps)
+        self.assertNotIn("Benjamini-Hochberg", crps)          # no adjusted support cited for an unregistered direction
+        # With a registered result beside it, the adjustment names its own subject.
+        self.dist("garch")["dm_vs_har_iv"]["crps_grid"].update(stat=-2.5, p_value=0.03)
+        crps = (lambda t: t[t.index("On CRPS over 19 quantiles"):t.index("On the 10% pinball loss")])(
+            self.patched(rb.distribution_reading))
+        self.assertIn("The result against GARCH(1,1)-t does not survive the ledger's Benjamini-Hochberg adjustment", crps)
+        self.assertNotIn(" It does not survive", crps)
 
     def test_the_tail_reading_reads_the_chance_bands(self):
         text = self.patched(rb.distribution_reading)
@@ -252,7 +262,9 @@ class DistributionBlocksTest(StabilityBlocksTest.__base__):
                       "which gives t = 2.996", text)
         self.assertIn("vol_berkowitz_ovx_only at t = 3.090, which one Monte Carlo standard error", text)
         self.row("vol_berkowitz_garch")["context"]["p_count_pit"] = 0.0001
-        self.assertNotIn("vol_berkowitz_garch at t", self.patched(rb.ledger_reading))
+        one = self.patched(rb.ledger_reading)
+        self.assertNotIn("vol_berkowitz_garch at t", one)
+        self.assertIn("One of the calibration rows clears the t > 3 hurdle narrowly", one)
 
     def test_the_ledger_reading_names_rows_that_survive_only_with_the_new_families(self):
         text = self.patched(rb.ledger_reading)

@@ -5836,7 +5836,7 @@
       "id": "vol_berkowitz_har_iv",
       "date": "2026-10-20",
       "family": "distribution calibration",
-      "hypothesis": "HAR-IV (model of record)'s outcomes are not distributed like its own trailing residuals: on non-overlapping weeks its trailing-rank PITs depart from what this construction gives when the model is correctly specified (a simulated null).",
+      "hypothesis": "HAR-IV (model of record)'s log forecast errors are not distributed like its own matured past errors: on non-overlapping weeks its trailing-rank PITs depart from what i.i.d. errors would give under this construction (a simulated null).",
       "test": "Berkowitz (2001) LR3 on the normal scores of each sampling grid's weeks (non-overlapping), against a seeded simulated null of this PIT construction (trailing ranks under the 5-session overlap; chi-squared with 3 df is far too conservative for it); Bonferroni over the five grids; two-sided.",
       "statistic": {
         "name": "grids below 5%",
@@ -5869,7 +5869,7 @@
       "status": "inconclusive",
       "underpowered": null,
       "retraction_reason": null,
-      "note": "The PIT is the outcome's mid-rank among the trailing residuals, which re-centres itself across overlapping weeks and caps |z| near 3.2, so its LR is referred to a simulated null; the null was adopted after the chi-squared p-values (context p_chi2) were seen. The p-value counts simulated draws (Monte Carlo standard error in context mc_se), so a few draws more or less can move the row across the t > 3 hurdle. The reference per PIT construction and the Bonferroni combination were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7).",
+      "note": "The PIT is the outcome's mid-rank among the trailing residuals, which re-centres itself across overlapping weeks and caps |z| near 3.2, so its LR is referred to a simulated null; the null was adopted after the chi-squared p-values (context p_chi2) were seen. The p-value counts simulated draws (Monte Carlo standard error in context mc_se): near a threshold a few draws can move it across, and the ledger reading names any row whose t > 3 flag would move. The reference per PIT construction and the Bonferroni combination were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7).",
       "artifact": {
         "path": "data/vol_lab.json",
         "statistic_field": "distribution.models[key=har_iv].berkowitz.grids_below_5pct",
@@ -5914,7 +5914,7 @@
       "id": "vol_berkowitz_har_iv_range",
       "date": "2026-10-20",
       "family": "distribution calibration",
-      "hypothesis": "HAR-IV-range's outcomes are not distributed like its own trailing residuals: on non-overlapping weeks its trailing-rank PITs depart from what this construction gives when the model is correctly specified (a simulated null).",
+      "hypothesis": "HAR-IV-range's log forecast errors are not distributed like its own matured past errors: on non-overlapping weeks its trailing-rank PITs depart from what i.i.d. errors would give under this construction (a simulated null).",
       "test": "Berkowitz (2001) LR3 on the normal scores of each sampling grid's weeks (non-overlapping), against a seeded simulated null of this PIT construction (trailing ranks under the 5-session overlap; chi-squared with 3 df is far too conservative for it); Bonferroni over the five grids; two-sided.",
       "statistic": {
         "name": "grids below 5%",
@@ -5947,7 +5947,7 @@
       "status": "not_supported",
       "underpowered": null,
       "retraction_reason": null,
-      "note": "The PIT is the outcome's mid-rank among the trailing residuals, which re-centres itself across overlapping weeks and caps |z| near 3.2, so its LR is referred to a simulated null; the null was adopted after the chi-squared p-values (context p_chi2) were seen. The p-value counts simulated draws (Monte Carlo standard error in context mc_se), so a few draws more or less can move the row across the t > 3 hurdle. The reference per PIT construction and the Bonferroni combination were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7).",
+      "note": "The PIT is the outcome's mid-rank among the trailing residuals, which re-centres itself across overlapping weeks and caps |z| near 3.2, so its LR is referred to a simulated null; the null was adopted after the chi-squared p-values (context p_chi2) were seen. The p-value counts simulated draws (Monte Carlo standard error in context mc_se): near a threshold a few draws can move it across, and the ledger reading names any row whose t > 3 flag would move. The reference per PIT construction and the Bonferroni combination were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7).",
       "artifact": {
         "path": "data/vol_lab.json",
         "statistic_field": "distribution.models[key=har_iv_range].berkowitz.grids_below_5pct",
@@ -5992,7 +5992,7 @@
       "id": "vol_berkowitz_ovx_only",
       "date": "2026-10-20",
       "family": "distribution calibration",
-      "hypothesis": "OVX-only regression's outcomes are not distributed like its own trailing residuals: on non-overlapping weeks its trailing-rank PITs depart from what this construction gives when the model is correctly specified (a simulated null).",
+      "hypothesis": "OVX-only regression's log forecast errors are not distributed like its own matured past errors: on non-overlapping weeks its trailing-rank PITs depart from what i.i.d. errors would give under this construction (a simulated null).",
       "test": "Berkowitz (2001) LR3 on the normal scores of each sampling grid's weeks (non-overlapping), against a seeded simulated null of this PIT construction (trailing ranks under the 5-session overlap; chi-squared with 3 df is far too conservative for it); Bonferroni over the five grids; two-sided.",
       "statistic": {
         "name": "grids below 5%",
@@ -6025,7 +6025,7 @@
       "status": "supported",
       "underpowered": null,
       "retraction_reason": null,
-      "note": "The PIT is the outcome's mid-rank among the trailing residuals, which re-centres itself across overlapping weeks and caps |z| near 3.2, so its LR is referred to a simulated null; the null was adopted after the chi-squared p-values (context p_chi2) were seen. The p-value counts simulated draws (Monte Carlo standard error in context mc_se), so a few draws more or less can move the row across the t > 3 hurdle. The reference per PIT construction and the Bonferroni combination were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7).",
+      "note": "The PIT is the outcome's mid-rank among the trailing residuals, which re-centres itself across overlapping weeks and caps |z| near 3.2, so its LR is referred to a simulated null; the null was adopted after the chi-squared p-values (context p_chi2) were seen. The p-value counts simulated draws (Monte Carlo standard error in context mc_se): near a threshold a few draws can move it across, and the ledger reading names any row whose t > 3 flag would move. The reference per PIT construction and the Bonferroni combination were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7).",
       "artifact": {
         "path": "data/vol_lab.json",
         "statistic_field": "distribution.models[key=ovx_only].berkowitz.grids_below_5pct",
@@ -6102,7 +6102,7 @@
       "status": "supported",
       "underpowered": null,
       "retraction_reason": null,
-      "note": "The PIT reads the simulated sample's Hazen CDF, continuous in its inputs, chosen for reproduction stability after the count PIT's p (context p_count_pit) was seen; whether the row clears the t > 3 hurdle can depend on that choice. The literal reading, a Student-t on the expected variance path, is context (p_static_t). The reference per PIT construction and the Bonferroni combination were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7).",
+      "note": "The PIT reads the simulated sample's Hazen CDF, continuous in its inputs, chosen for reproduction stability after the count PIT's p (context p_count_pit) was seen; where the two forms' p-values sit on either side of the t > 3 hurdle, the flag depends on that choice, and the ledger reading names such rows. The literal reading, a Student-t on the expected variance path, is context (p_static_t). The reference per PIT construction and the Bonferroni combination were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7).",
       "artifact": {
         "path": "data/vol_lab.json",
         "statistic_field": "distribution.models[key=garch].berkowitz.grids_below_5pct",
@@ -6178,7 +6178,7 @@
       "status": "supported",
       "underpowered": null,
       "retraction_reason": null,
-      "note": "The PIT reads the simulated sample's Hazen CDF, continuous in its inputs, chosen for reproduction stability after the count PIT's p (context p_count_pit) was seen; whether the row clears the t > 3 hurdle can depend on that choice. The literal reading, a Student-t on the expected variance path, is context (p_static_t). The reference per PIT construction and the Bonferroni combination were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7).",
+      "note": "The PIT reads the simulated sample's Hazen CDF, continuous in its inputs, chosen for reproduction stability after the count PIT's p (context p_count_pit) was seen; where the two forms' p-values sit on either side of the t > 3 hurdle, the flag depends on that choice, and the ledger reading names such rows. The literal reading, a Student-t on the expected variance path, is context (p_static_t). The reference per PIT construction and the Bonferroni combination were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7).",
       "artifact": {
         "path": "data/vol_lab.json",
         "statistic_field": "distribution.models[key=gjr].berkowitz.grids_below_5pct",
