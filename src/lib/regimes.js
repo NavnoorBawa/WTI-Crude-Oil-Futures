@@ -3,6 +3,7 @@
 // vol_lab.regimes and vol_lab.conformal.<model>. Every number is read from the payload; each verdict is
 // worded at the strength its test supports, and no single regime's coverage ever carries one.
 import { ALPHA, ALPHA_LOOSE } from "./assertions";
+import { DIST_VIEW } from "./distribution";
 import { NBSP, fmtInt, fmtPValue, fmtPct, num } from "./format";
 import { asArray, asObject } from "./research";
 
@@ -29,7 +30,10 @@ export const REGIME_SPLITS = [
     columns: { no: "No roll", yes: "Roll" } },
 ];
 
-/** MODL's views: the leaderboard on all days, or its QLIKE split by one regime (the URL's modl key). */
+/**
+ * MODL's views: the leaderboard on all days, its QLIKE split by one regime, or the scores of the whole predictive
+ * distribution (ROADMAP 2.4; lib/distribution.js), after the regimes (the URL's modl key).
+ */
 export const MODL_VIEWS = [
   { value: "all", label: "All", name: "All days", title: "The leaderboard on every out-of-sample day" },
   ...REGIME_SPLITS.map((split) => ({
@@ -37,6 +41,7 @@ export const MODL_VIEWS = [
     name: `by ${{ ovx: "OVX", gap: "OVX/RV5", rv5: "RV5", roll: "roll" }[split.view]}`,
     title: `QLIKE by regime: ${split.group}`, split: split.key,
   })),
+  { value: DIST_VIEW, label: "CRPS", name: "predictive distribution", title: "Scores of the whole predictive distribution: CRPS, pinball losses and Berkowitz" },
 ];
 
 /**

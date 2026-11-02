@@ -250,6 +250,82 @@ test("STAB's rolling test and cumulative view fit 390 and 320 px, pass axe, and 
   }
 });
 
+// The distribution block (ROADMAP 2.4) is newer than the fixture: the committed block is spliced in. MODL's
+// distribution view and CALB's PIT figure and tables must fit a phone and pass axe; the PIT figure must fill exactly
+// the height its placeholder reserved; the view shows no QLIKE and no MCS matrix; the control writes ?modl=dist.
+test("MODL's distribution view and CALB's PIT figure and tables fit 390 and 320 px, pass axe, and keep their reservation", async () => {
+  const { withDistribution } = await import("../frontend/splice.mjs");
+  const fixture = JSON.parse(readFileSync(join(FIXTURES, PAYLOADS["/research.json"]), "utf8"));
+  const research = JSON.stringify(withDistribution(fixture));
+  const qlikes = fixture.vol_lab.leaderboard.models.map((model) => model.qlike.toFixed(4));
+  for (const width of [390, 320]) {
+    for (const path of ["/?modl=dist#modl", "/?table=calb#calb"]) {
+      const { context, page, problems } = await openPage({ width, height: 844 }, { path, research });
+      try {
+        await page.waitForSelector("#modl .segmented");
+        await mountEverything(page);
+        await page.evaluate(() => window.dispatchEvent(new Event("lazy:mount-all")));
+        if (path.includes("modl=dist")) await page.waitForSelector("#modl .leaderboard--dist table");
+        else await page.waitForSelector("#calb .panel-table table caption >> text=/Berkowitz's test/");
+        const state = await page.evaluate((values) => {
+          const dist = document.querySelector("#modl .leaderboard--dist");
+          const pit = document.querySelector("#calb .pit-chart");
+          const mount = pit?.closest(".lazy-mount");
+          return {
+            overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            pressed: [...document.querySelectorAll("#modl .segmented-button[aria-pressed='true']")].map((b) => b.textContent),
+            matrix: Boolean(document.querySelector("#modl .mcs-matrix")),
+            leaderboard: Boolean(document.querySelector("#modl-har_iv")),
+            distRows: dist ? dist.querySelectorAll("tbody tr").length : null,
+            qlikeShown: dist ? values.filter((value) => dist.textContent.includes(value)) : [],
+            readings: dist ? /The rerun selects nothing/.test(dist.textContent) : null,
+            reserved: mount ? parseFloat(getComputedStyle(mount).getPropertyValue(window.innerWidth <= 640 ? "--lazy-h-narrow" : "--lazy-h")) : null,
+            drawn: pit ? pit.getBoundingClientRect().height : null,
+            mounted: mount ? mount.getBoundingClientRect().height : null,
+            calbTables: [...document.querySelectorAll("#calb caption")].map((caption) => caption.textContent),
+          };
+        }, qlikes);
+        assert.ok(state.overflow <= 0, `${width}px ${path}: the page scrolls sideways by ${state.overflow}px`);
+        if (path.includes("modl=dist")) {
+          assert.deepEqual(state.pressed, ["CRPS"], `${width}px: the URL's view is the pressed one`);
+          assert.equal(state.matrix, false, "the MCS matrix belongs to the all-days view");
+          assert.equal(state.leaderboard, false, "the QLIKE table gives way to the distribution's");
+          assert.deepEqual(state.qlikeShown, [], "no QLIKE number in the distribution view");
+          assert.ok(state.distRows >= 1 && state.readings, `${width}px: the table and its readings (${state.distRows})`);
+          // The PIT figure (in CALB's figure view here) fills exactly the height its placeholder reserved.
+          assert.ok(state.reserved > 0 && state.drawn === state.reserved && state.mounted === state.reserved,
+            `${width}px: reserved ${state.reserved}px, drawn ${state.drawn}px, mount ${state.mounted}px`);
+        } else {
+          assert.ok(state.calbTables.some((caption) => /^Share of days between consecutive predicted deciles/.test(caption)), "CALB's PIT table");
+          assert.ok(state.calbTables.some((caption) => /^Berkowitz's test on each sampling grid/.test(caption)), "CALB's Berkowitz table");
+        }
+        await page.evaluate(AXE);
+        const violations = await page.evaluate(async () => {
+          const result = await axe.run({ include: [["#modl"], ["#calb"]] }, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } });
+          return result.violations.filter((v) => v.impact === "serious" || v.impact === "critical")
+            .map((v) => `${v.id} (${v.impact}): ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(", ")}`);
+        });
+        assert.deepEqual(violations, [], `${width}px ${path}: serious or critical axe violations`);
+        if (path.includes("modl=dist")) {
+          // "All" returns to the bare URL, the leaderboard and its matrix; "CRPS" writes the view again.
+          const title = await page.locator("#modl h2").textContent();
+          await page.getByRole("button", { name: "All", exact: true }).click();
+          assert.doesNotMatch(page.url(), /modl=/);
+          assert.ok(await page.locator("#modl-har_iv").count(), "the leaderboard is back");
+          assert.ok(await page.locator("#modl .mcs-matrix").count(), "the matrix is back");
+          assert.equal(await page.locator("#modl h2").textContent(), title, "the title does not change with the view");
+          await page.getByRole("button", { name: "CRPS", exact: true }).click();
+          assert.match(page.url(), /[?&]modl=dist\b/);
+          await page.waitForSelector("#modl .leaderboard--dist table");
+        }
+        assert.deepEqual(problems, [], "console errors, page errors or failed requests");
+      } finally {
+        await context.close();
+      }
+    }
+  }
+});
+
 // The price axis settles on its width after the first frames; a chart nobody has touched must still
 // sit on its range preset, so no "Reset view" is offered.
 for (const viewport of VIEWPORTS) {

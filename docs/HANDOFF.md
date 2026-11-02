@@ -1,7 +1,7 @@
 # Handoff: state, open backlog and working loop
 
-Written on 2026-11-02, after the rounds that shipped ROADMAP 1.2 to 1.8, 2.1 and 2.2 (#77 to
-#100), on top of 2.2.0 (PRs #68 to #76). The next session continues from here. Keep this file current: at the end of every round, tick off what
+Written on 2026-11-02, after the rounds that shipped ROADMAP 1.2 to 1.8 and 2.1 to 2.4 (#77 to
+#103 and the 2.4 branch), on top of 2.2.0 (PRs #68 to #76). The next session continues from here. Keep this file current: at the end of every round, tick off what
 shipped, add what the round found, and update the date.
 
 The destination, measured, and the staged plan to reach it are in `docs/ROADMAP.md`; this file
@@ -51,8 +51,15 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   GARCH-t, GJR-t, EWMA (surviving BH) and the quantile HAR (not surviving), is inconclusive for the
   record (p = 0.092) and does not reject the challenger. The quantile HAR is a robustness
   competitor outside the field and the live pair. 25 new rows (135 in all, 129 in the family), no
-  survival flag changed; the rebuild takes about seven minutes. The dashboard does not read the
-  block yet (2.4's second part: CALB PIT histograms and a MODL "CRPS" view).
+  survival flag changed; the rebuild takes about seven minutes. CALB draws the PIT histogram (one
+  row per model on one 0–16% scale, each bin's simulated chance range) under a computed Berkowitz
+  summary, with the PIT shares and Berkowitz by grid in its table view; MODL's "CRPS" view
+  (`?modl=dist`, opt-in; the title, default view and ranking stay QLIKE) shows the three scores with
+  their batch-means t and p, the readings at each test's strength and the quantile HAR's QLIKE rerun
+  as a footnote. The readings and both views' tables load with one lazy chunk
+  (`charts/distributionCharts.jsx`, `lib/distributionScores.js`); what CALB's first render needs is
+  in `lib/distribution.js`, in the entry (307,282 B of the 327,680 B budget; the first load's
+  scripts 178,096 B gzipped of 184,320 B).
 - **Live record.** Daily calls are recorded and sealed in git on the `live-data` branch before their
   window opens; each call since 2026-10-28 also stores its fit, so it recomputes from its own entry.
   The first three windows resolved on 2026-10-29, 10-30 and 10-31: the Oct 20 call (47.3%, band
@@ -188,6 +195,15 @@ and its CI run is the test.
   (the loss the page ranks models by). Undecided since 2.1.0.
 - Polish only: at 1280 px and wider, VRP's reading column and LEAK's P&L column leave space beside
   taller neighbours; the price chart's log axis uses library tick positions.
+- CALB's PIT and Berkowitz tables (ROADMAP 2.4) scroll sideways in the half-width panel even at
+  1440 px (about 900 and 820 px of table in 647 px), as its regime table already did; a per-grid
+  column could fold into one "p by grid" cell, and the chance rows could move to the caption.
+- The PIT figure's chance band for the trailing-rank models is about 2 px tall on the shared 0–16%
+  scale (by design: no zoomed axis); a second, deviation-from-10% view would make it legible.
+- Model names in prose break at their hyphens ("HAR-IV-" / "range") in MODL's readings and other
+  footnotes; tables use `keepHyphenated`, prose does not.
+- The first-load gzip headroom is about 6.2 KB after 2.4 (entry +10.2 KB). The CALB method notes
+  (about 3 KB of the entry) could load with the lazy chunk if a later item needs the room.
 
 ### 5. Engineering
 - **The rest of ROADMAP 1.7.** The first part (#91) pinned EIA's contracts 1 and 2 and Cushing

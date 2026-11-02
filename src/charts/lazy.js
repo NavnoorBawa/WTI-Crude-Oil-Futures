@@ -24,6 +24,12 @@ export const getYearlyGapRows = retryingLazy(stability, "YearlyGapRows");
 export const getFluctuationRows = retryingLazy(stability, "FluctuationRows");
 export const getCumulativeRows = retryingLazy(stability, "CumulativeRows");
 
+// CALB's PIT histogram and the distribution tables of CALB and MODL (ROADMAP 2.4; they reuse the d3 chunk's frame).
+const distribution = () => import("./distributionCharts.jsx");
+export const getPitRows = retryingLazy(distribution, "PitRows");
+export const getPitTables = retryingLazy(distribution, "PitTables");
+export const getDistributionScores = retryingLazy(distribution, "DistributionScores");
+
 // LEDG's status strip and METH's elasticity path (they reuse the d3 chunk's frame and axes).
 const reference = () => import("./referenceCharts.jsx");
 export const getLedgerStrip = retryingLazy(reference, "LedgerStrip");

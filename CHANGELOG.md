@@ -262,6 +262,34 @@ backs the new one.
   in the cumulative QLIKE differences, persistence on its own scale. The notes add the
   Giacomini-White result, counted from the payload; the table view adds both tests per model with
   the ledger's q, and the forms kept as context.
+- **The whole predictive distribution, in CALB and MODL (ROADMAP 2.4, second part).** CALB adds a
+  PIT histogram after the Mincer-Zarnowitz forest: one row per model (the record, the challenger,
+  the others as published, the quantile HAR last and tagged "not in the benchmark"), ten decile
+  bars from zero on one scale, each bin's chance range under a correct forecast drawn from the
+  artifact's simulated mean and band for that model's PIT construction, and a dashed line at 10%.
+  Above it, one computed summary of Berkowitz's test: "rejects" below 0.05, "inconclusive" from
+  0.05 to 0.10, "does not reject" otherwise, with the ledger's q for a rejection that does not
+  survive its adjustment; the quantile HAR's clause names the one grid of five its rejection rests
+  on, its censored form and the randomized-tail p. Below it, a note on the chance ranges, read per
+  construction. The table view adds the PIT shares with a chance row per construction and
+  Berkowitz grid by grid with its reference, the Bonferroni p, the context the artifact adds
+  (Monte Carlo standard error, the χ²(3) p, the randomized-tail p) and the ledger's q; the notes say
+  how each distribution is built, why the test runs per grid, why some models need a simulated
+  null (and what it rejects), and that these quantiles are not the band. CALB's title, facts and
+  caption are unchanged. MODL's view control gains "CRPS" (`?modl=dist`, after the regime views,
+  and the palette): the seven models' CRPS and 10%/90% pinball losses in vol points, each with the
+  batch-means t and p against the record and the periods it scored lower in, and Berkowitz's p; no
+  QLIKE number (these scores use the band's 4,370 days) and no membership matrix. Under the table,
+  each score read at its test's strength with the ledger's q, the 2020 and largest-days shares
+  only where the record scores lower, the challenger's pinball edge as picked on this sample and
+  outside the family, a footnote on what the scores are, and the quantile HAR's QLIKE rerun with
+  every setting in or out. The title, default view and ranking stay QLIKE. The figure reserves its
+  exact height (rows × 46 + 22 px); the readings and both tables load with one lazy chunk. A view
+  control that cannot fit its row now wraps instead of running off the panel's left edge. Tests:
+  the verdict bands at 0.049, 0.05, 0.099 and 0.10 with q on either side of 0.05, the order and the
+  tag, the chance note and the rerun footnote from the artifact, the figure's geometry, and in a
+  browser `?modl=dist` and `?table=calb` at 390 and 320 px (no sideways scroll, axe clean, the
+  reserved height equal to the drawn one).
 - **The OVX/RV5 gap on FCST (ROADMAP 2.2, third part).** The FCST table (from 1000 px) gains the
   week's OVX/RV5 log gap at the decision, the quantity the regime split cuts at its trailing median;
   the CSV adds that median, and the chart's keyboard reading of a week names both. A test checks

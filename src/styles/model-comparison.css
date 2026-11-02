@@ -64,6 +64,17 @@ tr.is-challenger .set-mark.is-in { color: var(--s-alt); }
   .mcs-matrix .data-table th.set-col, .mcs-matrix .data-table td.set-col { padding-left: 6px; padding-right: 6px; }
 }
 
+/* ---------------------------------------------------------------------------- MODL distribution view */
+/* Below 900px each test's p sits under its t (the p columns are hidden there; the CSV keeps them). */
+.dist-p { display: none; }
+/* Its short headers may wrap ("Pinball / 10%"), so the scores fit a tablet without a sideways scroll. */
+.leaderboard--dist .data-table thead th { white-space: normal; }
+@media (max-width: 899px) {
+  .leaderboard--dist .data-table :is(th, td):not(:first-child) { padding-left: 6px; padding-right: 6px; }
+  .leaderboard--dist .stat-cell { flex-direction: column; align-items: flex-end; gap: 0; }
+  .leaderboard--dist .dist-p { display: block; font-size: var(--fs-11); color: var(--text-3); white-space: nowrap; }
+}
+
 /* ------------------------------------------------------------------------------------ phones */
 /* The leaderboard fits a phone without sideways scrolling: model, QLIKE, DM t, MCS p and In set
    stay (the wider columns are hidden through hideBelow); the QLIKE strip and the DM t range across
@@ -78,4 +89,13 @@ tr.is-challenger .set-mark.is-in { color: var(--s-alt); }
   .leaderboard .data-table :is(th, td):not(:first-child) { padding-left: 4px; padding-right: 4px; }
   .leaderboard .data-table :is(th, td):first-child { padding-right: 4px; }
   .mcs-matrix .data-table th.set-col, .mcs-matrix .data-table td.set-col { padding-left: 4px; padding-right: 4px; }
+}
+/* The six views (all days, four regimes, the distribution) fit a 320px phone on one row. */
+@media (max-width: 400px) {
+  #modl .segmented-button { padding: 0 6px; }
+}
+/* At 360px and below the distribution view keeps the CRPS, its t and p and the periods; Berkowitz's p, which CALB
+   shows with its grids, is left to CALB and the CSV. */
+@media (max-width: 360px) {
+  .leaderboard--dist .data-table .dist-berkowitz { display: none; }
 }

@@ -23,7 +23,7 @@ Each line below is a property with a test; the project is "there" when every lin
 | The main result reproduces bit for bit from pinned inputs | Reproduce workflow on `data/vol_lab.json` | holds (on every change to the pipeline, its inputs or its pins, and weekly; also inside the digest-pinned container, `make reproduce`) |
 | The forward record cannot be back-filled, and that is provable to an outsider | git seal before the window, plus an independent timestamp anchor | partial: sealed in git and checked from the file alone (`scripts/verify_record.py`); an anchor job attests the record in Sigstore's Rekor after each publish, best effort, and `scripts/verify_anchors.py` reads the times back (accepted 2026-11-01); not shown on LIVE, no second anchor |
 | The promotion test was fixed before any result arrived | a pre-registered, citable document with a persistent identifier | partial: pinned in code and docs; release tags wait for the owner's push (`HANDOFF.md` section 6); no DOI |
-| Forecast quality is judged with the right losses, at the right horizons, conditionally | QLIKE, MSE, MCS, SPA, DM today; density and conditional tests, several horizons | partial: SPA studentized with robustness; conditional tests done (Giacomini-White, fluctuation; 2.3); density and horizons to do |
+| Forecast quality is judged with the right losses, at the right horizons, conditionally | QLIKE, MSE, MCS, SPA, DM today; density and conditional tests, several horizons | partial: SPA studentized with robustness; conditional tests done (Giacomini-White, fluctuation; 2.3); density scores done (CRPS, pinball, PIT and Berkowitz; 2.4); horizons to do |
 | The model is specified, bounded and attributable | model card, elasticities, hand-checkable arithmetic; per-call attribution | holds from 2026-10-28: each new call stores its fit and the hero splits the change between two such calls; the six earlier sealed calls have no stored fit |
 | The interface is correct at every width and for every reader | 0 overflow, 0 console errors, axe clean, keyboard complete, print | partial: the Interface job checks overflow, console errors, serious and critical axe violations, keyboard and print at 1440 and 390 px; open gaps (placeholders at 320 px, hash landings at about 600 px, the hero's median dot at some widths, separators for screen readers) are in `HANDOFF.md` section 4 |
 | A reviewer can evaluate the project in ten minutes | a guide that says what to check and in what order | holds: README landing page and `docs/REVIEWER_GUIDE.md` |
@@ -376,6 +376,32 @@ These stay out, whatever a review suggests, unless the owner changes the rules:
 Tick items here with the PR number and date when they ship, and move any new finding into
 `HANDOFF.md`'s backlog.
 
+- **2.4 Score the whole predictive distribution** (the lab part and the CALB/MODL part, 2026-11-02):
+  `forecast_eval` gains the pinball loss, the CRPS from a quantile grid, the monotone rearrangement, trailing quantiles
+  with their mid-rank PIT and its simulated null, the sample PIT, Berkowitz's LR3 with a doubly censored form, the
+  batch-means test, and Bonferroni and Cauchy combinations;
+  `vol_lab.distribution` holds seven models' 19 quantiles on the band's 4,370 days, the CRPS and the 10%/90% pinball
+  losses in vol points, PIT decile shares with their simulated chance band, each model against the model of record by
+  a batch-means test on 12 periods, and Berkowitz on each sampling grid; a quantile HAR-IV is scored as a robustness
+  competitor, with a QLIKE rerun of the field (context); 25 ledger rows in two families; RESULTS 2.9. CALB draws the PIT
+  histogram (one row per model, one 0–16% scale from zero, each bin's chance range) under a computed Berkowitz summary,
+  with both tests in its table view; MODL gains a "CRPS" view (`?modl=dist`) with the three scores, their tests and
+  readings, and the rerun as a footnote, while its title, default view and ranking stay QLIKE. Accepted: a point
+  forecast scores its MAE exactly; the 19-level grid against the Gaussian closed form; Berkowitz rejects about 5% of
+  independent uniform PITs. Departures: the 19-level CRPS cannot converge to the closed form, so the test is its
+  analytic bias at 19 levels plus convergence as the grid widens; Berkowitz needs independent PITs, so it runs per
+  grid (Bonferroni over five), and the trailing-rank PITs are referred to a simulated null (it rejects 4.1% of its
+  draws at 5%; χ²(3) would reject 0.87%); the GARCH models use their own simulated RV distribution, not a Student-t
+  scaled to the 5-session variance (that reading is published as context); EWMA means normal returns; "the band's
+  window and delay" means no adaptive step; the quantile HAR uses QuantReg's estimator solved exactly as a linear
+  program, and its PIT test is censored at its 5% and 95% quantiles (registered after a seeded randomized-tail form
+  gave p = 0.157); the DM tests use batch means because the 9-lag variance is far too small for these persistent
+  differences; the scale, weights, periods, GARCH construction and references were chosen after scores were seen and
+  the rows are not pre-specified. On the page: the readings MODL's view and CALB's table view need load with their
+  lazy chunk (`lib/distributionScores.js`); the entry grows by about 10 KB (to 307,282 B of 327,680; the first
+  load's scripts 178,096 B gzipped of 184,320); below 900 px each test's p sits under its t, and at 360 px and below
+  MODL's view leaves Berkowitz's p to CALB. Not done: horizons (2.5) and a batch-means p beside the published QLIKE
+  DMs (backlog).
 - **2.3 Conditional predictive ability and stability over time** (#101 and the STAB part,
   2026-11-02): `forecast_eval.gw_test` and the fluctuation test (`rolling_dm`, a seeded null of
   random walks at the sample's resolution, critical values and a p adjusted for the choice among

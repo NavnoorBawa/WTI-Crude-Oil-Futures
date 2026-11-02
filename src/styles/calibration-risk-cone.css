@@ -20,6 +20,20 @@
 
 /* ------------------------------------------------------------------------------- calibration */
 .calb-regimes { margin-top: var(--sp-1); margin-bottom: 0; }
+/* PIT histogram (ROADMAP 2.4): each bin's chance range, as wide as the bin, behind a narrower bar, so the range shows
+   beside the bar wherever the bar covers it; the tag of a model outside the leaderboard's field reads muted. */
+.pit-chance { fill: var(--text-4); }
+.pit-tag { fill: var(--text-3); font-weight: 400; }
+.swatch-chance { --c: var(--text-4); height: 8px; }
+.pit-summary + .legend { margin-top: var(--sp-3); }
+.pit-note { margin-top: var(--sp-2); }
+/* The distribution tables' names, references and context wrap within a measure, so the grids' columns get the room;
+   a "by chance" row reads muted, under the models it holds for. */
+.data-table .dist-wrap { white-space: normal; min-width: 7rem; max-width: 13rem; }
+.data-table tr.is-chance :is(th, td) { color: var(--text-3); }
+@media (forced-colors: active) {
+  .svg-chart .pit-chance { fill: GrayText; }
+}
 
 /* ---------------------------------------------------------------------------------------- risk */
 .zone-note { margin-left: 6px; font-size: var(--fs-11); color: var(--text-3); }

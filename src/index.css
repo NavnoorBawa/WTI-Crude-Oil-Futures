@@ -559,7 +559,9 @@ button { font: inherit; color: inherit; }
 .facts .fact dt { white-space: normal; }
 
 /* ------------------------------------------------------------------------------------ controls */
-.segmented { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: var(--radius); }
+/* A group that cannot fit its row wraps inside the panel instead of running off its left edge (the controls row
+   aligns right). */
+.segmented { display: inline-flex; flex-wrap: wrap; max-width: 100%; border: 1px solid var(--rule-strong); border-radius: var(--radius); }
 .segmented-button,
 .toggle-button,
 .button {

@@ -76,3 +76,29 @@ export const withStability = (research) => {
       ...ledger.rows.filter((row) => families.has(row.family)).map(bundleLedgerRow)] },
   };
 };
+
+/**
+ * The fixture with the lab's distribution block (ROADMAP 2.4): vol_lab.distribution and the ledger's two new families
+ * ("predictive distribution" and "distribution calibration"), with the ledger summary's list of rows selected after a
+ * search extended by the challenger's score rows, as research.json carries them.
+ */
+export const withDistribution = (research) => {
+  const lab = committedLab();
+  const ledger = committedLedger();
+  const families = new Set(["predictive distribution", "distribution calibration"]);
+  const rows = ledger.rows.filter((row) => families.has(row.family));
+  const summary = research.ledger.summary ?? {};
+  return {
+    ...research,
+    vol_lab: { ...research.vol_lab, distribution: lab.distribution },
+    ledger: {
+      ...research.ledger,
+      summary: {
+        ...summary,
+        selected_after_search: [...new Set([...(summary.selected_after_search ?? []),
+          ...rows.filter((row) => row.selected_after_search).map((row) => row.id)])],
+      },
+      rows: [...research.ledger.rows, ...rows.map(bundleLedgerRow)],
+    },
+  };
+};
