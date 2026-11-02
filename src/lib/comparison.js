@@ -277,22 +277,3 @@ export const recentWindows = (pairs, windows = [26, 52, 156]) => {
     });
 };
 
-/**
- * The rolling mean, over `window` weeks, of weekQlike(challenger) − weekQlike(record): below zero
- * the challenger had the lower loss over the trailing window.
- *
- * @returns {{date:string, value:number}[]}  one point per week from the window's first full week
- */
-export const rollingGap = (pairs, window = 52) => {
-  const rows = asArray(pairs);
-  if (!Number.isInteger(window) || window < 1 || rows.length < window) return [];
-  const diffs = rows.map((row) => weekQlike(row.actual, row.challenger) - weekQlike(row.actual, row.record));
-  const points = [];
-  let sum = 0;
-  diffs.forEach((diff, index) => {
-    sum += diff;
-    if (index >= window) sum -= diffs[index - window];
-    if (index >= window - 1) points.push({ date: rows[index].date, value: sum / window });
-  });
-  return points;
-};

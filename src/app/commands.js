@@ -4,6 +4,7 @@
 import { fmtNum } from "../lib/format";
 import { GLOSSARY } from "../lib/glossary";
 import { MODL_VIEWS, regimeLossSplit } from "../lib/regimes";
+import { STAB_VIEWS, cumulativeRows, fluctuationSetup } from "../lib/stability";
 import {
   asText, getLab, leaderboardRows, ledgerStatusLabel, ledgerText, mcsLevel, modelLabels, postmortemWindow, researchLedger,
   shortLabel, varRows,
@@ -37,6 +38,8 @@ const VIEW_SETTINGS = [
   { key: "mkt", section: "mkt", setting: "range", detail: "Price chart", values: [["1w", "1W"], ["1m", "1M"], ["1y", "1Y"], ["all", "All"]] },
   { key: "modl", section: "modl", setting: "view", detail: "Leaderboard, all days or QLIKE by regime",
     values: MODL_VIEWS.map((view) => [view.value, view.name]) },
+  { key: "stab", section: "stab", setting: "over-time view", detail: "Rolling test with its band, or the cumulative difference",
+    values: STAB_VIEWS.map((view) => [view.value, view.name]) },
 ];
 const LEAK_WINDOWS = { "5y": "five_year", "10y": "ten_year" };
 
@@ -49,6 +52,7 @@ const availableValues = (setting, { research }) => {
     return values.filter(([value]) => levels.has(value));
   }
   if (setting.key === "risk") return getLab(research)?.var_backtest ? values : [];
+  if (setting.key === "stab") return fluctuationSetup(getLab(research)) && cumulativeRows(getLab(research)).length ? values : [];
   if (setting.key === "modl") {
     const lab = getLab(research);
     const rows = leaderboardRows(lab);

@@ -45,3 +45,34 @@ export const withRegimes = (research) => {
 };
 
 export { committedLab, committedLedger };
+
+/**
+ * The fixture with the lab's stability blocks (ROADMAP 2.3): every model's Giacomini-White and fluctuation blocks,
+ * the top-level stability block, the weekly rolling-t and cumulative series, and the ledger's two new families.
+ */
+export const withStability = (research) => {
+  const lab = committedLab();
+  const ledger = committedLedger();
+  const byKey = new Map(lab.leaderboard.models.map((model) => [model.key, model]));
+  const families = new Set(["conditional predictive ability", "stability over time"]);
+  const names = (prefix) => Object.keys(lab.series).filter((key) => key.startsWith(prefix));
+  return {
+    ...research,
+    vol_lab: {
+      ...research.vol_lab,
+      stability: lab.stability,
+      leaderboard: {
+        ...research.vol_lab.leaderboard,
+        models: research.vol_lab.leaderboard.models.map((model) => ({
+          ...model,
+          gw_qlike_vs_har_iv: byKey.get(model.key)?.gw_qlike_vs_har_iv,
+          fluctuation_qlike_vs_har_iv: byKey.get(model.key)?.fluctuation_qlike_vs_har_iv,
+        })),
+      },
+      series: { ...research.vol_lab.series, ...Object.fromEntries([...names("fluct_t_"), ...names("cum_qlike_diff_")]
+        .map((key) => [key, lab.series[key]])) },
+    },
+    ledger: { ...research.ledger, rows: [...research.ledger.rows,
+      ...ledger.rows.filter((row) => families.has(row.family)).map(bundleLedgerRow)] },
+  };
+};

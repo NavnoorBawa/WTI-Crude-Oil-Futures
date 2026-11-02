@@ -18,10 +18,11 @@ export const getSignAgreementLadder = retryingLazy(svg, "SignAgreementLadder");
 export const getLeakDumbbell = retryingLazy(svg, "LeakDumbbell");
 export const getLiveCalls = retryingLazy(() => import("./LiveCalls.jsx"));
 
-// STAB's yearly-gap and rolling-gap figures (they reuse the d3 chunk's frame and axes).
+// STAB's yearly-gap, rolling-test and cumulative figures (they reuse the d3 chunk's frame and axes).
 const stability = () => import("./stabilityCharts.jsx");
 export const getYearlyGapRows = retryingLazy(stability, "YearlyGapRows");
-export const getRollingGap = retryingLazy(stability, "RollingGap");
+export const getFluctuationRows = retryingLazy(stability, "FluctuationRows");
+export const getCumulativeRows = retryingLazy(stability, "CumulativeRows");
 
 // LEDG's status strip and METH's elasticity path (they reuse the d3 chunk's frame and axes).
 const reference = () => import("./referenceCharts.jsx");

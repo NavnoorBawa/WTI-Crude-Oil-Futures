@@ -35,8 +35,16 @@ tr.is-challenger .set-mark.is-in { color: var(--s-alt); }
 .label-faint { fill: var(--text-3); color: var(--text-3); }
 /* A yearly-gap bar cut at the scale's edge carries a break near its end. */
 .gap-break { stroke: var(--bg-1); stroke-width: 1.5; }
-/* Rolling gap: the region where the challenger had the lower loss. */
-.fill-gap-better { fill: var(--s-alt); fill-opacity: 0.22; }
+/* Rolling test: the band's dashed edges, the path thin, a run outside the band thick (in the tone of the side
+   with the lower loss). */
+.fluct-edge { stroke: var(--text-3); stroke-width: 1; stroke-dasharray: 3 3; }
+.fluct-path { stroke: var(--text-3); stroke-width: 1; }
+.fluct-run { stroke-width: 2.5; stroke-linecap: round; }
+.figure-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 0.75rem; }
+.figure-head .figure-title { flex: 1 1 16rem; }
+.fluct-readings { margin: var(--sp-2) 0 0; padding-left: 1.1rem; max-width: var(--measure); font-size: var(--fs-body);
+  line-height: 1.5; color: var(--text-2); }
+.fluct-readings li { margin: 0.2rem 0; }
 
 /* ----------------------------------------------------------------------------------- tablets */
 /* Below 1280px the QLIKE strip is shorter and the DM t range sits under its value, so the ten

@@ -7,7 +7,7 @@ import { after, before, test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { escapeRegExp, loadDashboard, readFixture, readSource, visibleText } from "./load.mjs";
-import { committedLab, withRegimes } from "./splice.mjs";
+import { committedLab, committedLedger, withRegimes, withStability } from "./splice.mjs";
 
 const FIXED_NOW = Date.parse("2026-10-21T12:00:00Z");
 Date.now = () => FIXED_NOW;
@@ -267,7 +267,7 @@ test("without the OVX-only regression the STAB title states the challenger's cou
     `The challenger beat ${label(champion)} in ${wins} of ${lab.yearly.length} years`);
 });
 
-test("recent windows and the rolling gap are computed from the weekly series", () => {
+test("recent windows are computed from the weekly series", () => {
   const s = lab.series;
   const weeks = s.date.map((date, i) => ({ actual: s.actual[i], record: s[champion][i], challenger: s.challenger[i] }))
     .filter((row) => row.actual > 0 && row.record > 0 && row.challenger > 0);
@@ -281,20 +281,151 @@ test("recent windows and the rolling gap are computed from the weekly series", (
     assert.ok(Math.abs(window.record - mean("record")) < 1e-12, `record, ${window.weeks} weeks`);
     assert.ok(Math.abs(window.challenger - mean("challenger")) < 1e-12, `challenger, ${window.weeks} weeks`);
   }
-  const rolling = comparison.rollingGap(pairs, 52);
-  assert.equal(rolling.length, weeks.length - 51);
-  const last = weeks.slice(-52).reduce((total, row) => total + qlike(row.actual, row.challenger) - qlike(row.actual, row.record), 0) / 52;
-  assert.ok(Math.abs(rolling[rolling.length - 1].value - last) < 1e-9);
   // On the page: labelled as the weekly series, with each window's two means.
   const text = visibleText(section(renderDashboard(), "stab"));
   assert.ok(text.includes("weekly series (grid 0), not the every-day sample"));
   for (const window of windows) {
     assert.ok(text.includes(`Last ${window.weeks} weeks ${m.format.fmtNum(window.record, 3)} vs ${m.format.fmtNum(window.challenger, 3)}`), window.weeks);
   }
-  assert.ok(text.includes(`Rolling 52-week QLIKE gap, challenger minus ${label(champion)}`));
-  // Without the record's weekly forecasts nothing is compared.
+  // The fixture predates the stability blocks: no rolling test, and the old 52-week gap is gone.
+  assert.doesNotMatch(text, /Rolling DM t|Rolling 52-week/);
   assert.deepEqual(comparison.weeklyPairs(lab, "no_such_model"), []);
   assert.deepEqual(comparison.recentWindows(pairs.slice(0, 10), [26]), []);
+});
+
+// ------------------------------------------------------------------ ROADMAP 2.3: tests over time and by state
+const stabilityLib = () => m.load("/src/lib/stability.js");
+
+test("STAB draws the artifact's rolling DM t with the simulated band and the published runs", async () => {
+  const st = await stabilityLib();
+  const spliced = withStability(research).vol_lab;
+  const truth = committedLab();
+  const setup = st.fluctuationSetup(spliced);
+  assert.equal(setup.c5, truth.stability.fluctuation.critical_values.five_pct);
+  const rows = st.fluctuationRows(spliced);
+  assert.deepEqual(rows.map((row) => row.name).sort(), [...truth.stability.series.fluct_t].sort());
+  assert.equal(rows.at(-1).name, "challenger", "the challenger last");
+  for (const row of rows) {
+    assert.deepEqual(row.values, truth.series[`fluct_t_${row.name}`]);
+    const key = row.name === "challenger" ? truth.config.challenger : row.name;
+    assert.equal(row.key, key);
+    assert.deepEqual(row.block, truth.leaderboard.models.find((model) => model.key === key).fluctuation_qlike_vs_har_iv);
+  }
+  const markup = html(createElement(stabilityCharts.FluctuationSvg, { rows, setup, recordLabel: label(champion), width: 640 }));
+  assert.equal(stabilityCharts.fluctuationHeight(rows.length), rows.length * 86 + 22);
+  assert.match(markup, new RegExp(`height="${stabilityCharts.fluctuationHeight(rows.length)}"`));
+  assert.ok(visibleText(markup).includes(`±${m.format.fmtNum(setup.c5, 2)}`), "the band is labelled at 2 dp");
+  assert.doesNotMatch(visibleText(markup), /1\.96/, "no pointwise band");
+  assert.equal((markup.match(/class="fill-noise-zone"/g) ?? []).length, rows.length);
+  // One thick segment per published run, each over its published weekly span (a run with no weekly point inside
+  // still draws, as the snapped span holds a point).
+  const runs = rows.flatMap((row) => row.block.outside_5pct.map((run) => ({ row, run })));
+  assert.equal((markup.match(/class="fluct-run /g) ?? []).length, runs.length);
+  for (const { row, run } of runs) {
+    assert.ok(markup.includes(`windows ending ${m.format.fmtDate(run.from)} to ${m.format.fmtDate(run.to)}`), `${row.name} ${run.from}`);
+    assert.ok(row.values.slice(run.week_from, run.week_to + 1).some((value) => value != null));
+  }
+  // The band rectangle sits exactly at ±c on the shared scale.
+  const peak = Math.max(...rows.flatMap((row) => row.values.filter((v) => v != null).map(Math.abs)));
+  const limit = Math.max(1.25 * setup.c5, Math.ceil(peak));
+  const rect = markup.match(/<rect class="fill-noise-zone"[^>]*y="([^"]+)"[^>]*height="([^"]+)"/);
+  const plotH = 86 - 16 - 6;
+  const y = (value) => 16 + plotH - ((value + limit) / (2 * limit)) * plotH;
+  assert.ok(Math.abs(Number(rect[1]) - y(setup.c5)) < 1e-6 && Math.abs(Number(rect[2]) - (y(-setup.c5) - y(setup.c5))) < 1e-6);
+});
+
+test("each STAB reading follows its flags and never overstates", async () => {
+  const st = await stabilityLib();
+  const spliced = withStability(research);
+  const rows = st.fluctuationRows(spliced.vol_lab);
+  const setup = st.fluctuationSetup(spliced.vol_lab);
+  const ledger = m.research.researchLedger(spliced);
+  const read = (row, ledgerRow = ledger.byId.get(`vol_fluct_${row.key}`)) => st.fluctuationReading(row, {
+    recordName: label(champion), setup, ledgerRow });
+  const banned = /better in|better during|\bwon\b|no window shows|adds when|premium|beat .* in \d{4}/i;
+  const byName = new Map(rows.map((row) => [row.name, row]));
+  const ovx = read(byName.get("ovx_only"));
+  const fl = byName.get("ovx_only").block;
+  assert.ok(ovx.startsWith(`Outside the 5% band: max |t| ${m.format.fmtNum(fl.sup, 2)} in the window ending `
+    + `${m.format.fmtDate(fl.at)} (from ${m.format.fmtDate(fl.window_start)})`), ovx);
+  assert.ok(ovx.includes("for 927-session windows"), ovx);
+  assert.match(ovx, /OVX-only regression lower/);
+  assert.match(ovx, /p.=.0\.186 with Giacomini and Rossi's full-sample variance/, "a robustness form in another band is named");
+  assert.match(ovx, /Adjusted for the 5 window lengths looked at, p.=.0\.056: inconclusive \(q.=.0\.156\)\./);
+  assert.ok(ovx.includes(`The largest mean difference in that direction is +${m.format.fmtNum(fl.largest_same_sign_window.mean_diff, 3)} `
+    + `a day, in the window ending ${m.format.fmtDate(fl.largest_same_sign_window.window_end)} `
+    + `(t\u00a0=\u00a0${m.format.fmtNum(fl.largest_same_sign_window.t, 2)}); at the peak it is +${m.format.fmtNum(fl.peak_window_mean_diff, 3)}.`), ovx);
+  const raw = read(byName.get("raw_ovx"));
+  assert.match(raw, /^Inside the band \(max .*is not rejected for this window length, which is not evidence/);
+  assert.match(raw, /: not significant\./);
+  const chall = read(byName.get("challenger"));
+  assert.match(chall, /left out of the ledger's adjusted family/);
+  assert.match(chall, /so not new evidence; nothing here re-selects it/);
+  for (const text of [ovx, raw, chall]) assert.doesNotMatch(text, banned);
+  // Synthetic flags: every band of the drawn window and of the adjusted p, and survival.
+  const row = structuredClone(byName.get("raw_ovx"));
+  Object.assign(row.block, { rejects_5pct: false, rejects_10pct: true, p_value: 0.07 });
+  assert.match(read(row), /^Between the 10% and 5% bands: inconclusive for this window length/);
+  row.block.search_adjusted.p_value = 0.03;
+  assert.match(read(row, { q: 0.04, survives_bh: true }), /significant at 5%; it survives the ledger's Benjamini-Hochberg adjustment \(q.=.0\.040\)/);
+  assert.match(read(row, { q: 0.2, survives_bh: false }), /it does not survive the ledger's Benjamini-Hochberg adjustment/);
+  row.block.search_adjusted.p_value = 0.05;
+  assert.match(read(row), /p.=.0\.050: inconclusive/, "0.05 is not significant");
+  row.block.crosses_both_sides = true;
+  assert.match(read(row), /The path leaves the band on both sides\./);
+});
+
+test("STAB's Giacomini-White note and tests table are counted from the payload", async () => {
+  const st = await stabilityLib();
+  const spliced = withStability(research);
+  const truth = committedLab();
+  const ledger = committedLedger();
+  const models = truth.leaderboard.models.filter((model) => model.key !== champion);
+  const sig = models.filter((model) => model.gw_qlike_vs_har_iv.conditional.p_value < 0.05);
+  const note = st.gwNote(spliced.vol_lab, m.research.researchLedger(spliced));
+  assert.ok(note.includes(`significant at 5% against ${sig.length} of ${models.length} models`), note);
+  const survivors = sig.filter((model) => ledger.rows.find((r) => r.id === `vol_gw_${model.key}`).survives_bh_5pct);
+  for (const model of survivors) assert.ok(note.includes(`${m.research.shortLabel(model.label)} survive`), model.key);
+  assert.match(note, /With the constant included the test mostly repeats the DM test, so that form is context/);
+  assert.doesNotMatch(note, /uses OVX|use OVX|or the range/, "no categorisation the data contradict (LightGBM uses OVX)");
+  const rows = st.stabilityTestRows(spliced, m.research.researchLedger(spliced));
+  assert.equal(rows.length, models.length);
+  assert.ok(rows.at(-1).timingControl, "the timing control last");
+  for (const row of rows) {
+    const model = truth.leaderboard.models.find((candidate) => candidate.key === row.key);
+    const fl = model.fluctuation_qlike_vs_har_iv;
+    assert.equal(row.gwP, model.gw_qlike_vs_har_iv.conditional.p_value);
+    assert.equal(row.gwFullP, model.gw_qlike_vs_har_iv.p_value);
+    assert.equal(row.adjusted, fl.search_adjusted.p_value);
+    assert.equal(row.sup, fl.sup * fl.sign);
+    assert.equal(row.level, fl.p_value < 0.05 ? "outside 5%" : fl.p_value < 0.1 ? "inconclusive" : "inside");
+    const q = (id) => ledger.rows.find((r) => r.id === id).q_value_bh;
+    if (row.challenger) {
+      assert.equal(q(`vol_fluct_${row.key}`), null);
+    } else {
+      assert.equal(row.flQ, q(`vol_fluct_${row.key}`));
+      assert.equal(row.gwQ, q(`vol_gw_${row.key}`));
+    }
+  }
+  const panel = await m.load("/src/panels/StabilityPanel.jsx");
+  const markup = html(createElement(panel.StabilityTests, { rows }));
+  assert.ok(visibleText(markup).includes("excluded"), "the challenger's q is shown as excluded");
+});
+
+test("STAB with the stability blocks: the figure's heading, caption and readings, and the view control", () => {
+  const spliced = withStability(withRegimes(research));
+  const markup = section(renderDashboard(spliced), "stab");
+  const text = visibleText(markup);
+  const setup = committedLab().stability.fluctuation;
+  assert.ok(text.includes(`Rolling DM t vs ${label(champion)}, ${m.format.fmtInt(setup.window_sessions)}-session windows, with the 5% band`), text);
+  assert.ok(text.includes(`The band, ±${m.format.fmtNum(setup.critical_values.five_pct, 2)}, holds for the whole path at once`));
+  assert.ok(text.includes(`their published value for this window is ${m.format.fmtNum(setup.gr2010_table1.five_pct, 3)}`));
+  assert.match(text, /read the size of a difference in the cumulative view/);
+  assert.equal((markup.match(/<li><strong>/g) ?? []).length, committedLab().stability.series.fluct_t.length);
+  const group = markup.match(/aria-label="Over-time view[^"]*">([\s\S]*?)<\/div>/)?.[1] ?? "";
+  assert.deepEqual([...group.matchAll(/aria-pressed="(true|false)"[^>]*>([^<]*)</g)].map((x) => [x[2], x[1]]),
+    [["Rolling test", "true"], ["Cumulative", "false"]]);
+  assert.doesNotMatch(text, /better in|better during|\bwon\b|no window shows|adds when/);
 });
 
 test("the DM axis notes run outward from zero and shorten under 300 px of plot", () => {

@@ -282,3 +282,15 @@ test("the palette offers MODL's regime views only when the payload carries them"
   ]);
   for (const item of items) assert.equal(item.run.section, "modl");
 });
+
+test("the palette offers STAB's over-time views only when the payload carries the stability blocks", async () => {
+  const { withStability } = await import("./splice.mjs");
+  const view = (items) => items.filter((item) => item.run.type === "view" && item.run.key === "stab");
+  assert.deepEqual(view(build()), [], "no stability blocks, no view setting");
+  const items = view(commands.buildCommands({ data, research: withStability(researchJson), view: { stab: "cumulative" } }));
+  assert.deepEqual(items.map((item) => [item.run.value, item.label, Boolean(item.current)]), [
+    ["test", "STAB over-time view: rolling test", false], ["cumulative", "STAB over-time view: cumulative difference", true],
+  ]);
+  const viewState = await import("../../src/app/viewState.js").catch(() => null);
+  if (viewState) assert.equal(viewState.VIEW_DEFAULTS.stab, "test");
+});
