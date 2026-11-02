@@ -128,8 +128,9 @@ export function RegimeTable({ rows, split, footnote }) {
       columns={[
         { key: "label", label: "Model", rowHeader: true, sortable: true, render: (row) => <ModelCell row={row} />, csv: modelText },
         {
+          // Shown at every width: the column-group row's spans count it, so hiding it would shift the split's head.
           key: "qlike", label: "All days", csvLabel: "QLIKE, all days", title: "QLIKE on every out-of-sample day", align: "right",
-          sortable: true, hideBelow: 640, render: (row) => <span className="num">{fmtNum(row.qlike, 4)}</span>,
+          sortable: true, render: (row) => <span className="num">{fmtNum(row.qlike, 4)}</span>,
         },
         ...split.levels.map((level) => ({
           key: `regime-${level.key}`,
@@ -403,7 +404,8 @@ export default function LeaderboardPanel({ data, research, researchStatus }) {
     >
       {split ? (
         <div className="leaderboard leaderboard--regime">
-          <RegimeTable rows={rows} split={split} footnote={regimeNote ? <ul className="footnotes"><li>{regimeNote}</li></ul> : null} />
+          {/* Keyed by the split, so each view starts from its own initial sort. */}
+          <RegimeTable key={split.view} rows={rows} split={split} footnote={regimeNote ? <ul className="footnotes"><li>{regimeNote}</li></ul> : null} />
         </div>
       ) : (
       <div className="leaderboard">

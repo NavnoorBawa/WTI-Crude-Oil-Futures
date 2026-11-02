@@ -399,6 +399,7 @@ test("the floor's sentence leaves out what the block lacks", () => {
 
 // ------------------------------------------------------------------------- MODL by regime (ROADMAP 2.2)
 const REGIME_VIEWS = { ovx: "ovx_tercile", gap: "ovx_rv_gap", rv5: "rv5_tercile", roll: "target_spans_roll" };
+const COLUMN_WORDS = { low: "Low", mid: "Middle", high: "High", at_or_below: "At or below", above: "Above", no: "No roll", yes: "Roll" };
 const cellsOf = (markup) => [...markup.split("<tbody>")[1].matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/g)]
   .map((match) => [...match[1].matchAll(/<t[hd]\b[^>]*>([\s\S]*?)<\/t[hd]>/g)].map((cell) => visibleText(cell[1]).trim()));
 
@@ -414,11 +415,15 @@ test("MODL by regime: every value is the artifact's QLIKE for that regime, each 
     assert.deepEqual(split.levels.map((level) => level.key), levels);
     assert.deepEqual(split.levels.map((level) => level.n), levels.map((level) => truth.regimes.n_days_by_regime[variable][level]));
     const markup = html(createElement(modl.RegimeTable, { rows, split }));
-    for (const level of split.levels) {
-      assert.ok(visibleText(markup).includes(`${level.label}, ${m.format.fmtInt(level.n)}`), `${view} ${level.key} names its days`);
-    }
+    // The column heads, written out here: the model, all days, then each regime with its days from the artifact.
+    const heads = [...markup.match(/<thead[\s\S]*?<\/thead>/)[0].matchAll(/<th scope="col"[^>]*>([\s\S]*?)<\/th>/g)]
+      .map((match) => visibleText(match[1]).replace(/[↕↑↓]/g, "").replace(/\u00a0/g, " ").trim());
+    assert.deepEqual(heads, ["Model", "All days",
+      ...levels.map((level) => `${COLUMN_WORDS[level]}, ${m.format.fmtInt(truth.regimes.n_days_by_regime[variable][level])} d`)], view);
+    assert.ok(!heads.some((head) => /DM|MCS|grid|MZ|utility/i.test(head)), "no test column in a descriptive view");
     const body = cellsOf(markup);
     assert.equal(body.length, rows.length, "every model, once");
+    assert.ok(body.every((cells) => cells.length === 2 + levels.length), "model, all days and one cell per regime");
     for (const cells of body) {
       // The name cell holds the label (hyphens kept unbreakable) and its chips; the longest matching label wins
       // ("HAR-IV-range" over "HAR-IV").
@@ -452,7 +457,9 @@ test("the regime footnote counts the challenger's lower-loss regimes from the pa
   };
   const { lower, cells } = count(spliced);
   const note = m.regimes.regimeLossNote(spliced, rows, names);
-  assert.ok(note.includes(`lower QLIKE than ${names.recordName} in ${lower} of ${cells} regimes`), note);
+  const splits = Object.keys(REGIME_VIEWS).length;
+  assert.ok(note.includes(`lower QLIKE than ${names.recordName} in ${lower} of the ${cells} regimes across all ${splits} splits `
+    + "(each day is in one regime of every split)"), note);
   assert.match(note, /descriptive: no test is run within a regime/);
   assert.match(note, /it is not new evidence, and nothing here re-selects it/);
   assert.doesNotMatch(note, /hides|regime-dependent|evidence of|suggests|significant|premium/i);
@@ -465,17 +472,34 @@ test("the regime footnote counts the challenger's lower-loss regimes from the pa
   const again = count(moved);
   assert.equal(again.lower, lower + (flip ? -1 : 1));
   assert.ok(m.regimes.regimeLossNote(moved, m.research.leaderboardRows(moved), names)
-    .includes(`in ${again.lower} of ${again.cells} regimes`));
+    .includes(`in ${again.lower} of the ${again.cells} regimes`));
+  // A tie is not a lower loss.
+  const tied = structuredClone(spliced);
+  const tiedOurs = tied.leaderboard.models.find((model) => model.key === challenger);
+  const tiedRecord = tied.leaderboard.models.find((model) => model.key === champion);
+  const tiedBefore = count(tied).lower;
+  const wasLower = tiedOurs.qlike_by_regime.rv5_tercile.mid < tiedRecord.qlike_by_regime.rv5_tercile.mid;
+  tiedOurs.qlike_by_regime.rv5_tercile.mid = tiedRecord.qlike_by_regime.rv5_tercile.mid;
+  assert.ok(m.regimes.regimeLossNote(tied, m.research.leaderboardRows(tied), names)
+    .includes(`in ${tiedBefore - (wasLower ? 1 : 0)} of the ${cells} regimes`));
+  // One split only: the scope says so.
+  const one = structuredClone(spliced);
+  for (const variable of ["ovx_rv_gap", "rv5_tercile", "target_spans_roll"]) delete one.regimes.variables[variable];
+  assert.match(m.regimes.regimeLossNote(one, m.research.leaderboardRows(one), names), / of the 3 regimes in its one split repeats/);
   // Without the roles' regime losses there is no count to state.
   assert.equal(m.regimes.regimeLossNote(lab, m.research.leaderboardRows(lab), names), null);
 });
 
-test("MODL offers the regime views only with the regime blocks, the title never changes, and the control is labelled", () => {
+test("MODL offers the regime views only with the regime blocks, the default view's title is unchanged, and the control is labelled", async () => {
   const plain = section(renderDashboard(), "modl");
   const spliced = section(renderDashboard(withRegimes(research)), "modl");
   const title = (markup) => markup.match(/<h2\b[^>]*>([\s\S]*?)<\/h2>/)?.[1];
   assert.ok(title(plain));
-  assert.equal(title(spliced), title(plain), "the title does not depend on the view");
+  // The regime blocks change nothing in the default view's title (the e2e check switches views in a browser).
+  assert.equal(title(spliced), title(plain));
+  const view = await m.load("/src/app/viewState.js");
+  assert.equal(view.VIEW_DEFAULTS.modl, m.regimes.MODL_VIEWS[0].value, "the URL's default is the control's first view");
+  assert.equal(m.regimes.MODL_VIEWS[0].value, "all");
   assert.doesNotMatch(plain, /aria-label="Leaderboard view/);
   const group = spliced.match(/<div class="segmented" role="group" aria-label="Leaderboard view[^"]*">([\s\S]*?)<\/div>/)?.[1];
   assert.ok(group, "a labelled group");
@@ -484,6 +508,9 @@ test("MODL offers the regime views only with the regime blocks, the title never 
   // The default view is the leaderboard itself; the regime note explains the labels.
   assert.match(spliced, /id="modl-/);
   assert.match(visibleText(spliced), /By regime: Regimes are labelled at the decision from what was known then/);
+  const window = withRegimes(research);
+  window.vol_lab.regimes.variables.ovx_rv_gap.window_sessions = 300;
+  assert.ok(visibleText(section(renderDashboard(window), "modl")).includes("over the previous 300 sessions"), "the window is read");
   assert.doesNotMatch(visibleText(plain), /By regime:/);
   // A payload missing one split's labels drops that view only.
   const partial = withRegimes(research);

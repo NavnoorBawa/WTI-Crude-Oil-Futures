@@ -79,8 +79,8 @@ export const regimeQlike = (row, splitKey, level) => num(row?.qlikeByRegime?.[sp
 
 /**
  * The footnote under MODL's regime view: it is descriptive, and the challenger's lower loss than the model of
- * record in k of n regimes (counted over every split the payload carries) repeats the full-sample comparison
- * that picked it. Null without both roles' regime losses.
+ * record in k of n regimes (counted over every split the payload carries, and saying so, since the view shows
+ * one split) repeats the full-sample comparison that picked it. Null without both roles' regime losses.
  */
 export const regimeLossNote = (lab, rows, { recordName, challengerName }) => {
   const record = asArray(rows).find((row) => row?.role === "record");
@@ -88,19 +88,22 @@ export const regimeLossNote = (lab, rows, { recordName, challengerName }) => {
   if (!record || !challenger) return null;
   let cells = 0;
   let lower = 0;
+  const splits = new Set();
   for (const split of REGIME_SPLITS) {
     for (const level of asArray(lab?.regimes?.variables?.[split.key]?.levels)) {
       const ours = regimeQlike(challenger, split.key, level);
       const theirs = regimeQlike(record, split.key, level);
       if (ours == null || theirs == null) continue;
       cells += 1;
+      splits.add(split.key);
       if (ours < theirs) lower += 1;
     }
   }
   if (!cells) return null;
+  const scope = splits.size === 1 ? "in its one split" : `across all ${fmtInt(splits.size)} splits (each day is in one regime of every split)`;
   return `QLIKE by regime is descriptive: no test is run within a regime. ${challengerName} was picked as the challenger `
-    + `for its loss on this whole sample, so its lower QLIKE than ${recordName} in ${fmtInt(lower)} of ${fmtInt(cells)} regimes `
-    + "repeats that comparison split by regime; it is not new evidence, and nothing here re-selects it.";
+    + `for its loss on this whole sample, so its lower QLIKE than ${recordName} in ${fmtInt(lower)} of the ${fmtInt(cells)} regimes `
+    + `${scope} repeats that comparison split by regime; it is not new evidence, and nothing here re-selects it.`;
 };
 
 /**
@@ -158,15 +161,24 @@ export const pEq = (value) => {
 
 /**
  * A split's verdict, worded at its test's strength: "significant at 5% (...)", "inconclusive (...)" or
- * null when nothing is detected (the caller groups those). The ledger's q and the first robustness check
- * that lands in another band are added in brackets; a robustness clause never upgrades the verdict.
+ * null when nothing is detected (the caller groups those). The ledger's q (for a significant split, whether it
+ * survives the ledger's Benjamini-Hochberg adjustment) and the first robustness check that lands in another band
+ * are added in brackets; a robustness clause never upgrades the verdict.
  */
 export const regimeVerdict = (split, ledgerRow) => {
   const { p, p20, p40, pAll } = split.test;
   if (p == null) return null;
   const parts = [pEq(p)];
   const q = num(ledgerRow?.q);
-  if (band(p) < 2 && q != null) parts.push(`q${NBSP}=${NBSP}${fmtPValue(q, { digits: 3 })} after the ledger's adjustment`);
+  const qText = q != null ? `q${NBSP}=${NBSP}${fmtPValue(q, { digits: 3 })}` : null;
+  // A significant split says whether it survives the ledger's Benjamini-Hochberg adjustment (its flag), as the
+  // docs and MODL's SPA line do; an inconclusive one gives its q.
+  const survives = ledgerRow?.survives_bh === true ? "survives" : ledgerRow?.survives_bh === false ? "does not survive" : null;
+  if (band(p) === 0 && qText) {
+    parts.push(survives ? `it ${survives} the ledger's Benjamini-Hochberg adjustment, ${qText}` : `${qText} after the ledger's adjustment`);
+  } else if (band(p) === 1 && qText) {
+    parts.push(`${qText} after the ledger's adjustment`);
+  }
   const other = [[p20, "with 20 HAC lags"], [p40, "with 40 HAC lags"], [pAll, "with every regime tested against the target"]]
     .find(([value]) => value != null && band(value) !== band(p));
   if (other && band(p) < 2) parts.push(`${pEq(other[0])} ${other[1]}`);
@@ -202,4 +214,51 @@ export const regimeCoverageAssertion = (lab, champion, ledger) => {
       + `(${quiet.map((split) => pEq(split.test.p)).join(", ")}).`
     : "";
   return [...stated, none, "A dependence found here is reported, never used to change the band."].filter(Boolean).join(" ");
+};
+
+/**
+ * CALB's per-regime table rows: the model of record's levels (regimeCoverage) in split order, each with the
+ * challenger's coverage in the same regime. Pure.
+ */
+export const regimeCoverageRows = (lab, champion, challenger) => {
+  const theirs = challenger ? regimeCoverage(lab, challenger) : [];
+  return regimeCoverage(lab, champion).flatMap((split) => split.levels.map((level) => ({
+    ...level,
+    id: `${split.key}:${level.key}`,
+    split: split.key,
+    challenger: theirs.find((other) => other.key === split.key)?.levels.find((other) => other.key === level.key)?.coverage ?? null,
+  })));
+};
+
+/**
+ * CALB's test rows: each banded model's splits (regimeCoverage) with the test, the robustness and the ledger's q
+ * (row band_regime_<split>_<model>). `models` is [[key, name], ...]. Pure.
+ */
+export const regimeTestRows = (lab, ledger, models) => asArray(models).flatMap(([key, name]) => (key ? regimeCoverage(lab, key) : [])
+  .map((split) => ({
+    id: `${key}:${split.key}`,
+    split: split.key,
+    name: split.name,
+    model: name,
+    test: split.test,
+    q: num(ledger?.byId?.get(`band_regime_${split.key}_${key}`)?.q),
+  })));
+
+/**
+ * What the per-regime p-values test, and why none carries a verdict: each regime's HAC p tests its coverage
+ * against the target; the per-grid binomials (exact, each treating a grid's weeks as independent) are counted
+ * from the payload, so a reader sees how many are shown and that some below 5% are expected by chance. Null
+ * without regime rows.
+ */
+export const regimeCellCaveat = (rows, target) => {
+  const levels = asArray(rows);
+  if (!levels.length) return null;
+  const tests = levels.reduce((sum, row) => sum + (row?.binomial?.n ?? 0), 0);
+  const grids = Math.max(0, ...levels.map((row) => row?.binomial?.n ?? 0));
+  const goal = num(target) != null ? `the ${fmtInt(target)}% target` : "the target";
+  const head = `Each regime's own HAC p tests that regime's coverage against ${goal}`;
+  if (!tests) return `${head}; it carries no verdict.`;
+  return `${head}, and the binomial range gives the lowest and highest exact binomial p of the regime's ${fmtInt(grids)} `
+    + `non-overlapping sampling grids, each treating its weeks as independent: ${fmtInt(tests)} such tests per model, so values `
+    + `below ${ALPHA} are expected by chance. Neither carries a verdict.`;
 };

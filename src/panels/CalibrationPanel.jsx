@@ -6,7 +6,7 @@ import Panel, { REPRODUCE } from "../components/Panel";
 import { INTERVAL_LEVEL_PCT, calibrationAssertion, calibrationDetail } from "../lib/assertions";
 import { mzWeekly } from "../lib/cone";
 import { DASH, NBSP, fmtInt, fmtNum, fmtPValue, fmtPct, num } from "../lib/format";
-import { regimeCoverage, regimeCoverageAssertion, regimeLabelText } from "../lib/regimes";
+import { regimeCellCaveat, regimeCoverage, regimeCoverageAssertion, regimeCoverageRows, regimeLabelText, regimeTestRows } from "../lib/regimes";
 import { asObject, coverageByYear, getLab, getRoles, getVol, leaderboardRows, modelLabels, researchLedger, shortLabel } from "../lib/research";
 import { Facts, Legend, ResearchUnavailable } from "./common";
 
@@ -64,7 +64,7 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
     })), [lab]);
   const weeklyLab = useMemo(() => mzWeekly(lab?.series), [lab]);
   const regimes = useMemo(() => regimeCoverage(lab, champion), [lab, champion]);
-  const challengerRegimes = useMemo(() => regimeCoverage(lab, challenger), [lab, challenger]);
+  const regimeRows = useMemo(() => regimeCoverageRows(lab, champion, challenger), [lab, champion, challenger]);
   const regimeText = useMemo(() => regimeCoverageAssertion(lab, champion, researchLedger(research)),
     [lab, champion, research]);
   const conformal = asObject(lab?.conformal?.[champion]);
@@ -141,8 +141,10 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
       + "The two samples score the same forecasts on different days, so the slopes differ; each figure names its sample.",
     regimes.length
       ? `${regimeLabelText(lab) ?? ""} Each split is tested for equal miss rates across its regimes (HAC Wald, ${fmtInt(num(lab?.regimes?.test?.hac_lags))} lags); a single regime's coverage carries no verdict. `
-        + "The interval score is in vol points and grows with the vol level, so it compares the two models within a regime, not one "
-        + "regime with another. Roll windows are never scored in the live record; that split describes the lab's band only."
+        + `${regimeCellCaveat(regimeRows, target) ?? ""} `
+        + "The interval score is in vol points and grows with the vol level, so it does not compare one regime with another; the "
+        + "log interval score scores the same band on the log scale and is scale-free. Roll windows are never scored in the live "
+        + "record; that split describes the lab's band only."
       : null,
   ];
 
@@ -205,11 +207,7 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
                   { key: "challenger", label: "Challenger coverage", align: "right", hideBelow: 640, render: (row) => fmtPct(row.challenger),
                     csvLabel: "Challenger coverage (%)" },
                 ]}
-                rows={regimes.flatMap((split) => split.levels.map((level) => ({
-                  ...level,
-                  id: `${split.key}:${level.key}`,
-                  challenger: challengerRegimes.find((s) => s.key === split.key)?.levels.find((l) => l.key === level.key)?.coverage ?? null,
-                })))}
+                rows={regimeRows}
               />
               <DataTable
                 caption="Tests of equal coverage across regimes (HAC Wald), with the ledger's q"
@@ -219,8 +217,8 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
                 columns={[
                   { key: "name", label: "Split", rowHeader: true },
                   { key: "model", label: "Model" },
-                  { key: "wald", label: "Wald χ² (df)", align: "right", render: (row) => `${fmtNum(row.test.wald, 2)} (${fmtInt(row.test.df)})`,
-                    csv: (row) => row.test.wald },
+                  { key: "wald", label: "Wald χ²", align: "right", render: (row) => fmtNum(row.test.wald, 2), csv: (row) => row.test.wald },
+                  { key: "df", label: "df", align: "right", render: (row) => fmtInt(row.test.df), csv: (row) => row.test.df },
                   { key: "p", label: "p", align: "right", render: (row) => fmtPValue(row.test.p, { digits: 3 }), csv: (row) => row.test.p },
                   { key: "q", label: "q (ledger)", align: "right", render: (row) => fmtPValue(row.q, { digits: 3 }) },
                   { key: "p20", label: "p, 20 lags", align: "right", hideBelow: 640, render: (row) => fmtPValue(row.test.p20, { digits: 3 }), csv: (row) => row.test.p20 },
@@ -228,12 +226,8 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
                   { key: "pAll", label: "p, every regime vs target", align: "right", hideBelow: 640, render: (row) => fmtPValue(row.test.pAll, { digits: 3 }),
                     csv: (row) => row.test.pAll },
                 ]}
-                rows={[[champion, regimes], [challenger, challengerRegimes]].flatMap(([key, splits]) => splits.map((split) => ({
-                  ...split,
-                  id: `${key}:${split.key}`,
-                  model: shortLabel(labels.get(key) ?? key),
-                  q: researchLedger(research)?.byId?.get(`band_regime_${split.key}_${key}`)?.q ?? null,
-                })))}
+                rows={regimeTestRows(lab, researchLedger(research),
+                  [champion, challenger].filter(Boolean).map((key) => [key, shortLabel(labels.get(key) ?? key)]))}
               />
             </>
           )}

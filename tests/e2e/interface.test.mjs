@@ -160,10 +160,22 @@ test("MODL by regime and CALB's regime tables fit 390 and 320 px, pass axe, and 
           caption: document.querySelector("#modl caption")?.textContent ?? "",
           calbNote: [...document.querySelectorAll("#calb .prose-note")].some((note) => /Across OVX thirds|dependence detected/.test(note.textContent)),
           calbTables: [...document.querySelectorAll("#calb caption")].map((caption) => caption.textContent),
+          h2: document.querySelector("#modl h2")?.textContent ?? "",
+          matrix: Boolean(document.querySelector("#modl .mcs-matrix")),
+          footnote: /it is not new evidence/.test(document.querySelector("#modl .leaderboard--regime")?.textContent ?? ""),
+          // The split's group head starts where its first regime column starts (the spans count every visible column).
+          groupOffset: (() => {
+            const group = document.querySelector("#modl .group-row th[scope='colgroup']");
+            const first = [...document.querySelectorAll("#modl thead tr:not(.group-row) th")].find((th) => /, [\d,]+\s?d/.test(th.textContent));
+            return group && first ? Math.round(group.getBoundingClientRect().left - first.getBoundingClientRect().left) : null;
+          })(),
         }));
         assert.ok(state.overflow <= 0, `${width}px ${path}: the page scrolls sideways by ${state.overflow}px`);
         assert.deepEqual(state.pressed, [view], `${width}px ${path}: the URL's view is the pressed one`);
         assert.match(state.caption, /^QLIKE by regime at the decision: /);
+        assert.ok(state.footnote, "the regime view says it is descriptive and not new evidence");
+        assert.equal(state.matrix, false, "the MCS matrix belongs to the all-days view");
+        assert.equal(state.groupOffset, 0, `${width}px ${path}: the split's head starts at its first regime column`);
         if (path.includes("table=calb")) {
           assert.ok(state.calbTables.some((caption) => /coverage by regime at the decision/.test(caption)), "CALB's per-regime table");
           assert.ok(state.calbTables.some((caption) => /Tests of equal coverage across regimes/.test(caption)), "CALB's tests table");
@@ -177,13 +189,19 @@ test("MODL by regime and CALB's regime tables fit 390 and 320 px, pass axe, and 
             .map((v) => `${v.id} (${v.impact}): ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(", ")}`);
         });
         assert.deepEqual(violations, [], `${width}px ${path}: serious or critical axe violations`);
-        // The control writes the URL and swaps the table; "All" returns to the bare URL.
+        // A reader's sort belongs to its split: sort a regime column, switch, and the new split starts on all days.
+        await page.locator("#modl thead th").filter({ hasText: /, [\d,]+\s?d/ }).last().locator("button").click();
         await page.getByRole("button", { name: "RV5", exact: true }).click();
         assert.match(page.url(), /[?&]modl=rv5\b/);
         assert.match(await page.locator("#modl caption").first().textContent(), /RV5 to the decision/);
+        assert.equal(await page.locator("#modl thead th[aria-sort='ascending']").textContent().then((text) => text.replace(/[↕↑↓]/g, "").trim()),
+          "All days", "each split starts from its own initial sort");
+        // "All" returns to the bare URL, the leaderboard and its matrix, under the same title.
         await page.getByRole("button", { name: "All", exact: true }).click();
         assert.doesNotMatch(page.url(), /modl=/);
         assert.ok(await page.locator("#modl-har_iv").count(), "the leaderboard is back");
+        assert.equal(await page.locator("#modl h2").textContent(), state.h2, "the title does not change with the view");
+        assert.ok(await page.locator("#modl .mcs-matrix").count(), "the matrix is back");
         assert.deepEqual(problems, [], "console errors, page errors or failed requests");
       } finally {
         await context.close();
