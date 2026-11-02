@@ -487,11 +487,12 @@ test("phone: a data.json refresh that returns the same snapshot leaves a panned 
 });
 
 test("the jump palette loads on demand, and a failed load closes it with a notice and retries on the next open", async () => {
-  // The first request for the palette's chunk fails (the idle preload's or the first open's, whichever comes first);
-  // a failed module fetch is cached, so the first open fails and the next one loads it under a retry URL.
+  // The palette's chunk fails to load until the first open has failed: the idle preload's request and the open's own
+  // (or, in a browser that caches a failed module fetch, the cached failure). The next open loads it.
+  let blocked = true;
   let aborted = 0;
   const before = (page) => page.route(/CommandPalette-[^/]*\.js/, (route) => {
-    if (aborted === 0) {
+    if (blocked) {
       aborted += 1;
       return route.abort();
     }
@@ -508,14 +509,15 @@ test("the jump palette loads on demand, and a failed load closes it with a notic
     await page.waitForFunction(() => /could not load/.test(document.querySelector(".nav-toast")?.textContent ?? ""));
     assert.equal(await page.locator("dialog[open]").count(), 0, "no half-open palette");
     assert.ok(await page.locator("#verdict-title").count(), "the page is still there");
+    assert.ok(aborted >= 1, "the chunk's request was blocked");
+    blocked = false;
     await page.keyboard.press("/");
     await page.waitForSelector("dialog[open]");
-    assert.equal(aborted, 1);
     await page.keyboard.press("Escape");
-    // The aborted request (its failed resource, and the import it failed) is the one failure expected here.
+    // The blocked requests (each failed resource, and the import it failed) are the only failures expected here.
     const expected = (problem) => /CommandPalette|Failed to fetch dynamically imported module|\[palette\]/.test(problem)
       || problem === "console: Failed to load resource: net::ERR_FAILED";
-    assert.ok(problems.filter((problem) => problem.includes("net::ERR_FAILED")).length <= 1, problems.join("\n"));
+    assert.ok(problems.filter((problem) => problem.includes("net::ERR_FAILED")).length <= aborted, problems.join("\n"));
     assert.deepEqual(problems.filter((problem) => !expected(problem)), []);
   } finally {
     await context.close();
