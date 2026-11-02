@@ -18,6 +18,7 @@ from unittest import mock
 
 import numpy as np
 import pandas as pd
+from scipy import integrate, optimize, special, stats
 
 from backend import forecast_eval as fe
 from backend import market_data as md
@@ -689,6 +690,475 @@ class StabilityReportTest(unittest.TestCase):
             self.assertEqual(rows[rid]["status"], "inconclusive", rid)
             self.assertIsNone(rows[rid]["q_value_bh"], rid)
         self.assertEqual(ledger["summary"]["rows_in_multiplicity_family"], ledger["summary"]["rows_with_p_value"] - 3)
+
+
+# --- ROADMAP 2.4: scoring the whole predictive distribution --------------------------------------------------------
+
+DIST_TAUS = np.round(np.arange(1, 20) * 0.05, 2)                # the 19-level grid, 0.05 .. 0.95
+DECILES = np.arange(1, 10) / 10.0
+
+
+def _gauss_crps(y, mu, s):
+    """The closed-form CRPS of N(mu, s^2) at y (Gneiting and Raftery 2007)."""
+    z = (y - mu) / s
+    return s * (z * (2 * stats.norm.cdf(z) - 1) + 2 * stats.norm.pdf(z) - 1 / np.sqrt(np.pi))
+
+
+def _real_layout():
+    """The lab's row layout: one row per out-of-sample end of the snapshot design (4,634), the band's first evaluated
+    row (264) and the frame's sampling grid (end - MIN_TRAIN) % STEP. Only the design is built (about 1 s)."""
+    if _FAST:
+        design = _FAST["design"]
+    else:
+        r, dates, ovx, ohlc = md.research_inputs(md.load_snapshot())
+        design = lab.build_design(r, dates, vf._pick_ovx(ovx), ohlc)
+    ends = np.asarray(design.ends)
+    return ends.size, lab.WARMUP * vf.STEP + vf.H - 1, (ends - vf.MIN_TRAIN) % vf.STEP
+
+
+class DistributionScoreTest(unittest.TestCase):
+    """forecast_eval's scores of a predictive distribution given by quantiles: the pinball loss and the grid CRPS by
+    hand, ROADMAP 2.4's acceptance (a point forecast scores its MAE exactly; the 19-level grid against the Gaussian
+    closed form, its analytic bias and its convergence as the grid widens), and the monotone rearrangement."""
+
+    def test_the_pinball_loss_by_hand(self):
+        got = fe.pinball_loss(np.array([3.0, 1.0, 2.0]), np.array([1.0, 3.0, 2.0]), 0.1)
+        np.testing.assert_allclose(got, [0.2, 1.8, 0.0], rtol=0, atol=1e-15)    # (y - q)(tau - 1{y < q})
+        np.testing.assert_allclose(fe.pinball_loss(0.5, np.array([0.2, 0.8]), 0.9), [0.27, 0.03], rtol=0, atol=1e-15)
+
+    def test_the_grid_crps_by_hand_and_its_weight_conditions(self):
+        taus, q = np.array([0.25, 0.5, 0.75]), np.array([0.1, 0.2, 0.4])
+        # pinball at y = 0.3: 0.2 * 0.25, 0.1 * 0.5, (-0.1)(0.75 - 1); the grid CRPS is 2/3 of their sum
+        self.assertAlmostEqual(float(fe.crps_from_quantiles(0.3, q, taus)), 2 / 3 * 0.125, places=15)
+        weights = np.array([0.2, 0.6, 0.2])                          # sum 1, sum w tau = 1/2
+        self.assertAlmostEqual(float(fe.crps_from_quantiles(0.3, q, taus, weights)),
+                               2 * (0.2 * 0.05 + 0.6 * 0.05 + 0.2 * 0.025), places=15)
+        rows = fe.crps_from_quantiles(np.array([0.3, 0.0]), np.vstack([q, q]), taus)
+        self.assertEqual(rows.shape, (2,))
+        self.assertAlmostEqual(float(rows[1]), 2 / 3 * (0.1 * 0.75 + 0.2 * 0.5 + 0.4 * 0.25), places=15)
+        for bad in ([0.5, 0.5, 0.5], [0.5, 0.25, 0.25], [-0.1, 1.2, -0.1], [0.5, 0.5]):
+            with self.assertRaises(ValueError):                      # sum, sum w tau, sign, length
+                fe.crps_from_quantiles(0.3, q, taus, bad)
+        with self.assertRaises(ValueError):                          # equal weights on an asymmetric grid
+            fe.crps_from_quantiles(0.3, q[:2], taus[:2])
+        with self.assertRaises(ValueError):
+            fe.crps_from_quantiles(0.3, q[:2], taus)
+
+    def test_a_point_forecast_scores_its_absolute_error(self):
+        # ROADMAP 2.4 acceptance 1: every quantile equal to x gives |y - x|, to 1e-12 relative on 10,000 seeded pairs
+        # (the design's prototype: at most 1.8e-15). Rectangle weights 0.05 * sum QS give 0.95 MAE and are refused.
+        rng = np.random.default_rng(np.random.SeedSequence([20261020, 24, 1]))
+        y = rng.standard_t(3, 10_000) * 0.3 + 0.35
+        x = rng.lognormal(np.log(0.35), 0.4, 10_000)
+        q = np.repeat(x[:, None], DIST_TAUS.size, axis=1)
+        mae = np.abs(y - x)
+        np.testing.assert_allclose(fe.crps_from_quantiles(y, q, DIST_TAUS), mae, rtol=1e-12, atol=0)
+        rectangle = 2 * 0.05 * fe.pinball_loss(y[:, None], q, DIST_TAUS[None, :]).sum(axis=1)
+        np.testing.assert_allclose(rectangle, 0.95 * mae, rtol=1e-12, atol=0)
+        with self.assertRaises(ValueError):
+            fe.crps_from_quantiles(y, q, DIST_TAUS, np.full(DIST_TAUS.size, 0.05))
+
+    def test_the_19_level_grid_against_the_gaussian_closed_form(self):
+        # ROADMAP 2.4 acceptance 2. A fixed 19-level grid cannot converge to the closed form: under a correct Gaussian
+        # forecast its expected score is (2/19) sum_k phi(Phi^-1(tau_k)) s = 0.5914192445 s against s / sqrt(pi),
+        # 4.826% above. Here the expectation of crps_from_quantiles itself, by quadrature (piecewise smooth between
+        # the quantiles; the density beyond +-12 is below 1e-31).
+        zt = special.ndtri(DIST_TAUS)
+        expected, _ = integrate.quad(lambda v: float(fe.crps_from_quantiles(v, zt, DIST_TAUS)) * stats.norm.pdf(v),
+                                     -12.0, 12.0, points=list(zt), epsabs=1e-13, epsrel=1e-13, limit=500)
+        self.assertAlmostEqual(expected, 0.5914192445, delta=1e-9)
+        self.assertAlmostEqual(expected, 2 / 19 * float(np.sum(stats.norm.pdf(zt))), delta=1e-12)
+        self.assertAlmostEqual(expected * np.sqrt(np.pi), 1.0482633, delta=1e-7)
+        # Paired sample: on 20,000 seeded draws with random mu and s, mean(grid CRPS / s) over mean(closed form / s) on
+        # the same draws is within 5e-4 of 1.0482633 (across 2,000 seeds: sd 3.8e-5, largest deviation 1.5e-4).
+        rng = np.random.default_rng(np.random.SeedSequence([20261020, 24, 2, 0]))
+        mu, s = rng.uniform(-1, 1, 20_000), rng.uniform(0.5, 2, 20_000)
+        y = mu + s * rng.standard_normal(20_000)
+        grid = fe.crps_from_quantiles(y, mu[:, None] + s[:, None] * zt[None, :], DIST_TAUS)
+        ratio = np.mean(grid / s) / np.mean(_gauss_crps(y, mu, s) / s)
+        self.assertLess(abs(ratio - 1.0482633), 5e-4)
+
+    def test_the_grid_crps_converges_as_the_grid_widens(self):
+        # The same equal-weight estimator on [h, 1 - h] in steps of h: expected relative error 4.83%, 2.45%, 0.99% and
+        # 0.0999% at h = 0.05, 0.025, 0.01 and 0.001. The sample errors use 5,000 seeded draws (the design used
+        # 20,000; at 5,000 they sit within 4e-5 of the expectation), and at h = 0.001 no single observation is more
+        # than 0.004 s from its closed form. Refining inside the fixed [0.05, 0.95] would instead converge to the
+        # truncated integral, 2.00% below the closed form, with weights summing to 0.9, which are refused.
+        rng = np.random.default_rng(np.random.SeedSequence([20261020, 24, 2]))
+        n = 5_000
+        mu, s = rng.normal(0, 1, n), rng.lognormal(0, 0.5, n)
+        y = mu + s * rng.standard_normal(n)
+        closed = _gauss_crps(y, mu, s)
+        errors = []
+        for h, analytic in ((0.05, 0.04826), (0.025, 0.02450), (0.01, 0.00990), (0.001, 0.000999)):
+            k = round(1 / h) - 1
+            taus = np.arange(1, k + 1) / (k + 1)
+            zt = special.ndtri(taus)
+            expected = 2 / k * float(np.sum(stats.norm.pdf(zt))) * np.sqrt(np.pi) - 1
+            self.assertAlmostEqual(expected, analytic, delta=6e-5)
+            grid = fe.crps_from_quantiles(y, mu[:, None] + s[:, None] * zt[None, :], taus)
+            errors.append(grid.mean() / closed.mean() - 1)
+            self.assertLess(abs(errors[-1] - expected), 5e-4, h)
+        self.assertEqual(errors, sorted(errors, reverse=True))
+        self.assertLess(errors[-1], 2e-3)
+        self.assertLessEqual(float(np.max(np.abs(grid - closed) / s)), 0.004)
+        line = np.linspace(-12, 12, 4001)                         # every outcome, not only the sampled ones
+        self.assertLessEqual(float(np.max(np.abs(fe.crps_from_quantiles(line, zt, taus) - _gauss_crps(line, 0, 1)))),
+                             0.004)
+        inner = np.round(np.arange(0.05, 0.9505, 0.001), 10)
+        with self.assertRaises(ValueError):
+            fe.crps_from_quantiles(0.0, special.ndtri(inner), inner, np.full(inner.size, 0.001))
+
+    def test_rearrangement_sorts_flags_crossing_and_never_raises_the_score(self):
+        q, crossed = fe.rearrange(np.array([[3.0, 1.0, 2.0], [1.0, 2.0, 3.0], [1.0, 1.0, 2.0]]))
+        np.testing.assert_array_equal(q, [[1.0, 2.0, 3.0], [1.0, 2.0, 3.0], [1.0, 1.0, 2.0]])
+        np.testing.assert_array_equal(crossed, [True, False, False])          # a tie is not a crossing
+        rng = np.random.default_rng(np.random.SeedSequence([20261020, 24, 40]))
+        raw = np.sort(rng.normal(0, 1, (10_000, 19)), axis=1) + rng.normal(0, 0.6, (10_000, 19))
+        y = rng.normal(0, 1.5, 10_000)
+        fixed, crossed = fe.rearrange(raw)
+        self.assertGreater(crossed.mean(), 0.9)
+        before, after = fe.crps_from_quantiles(y, raw, DIST_TAUS), fe.crps_from_quantiles(y, fixed, DIST_TAUS)
+        self.assertTrue(np.all(after <= before + 1e-12))
+        self.assertLess(after.mean(), before.mean())
+
+
+class TrailingPitTest(unittest.TestCase):
+    """The trailing-residual quantiles and mid-rank PIT of HAR-IV, the challenger and OVX-only, and the simulated null
+    their Berkowitz tests are referred to (ROADMAP 2.4)."""
+
+    WINDOW, WARMUP = lab.CONFORMAL_WINDOW, lab.WARMUP * vf.STEP
+
+    def test_they_are_the_band_without_its_adaptive_step(self):
+        rng = np.random.default_rng(9)
+        e = rng.normal(0, 1, 1800) * np.r_[np.full(900, 0.3), np.full(900, 0.9)]
+        kw = {"delay": vf.H, "window": self.WINDOW, "warmup": self.WARMUP}
+        tq = fe.trailing_quantiles(e, DIST_TAUS, **kw)
+        aci = fe.delayed_aci(e, alpha=0.2, gamma=0.0, **kw)
+        np.testing.assert_array_equal(tq["q"][:, 1], aci["lo"])         # tau 0.10, bit for bit (NaN in the warm-up)
+        np.testing.assert_array_equal(tq["q"][:, 17], aci["hi"])        # tau 0.90
+        first = self.WARMUP + vf.H - 1
+        self.assertTrue(np.isnan(tq["q"][:first]).all() and np.isfinite(tq["q"][first:]).all())
+        self.assertTrue((tq["rank"][:first] == -1).all() and (tq["n_past"][:first] == 0).all())
+        self.assertTrue(np.isnan(tq["pit"][:first]).all())
+        for i, n_past in ((first, self.WARMUP), (first + 100, self.WARMUP + 100), (1500, self.WINDOW)):
+            past = e[max(0, i - vf.H + 1 - self.WINDOW): i - vf.H + 1]
+            self.assertEqual(past.size, n_past)
+            np.testing.assert_array_equal(tq["q"][i], np.quantile(past, DIST_TAUS))
+            self.assertEqual((tq["rank"][i], tq["n_past"][i]), (int(np.sum(past < e[i])), n_past))
+            self.assertEqual(tq["pit"][i], (np.sum(past < e[i]) + 0.5) / (n_past + 1))
+        # Only matured residuals: changing rows i - 4 onwards leaves every quantile up to row i unchanged.
+        for i in (first, 900, 1500):
+            moved = e.copy()
+            moved[i - vf.H + 1:] = 50 * rng.standard_normal(e.size - (i - vf.H + 1))
+            np.testing.assert_array_equal(fe.trailing_quantiles(moved, DIST_TAUS, **kw)["q"][: i + 1], tq["q"][: i + 1])
+
+    def test_the_vectorised_ranks_and_the_rank_resolved_deciles(self):
+        rng = np.random.default_rng(11)
+        e = rng.standard_normal(2_000 + self.WARMUP + vf.H - 1)
+        first = self.WARMUP + vf.H - 1
+        tq = fe.trailing_quantiles(e, DECILES, delay=vf.H, window=self.WINDOW, warmup=self.WARMUP)
+        rank, n_past = fe._trailing_ranks(e, first, window=self.WINDOW, delay=vf.H)
+        np.testing.assert_array_equal(rank, tq["rank"][first:])
+        np.testing.assert_array_equal(n_past, tq["n_past"][first:])
+        # The decile bin from the rank (2,000 rows, growing and full windows) equals the bin against np.quantile; the
+        # ranks np.quantile's interpolation leaves ambiguous occur and are resolved.
+        bins = fe._rank_deciles(e, np.arange(first, e.size), rank, n_past, DECILES, window=self.WINDOW, delay=vf.H)
+        np.testing.assert_array_equal(bins, (tq["q"][first:] <= e[first:, None]).sum(axis=1))
+        ambiguous = rank[:, None] == np.floor((n_past - 1)[:, None] * DECILES[None, :]) + 1
+        self.assertGreater(int(ambiguous.sum()), 5)
+
+    def test_the_null_is_seeded_per_draw(self):
+        kw = {"window": 100, "delay": vf.H, "warmup": 60, "seed": [1, 2, 3]}
+        grid = np.arange(600) % vf.STEP
+        a = fe.rank_pit_null(600, 64, grid, draws=40, bin_draws=10, **kw)
+        b = fe.rank_pit_null(600, 64, grid, draws=20, bin_draws=10, **kw)
+        np.testing.assert_array_equal(a["lr"][:20], b["lr"])
+        np.testing.assert_array_equal(a["exceed"][:20], b["exceed"])
+        np.testing.assert_array_equal(a["share_sd_rank"], b["share_sd_rank"])
+        self.assertEqual(a["lr"].shape, (40, 5))
+        for bad in ({"first": 63}, {"grid": grid[:-1]}, {"bin_draws": 41}, {"bin_draws": 1}):
+            args = {"n": 600, "first": 64, "grid": grid, "draws": 40, "bin_draws": 10} | bad
+            with self.assertRaises(ValueError):
+                fe.rank_pit_null(**args, **kw)
+
+    def test_the_simulated_null_holds_its_size_where_chi2_does_not(self):
+        # ROADMAP 2.4 acceptance 3, trailing-rank part, on the real row layout (4,634 rows evaluated from 264, the
+        # frame's sampling grids). A 1,000-draw null (the lab draws 10,000) and 300 fresh null draws referred to it:
+        # the simulated-null Bonferroni rejects in [1.5%, 8%], the chi2(3) Bonferroni below 2% (the design measured
+        # 4.0% and 0.2% with 10,000 and 400). About 7 s.
+        n, first, grid = _real_layout()
+        self.assertEqual((n, first), (4634, 264))
+        kw = {"window": self.WINDOW, "delay": vf.H, "warmup": self.WARMUP}
+        null = fe.rank_pit_null(n, first, grid, draws=1000, seed=[20261020, 24, 1], bin_draws=200, **kw)
+        fresh = fe.rank_pit_null(n, first, grid, draws=300, seed=[20261020, 24, 2], bin_draws=2, **kw)
+        draws = null["lr"].shape[0]
+        simulated = [fe.bonferroni_min([(1 + np.sum(null["lr"][:, g] >= lr[g])) / (draws + 1) for g in range(5)])
+                     for lr in fresh["lr"]]
+        chi2 = [fe.bonferroni_min(stats.chi2.sf(lr, 3)) for lr in fresh["lr"]]
+        self.assertTrue(0.015 <= np.mean(np.array(simulated) < 0.05) <= 0.08, np.mean(np.array(simulated) < 0.05))
+        self.assertLess(np.mean(np.array(chi2) < 0.05), 0.02)
+        # The PIT re-centres itself: the null LR per grid has mean ~1.87 and 95th percentile ~5.2 (chi2(3): 3, 7.81).
+        self.assertTrue(np.all((1.6 < null["lr"].mean(axis=0)) & (null["lr"].mean(axis=0) < 2.2)))
+        self.assertTrue(4.6 < np.quantile(null["lr"], 0.95) < 5.9)
+        # Its decile shares vary less than an exact PIT's (1.96 sd ~0.7 against ~1.2 to 1.8 points), and the tail bins
+        # average above 10.
+        band_rank, band_exact = 1.96 * null["share_sd_rank"], 1.96 * null["share_sd_exact"]
+        self.assertTrue(np.all((0.5 < band_rank) & (band_rank < 0.95)), band_rank)
+        self.assertTrue(np.all((1.0 < band_exact) & (band_exact < 2.1)), band_exact)
+        self.assertTrue(np.all(band_rank < band_exact))
+        self.assertAlmostEqual(float(null["share_mean_rank"].sum()), 100.0, places=9)
+        self.assertTrue(null["share_mean_rank"][0] > 10.1 and null["share_mean_rank"][-1] > 10.1)
+        # Draw 0 rebuilt by the slow path (trailing_quantiles' loop, berkowitz_test per grid) gives the same LR.
+        x = np.random.default_rng(np.random.SeedSequence([20261020, 24, 1, 0])).standard_normal(n + vf.H) ** 2
+        c = np.r_[0.0, np.cumsum(x)]
+        e = 0.5 * np.log((c[vf.H + 1:] - c[1:n + 1]) / vf.H)
+        slow = fe.trailing_quantiles(e, [0.5], **kw)
+        z = special.ndtri(slow["pit"][first:])
+        np.testing.assert_allclose(null["lr"][0], [fe.berkowitz_test(z[grid[first:] == g])["lr"] for g in range(5)],
+                                   rtol=0, atol=1e-9)
+        rank, n_past = slow["rank"][first:], slow["n_past"][first:]
+        self.assertEqual(null["exceed"][0], int(np.sum((rank == 0) | (rank == n_past))))
+
+
+class BerkowitzTest(unittest.TestCase):
+    """Berkowitz's LR3 and the doubly censored LR: ROADMAP 2.4 acceptance 3 (about 5% on independent uniform PITs,
+    hence one test per sampling grid), the closed form against a regression, the censored likelihood against its
+    scipy.stats form, the simulated-sample PIT, and the p-value combinations."""
+
+    def test_it_rejects_about_five_percent_of_independent_uniform_pits(self):
+        # 2,000 seeded samples of 874 weeks (the design's prototype: 4.88% over 10,000).
+        rng = np.random.default_rng(np.random.SeedSequence([20261020, 24, 30]))
+        rejected = np.mean([fe.berkowitz_test(special.ndtri(rng.uniform(size=874)))["p_value"] < 0.05
+                            for _ in range(2000)])
+        self.assertTrue(0.035 <= rejected <= 0.065, rejected)
+
+    def test_overlapping_pits_need_the_sampling_grids(self):
+        # Correctly calibrated 5-session PITs on 4,370 days (the chi2(5) cdf of overlapping sums of five squared normal
+        # returns): the every-day test rejects nearly always; each grid's 874 weeks hold the size, and the Bonferroni
+        # over the five grids is conservative (the design measured 3.1%).
+        rng = np.random.default_rng(np.random.SeedSequence([20261020, 24, 20]))
+        every, grids, bonferroni = [], [], []
+        for k in range(1000):
+            c = np.r_[0.0, np.cumsum(rng.standard_normal(4370 + vf.H) ** 2)]
+            z = special.ndtri(stats.chi2.cdf(c[vf.H + 1:] - c[1:-vf.H], vf.H))
+            if k < 200:
+                every.append(fe.berkowitz_test(z)["p_value"] < 0.05)
+            p = [fe.berkowitz_test(z[g::vf.STEP])["p_value"] for g in range(vf.STEP)]
+            grids.append(np.array(p) < 0.05)
+            bonferroni.append(fe.bonferroni_min(p) < 0.05)
+        self.assertGreater(np.mean(every), 0.95)
+        rates = np.mean(grids, axis=0)
+        self.assertTrue(np.all((0.03 <= rates) & (rates <= 0.075)), rates)
+        self.assertTrue(0.015 <= np.mean(bonferroni) <= 0.055, np.mean(bonferroni))
+
+    def test_the_closed_form_is_the_regression_likelihood_ratio(self):
+        rng = np.random.default_rng(3)
+        for rho, scale, shift in ((0.0, 1.0, 0.0), (0.3, 1.2, 0.1), (-0.2, 0.8, -0.3)):
+            z = shift + scale * _ar1(rng, 874, rho, burn=50)
+            y, x = z[1:], z[:-1]
+            design = np.column_stack([np.ones(x.size), x])
+            b, *_ = np.linalg.lstsq(design, y, rcond=None)
+            resid = y - design @ b
+            s2 = resid @ resid / y.size
+            lr = 2 * (-0.5 * y.size * (np.log(2 * np.pi * s2) + 1) - stats.norm.logpdf(y).sum())
+            got = fe.berkowitz_test(z)
+            self.assertAlmostEqual(got["lr"], lr, delta=1e-9)
+            self.assertAlmostEqual(got["rho"], b[1], places=12)
+            self.assertAlmostEqual(got["mu"], b[0] / (1 - b[1]), places=12)
+            self.assertAlmostEqual(got["sigma"], np.sqrt(s2 / (1 - b[1] ** 2)), places=12)
+            self.assertEqual((got["p_value"], got["reference"], got["n"]), (stats.chi2.sf(got["lr"], 3), "chi2(3)", 874))
+        null = np.linspace(0.0, 30.0, 999)
+        sim = fe.berkowitz_test(z, null_lr=null)
+        self.assertEqual(sim["p_value"], (1 + np.sum(null >= sim["lr"])) / 1000)
+        self.assertEqual((sim["reference"], sim["p_chi2"]), ("simulated null", got["p_value"]))
+        self.assertEqual(fe.berkowitz_test(z, null_lr=[1e9])["p_value"], 1.0)
+        self.assertEqual(fe.berkowitz_test(z, null_lr=[-1.0])["p_value"], 0.5)
+        with self.assertRaises(ValueError):                     # takes z, not u: a PIT of 1 is an infinite score
+            fe.berkowitz_test(special.ndtri(np.r_[np.full(10, 0.5), 1.0]))
+
+    @staticmethod
+    def _censored_stats_form(z, cl, ch):
+        """The doubly censored likelihood on scipy.stats (the design's prototype) and its LR."""
+        inner = z[(z >= cl) & (z <= ch)]
+        below, above = np.sum(z < cl), np.sum(z > ch)
+
+        def ll(theta):
+            mu, s = theta[0], np.exp(theta[1])
+            return (np.sum(stats.norm.logpdf(inner, mu, s)) + below * stats.norm.logcdf((cl - mu) / s)
+                    + above * stats.norm.logsf((ch - mu) / s))
+        fit = optimize.minimize(lambda t: -ll(t), np.zeros(2), method="Nelder-Mead",
+                                options={"xatol": 1e-10, "fatol": 1e-10, "maxiter": 4000})
+        return max(0.0, 2 * (-fit.fun - ll(np.zeros(2)))), ll
+
+    def test_the_censored_form_is_the_scipy_stats_likelihood(self):
+        zt = special.ndtri(DIST_TAUS)
+        cl, ch = zt[0], zt[-1]
+        rng = np.random.default_rng(np.random.SeedSequence([20261020, 24, 10]))
+        for loc, scale in ((0.0, 1.0), (0.03, 1.05), (-0.2, 0.8), (0.5, 1.0)):
+            x = loc + scale * rng.standard_normal(874)
+            z = np.where(x < cl, -np.inf, np.where(x > ch, np.inf, x))
+            got = fe.berkowitz_censored(z)
+            lr, ll = self._censored_stats_form(z, cl, ch)
+            self.assertAlmostEqual(got["lr"], lr, delta=1e-8)
+            self.assertAlmostEqual(got["lr"], 2 * (ll([got["mu"], np.log(got["sigma"])]) - ll(np.zeros(2))), delta=1e-8)
+            self.assertEqual((got["below"], got["above"], got["n"]), (int(np.sum(x < cl)), int(np.sum(x > ch)), 874))
+            self.assertEqual((got["p_value"], got["reference"]), (stats.chi2.sf(got["lr"], 2), "chi2(2)"))
+            # Any value outside the interior counts like -inf / +inf.
+            self.assertEqual(fe.berkowitz_censored(np.where(np.isinf(z), np.sign(z) * 5.0, z))["lr"], got["lr"])
+        self.assertLess(got["p_value"], 1e-6)                         # a shift of half a standard deviation
+        with self.assertRaises(ValueError):
+            fe.berkowitz_censored(np.r_[z[:10], np.nan])
+
+    def test_the_censored_form_holds_its_size(self):
+        # 1,000 samples of 874 weeks for each of two truths (log-normal, log-t3) with exactly right quantiles, the
+        # interior interpolated in normal-score space (the design measured 5.0% to 5.2% over 2,000). About 4 s.
+        rng = np.random.default_rng(np.random.SeedSequence([20261020, 24, 11]))
+        zt = special.ndtri(DIST_TAUS)
+        for dist in (stats.norm(), stats.t(3)):
+            lq = dist.ppf(DIST_TAUS)
+            rejected = 0
+            for _ in range(1000):
+                x = dist.rvs(size=874, random_state=rng)
+                z = np.where(x < lq[0], -np.inf, np.where(x > lq[-1], np.inf, np.interp(x, lq, zt)))
+                rejected += fe.berkowitz_censored(z)["p_value"] < 0.05
+            self.assertTrue(30 <= rejected <= 70, rejected)
+
+    def test_the_pit_against_a_simulated_sample(self):
+        draws = np.array([1.0, 2.0, 3.0, 4.0])                         # Hazen positions 1/8, 3/8, 5/8, 7/8
+        self.assertEqual(fe.sample_pit(draws, 2.0), 0.375)
+        self.assertEqual(fe.sample_pit(draws, 2.5), 0.5)                 # linear between draws
+        self.assertEqual(fe.sample_pit(draws, 3.25), 0.6875)
+        for actual, u in ((1.0, 0.125), (-5.0, 0.125), (4.0, 0.875), (9.0, 0.875)):   # clamped at the ends
+            self.assertEqual(fe.sample_pit(draws, actual), u)
+        for bad in (np.array([2.0, 1.0]), np.array([])):
+            with self.assertRaises(ValueError):
+                fe.sample_pit(bad, 1.0)
+        # Draws at the Hazen quantiles of N(0, 1): the PIT is Phi, exactly at the draws, to interpolation error between.
+        n = 2 ** 14
+        hazen = special.ndtri((np.arange(n) + 0.5) / n)
+        self.assertEqual(fe.sample_pit(hazen, hazen[1234]), 1234.5 / n)
+        line = np.linspace(-3, 3, 601)
+        u = np.array([fe.sample_pit(hazen, v) for v in line])
+        np.testing.assert_allclose(u, stats.norm.cdf(line), rtol=0, atol=1e-6)
+        # Continuous and monotone: an input moved by 1e-12 moves u by at most 1e-9.
+        moved = np.array([fe.sample_pit(hazen, v + 1e-12) for v in line])
+        self.assertTrue(np.all(np.diff(u) > 0) and np.all(moved >= u))
+        self.assertLessEqual(float(np.max(moved - u)), 1e-9)
+
+    def test_p_value_combinations(self):
+        self.assertAlmostEqual(fe.bonferroni_min([0.02, 0.5, 0.3]), 0.06, places=15)
+        self.assertEqual(fe.bonferroni_min([0.3] * 5), 1.0)
+        self.assertEqual(fe.bonferroni_min(np.array([0.04])), 0.04)
+        for p in (1e-6, 0.04, 0.5, 0.93):
+            self.assertAlmostEqual(fe.cauchy_combination([p]) / p, 1.0, places=9)
+            self.assertAlmostEqual(fe.cauchy_combination([p] * 5) / p, 1.0, places=9)
+        t = (np.tan(0.49 * np.pi) + np.tan(0.0)) / 2                       # p = 0.01 and 0.5
+        self.assertAlmostEqual(fe.cauchy_combination([0.01, 0.5]), 0.5 - np.arctan(t) / np.pi, places=12)
+        self.assertAlmostEqual(fe.cauchy_combination([0.5, 0.01]), fe.cauchy_combination([0.01, 0.5]), places=15)
+        self.assertAlmostEqual(fe.cauchy_combination([1e-20, 0.5]) / 2e-20, 1.0, places=6)   # 1/(p pi) below 1e-16
+        self.assertEqual(fe.cauchy_combination([0.0, 0.7]), 0.0)
+        for bad in ([], [1.2], [np.nan]):
+            with self.assertRaises(ValueError):
+                fe.cauchy_combination(bad)
+        with self.assertRaises(ValueError):
+            fe.bonferroni_min([])
+
+
+class DistributionDmTest(unittest.TestCase):
+    """The Diebold-Mariano rules for the distribution scores: dm_test with a given Bartlett bandwidth (and unchanged
+    without one), the Newey-West (1994) bandwidth, and the batch-means test, registered because the score
+    differentials stay correlated far longer than 9 lags."""
+
+    @staticmethod
+    def _pair():
+        rng = np.random.default_rng(np.random.SeedSequence([20261020, 24, 8]))
+        c = np.r_[0.0, np.cumsum(rng.standard_normal(1504))]
+        a = ((c[5:] - c[:-5]) / np.sqrt(5)) ** 2 + 1.0
+        return a, a + 0.05 + 0.3 * rng.standard_normal(1500)
+
+    def test_dm_test_without_lags_is_unchanged(self):
+        # Pinned from main's dm_test (30772d6), before the `lags` argument existed.
+        a, b = self._pair()
+        for horizon, stat, p in ((1, -3.958, 7.896910363502783e-05), (vf.H, -3.948, 8.249579272209455e-05)):
+            res = fe.dm_test(a, b, horizon=horizon)
+            self.assertEqual((res["stat"], res["lags"]), (stat, 7))
+            self.assertAlmostEqual(res["p_value"] / p, 1.0, places=12)
+            self.assertAlmostEqual(res["mean_diff"], -0.03211675828258572, places=15)
+            self.assertEqual(fe.dm_test(a, b, horizon=horizon, lags=None), res)
+            self.assertEqual(fe.dm_test(a, b, horizon=horizon, lags=7), res)     # the automatic bandwidth, given
+
+    def test_dm_test_with_lags_is_a_bartlett_computation(self):
+        a, b = self._pair()
+        d = a - b
+        n, h, lags = d.size, vf.H, 40
+        e = d - d.mean()
+        lrv = e @ e / n + 2 * sum((1 - k / (lags + 1)) * (e[k:] @ e[:-k]) / n for k in range(1, lags + 1))
+        stat = d.mean() / np.sqrt(lrv / n) * np.sqrt((n + 1 - 2 * h + h * (h - 1) / n) / n)
+        res = fe.dm_test(a, b, horizon=h, lags=lags)
+        self.assertEqual((res["stat"], res["lags"]), (round(stat, 3), lags))
+        self.assertAlmostEqual(res["p_value"], 2 * stats.t.sf(abs(stat), n - 1), delta=1e-12)
+        self.assertEqual(fe.dm_test(a, b, horizon=h, lags=5000)["lags"], n - 1)          # capped at n - 1
+
+    def test_the_newey_west_1994_bandwidth(self):
+        rng = np.random.default_rng(12)
+        d = _ar1(rng, 1000, 0.6)
+        n, m = d.size, d.mean()
+        pilot = int(4 * (n / 100) ** (2 / 9))                                   # 6 at n = 1,000
+        g = [sum((d[t] - m) * (d[t - j] - m) for t in range(j, n)) / n for j in range(pilot + 1)]
+        s0, s1 = g[0] + 2 * sum(g[1:]), 2 * sum(j * g[j] for j in range(1, pilot + 1))
+        self.assertEqual(fe.nw94_bandwidth(d), int(1.1447 * ((s1 / s0) ** 2 * n) ** (1 / 3)))
+        # On a known AR(1) it estimates the population value 1.1447 (alpha n)^(1/3), alpha = (2 rho / (1 - rho^2))^2
+        # (22.67 at rho = 0.5 and n = 4,370; the pilot's truncation at 9 lags moves it by 0.1%). One draw's bandwidth
+        # varies by about 14%, so the mean of 40 seeded draws is compared (measured 21.2), within 10%.
+        from scipy.signal import lfilter
+
+        n, rho = 4370, 0.5
+        population = 1.1447 * ((2 * rho / (1 - rho ** 2)) ** 2 * n) ** (1 / 3)
+        rng = np.random.default_rng(np.random.SeedSequence([20261020, 24, 12]))
+        bandwidths = [fe.nw94_bandwidth(lfilter([1.0], [1.0, -rho], rng.standard_normal(n + 500))[500:])
+                      for _ in range(40)]
+        self.assertLess(abs(np.mean(bandwidths) / population - 1), 0.10, np.mean(bandwidths))
+        self.assertEqual((fe.nw94_bandwidth(np.ones(50)), fe.nw94_bandwidth([1.0])), (0, 0))
+
+    def test_the_batch_means_test_on_constructed_periods(self):
+        means = np.array([0.3, -0.1, 0.2, 0.5, 0.0, 0.4, 0.1, -0.2, 0.6, 0.25, 0.15, 0.05])
+        sizes = [101] * 5 + [100] * 7                                           # np.array_split of 1,205 rows
+        rng = np.random.default_rng(13)
+        noise = [rng.standard_normal(k) for k in sizes]
+        d = np.concatenate([mean + (w - w.mean()) for mean, w in zip(means, noise)])     # each period's mean exact
+        res = fe.batch_means_test(d, 12)
+        np.testing.assert_allclose(res["period_means"], means, rtol=0, atol=1e-14)
+        t = means.mean() / (means.std(ddof=1) / np.sqrt(12))
+        self.assertAlmostEqual(res["stat"], t, places=10)
+        self.assertAlmostEqual(res["p_value"], 2 * stats.t.sf(abs(t), 11), places=12)
+        self.assertEqual((res["groups"], res["periods_positive"]), (12, 9))
+        flipped = fe.batch_means_test(-d, 12)
+        self.assertAlmostEqual(flipped["stat"], -res["stat"], places=12)
+        self.assertAlmostEqual(flipped["p_value"], res["p_value"], places=14)
+        same = fe.batch_means_test(np.full(30, 0.25), 3)                   # every period mean exactly the same
+        self.assertEqual((same["stat"], same["p_value"]), (0.0, 1.0))
+        for groups in (1, 1206):
+            with self.assertRaises(ValueError):
+                fe.batch_means_test(d, groups)
+
+    def test_the_batch_means_test_holds_its_size_where_dm_test_does_not(self):
+        # 1,000 draws of the design's GARCH-like null (section 1.6): d = sqrt(1/2) MA(4) + sqrt(1/2) AR(1) with
+        # phi = 0.95, mean zero, 4,370 days, whose ACF matches the real CRPS differentials against GARCH-t. The design
+        # measured 6.2% for 12 batch means and 29.1% for dm_test's 9 Bartlett lags. About 1 s.
+        from scipy.signal import lfilter
+
+        rng = np.random.default_rng(np.random.SeedSequence([20261020, 24, 90, 50, 0]))
+        n, w, phi = 4370, 0.5, 0.95
+        batch = dm = 0
+        for _ in range(1000):
+            a = np.convolve(rng.standard_normal(n + 4), np.ones(5), "valid") / np.sqrt(5)
+            b = lfilter([1.0], [1.0, -phi], rng.standard_normal(n + 500))[500:] * np.sqrt(1 - phi ** 2)
+            d = np.sqrt(1 - w) * a + np.sqrt(w) * b
+            batch += fe.batch_means_test(d, 12)["p_value"] < 0.05
+            dm += fe.dm_test(d, np.zeros(n), horizon=vf.H)["p_value"] < 0.05
+        self.assertTrue(35 <= batch <= 85, batch)
+        self.assertGreater(dm, 150)
 
 
 class LossAndTestTest(unittest.TestCase):

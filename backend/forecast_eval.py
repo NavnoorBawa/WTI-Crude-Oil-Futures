@@ -7,7 +7,11 @@ two functions that need them), each checked against cases with a known answer in
   - qlike / mse_var             The two volatility losses that rank forecasts consistently when the
                                 realized-vol proxy is noisy (Patton 2011).
   - dm_test                     Diebold-Mariano (1995) with Newey-West variance and the
-                                Harvey-Leybourne-Newbold (1997) small-sample correction.
+                                Harvey-Leybourne-Newbold (1997) small-sample correction; the Bartlett
+                                bandwidth automatic or given.
+  - nw94_bandwidth              The Newey-West (1994) data-dependent Bartlett bandwidth.
+  - batch_means_test            Ibragimov-Mueller (2010) t-test on the means of consecutive periods: a
+                                Diebold-Mariano test robust to persistence shorter than a period.
   - mincer_zarnowitz            Unbiasedness regression with a HAC Wald test.
   - model_confidence_set        Hansen-Lunde-Nason (2011) MCS via arch.bootstrap.
   - spa_test                    Hansen (2005) test of superior predictive ability, studentized, on
@@ -28,6 +32,21 @@ two functions that need them), each checked against cases with a known answer in
                                 choice among the window lengths.
   - adaptive_conformal /        Adaptive conformal inference intervals (Gibbs and Candes 2021), and
     delayed_aci                 the same when each outcome is only observed `delay` rows later.
+  - pinball_loss /              Scores of a predictive distribution given by quantiles: the pinball
+    crps_from_quantiles /       loss, the CRPS from a quantile grid (the weighted interval score of
+    rearrange                   Bracher et al. 2021) and the monotone rearrangement of crossed quantiles
+                                (Chernozhukov, Fernandez-Val and Galichon 2010).
+  - trailing_quantiles /        Predictive quantiles and the mid-rank PIT from trailing matured log
+    rank_pit_null               residuals (delayed_aci's window, without its adaptive step), and the
+                                simulated null of that PIT's Berkowitz statistics under the 5-session
+                                overlap.
+  - sample_pit                  The PIT of an outcome against a simulated predictive sample (Hazen,
+                                interpolated, clamped).
+  - berkowitz_test /            Berkowitz (2001) LR3 on normal scores, against chi2(3) or a simulated
+    berkowitz_censored          null, and a doubly censored normal LR (only the interior of the 5% and
+                                95% quantiles observed).
+  - bonferroni_min /            Combinations of p-values valid under any dependence (Bonferroni) and
+    cauchy_combination          under weak dependence (Liu and Xie 2020).
 """
 
 from __future__ import annotations
@@ -37,13 +56,14 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
-from scipy import stats
+from scipy import optimize, special, stats
 
 if TYPE_CHECKING:
     import numpy.typing as npt
 
     FloatArray = npt.NDArray[np.float64]
     IntArray = npt.NDArray[np.int64]
+    BoolArray = npt.NDArray[np.bool_]
 
 
 def newey_west_lrv(x: npt.ArrayLike, lags: int | None = None) -> tuple[float, int]:
@@ -83,15 +103,16 @@ def mse_var(actual: npt.ArrayLike, forecast: npt.ArrayLike) -> FloatArray:
     return cast("FloatArray", (np.asarray(actual, float) ** 2 - np.asarray(forecast, float) ** 2) ** 2)
 
 
-def dm_test(loss_a: npt.ArrayLike, loss_b: npt.ArrayLike, horizon: int = 1) -> dict[str, Any]:
+def dm_test(loss_a: npt.ArrayLike, loss_b: npt.ArrayLike, horizon: int = 1, lags: int | None = None) -> dict[str, Any]:
     """Diebold-Mariano test of equal expected loss, d = loss_a - loss_b (positive: b is better).
 
-    Newey-West long-run variance (automatic bandwidth) and the Harvey-Leybourne-Newbold (1997)
-    small-sample factor, compared with Student-t(n-1). Two-sided p-value.
+    Newey-West long-run variance and the Harvey-Leybourne-Newbold (1997) small-sample factor, compared
+    with Student-t(n-1). Two-sided p-value. The Bartlett bandwidth is the automatic floor(4 (n/100)^(2/9))
+    when `lags` is None (every published DM), else `lags` (capped at n - 1; e.g. nw94_bandwidth(d)).
     """
     diff = np.asarray(loss_a, float) - np.asarray(loss_b, float)
     n = diff.size
-    lrv, lags = newey_west_lrv(diff)
+    lrv, lags = newey_west_lrv(diff, lags)
     if n < 3 or lrv <= 0:
         return {"stat": 0.0, "p_value": 1.0, "mean_diff": float(diff.mean()) if n else 0.0, "lags": lags}
     dm = float(diff.mean() / np.sqrt(lrv / n))
@@ -99,6 +120,46 @@ def dm_test(loss_a: npt.ArrayLike, loss_b: npt.ArrayLike, horizon: int = 1) -> d
     stat = dm * hln
     return {"stat": round(stat, 3), "p_value": float(2 * stats.t.sf(abs(stat), df=n - 1)),
             "mean_diff": float(diff.mean()), "lags": int(lags)}
+
+
+def nw94_bandwidth(diff: npt.ArrayLike) -> int:
+    """Newey-West (1994) data-dependent Bartlett bandwidth of a series around its mean: pilot lags
+    n_T = floor(4 (n/100)^(2/9)), autocovariances g_j = n^-1 sum_t x_t x_{t-j} (x demeaned), s0 = g_0 + 2 sum_{j<=n_T}
+    g_j, s1 = 2 sum_{j<=n_T} j g_j, m = floor(1.1447 ((s1/s0)^2 n)^(1/3)), capped at n - 1. 0 when the series has
+    fewer than two values or s0 <= 0 (no positive long-run variance to estimate a bandwidth for)."""
+    d = np.asarray(diff, dtype=float)
+    n = d.size
+    if n < 2:
+        return 0
+    x = d - d.mean()
+    pilot = min(int(np.floor(4.0 * (n / 100.0) ** (2.0 / 9.0))), n - 1)
+    g = np.array([float(x[j:] @ x[:n - j]) / n for j in range(pilot + 1)])
+    s0 = g[0] + 2.0 * g[1:].sum()
+    if s0 <= 0:
+        return 0
+    s1 = 2.0 * float(np.sum(np.arange(1, pilot + 1) * g[1:]))
+    return min(int(np.floor(1.1447 * ((s1 / s0) ** 2 * n) ** (1.0 / 3.0))), n - 1)
+
+
+def batch_means_test(diff: npt.ArrayLike, groups: int) -> dict[str, Any]:
+    """Ibragimov and Mueller (2010): split diff into `groups` consecutive periods (np.array_split: the first
+    n % groups periods one row longer), take each period's mean, and t = mean of the period means / (their sd, ddof 1,
+    / sqrt(groups)), two-sided p from Student-t(groups - 1). Valid when the period means are close to independent
+    and normal, so robust to persistence and heterogeneity shorter than a period. `periods_positive` counts the
+    periods with a positive mean. Degenerate case, as in dm_test: when every period mean is exactly the same (sd 0),
+    stat 0 and p 1."""
+    d = np.asarray(diff, dtype=float)
+    if groups < 2 or d.size < groups:
+        raise ValueError("the batch-means test needs at least two periods with at least one row each")
+    means = np.array([float(chunk.mean()) for chunk in np.array_split(d, groups)])
+    sd = float(means.std(ddof=1))
+    if sd <= 0:
+        stat, p = 0.0, 1.0
+    else:
+        stat = float(means.mean() / (sd / np.sqrt(groups)))
+        p = float(2 * stats.t.sf(abs(stat), df=groups - 1))
+    return {"stat": stat, "p_value": p, "groups": int(groups), "period_means": [float(m) for m in means],
+            "periods_positive": int(np.count_nonzero(means > 0))}
 
 
 def mincer_zarnowitz(actual: npt.ArrayLike, forecast: npt.ArrayLike, maxlags: int = 6) -> dict[str, float]:
@@ -487,3 +548,285 @@ def delayed_aci(log_resid: npt.ArrayLike, delay: int = 5, alpha: float = 0.20, g
     past = e[max(0, n - window): n]
     return {"lo": lo, "hi": hi, "hit": hit, "alpha_next": float(a_eff),
             "next_lo": float(np.quantile(past, a_eff / 2)), "next_hi": float(np.quantile(past, 1 - a_eff / 2))}
+
+
+# --- Scoring the whole predictive distribution (ROADMAP 2.4) ----------------------------------------------------------
+
+
+def pinball_loss(actual: npt.ArrayLike, quantile: npt.ArrayLike, tau: float) -> FloatArray:
+    """rho_tau(y - q) = (y - q)(tau - 1{y < q}), elementwise (broadcast): half the quantile score QS_tau of Gneiting
+    and Ranjan (2011), zero at y = q and minimised in expectation by the true tau-quantile."""
+    u = np.asarray(actual, dtype=float) - np.asarray(quantile, dtype=float)
+    return cast("FloatArray", u * (tau - (u < 0)))
+
+
+def crps_from_quantiles(actual: npt.ArrayLike, quantiles: npt.ArrayLike, taus: npt.ArrayLike,
+                        weights: npt.ArrayLike | None = None) -> FloatArray:
+    """Per-row grid CRPS sum_k w_k QS_{tau_k}(q_k, y), QS_tau = 2 pinball_tau (Gneiting and Ranjan 2011): actual (n,)
+    or a scalar, quantiles (n, K) or (K,), taus (K,). Default w_k = 1/K, which on a grid symmetric about 1/2 is the
+    weighted interval score of Bracher, Ray, Gneiting and Reich (2021).
+
+    Raises ValueError unless every w_k >= 0, sum(w) = 1 and sum(w tau) = 1/2 (to 1e-10): the two conditions under
+    which a point forecast (every q_k = x) scores its absolute error exactly, since sum_k w_k 2 (y - x)(tau_k -
+    1{y < x}) = 2 (y - x)(1/2 - 1{y < x}) = |y - x|; negative weights would make the score improper. A finite grid is
+    not the CRPS of the distribution: under a correct Gaussian forecast the equal-weight K = 19 grid tau = 0.05,
+    ..., 0.95 reads 4.83% above the closed form, and the grid [h, 1 - h] in steps of h converges to it as h -> 0."""
+    y = np.asarray(actual, dtype=float)
+    q = np.asarray(quantiles, dtype=float)
+    t = np.asarray(taus, dtype=float)
+    k = t.size
+    if t.ndim != 1 or k == 0 or q.ndim == 0 or q.shape[-1] != k or not np.all((t > 0) & (t < 1)):
+        raise ValueError("crps_from_quantiles: one quantile per level, every level inside (0, 1)")
+    w = np.full(k, 1.0 / k) if weights is None else np.asarray(weights, dtype=float)
+    if (w.shape != (k,) or bool(np.any(w < 0)) or abs(float(np.sum(w)) - 1.0) > 1e-10
+            or abs(float(np.sum(w * t)) - 0.5) > 1e-10):
+        raise ValueError("crps_from_quantiles: the weights must be non-negative with sum(w) = 1 and sum(w tau) = 1/2")
+    u = y[..., None] - q
+    pinball = u * (t - (u < 0))
+    if weights is None:
+        return 2.0 * np.mean(pinball, axis=-1)
+    return 2.0 * np.sum(pinball * w, axis=-1)
+
+
+def rearrange(quantiles: npt.ArrayLike) -> tuple[FloatArray, BoolArray]:
+    """Each row (the last axis) sorted, the monotone rearrangement of Chernozhukov, Fernandez-Val and Galichon (2010),
+    and whether the row crossed (some q_{k+1} < q_k) before sorting.
+
+    Sorting never raises the equal-weight grid score: sum_k QS_{tau_k}(q_k, y) = 2 sum_k 1{y < q_k}(q_k - y)
+    - 2 sum_k tau_k q_k + 2 y sum_k tau_k, where the first sum depends only on the multiset of the q_k and
+    sum_k tau_k q_k is largest when the q_k are sorted like the increasing tau_k (the rearrangement inequality).
+    With unequal weights the first sum is not order-free, and the guarantee is lost."""
+    q = np.asarray(quantiles, dtype=float)
+    crossed = np.any(np.diff(q, axis=-1) < 0, axis=-1)
+    return cast("FloatArray", np.sort(q, axis=-1)), crossed
+
+
+def trailing_quantiles(log_resid: npt.ArrayLike, taus: npt.ArrayLike, *, delay: int, window: int,
+                       warmup: int) -> dict[str, Any]:
+    """Predictive quantiles from trailing matured log residuals e. Row i, with j = i - delay the newest matured row:
+    past = e[max(0, j + 1 - window) : j + 1], the slice delayed_aci uses, once j + 1 >= warmup; without
+    delayed_aci's adaptive step, so q[i] = np.quantile(past, taus) (linear interpolation) at fixed levels (at
+    tau = alpha/2 and 1 - alpha/2 they equal delayed_aci(..., gamma=0)'s lo and hi bit for bit). Only rows <= i -
+    delay enter row i.
+
+    Returns {"q": (n, K), NaN before the warm-up; "rank": (n,) r_i = #{past < e_i}, -1 before the warm-up;
+    "n_past": (n,) the window's length, 0 before; "pit": (n,) the mid-rank PIT (r_i + 1/2)/(n_past + 1), NaN
+    before}. Under the 5-session overlap this PIT re-centres itself (each week's overlapping neighbours enter the
+    later windows) and |Phi^-1(pit)| <= Phi^-1(1 - 1/(2 (window + 1))), so its Berkowitz statistics need the
+    simulated null of rank_pit_null, not chi2(3)."""
+    e = np.asarray(log_resid, dtype=float)
+    t = np.asarray(taus, dtype=float)
+    if warmup < 1 or window < 1 or delay < 1:
+        raise ValueError("trailing_quantiles: the warm-up and the window need a residual, and an outcome matures "
+                         "at least one row after its forecast")
+    n = e.size
+    q = np.full((n, t.size), np.nan)
+    rank = np.full(n, -1, dtype=np.int64)
+    n_past = np.zeros(n, dtype=np.int64)
+    for i in range(n):
+        j = i - delay                                          # newest matured row
+        if j + 1 < warmup:
+            continue
+        past = e[max(0, j + 1 - window): j + 1]
+        q[i] = np.quantile(past, t)
+        rank[i] = np.count_nonzero(past < e[i])
+        n_past[i] = past.size
+    pit = np.full(n, np.nan)
+    ok = rank >= 0
+    pit[ok] = (rank[ok] + 0.5) / (n_past[ok] + 1)
+    return {"q": q, "rank": rank, "n_past": n_past, "pit": pit}
+
+
+def _trailing_ranks(e: FloatArray, first: int, *, window: int, delay: int) -> tuple[IntArray, IntArray]:
+    """trailing_quantiles' rank and n_past for rows first..n-1, vectorised: rows whose window is still growing compare
+    with e[:window] under a mask, the others with rows of sliding_window_view (views, no copies)."""
+    n = e.size
+    rows = np.arange(first, n)
+    n_past = np.minimum(rows - delay + 1, window)
+    rank = np.empty(rows.size, dtype=np.int64)
+    full0 = max(first, window + delay - 1)                    # first row whose window is full
+    grow = rows[rows < full0]
+    if grow.size:
+        width = min(window, n)
+        mask = np.arange(width)[None, :] < (grow - delay + 1)[:, None]
+        rank[: grow.size] = np.count_nonzero((e[None, :width] < e[grow][:, None]) & mask, axis=1)
+    if full0 < n:
+        win = np.lib.stride_tricks.sliding_window_view(e, window)[full0 - delay + 1 - window: n - delay + 1 - window]
+        rank[grow.size:] = np.count_nonzero(win < e[full0:][:, None], axis=1)
+    return cast("IntArray", rank), cast("IntArray", n_past)
+
+
+def _rank_deciles(e: FloatArray, rows: IntArray, rank: IntArray, n_past: IntArray, taus: FloatArray, *,
+                  window: int, delay: int) -> IntArray:
+    """For each row i, #{k : np.quantile(past_i, taus[k]) <= e_i} (the PIT histogram's bin when taus are the deciles),
+    from the rank r_i = #{past_i < e_i}: with h = (n_past - 1) tau, np.quantile's linear position, e_i lies above the
+    quantile when r_i >= floor(h) + 2 and below it when r_i <= floor(h) (no ties); the one rank in between is
+    compared with np.quantile itself."""
+    floor_h = np.floor((n_past - 1)[:, None] * taus[None, :])
+    above = rank[:, None] >= floor_h + 2
+    for r_idx, k in zip(*np.nonzero(rank[:, None] == floor_h + 1)):
+        i = int(rows[r_idx])
+        past = e[max(0, i - delay + 1 - window): i - delay + 1]
+        above[r_idx, k] = bool(np.quantile(past, taus[k]) <= e[i])
+    return cast("IntArray", above.sum(axis=1).astype(np.int64))
+
+
+def rank_pit_null(n: int, first: int, grid: npt.ArrayLike, *, window: int, delay: int, warmup: int, draws: int,
+                  seed: Sequence[int], bin_draws: int) -> dict[str, Any]:
+    """Simulated null of the trailing-rank PIT (trailing_quantiles) under the `delay`-session overlap, on a layout of n
+    rows evaluated from row `first`, with grid[i] the sampling grid of row i. Draw k: numpy default_rng(SeedSequence(
+    [*seed, k])) gives n + delay i.i.d. N(0, 1) returns x; row t's target is e_t = 1/2 log of the mean of
+    x_{t+1}^2, ..., x_{t+delay}^2 (overlapping, as the real RV5 targets); the mid-rank PIT is rebuilt exactly (window,
+    delay, warm-up) and Berkowitz's LR3 computed on each grid's rows in date order. Ranks do not depend on the
+    marginal, so one null serves every model with this construction. Vectorised (sliding_window_view, no copies;
+    ~5 ms per draw on the real layout).
+
+    Returns {"lr": (draws, G) the per-grid LR3, grids in sorted label order; "exceed": (draws,) the days outside the
+    trailing window's range (rank 0 or n_past); and, over the first bin_draws draws, the shares (%) of the 10 PIT
+    decile bins: "share_mean_rank" and "share_sd_rank" (ddof 1) for this construction (bins from the rank,
+    _rank_deciles: e_i against np.quantile of its window at tau = 0.1, ..., 0.9), and "share_sd_exact" for an exact
+    PIT (chi2 cdf of the same targets)}."""
+    labels = np.asarray(grid)
+    if labels.shape != (n,):
+        raise ValueError("rank_pit_null: one grid label per row")
+    if delay < 1 or warmup < 1 or first - delay + 1 < warmup or first >= n:
+        raise ValueError("rank_pit_null: the PIT is undefined before the warm-up (and needs delay >= 1)")
+    if not 2 <= bin_draws <= draws:
+        raise ValueError("rank_pit_null: 2 <= bin_draws <= draws")
+    sub = labels[first:]
+    groups = [np.flatnonzero(sub == g) for g in np.unique(sub)]
+    rows = np.arange(first, n)
+    deciles = np.arange(1, 10) / 10.0
+    lr = np.empty((draws, len(groups)))
+    exceed = np.empty(draws, dtype=np.int64)
+    share_rank = np.empty((bin_draws, 10))
+    share_exact = np.empty((bin_draws, 10))
+    for k in range(draws):
+        x = np.random.default_rng(np.random.SeedSequence([*seed, k])).standard_normal(n + delay) ** 2
+        c = np.concatenate(([0.0], np.cumsum(x)))
+        v = (c[delay + 1: delay + 1 + n] - c[1: 1 + n]) / delay
+        e = 0.5 * np.log(v)
+        rank, n_past = _trailing_ranks(e, first, window=window, delay=delay)
+        z = special.ndtri((rank + 0.5) / (n_past + 1))
+        lr[k] = [_lr3(z[idx])[0] for idx in groups]
+        exceed[k] = np.count_nonzero((rank == 0) | (rank == n_past))
+        if k < bin_draws:
+            b = _rank_deciles(e, rows, rank, n_past, deciles, window=window, delay=delay)
+            share_rank[k] = np.bincount(b, minlength=10) / b.size * 100
+            ux = stats.chi2.cdf(delay * v[first:], delay)
+            bx = np.minimum((ux * 10).astype(np.int64), 9)
+            share_exact[k] = np.bincount(bx, minlength=10) / bx.size * 100
+    return {"lr": lr, "exceed": exceed, "share_sd_rank": share_rank.std(axis=0, ddof=1),
+            "share_sd_exact": share_exact.std(axis=0, ddof=1), "share_mean_rank": share_rank.mean(axis=0)}
+
+
+def sample_pit(sorted_draws: npt.ArrayLike, actual: float) -> float:
+    """PIT of `actual` against a sorted simulated predictive sample of N draws: the Hazen CDF, (k + 1/2)/N at the k-th
+    order statistic (k = 0..N-1), linear in between and clamped to [1/(2N), 1 - 1/(2N)] outside. Continuous in its
+    inputs, so a last-bit change in the simulation cannot flip a count."""
+    s = np.asarray(sorted_draws, dtype=float)
+    if s.ndim != 1 or s.size == 0 or bool(np.any(np.diff(s) < 0)):
+        raise ValueError("sample_pit: the draws must be a non-empty sorted 1-D sample")
+    return float(np.interp(actual, s, (np.arange(s.size) + 0.5) / s.size))
+
+
+def _lr3(z: FloatArray) -> tuple[float, float, float, float]:
+    """Berkowitz's LR3 by the conditional Gaussian AR(1) likelihood: OLS of z_t on (1, z_{t-1}) in closed form (sums,
+    no BLAS), s^2 = mean squared residual, LR = 2 (ll_1 - ll_0) = -m (log s^2 + 1) + sum z_t^2 over the m = n - 1
+    conditional terms (the 2 pi terms cancel). Returns (lr, intercept, slope, s^2)."""
+    y, x = z[1:], z[:-1]
+    m = y.size
+    xm, ym = float(x.mean()), float(y.mean())
+    dx = x - xm
+    sxx = float(np.sum(dx * dx))
+    if sxx <= 0:
+        raise ValueError("Berkowitz: the normal scores have no variance")
+    rho = float(np.sum(dx * (y - ym))) / sxx
+    c = ym - rho * xm
+    resid = y - c - rho * x
+    s2 = float(np.sum(resid * resid)) / m
+    return float(-m * (np.log(s2) + 1.0) + np.sum(y * y)), c, rho, s2
+
+
+def berkowitz_test(z: npt.ArrayLike, *, null_lr: npt.ArrayLike | None = None) -> dict[str, Any]:
+    """Berkowitz (2001) LR3 on normal scores z = Phi^-1(PIT) in time order (takes z, not u): H0 z_t i.i.d. N(0, 1)
+    against a Gaussian AR(1), by the conditional likelihood (closed-form OLS of z_t on (1, z_{t-1})). Run it on
+    non-overlapping observations: overlapping PITs are autocorrelated under a correct forecast. p from chi2(3), or,
+    when a simulated null of the statistic is given, (1 + #{null_lr >= lr}) / (len(null_lr) + 1) with the chi2(3) p
+    kept as "p_chi2" (context). Returns {"lr", "p_value", "reference", "n" (the scores), "mu" = c/(1 - rho),
+    "sigma" = sqrt(s^2/(1 - rho^2)), "rho"}."""
+    s = np.asarray(z, dtype=float)
+    if s.ndim != 1 or s.size < 4 or not bool(np.all(np.isfinite(s))):
+        raise ValueError("berkowitz_test: at least four finite normal scores (z, not u)")
+    lr, c, rho, s2 = _lr3(s)
+    p_chi2 = float(stats.chi2.sf(lr, 3))
+    out: dict[str, Any] = {"lr": lr, "p_value": p_chi2, "reference": "chi2(3)", "n": int(s.size),
+                           "mu": c / (1.0 - rho), "sigma": float(np.sqrt(s2 / (1.0 - rho * rho))), "rho": rho}
+    if null_lr is not None:
+        ref = np.asarray(null_lr, dtype=float)
+        if ref.ndim != 1 or ref.size == 0:
+            raise ValueError("berkowitz_test: the simulated null is a non-empty 1-D sample of the statistic")
+        out.update(p_value=(1 + int(np.count_nonzero(ref >= lr))) / (ref.size + 1), reference="simulated null",
+                   p_chi2=p_chi2)
+    return out
+
+
+_LOG_2PI = float(np.log(2.0 * np.pi))
+
+
+def berkowitz_censored(z: npt.ArrayLike, lower: float = 0.05, upper: float = 0.95) -> dict[str, Any]:
+    """Doubly censored normal LR, adapted from Berkowitz's (2001) censored likelihood (which observes the tail beyond a
+    VaR; this form does the reverse): z is observed only inside [Phi^-1(lower), Phi^-1(upper)] and only counted
+    below and above it (pass -inf / +inf or any value outside). H0 i.i.d. N(0, 1) against i.i.d. N(mu, s^2), LR ~
+    chi2(2): it tests the distribution between the two quantiles and the two tail masses, not independence. The
+    likelihood uses the interior's sufficient statistics (count, sum z, sum z^2) and special.log_ndtr for the tails;
+    Nelder-Mead in (mu, log s) from (0, 0), xatol = fatol = 1e-10, at most 4000 iterations (deterministic; raises
+    RuntimeError if it does not converge). Returns {"lr", "p_value", "reference", "n", "below", "above", "mu",
+    "sigma"}."""
+    s = np.asarray(z, dtype=float)
+    if s.ndim != 1 or s.size == 0 or bool(np.any(np.isnan(s))) or not 0.0 < lower < upper < 1.0:
+        raise ValueError("berkowitz_censored: non-empty scores without NaN, and 0 < lower < upper < 1")
+    cl, ch = float(special.ndtri(lower)), float(special.ndtri(upper))
+    inner = s[(s >= cl) & (s <= ch)]
+    below, above = int(np.count_nonzero(s < cl)), int(np.count_nonzero(s > ch))
+    m, s1, s2 = inner.size, float(np.sum(inner)), float(np.sum(inner * inner))
+
+    def nll(theta: FloatArray) -> float:
+        mu, log_sd = float(theta[0]), float(theta[1])
+        sd = float(np.exp(log_sd))
+        out = 0.5 * (m * _LOG_2PI + (s2 - 2.0 * mu * s1 + m * mu * mu) / (sd * sd)) + m * log_sd
+        if below:
+            out -= below * float(special.log_ndtr((cl - mu) / sd))
+        if above:
+            out -= above * float(special.log_ndtr((mu - ch) / sd))
+        return out
+
+    fit = optimize.minimize(nll, np.zeros(2), method="Nelder-Mead",
+                            options={"xatol": 1e-10, "fatol": 1e-10, "maxiter": 4000})
+    if not fit.success:
+        raise RuntimeError(f"berkowitz_censored: Nelder-Mead did not converge: {fit.message}")
+    lr = max(0.0, 2.0 * (nll(np.zeros(2)) - float(fit.fun)))
+    return {"lr": lr, "p_value": float(stats.chi2.sf(lr, 2)), "reference": "chi2(2)", "n": int(s.size),
+            "below": below, "above": above, "mu": float(fit.x[0]), "sigma": float(np.exp(fit.x[1]))}
+
+
+def bonferroni_min(p_values: npt.ArrayLike) -> float:
+    """min(1, k * the smallest of k p-values): the test that at least one of k nulls is false, valid however the k
+    tests depend on one another (here the five sampling grids, disjoint weeks of one series)."""
+    p = np.asarray(p_values, dtype=float)
+    if p.size == 0 or bool(np.any(np.isnan(p))):
+        raise ValueError("bonferroni_min: at least one p-value, none NaN")
+    return float(min(1.0, p.size * float(p.min())))
+
+
+def cauchy_combination(p_values: npt.ArrayLike) -> float:
+    """Liu and Xie (2020), equal weights: T = mean_i tan((1/2 - p_i) pi), p = P(Cauchy > T). Close to exact under
+    arbitrary dependence for small p-values (context beside bonferroni_min). A p-value below 1e-16 enters as
+    1/(p pi), its tangent's limit, as the paper recommends; any p = 0 gives 0."""
+    p = np.asarray(p_values, dtype=float)
+    if p.size == 0 or not bool(np.all((p >= 0) & (p <= 1))):
+        raise ValueError("cauchy_combination: at least one p-value, each in [0, 1]")
+    if bool(np.any(p == 0)):
+        return 0.0
+    t = np.where(p < 1e-16, 1.0 / (p * np.pi), np.tan((0.5 - p) * np.pi))
+    return float(stats.cauchy.sf(float(np.mean(t))))
