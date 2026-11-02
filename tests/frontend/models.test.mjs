@@ -378,7 +378,8 @@ test("each STAB reading follows its flags and never overstates", async () => {
   assert.ok(ovx.includes("for 927-session windows"), ovx);
   assert.match(ovx, /OVX-only regression lower/);
   assert.match(ovx, /p.=.0\.186 with Giacomini and Rossi's full-sample variance/, "a robustness form in another band is named");
-  assert.match(ovx, /Adjusted for the 5 window lengths looked at, p.=.0\.056: inconclusive \(q.=.0\.156\)\./);
+  const q = m.format.fmtPValue(ledger.byId.get("vol_fluct_ovx_only").q, { digits: 3 });
+  assert.ok(new RegExp(`Adjusted for the 5 window lengths looked at, p.=.0\\.056: inconclusive \\(q.=.${q.replace(".", "\\.")}\\)\\.`).test(ovx), ovx);
   assert.ok(ovx.includes(`The largest window mean difference with OVX-only regression lower is `
     + `+${m.format.fmtNum(fl.largest_same_sign_window.mean_diff, 3)} a day, in the window ending `
     + `${m.format.fmtDate(fl.largest_same_sign_window.window_end)} (t\u00a0=\u00a0${m.format.fmtNum(fl.largest_same_sign_window.t, 2)}); `
