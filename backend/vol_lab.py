@@ -1582,8 +1582,9 @@ def stability_report(frame: pd.DataFrame, gap: np.ndarray, pos: np.ndarray, chal
 
 def _quantile_fit(y_log: np.ndarray, A: np.ndarray, taus: Sequence[float]) -> np.ndarray:
     """Koenker-Bassett linear quantile regression of y_log on A at each level, solved exactly as the standard linear
-    program (2p + 2n non-negative variables, n equality rows) by scipy's HiGHS interior point with crossover: the
-    exact optimum, stable to input noise where an iterative fit is not. Returns (len(taus), p) coefficients."""
+    program (2p + 2n non-negative variables, n equality rows) by scipy's HiGHS interior point with crossover: an exact
+    optimum. Where near-equal optima exist, last-bit input noise can move the solution between them, by far less than
+    the reproduction tolerance. Returns (len(taus), p) coefficients."""
     from scipy import sparse
     from scipy.optimize import linprog
 

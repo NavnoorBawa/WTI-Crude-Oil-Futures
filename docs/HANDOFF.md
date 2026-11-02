@@ -30,7 +30,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   with heavier tails; shown on the QLIKE tile and in MODL, never subtracted from a loss or test.
   Coverage and loss by regime at the decision (`vol_lab.regimes`, ROADMAP 2.2): none of the eight
   tests of equal coverage across regimes is significant at 5%; the model of record across OVX
-  thirds is inconclusive (p = 0.083 at 10 HAC lags, 0.111 at 20; q = 0.223). CALB states it, MODL
+  thirds is inconclusive (p = 0.083 at 10 HAC lags, 0.111 at 20; q = 0.220). CALB states it, MODL
   has a "by regime" view (descriptive), FCST shows the OVX/RV5 gap; the eight rows are in the
   ledger's "forecast interval" family, not pre-specified. When the differences arise (ROADMAP 2.3,
   lab and ledger; RESULTS 2.8): Giacomini-White's conditional part is significant against

@@ -878,8 +878,9 @@ def _distribution_rows() -> list[Row]:
                             "window_exceedance_days": f"{berk}.window_exceedances.days",
                             "exceedance_null_mean": f"{berk}.window_exceedances.null_mean",
                             "exceedance_null_q95": f"{berk}.window_exceedances.null_q95"})
-            hypothesis = ("{model}'s predictive distribution is miscalibrated: on non-overlapping weeks its PITs are "
-                          "not independent standard uniforms.")
+            hypothesis = ("{model}'s outcomes are not distributed like its own trailing residuals: on non-overlapping "
+                          "weeks its trailing-rank PITs depart from what this construction gives when the model is "
+                          "correctly specified (a simulated null).")
             test = ("Berkowitz (2001) LR3 on the normal scores of each sampling grid's weeks (non-overlapping), "
                     "against a seeded simulated null of this PIT construction (trailing ranks under the 5-session "
                     "overlap; chi-squared with 3 df is far too conservative for it); Bonferroni over the five grids; "
@@ -887,7 +888,8 @@ def _distribution_rows() -> list[Row]:
             note = ("The PIT is the outcome's mid-rank among the trailing residuals, which re-centres itself across "
                     "overlapping weeks and caps |z| near 3.2, so its LR is referred to a simulated null; the null was "
                     "adopted after the chi-squared p-values (context p_chi2) were seen. The p-value counts simulated "
-                    "draws (Monte Carlo standard error in context mc_se).")
+                    "draws (Monte Carlo standard error in context mc_se), so a few draws more or less can move the row "
+                    "across the t > 3 hurdle.")
         elif m == "quantile_har":
             context.update({"p_randomized_tail": f"{berk}.randomized_tail.p_value",
                             "randomized_tail_seed_min": f"{berk}.randomized_tail.seed_min",
@@ -908,8 +910,9 @@ def _distribution_rows() -> list[Row]:
                                 "clamp_days": f"{berk}.clamp_days", "extreme_days": f"{berk}.extreme_days",
                                 "p_static_t": f"{base}.alternatives.static_t.berkowitz_p"})
                 note = ("The PIT reads the simulated sample's Hazen CDF, continuous in its inputs, chosen for "
-                        "reproduction stability after the count PIT's p (context p_count_pit) was seen. The literal "
-                        "reading, a Student-t on the expected variance path, is context (p_static_t).")
+                        "reproduction stability after the count PIT's p (context p_count_pit) was seen; whether the "
+                        "row clears the t > 3 hurdle can depend on that choice. The literal reading, a Student-t on the "
+                        "expected variance path, is context (p_static_t).")
             else:
                 context["rho_grid_0"] = f"{berk}.by_grid[0].rho"
                 note = "The normal score of a far-tail week comes from the survival function, so it stays finite."

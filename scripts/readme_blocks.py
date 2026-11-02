@@ -1386,17 +1386,38 @@ def distribution_block() -> str:
              f"{_fmt((cfg['gaussian_ratio_k19'] - 1) * 100, 1)}% above the full CRPS. The log scale and the shares of "
              f"days between consecutive predicted deciles are context. Batch-means test (Ibragimov and Müller 2010): the "
              f"mean score difference in {groups} consecutive periods, t with {groups - 1} df, two-sided; a positive t "
-             f"means the model scored lower. Berkowitz (2001) LR3 on each sampling grid's non-overlapping weeks, "
-             f"Bonferroni over the {len(dist['weeks_per_grid'])} grids: for the trailing-rank PITs against a simulated "
-             f"null ({null['draws']:,} seeded draws), for the quantile HAR in a doubly censored form. {chall['label']}'s "
+             f"means the model scored lower. Calibration: Berkowitz's (2001) LR3 on each sampling grid's non-overlapping "
+             f"weeks, Bonferroni over the {len(dist['weeks_per_grid'])} grids, for the trailing-rank PITs against a "
+             f"simulated null ({null['draws']:,} seeded draws); for the quantile HAR a doubly censored χ²(2) form, which "
+             f"tests its distribution between and beyond the 5% and 95% quantiles, not independence. {chall['label']}'s "
              f"score rows are excluded from the ledger's family because the challenger was picked on this sample. "
              f"Source: lab."]
     return "\n".join(rows)
 
 
+def _dist_registered(model: dict, dm: dict) -> bool:
+    """Whether a score difference runs the way the ledger registered it: the quantile HAR's rows expect it to score
+    lower than the model of record (a positive t), every other model's rows expect the model of record to."""
+    return (dm["stat"] > 0) == (model["key"] == "quantile_har")
+
+
+def _bh_clause(names: str, n: int, rows: list[dict], *, subject: str = "") -> str:
+    """'Neither survives ...' etc. for n significant rows, with their q."""
+    survive = [r for r in rows if r["survives_bh_5pct"]]
+    qs = ", ".join(_pthr(r["q_value_bh"]) for r in rows)
+    if not survive:
+        who = "It does not survive" if n == 1 else ("Neither survives" if n == 2 else "None survives")
+    elif len(survive) == n:
+        who = "It survives" if n == 1 else ("Both survive" if n == 2 else "All survive")
+    else:
+        who = f"Only {names} {'survives' if len(survive) == 1 else 'survive'}"
+    return f" {who} the ledger's Benjamini-Hochberg adjustment (q = {qs})."
+
+
 def _dist_verdicts(lab: dict, ledger: dict, score: str, tag: str, phrase: str) -> str:
     """One score's registered verdicts against the model of record, by level and by which side scored lower, with
-    the ledger's Benjamini-Hochberg survival of the significant ones. The challenger is read elsewhere."""
+    the ledger's Benjamini-Hochberg survival of the significant ones that run in the registered direction. The
+    challenger is read elsewhere."""
     chall_key = lab["config"]["challenger"]
     tests = [(m, m["dm_vs_har_iv"][score]) for m in _dist_models(lab)
              if m["dm_vs_har_iv"] is not None and m["key"] != chall_key]
@@ -1424,18 +1445,46 @@ def _dist_verdicts(lab: dict, ledger: dict, score: str, tag: str, phrase: str) -
                       f"the difference is not significant against {_dist_names(rest)}"))
     text = f"On {phrase}, " + "; ".join(parts) + "."
     sig = record_lower + model_lower
-    if sig:
-        rows = [_ledger_row(ledger, f"vol_{tag}_{m['key']}") for m, _ in sig]
-        survive = [m for (m, _), r in zip(sig, rows) if r["survives_bh_5pct"]]
-        qs = ", ".join(_pthr(r["q_value_bh"]) for r in rows)
-        if not survive:
-            who = "it does not" if len(sig) == 1 else ("neither" if len(sig) == 2 else "none")
-            text += f" {who[0].upper() + who[1:]} survive{'s' if who == 'neither' or who == 'none' else ''} the ledger's Benjamini-Hochberg adjustment (q = {qs})."
-        elif len(survive) == len(sig):
-            text += f" {'It survives' if len(sig) == 1 else 'All survive'} the ledger's Benjamini-Hochberg adjustment (q = {qs})."
-        else:
-            text += f" Only {_dist_names(survive)} survives the ledger's Benjamini-Hochberg adjustment (q = {qs})."
+    registered = [(m, dm) for m, dm in sig if _dist_registered(m, dm)]
+    if registered:
+        rows = [_ledger_row(ledger, f"vol_{tag}_{m['key']}") for m, _ in registered]
+        survive = [m for (m, _), r in zip(registered, rows) if r["survives_bh_5pct"]]
+        text += _bh_clause(_dist_names(survive), len(registered), rows)
+    opposite = [m for m, dm in sig if not _dist_registered(m, dm)]
+    if opposite:
+        text += (f" The difference against {_dist_names(opposite)} runs opposite to the direction the ledger "
+                 f"registered, so {'its row is' if len(opposite) == 1 else 'their rows are'} not counted as support.")
     return text
+
+
+def _tail_reading(lab: dict) -> str:
+    """Which models' outer tenths lie above their chance bands (descriptive: no bin is tested)."""
+    both, low, high = [], [], []
+    for m in _dist_models(lab):
+        share, center, band = m["pit_decile_share_pct"], m["pit_chance_center_pct"], m["pit_chance_band_pct"]
+        above = [share[i] > center[i] + band[i] for i in (0, -1)]
+        if all(above):
+            both.append(m)
+        elif above[0]:
+            low.append(m)
+        elif above[1]:
+            high.append(m)
+    parts = []
+    for m in both:
+        sh = m["pit_decile_share_pct"]
+        parts.append(f"{_dist_name(m)}'s two outer tenths both lie above their chance bands ({sh[0]:.1f}% and "
+                     f"{sh[-1]:.1f}% of outcomes; {m['coverage_10_90_pct']}% fall inside its 10%-90% range), so its "
+                     f"distribution is too narrow")
+    for group, side, q in ((low, "lowest", "below its 10% quantile"), (high, "highest", "above its 90% quantile")):
+        if group:
+            vals = " and ".join(f"{m['pit_decile_share_pct'][0 if side == 'lowest' else -1]:.1f}%" for m in group)
+            one = len(group) == 1
+            parts.append(f"the {side} {'tenth' if one else 'tenths'} of {_dist_names(group)} "
+                         f"{'lies above its chance band' if one else 'lie above their chance bands'} ({vals}): more "
+                         f"outcomes than expected fell {q if one else q.replace('its', 'their').replace('quantile', 'quantiles')}")
+    if not parts:
+        return ""
+    return " Descriptively (no bin is tested): " + "; ".join(parts) + "."
 
 
 def distribution_reading() -> str:
@@ -1461,43 +1510,64 @@ def distribution_reading() -> str:
         dms = [m["dm_vs_har_iv"]["crps_grid"] for m in behind]
         lower = [dm["periods_har_iv_lower"] for dm in dms]
         conc = [dm["concentration"] for dm in dms]
-        acf5 = [dm["acf"]["5"] for dm in dms]
+        acf10, acf20 = [dm["acf"]["10"] for dm in dms], [dm["acf"]["20"] for dm in dms]
+        lags = sorted({dm["dm_test"]["lags"] for dm in dms})
         parts.append(f"Against {_dist_names(behind)}, the model of record scored the lower CRPS in "
                      f"{_span(lower)} of {groups} periods, but 2020 carries {_span([c['share_2020_pct'] for c in conc], suffix='%')} "
                      f"of each total difference, and the 1% of days with the largest differences carry "
                      f"{_span([c['share_largest_1pct_days_pct'] for c in conc], suffix='%')}. The daily differences stay "
-                     f"correlated for weeks (autocorrelation {_span(acf5, '{:.2f}')} at 5 sessions), beyond what the "
-                     f"lab's usual Diebold-Mariano variance covers: with its 9 Bartlett lags, as in every published "
+                     f"correlated for weeks (autocorrelation {_span(acf10, '{:.2f}')} at 10 sessions and "
+                     f"{_span(acf20, '{:.2f}')} at 20), beyond what the lab's usual Diebold-Mariano variance covers: "
+                     f"with its {_join([str(n) for n in lags])} Bartlett lags, as in every published "
                      f"QLIKE test, the same differences give "
                      + _join([_peq_thr(dm["dm_test"]["p_value"]) for dm in dms])
                      + (" respectively" if len(dms) > 1 else "") + ", so the registered test is the batch-means one, which allows for that persistence.")
     cd = chall["dm_vs_har_iv"]
-    if any(cd[s]["p_value"] < 0.10 for s, _, _ in _DIST_SCORES):
-        sig = [(phrase, cd[s]) for s, _, phrase in _DIST_SCORES if cd[s]["p_value"] < 0.10]
-        parts.append(f"{chall['label']} scores lower than the model of record on "
-                     + _join([f"{phrase} ({_fmt(dm['stat'], 2, True)}, {_peq_thr(dm['p_value'])}, in "
-                              f"{dm['periods_model_lower']} of {dm['groups']} periods)" for phrase, dm in sig])
-                     + "; it was picked as the challenger on this sample, so this is not new evidence, its rows are "
-                       "left out of the ledger's family, and no search-adjusted version of these tests exists.")
+    items = []
+    for s_key, _, phrase in _DIST_SCORES:
+        dm = cd[s_key]
+        if dm["p_value"] >= 0.10:
+            continue
+        who, periods = ((chall["label"], dm["periods_model_lower"]) if dm["stat"] > 0
+                        else ("the model of record", dm["periods_har_iv_lower"]))
+        detail = f"{_fmt(dm['stat'], 2, True)}, {_peq_thr(dm['p_value'])}, lower in {periods} of {dm['groups']} periods"
+        items.append(f"{who} scores significantly lower on {phrase} ({detail})" if dm["p_value"] < 0.05 else
+                     f"{who} scores lower on {phrase}, inconclusively ({detail})")
+    if items:
+        text = _join(items)
+        parts.append(text[0].upper() + text[1:] + "; the challenger was picked on this sample, so this is not new "
+                     "evidence, its rows are left out of the ledger's family, and no search-adjusted version of these "
+                     "tests exists.")
     # Calibration.
     rows = {m["key"]: _ledger_row(ledger, f"vol_berkowitz_{m['key']}") for m in _dist_models(lab)}
     rejected = [m for m in _dist_models(lab) if m["berkowitz"]["p_value"] < 0.05]
     mid = [m for m in _dist_models(lab) if 0.05 <= m["berkowitz"]["p_value"] < 0.10]
     quiet = [m for m in _dist_models(lab) if m["berkowitz"]["p_value"] >= 0.10]
     survive = [m for m in rejected if rows[m["key"]]["survives_bh_5pct"]]
+    fail = [m for m in rejected if m not in survive]
     text = ("Calibration, on each sampling grid's non-overlapping weeks: Berkowitz's test rejects at 5% "
             + (f"{_dist_names(rejected)} ({', '.join(_peq_thr(m['berkowitz']['p_value']) for m in rejected)})" if rejected
-               else "none of the models")
-            + (f"; {_dist_names(survive)} survive the ledger's Benjamini-Hochberg adjustment" if survive and len(survive) < len(rejected)
-               else "; all survive the ledger's Benjamini-Hochberg adjustment" if survive else "")
-            + ".")
-    qh = next((m for m in rejected if m["key"] == "quantile_har" and m not in survive), None)
+               else "none of the models"))
+    if rejected:
+        def verb(group: list, yes: str, no: str) -> str:
+            return yes if len(group) == 1 else no
+        if survive and fail:
+            text += (f"; {_dist_names(survive)} {verb(survive, 'survives', 'survive')} the ledger's Benjamini-Hochberg "
+                     f"adjustment and {_dist_names(fail)} {verb(fail, 'does', 'do')} not "
+                     f"(q = {', '.join(_pthr(rows[m['key']]['q_value_bh']) for m in fail)})")
+        elif survive:
+            text += f"; {verb(survive, 'it survives', 'all survive')} the ledger's Benjamini-Hochberg adjustment"
+        else:
+            text += (f"; {verb(fail, 'it does', 'none')} {verb(fail, 'not survive', 'survives')} the ledger's "
+                     f"Benjamini-Hochberg adjustment (q = {', '.join(_pthr(rows[m['key']]['q_value_bh']) for m in fail)})")
+    text += "."
+    qh = next((m for m in rejected if m["key"] == "quantile_har"), None)
     if qh is not None:
         rt = qh["berkowitz"]["randomized_tail"]
-        text += (f" The quantile HAR's rejection does not survive it (q = {_pthr(rows['quantile_har']['q_value_bh'])}), "
-                 f"rests on {_word(qh['berkowitz']['grids_below_5pct'])} of {_word(len(dist['weeks_per_grid']))} grids, and "
-                 f"uses a censored form registered after a seeded randomized-tail form gave {_peq_thr(rt['p_value'])} "
-                 f"({_pthr(rt['seed_min'])} to {_pthr(rt['seed_max'])} over {rt['seeds']} seeds).")
+        text += (f" The quantile HAR's rejection rests on {_word(qh['berkowitz']['grids_below_5pct'])} of "
+                 f"{_word(len(dist['weeks_per_grid']))} grids and uses a censored form, registered after a seeded "
+                 f"randomized-tail form gave {_peq_thr(rt['p_value'])} ({_pthr(rt['seed_min'])} to "
+                 f"{_pthr(rt['seed_max'])} over {rt['seeds']} seeds).")
     for m in mid:
         b = m["berkowitz"]
         text += (f" For {'the model of record' if m is record else _dist_name(m)} the test is inconclusive "
@@ -1510,11 +1580,7 @@ def distribution_reading() -> str:
         text += (f" The model of record's outcome fell outside the range of its trailing residual window on "
                  f"{ex['days']} days, against {_fmt(ex['null_mean'], 0)} expected and a 95th percentile of "
                  f"{_fmt(ex['null_q95'], 0)} under the null; this count is descriptive and not tested.")
-    narrow = [m for m in _dist_models(lab) if m["coverage_10_90_pct"] < 75]
-    for m in narrow:
-        sh = m["pit_decile_share_pct"]
-        text += (f" {_dist_name(m)}'s distribution is too narrow: {m['coverage_10_90_pct']}% of outcomes fall inside its "
-                 f"10%-90% range, and {sh[0]:.1f}% and {sh[-1]:.1f}% in the two outer tenths.")
+    text += _tail_reading(lab)
     parts.append(text)
     # The quantile HAR on QLIKE, against the field.
     field = dist.get("quantile_har_field")
@@ -1549,9 +1615,17 @@ def distribution_reading() -> str:
     garch = [m for m in _dist_models(lab) if "alternatives" in m]
     ctx = []
     if garch:
+        bands = (("Berkowitz rejects", lambda p: p < 0.05), ("Berkowitz is inconclusive for", lambda p: 0.05 <= p < 0.10),
+                 ("Berkowitz does not reject at 10%", lambda p: p >= 0.10))
+        verdicts = []
+        for words, inside in bands:
+            group = [m for m in garch if inside(m["alternatives"]["static_t"]["berkowitz_p"])]
+            if group:
+                ps = ", ".join(_peq_thr(m["alternatives"]["static_t"]["berkowitz_p"]) for m in group)
+                verdicts.append(f"{words} {_dist_names(group)} ({ps})")
         ctx.append("read literally, as a Student-t on the expected variance path, the GARCH models score "
                    + _join([f"{_fmt(m['alternatives']['static_t']['crps_grid_pct'], 3)}" for m in garch])
-                   + f" and fail Berkowitz at p {'< 0.001' if max(m['alternatives']['static_t']['berkowitz_p'] for m in garch) < 0.001 else '≤ ' + _pthr(max(m['alternatives']['static_t']['berkowitz_p'] for m in garch))}")
+                   + " and " + _join(verdicts))
     trailing = [m for m in _dist_models(lab) if m["pit_construction"] == "trailing_rank"]
     if trailing:
         size = cfg["berkowitz"]["null_size_pct"]["chi2"]
@@ -1561,9 +1635,18 @@ def distribution_reading() -> str:
                             f"{_pthr(m['berkowitz']['p_chi2'])}" for m in trailing]))
     log_sig = [m for m in _dist_models(lab) if m["dm_vs_har_iv"] and m["key"] != chall_key
                and m["dm_vs_har_iv"]["crps_grid_log"]["p_value"] < 0.05]
-    if log_sig:
-        ctx.append("on the log scale the CRPS difference is significant against "
-                   + f"{_dist_names(log_sig)} ({', '.join(_peq_thr(m['dm_vs_har_iv']['crps_grid_log']['p_value']) for m in log_sig)})")
+    log_rec = [m for m in log_sig if m["dm_vs_har_iv"]["crps_grid_log"]["stat"] < 0]
+    log_mod = [m for m in log_sig if m["dm_vs_har_iv"]["crps_grid_log"]["stat"] > 0]
+
+    def log_ps(group: list) -> str:
+        return ", ".join(_peq_thr(m["dm_vs_har_iv"]["crps_grid_log"]["p_value"]) for m in group)
+
+    if log_rec:
+        ctx.append(f"on the log scale the model of record scores a significantly lower CRPS than {_dist_names(log_rec)} "
+                   f"({log_ps(log_rec)})")
+    if log_mod:
+        ctx.append(f"on the log scale {_dist_names(log_mod)} {'scores' if len(log_mod) == 1 else 'score'} a "
+                   f"significantly lower CRPS than the model of record ({log_ps(log_mod)})")
     mcs = dist.get("mcs_crps")
     if mcs:
         sizes = {k: len(v["included"]) for k, v in mcs.items() if k.startswith("block_")}
@@ -1574,11 +1657,12 @@ def distribution_reading() -> str:
     split = record.get("band_split")
     if split:
         share = split["pinball_upper_pct"] / (split["pinball_lower_pct"] + split["pinball_upper_pct"]) * 100
+        factor = 2 / lab["config"]["conformal"]["alpha"]
         parts.append(f"These quantiles are not the {_interval_level(lab)} band: they keep the band's residual window "
                      f"without its adaptive step and cover {record['coverage_10_90_pct']}% of outcomes. The band's own "
-                     f"interval score splits into {_fmt(split['pinball_lower_pct'], 3)} and "
-                     f"{_fmt(split['pinball_upper_pct'], 3)} vol points of pinball loss at its two ends, so the upper "
-                     f"tail carries {share:.0f}% of it.")
+                     f"interval score, {_fmt(split['interval_score_pct'], 2)} vol points, is {factor:g} times the sum of "
+                     f"its pinball losses at the two ends ({_fmt(split['pinball_lower_pct'], 3)} and "
+                     f"{_fmt(split['pinball_upper_pct'], 3)}), so the upper end carries {share:.0f}% of it.")
     return " ".join(parts)
 
 
@@ -2246,6 +2330,30 @@ def _per_run_p(row: dict) -> bool:
     return len(fields) > 1 and all(".runs[" in path for path in fields)
 
 
+def _t_equivalent(p: float) -> float:
+    """The ledger's t_equivalent: the normal quantile of a two-sided p."""
+    from statistics import NormalDist
+
+    return -NormalDist().inv_cdf(min(max(p, 1e-300), 1.0) / 2)
+
+
+def _fragile_t3(rows: list[dict]) -> list[str]:
+    """Calibration rows that clear t > 3 only under the form or the simulated draws the ledger registered: the count
+    PIT's p (GARCH models) or the p one Monte Carlo standard error higher (simulated nulls) falls below the hurdle."""
+    out = []
+    for r in rows:
+        if r["family"] != "distribution calibration" or not r.get("clears_hlz_t3"):
+            continue
+        ctx, t = r["context"], _t_equivalent(r["p_two_sided"])
+        if ctx.get("p_count_pit") is not None and _t_equivalent(ctx["p_count_pit"]) <= 3:
+            out.append(f"{r['id']} at t = {t:.3f} with the PIT form chosen after the count PIT's p was seen, which "
+                       f"gives t = {_t_equivalent(ctx['p_count_pit']):.3f}")
+        elif ctx.get("mc_se") is not None and _t_equivalent(r["p_value"] + ctx["mc_se"]) <= 3:
+            out.append(f"{r['id']} at t = {t:.3f}, which one Monte Carlo standard error of its simulated p would bring "
+                       f"to {_t_equivalent(r['p_value'] + ctx['mc_se']):.3f}")
+    return out
+
+
 def ledger_reading() -> str:
     led = _ledger()
     s = led["summary"]
@@ -2345,6 +2453,10 @@ def ledger_reading() -> str:
         sentence += (" The CRPS and pinball rows partly restate one another and the QLIKE comparison, and the "
                      "calibration rows of the three models scored from their own trailing residuals share most of "
                      "their data; Benjamini-Hochberg assumes that dependence is positive, and Holm holds under any.")
+        fragile = _fragile_t3(dist)
+        if fragile:
+            sentence += (f" {_word(len(fragile)).capitalize()} of the calibration rows clear the t > 3 hurdle narrowly: "
+                         + "; ".join(fragile) + ".")
         text.append(sentence)
     retracted = s["by_status"]["retracted"]
     vrp = rows_by_id.get("vrp_exists")
@@ -2661,8 +2773,9 @@ def non_claims(root: str = "") -> str:
         promotion = (f"- **No promotion before the test.** The challenger's historical edge is {word} after the "
                      f"search that found it (SPA p = {_fmt(spa)}), and only the forward record can settle it.")
     if "distribution" in lab:
-        promotion += (" The quantile HAR in section 2.9 is a robustness competitor: it is never eligible for the live "
-                      "pair, and its rerun of the field selects nothing.")
+        promotion += (f" The quantile HAR in [section 2.9 of the full results]({root}docs/RESULTS.md#29-the-whole-"
+                      f"predictive-distribution), a robustness competitor, is never eligible for the live pair, and its "
+                      f"rerun of the field selects nothing.")
     return "\n".join([
         "- **No price-direction or trading signal.** The direction model is retracted; volatility-direction "
         "accuracy is reported only beside its noise floor.",

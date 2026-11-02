@@ -2053,8 +2053,11 @@ class ArtifactContractTest(unittest.TestCase):
         self.assertTrue(2 <= size["simulated"] <= 8 and size["chi2"] < 2, size)
         field = dist["quantile_har_field"]
         self.assertEqual(field["n_days"], self.report["sample"]["n_days"])
-        self.assertEqual(field["spa"]["p_consistent"], board["spa_qlike_vs_har_iv"]["p_consistent"]
-                         if field["spa"]["best_model"] != lab.QHAR_KEY else field["spa"]["p_consistent"])
+        # Same seed and block: adding a model that is not the best leaves the statistic and every other draw unchanged
+        # and can only raise each bootstrap maximum, so the p-value cannot fall.
+        if field["spa"]["best_model"] != lab.QHAR_KEY:
+            self.assertEqual(field["spa"]["best_model"], board["spa_qlike_vs_har_iv"]["best_model"])
+            self.assertGreaterEqual(field["spa"]["p_consistent"], board["spa_qlike_vs_har_iv"]["p_consistent"])
         self.assertIn(lab.QHAR_KEY, field["spa"]["models"])
 
     def test_nothing_that_ranks_or_bands_a_model_reads_the_stability_tests(self):

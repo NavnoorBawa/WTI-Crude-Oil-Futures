@@ -202,6 +202,58 @@ class DistributionBlocksTest(StabilityBlocksTest.__base__):
         self.assertIn("On CRPS over 19 quantiles, the model of record scores significantly lower than GARCH(1,1)-t "
                       "(p = 0.030)", self.patched(rb.distribution_reading))
 
+    def test_the_challenger_s_scores_are_worded_by_direction_and_level(self):
+        chall = self.dist(self.lab["config"]["challenger"])["dm_vs_har_iv"]
+        self.assertIn("HAR-IV-range scores significantly lower on the 90% pinball loss", self.patched(rb.distribution_reading))
+        chall["pinball_10"].update(stat=-2.4, p_value=0.03)
+        chall["crps_grid"].update(stat=2.0, p_value=0.07)
+        text = self.patched(rb.distribution_reading)
+        self.assertIn("the model of record scores significantly lower on the 10% pinball loss (−2.40, p = 0.030, lower in "
+                      f"{chall['pinball_10']['periods_har_iv_lower']} of 12 periods)", text)
+        self.assertIn("HAR-IV-range scores lower on CRPS over 19 quantiles, inconclusively (+2.00, p = 0.070", text)
+        self.assertIn("the challenger was picked on this sample, so this is not new evidence", text)
+
+    def test_the_calibration_reading_always_states_the_adjustment(self):
+        for row in self.ledger["rows"]:
+            if row["family"] == "distribution calibration":
+                row["survives_bh_5pct"] = False
+        text = self.patched(rb.distribution_reading)
+        self.assertIn("none survives the ledger's Benjamini-Hochberg adjustment (q = ", text)
+        self.assertNotIn("does not survive it", text)
+        self.assertIn("The quantile HAR's rejection rests on one of five grids", text)
+
+    def test_context_verdicts_follow_their_p_values_and_sides(self):
+        for key in ("garch", "gjr"):
+            self.dist(key)["alternatives"]["static_t"]["berkowitz_p"] = 0.3
+        self.dist("ovx_only")["dm_vs_har_iv"]["crps_grid_log"].update(stat=2.5, p_value=0.02)
+        text = self.patched(rb.distribution_reading)
+        self.assertIn("Berkowitz does not reject at 10% GARCH(1,1)-t and GJR-GARCH(1,1)-t (p = 0.300, p = 0.300)", text)
+        self.assertNotIn("Berkowitz rejects GARCH", text)
+        self.assertIn("on the log scale OVX-only regression scores a significantly lower CRPS than the model of record", text)
+
+    def test_a_result_against_the_registered_direction_cites_no_adjusted_support(self):
+        self.dist("quantile_har")["dm_vs_har_iv"]["crps_grid"].update(stat=-2.6, p_value=0.03)
+        text = self.patched(rb.distribution_reading)
+        self.assertIn("the model of record scores significantly lower than the quantile HAR (p = 0.030)", text)
+        self.assertIn("The difference against the quantile HAR runs opposite to the direction the ledger registered", text)
+
+    def test_the_tail_reading_reads_the_chance_bands(self):
+        text = self.patched(rb.distribution_reading)
+        self.assertIn("EWMA (RiskMetrics)'s two outer tenths both lie above their chance bands", text)
+        self.assertNotIn("HAR-IV (model of record)'s two outer tenths", text)
+        gjr = self.dist("gjr")
+        gjr["pit_decile_share_pct"] = [4.0, *gjr["pit_decile_share_pct"][1:9], 24.0]
+        self.assertIn("the highest tenth of GJR-GARCH(1,1)-t lies above its chance band (24.0%)",
+                      self.patched(rb.distribution_reading))
+
+    def test_fragile_t3_flags_are_computed(self):
+        text = self.patched(rb.ledger_reading)
+        self.assertIn("vol_berkowitz_garch at t = 3.044 with the PIT form chosen after the count PIT's p was seen, "
+                      "which gives t = 2.996", text)
+        self.assertIn("vol_berkowitz_ovx_only at t = 3.090, which one Monte Carlo standard error", text)
+        self.row("vol_berkowitz_garch")["context"]["p_count_pit"] = 0.0001
+        self.assertNotIn("vol_berkowitz_garch at t", self.patched(rb.ledger_reading))
+
     def test_the_ledger_reading_names_rows_that_survive_only_with_the_new_families(self):
         text = self.patched(rb.ledger_reading)
         self.assertIn("The 25 rows on the whole predictive distribution (section 2.9) add 22 to the family", text)

@@ -133,9 +133,11 @@ whole predictive distribution of seven models, each as its quantiles at τ = 0.0
 - **The quantile HAR** (`vol_lab.quantile_har`), a robustness competitor: Koenker-Bassett linear
   quantile regressions of log RV5 on HAR-IV's terms at the 19 levels. They are fitted on the purged
   training rows of LightGBM's quarterly schedule, solved exactly as a linear program (scipy's HiGHS
-  interior point, stable to last-bit input noise, which a unit test checks; statsmodels' iterative
-  fit is the cross-check), and rearranged by sorting each day (Chernozhukov, Fernández-Val and
-  Galichon 2010). Like
+  interior point; statsmodels' iterative fit is the cross-check in the unit tests), and rearranged by
+  sorting each day (Chernozhukov, Fernández-Val and Galichon 2010). A unit test checks that last-bit
+  input noise leaves the fit on its test slice unchanged to 1e-12; on the full design a refit can
+  move between near-equal optima, which shifts a forecast by far less than the reproduction
+  tolerance. Like
   the timing control, it is kept out of `MODELS`, `FEASIBLE`, every confidence set, the SPA test, the
   selection, the choice of challenger and the live pair. Its QLIKE comparison with the field is a
   separate context block (`distribution.quantile_har_field`): added in place, it would change the
