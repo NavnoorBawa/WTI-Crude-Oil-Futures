@@ -210,6 +210,45 @@ test("MODL by regime and CALB's regime tables fit 390 and 320 px, pass axe, and 
   }
 });
 
+// STAB's rolling test with its band (ROADMAP 2.3) is newer than the fixture: the committed blocks are spliced in.
+test("STAB's rolling test and cumulative view fit 390 and 320 px, pass axe, and the control writes ?stab=", async () => {
+  const { withStability } = await import("../frontend/splice.mjs");
+  const research = JSON.stringify(withStability(JSON.parse(readFileSync(join(FIXTURES, PAYLOADS["/research.json"]), "utf8"))));
+  for (const width of [390, 320]) {
+    const { context, page, problems } = await openPage({ width, height: 844 }, { path: "/#stab", research });
+    try {
+      await page.waitForSelector("#stab .fluct-readings");
+      await mountEverything(page);
+      const state = await page.evaluate(() => ({
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        rows: document.querySelectorAll("#stab .fluct-row").length,
+        readings: document.querySelectorAll("#stab .fluct-readings li").length,
+        pressed: [...document.querySelectorAll("#stab .segmented-button[aria-pressed='true']")].map((b) => b.textContent),
+      }));
+      assert.ok(state.overflow <= 0, `${width}px: the page scrolls sideways by ${state.overflow}px`);
+      assert.ok(state.rows >= 1 && state.rows === state.readings, `${width}px: a reading per drawn row (${state.rows}, ${state.readings})`);
+      assert.deepEqual(state.pressed, ["Rolling test"]);
+      await page.evaluate(AXE);
+      const violations = await page.evaluate(async () => {
+        const result = await axe.run({ include: [["#stab"]] }, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } });
+        return result.violations.filter((v) => v.impact === "serious" || v.impact === "critical")
+          .map((v) => `${v.id} (${v.impact}): ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(", ")}`);
+      });
+      assert.deepEqual(violations, [], `${width}px: serious or critical axe violations`);
+      await page.getByRole("button", { name: "Cumulative", exact: true }).click();
+      assert.match(page.url(), /[?&]stab=cumulative\b/);
+      await page.waitForSelector("#stab .cum-row");
+      const after = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      assert.ok(after <= 0, `${width}px cumulative: sideways scroll ${after}px`);
+      await page.getByRole("button", { name: "Rolling test", exact: true }).click();
+      assert.doesNotMatch(page.url(), /stab=/);
+      assert.deepEqual(problems, [], "console errors, page errors or failed requests");
+    } finally {
+      await context.close();
+    }
+  }
+});
+
 // The price axis settles on its width after the first frames; a chart nobody has touched must still
 // sit on its range preset, so no "Reset view" is offered.
 for (const viewport of VIEWPORTS) {

@@ -209,6 +209,18 @@ backs the new one.
   within the regimes of one split, each column with its days. A footnote says it is descriptive
   and that the challenger's lower loss than the record in all 10 regimes across the four splits
   repeats the full-sample comparison that picked it. The title never changes with the view.
+- **When the differences arise, in STAB (ROADMAP 2.3, second part).** The rolling 52-week QLIKE
+  gap, which the client rebuilt from rounded series and which had no test behind it, is replaced by
+  the artifact's rolling Diebold-Mariano t against the OVX-only regression, raw OVX and the
+  challenger, on one scale, with the fluctuation test's simulated 5% band; each run outside the band
+  is drawn as published, never decided by the client. Under the figure, one reading per comparison,
+  worded by its flags: the drawn window's result and the first robustness form in another band, the
+  verdict adjusted for the window lengths with the ledger's q, the largest window mean in the same
+  direction (each window is scaled by its own variability, so the peak is not where the difference
+  was largest), and the challenger's caveat. A control (the URL's `stab` key and the palette) swaps
+  in the cumulative QLIKE differences, persistence on its own scale. The notes add the
+  Giacomini-White result, counted from the payload; the table view adds both tests per model with
+  the ledger's q, and the forms kept as context.
 - **The OVX/RV5 gap on FCST (ROADMAP 2.2, third part).** The FCST table (from 1000 px) gains the
   week's OVX/RV5 log gap at the decision, the quantity the regime split cuts at its trailing median;
   the CSV adds that median, and the chart's keyboard reading of a week names both. A test checks

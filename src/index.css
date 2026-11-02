@@ -846,6 +846,10 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
   .svg-chart :is(.fill-ink, .fill-neutral, .fill-muted, .fill-grid-dot, .bar-train) { fill: CanvasText; }
   .svg-chart :is(.stroke-axis, .stroke-reference, .stroke-range, .thin-range, .grid-line, .stroke-target, .stroke-median, .stroke-neutral) { stroke: GrayText; }
   .svg-chart :is(.ring-model, .ring-alt) { fill: Canvas; }
+  /* STAB's rolling test: the path in GrayText, the noise zone draws the band's edge, the neutral series in CanvasText. */
+  .svg-chart .fluct-path { stroke: GrayText; }
+  .svg-chart .fluct-edge { stroke: none; }
+  .svg-chart .stroke-ink { stroke: CanvasText; }
 }
 
 .fill-truth { fill: var(--s-truth); }

@@ -23,7 +23,7 @@ Each line below is a property with a test; the project is "there" when every lin
 | The main result reproduces bit for bit from pinned inputs | Reproduce workflow on `data/vol_lab.json` | holds (on every change to the pipeline, its inputs or its pins, and weekly; also inside the digest-pinned container, `make reproduce`) |
 | The forward record cannot be back-filled, and that is provable to an outsider | git seal before the window, plus an independent timestamp anchor | partial: sealed in git and checked from the file alone (`scripts/verify_record.py`); an anchor job attests the record in Sigstore's Rekor after each publish, best effort, and `scripts/verify_anchors.py` reads the times back (accepted 2026-11-01); not shown on LIVE, no second anchor |
 | The promotion test was fixed before any result arrived | a pre-registered, citable document with a persistent identifier | partial: pinned in code and docs; release tags wait for the owner's push (`HANDOFF.md` section 6); no DOI |
-| Forecast quality is judged with the right losses, at the right horizons, conditionally | QLIKE, MSE, MCS, SPA, DM today; density and conditional tests, several horizons | partial: SPA studentized with robustness; density, conditional tests and horizons to do |
+| Forecast quality is judged with the right losses, at the right horizons, conditionally | QLIKE, MSE, MCS, SPA, DM today; density and conditional tests, several horizons | partial: SPA studentized with robustness; conditional tests done (Giacomini-White, fluctuation; 2.3); density and horizons to do |
 | The model is specified, bounded and attributable | model card, elasticities, hand-checkable arithmetic; per-call attribution | holds from 2026-10-28: each new call stores its fit and the hero splits the change between two such calls; the six earlier sealed calls have no stored fit |
 | The interface is correct at every width and for every reader | 0 overflow, 0 console errors, axe clean, keyboard complete, print | partial: the Interface job checks overflow, console errors, serious and critical axe violations, keyboard and print at 1440 and 390 px; open gaps (placeholders at 320 px, hash landings at about 600 px, the hero's median dot at some widths, separators for screen readers) are in `HANDOFF.md` section 4 |
 | A reviewer can evaluate the project in ten minutes | a guide that says what to check and in what order | holds: README landing page and `docs/REVIEWER_GUIDE.md` |
@@ -376,6 +376,20 @@ These stay out, whatever a review suggests, unless the owner changes the rules:
 Tick items here with the PR number and date when they ship, and move any new finding into
 `HANDOFF.md`'s backlog.
 
+- **2.3 Conditional predictive ability and stability over time** (#101 and the STAB part,
+  2026-11-02): `forecast_eval.gw_test` and the fluctuation test (`rolling_dm`, a seeded null of
+  random walks at the sample's resolution, critical values and a p adjusted for the choice among
+  five window lengths); per model `gw_qlike_vs_har_iv` and `fluctuation_qlike_vs_har_iv`, the
+  `stability` block and weekly rolling-t and cumulative series; 26 ledger rows; RESULTS 2.8; STAB
+  draws the rolling DM t with the band and a cumulative view. Accepted: the Giacomini-White size
+  and power tests on an overlapping 5-step null and the brute-force path test pass. Departures: the
+  ledger registers the Giacomini-White conditional part (the form with a constant, the roadmap's,
+  mostly repeats DM and is context); each window has its own variance (Giacomini and Rossi's
+  full-sample variance over-rejects on heteroskedastic nulls; published as robustness); the
+  critical values are simulated at this sample's length (the published table is shown beside
+  them); five window lengths with a search-adjusted p rather than one; the OVX-only regression is
+  added to the cumulative series; the rows are not pre-specified; the reproduce check allows a
+  fluctuation p-value to move by up to 10 simulated draws. Not done: a rolling-window refit.
 - **2.2 Coverage and loss by regime** (#99, #100, 2026-11-02): `vol_lab.regimes` labels every
   out-of-sample day at the decision from strictly earlier sessions (OVX of the session before and
   RV5 to the decision against thirds of their history to date, OVX/RV5 against its median over the

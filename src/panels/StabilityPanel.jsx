@@ -1,25 +1,75 @@
-import { useMemo } from "react";
-import { getDmGridStrip, getRollingGap, getYearlyGapRows } from "../charts/lazy";
+import { useCallback, useMemo } from "react";
+import { useViewParam } from "../app/viewState";
+import { getCumulativeRows, getDmGridStrip, getFluctuationRows, getYearlyGapRows } from "../charts/lazy";
 import DataTable from "../components/DataTable";
 import keepHyphenated from "../components/keepHyphenated";
 import LazyMount from "../components/LazyMount";
 import Panel from "../components/Panel";
+import Segmented from "../components/Segmented";
 import { withTerms } from "../components/Term";
 import { stabilityAssertion } from "../lib/assertions";
-import { gapLimit, recentWindows, rollingGap, weeklyPairs, yearlyGaps } from "../lib/comparison";
-import { fmtInt, fmtNum, fmtSpan } from "../lib/format";
+import { gapLimit, recentWindows, weeklyPairs, yearlyGaps } from "../lib/comparison";
+import { DASH, fmtDate, fmtInt, fmtNum, fmtPValue, fmtSigned, fmtSpan } from "../lib/format";
 import {
-  OVX_ONLY_KEY, asArray, getLab, getRoles, leaderboardRows, modelLabels, shortLabel, yearlyQlike, yearsBetter,
+  OVX_ONLY_KEY, asArray, getLab, getRoles, leaderboardRows, modelLabels, researchLedger, shortLabel, yearlyQlike, yearsBetter,
 } from "../lib/research";
+import {
+  STAB_VIEWS, cumulativeCaption, cumulativeRows, fluctuationCaption, fluctuationReading, fluctuationRows, fluctuationSetup,
+  gwNote, stabilityTestRows,
+} from "../lib/stability";
 import { Facts, Legend, ResearchUnavailable } from "./common";
 
 // The comparison models besides the challenger, in the order the yearly rows show them: the
 // regression on OVX alone (the comparison that matters), raw implied vol and the best return-only
 // model (GJR-GARCH). Each is shown when the payload's yearly rows carry it.
 const COMPARISON_KEYS = [OVX_ONLY_KEY, "raw_ovx", "gjr"];
-/** Trailing windows of the weekly series compared in the recent-windows row, and the rolling window. */
+/** Trailing windows of the weekly series compared in the recent-windows row. */
 const RECENT_WEEKS = [26, 52, 156];
-const ROLLING_WEEKS = 52;
+const VIEW_VALUES = STAB_VIEWS.map((view) => view.value);
+const p3 = (value) => fmtPValue(value, { digits: 3 });
+const excluded = (row, q) => (row.challenger ? "excluded" : p3(q));
+
+/** STAB's table view of the tests over time and by state: one row per model, the timing control last. */
+export function StabilityTests({ rows }) {
+  const name = { key: "label", label: "Model", rowHeader: true, render: (row) => (row.timingControl ? `${row.label} (timing control)` : row.label) };
+  return (
+    <>
+      <DataTable
+        caption="Tests against the model of record, every out-of-sample day: Giacomini-White (conditional part) and the fluctuation test"
+        rowKey={(row) => row.key} dense exportName="stability-tests"
+        columns={[
+          name,
+          { key: "dmStat", label: "DM t", align: "right", render: (row) => fmtNum(row.dmStat, 2) },
+          { key: "gwP", label: "GW p", title: "Giacomini-White, conditional part (chi-squared, 3 df)", align: "right", render: (row) => p3(row.gwP) },
+          { key: "gwQ", label: "q", align: "right", render: (row) => excluded(row, row.gwQ), csv: (row) => (row.challenger ? "excluded" : row.gwQ) },
+          { key: "sup", label: "Max |t|", title: "Fluctuation path's largest |t| (sign: + model lower)", align: "right", render: (row) => fmtSigned(row.sup, 2) },
+          { key: "at", label: "Window ending", render: (row) => (row.at ? fmtDate(row.at) : DASH) },
+          { key: "level", label: "At μ = 0.2", hideBelow: 640, render: (row) => row.level ?? DASH },
+          { key: "p", label: "p, μ = 0.2", align: "right", hideBelow: 640, render: (row) => p3(row.p) },
+          { key: "adjusted", label: "p, adjusted", title: "Adjusted for the choice among the window lengths", align: "right", render: (row) => p3(row.adjusted) },
+          { key: "flQ", label: "q", csvLabel: "q (fluctuation)", align: "right", render: (row) => excluded(row, row.flQ), csv: (row) => (row.challenger ? "excluded" : row.flQ) },
+          { key: "gridsOut", label: "Grids out", align: "right", hideBelow: 640, render: (row) => (row.gridsOut == null ? DASH : `${row.gridsOut}/5`) },
+        ]}
+        rows={rows}
+      />
+      <DataTable
+        caption="Context, not in the ledger: the Giacomini-White form with the constant (it mostly repeats DM), the fluctuation test's robustness forms and its other window lengths (μ = 0.1 is anti-conservative)"
+        rowKey={(row) => row.key} dense exportName="stability-context"
+        columns={[
+          name,
+          { key: "gwFullP", label: "GW with constant, p", align: "right", render: (row) => p3(row.gwFullP) },
+          { key: "bartlett", label: "p, 40 Bartlett lags", align: "right", render: (row) => p3(row.bartlett) },
+          { key: "fullSample", label: "p, full-sample variance", align: "right", hideBelow: 640, render: (row) => p3(row.fullSample) },
+          ...["mu_0_1", "mu_0_3", "mu_0_4", "mu_0_5"].map((key) => ({
+            key, label: `p, μ = ${key.slice(3).replace("_", ".")}${key === "mu_0_1" ? " †" : ""}`, align: "right", hideBelow: 640,
+            render: (row) => p3(row.byMu[key]), csv: (row) => row.byMu[key] ?? null,
+          })),
+        ]}
+        rows={rows}
+      />
+    </>
+  );
+}
 
 /**
  * A model name as a wrapping column header: it breaks at its spaces, and a long hyphenated name only
@@ -56,7 +106,13 @@ export default function StabilityPanel({ research, researchStatus }) {
   const scale = useMemo(() => gapLimit(gapRows.flatMap((row) => row.gaps.map((gap) => gap.value))), [gapRows]);
   const pairs = useMemo(() => weeklyPairs(lab, champion), [lab, champion]);
   const recent = useMemo(() => recentWindows(pairs, RECENT_WEEKS), [pairs]);
-  const rolling = useMemo(() => rollingGap(pairs, ROLLING_WEEKS), [pairs]);
+  const setup = useMemo(() => fluctuationSetup(lab), [lab]);
+  const fluctRows = useMemo(() => (setup ? fluctuationRows(lab) : []), [lab, setup]);
+  const cumRows = useMemo(() => cumulativeRows(lab), [lab]);
+  const ledger = useMemo(() => researchLedger(research), [research]);
+  const testRows = useMemo(() => stabilityTestRows(research, ledger), [research, ledger]);
+  const [viewValue, setView] = useViewParam("stab", VIEW_VALUES, "test");
+  const onView = useCallback((value) => setView(value), [setView]);
   // A timing control is drawn last and tagged under its name: a comparison, not a ranked model.
   const dmRows = useMemo(() => leaderboardRows(lab)
     .filter((row) => row.role !== "record" && row.dmStat != null)
@@ -72,7 +128,8 @@ export default function StabilityPanel({ research, researchStatus }) {
       tone: row.role === "challenger" ? "alt" : row.info.size === 0 ? "faint" : "ink",
     })), [lab]);
   const YearlyGapRows = getYearlyGapRows();
-  const RollingGap = getRollingGap();
+  const FluctuationRows = getFluctuationRows();
+  const CumulativeRows = getCumulativeRows();
   const DmGridStrip = getDmGridStrip();
 
   if (!years.length || !record || models.length < 2) {
@@ -102,9 +159,11 @@ export default function StabilityPanel({ research, researchStatus }) {
   const notes = [
     `The yearly bars use every out-of-sample day of each calendar year (overlapping 5-session targets), as the leaderboard does${partial.length ? `; partial years: ${partial.map((row) => `${row.year} (${fmtInt(row.nDays)} days)`).join(", ")}, against up to ${fmtInt(fullYear)} in a full one` : ""}. Each bar's two QLIKE values are in its tooltip and in the table view.`,
     pairs.length
-      ? `Recent windows and the rolling gap use the weekly series instead: one forecast a week on the first 5-session sampling grid (grid 0), ${fmtInt(pairs.length)} weeks (${fmtSpan(pairs[0].date, pairs[pairs.length - 1].date)}), each scored with the same QLIKE, so their values differ from the every-day figures in the leaderboard.`
+      ? `Recent windows use the weekly series instead: one forecast a week on the first 5-session sampling grid (grid 0), ${fmtInt(pairs.length)} weeks (${fmtSpan(pairs[0].date, pairs[pairs.length - 1].date)}), each scored with the same QLIKE, so their values differ from the every-day figures in the leaderboard.`
       : null,
     "DM t by sampling grid: the Diebold-Mariano t of each model against the record over the full sample (large dot) and on each 5-session sampling grid (small dots); each grid scores every fifth session, starting on a different day. The shaded band is |t| < 1.96, where the difference is not significant at 5%.",
+    gwNote(lab, ledger),
+    setup ? `The rolling test's p-value for each window length counts the share of ${fmtInt(setup.draws)} simulated random walks with a larger maximum; the ledger's p-value adjusts for the choice among the ${fmtInt(setup.lengths)} window lengths looked at. Both tests assume forecasts re-estimated on rolling windows of bounded size, while the lab's windows expand, so their p-values are approximate.` : null,
   ].filter(Boolean).map((note, index) => <p key={index}>{withTerms(note, seen)}</p>);
   return (
     <Panel
@@ -121,9 +180,10 @@ export default function StabilityPanel({ research, researchStatus }) {
         ...wins.map((model) => `vs ${model.label}: ${model.wins}/${model.total} years`),
       ]}
       notes={notes}
-      source={{ artifact: ["research.json → vol_lab.yearly", "vol_lab.series", "vol_lab.leaderboard"] }}
+      source={{ artifact: ["research.json → vol_lab.yearly", "vol_lab.series", "vol_lab.leaderboard", "vol_lab.stability", "ledger"] }}
       resetKey={research}
       table={() => (
+        <>
         <DataTable
           caption={`QLIKE by year, ${first}–${last} (lower is better)`}
           rowKey={(row) => String(row.year)}
@@ -141,6 +201,8 @@ export default function StabilityPanel({ research, researchStatus }) {
           ]}
           rows={years}
         />
+        {testRows.some((row) => row.p != null || row.gwP != null) && <StabilityTests rows={testRows} />}
+        </>
       )}
     >
       {gapRows.length > 0 && (
@@ -164,12 +226,42 @@ export default function StabilityPanel({ research, researchStatus }) {
           }))} />
         </>
       )}
-      {rolling.length > 1 && (
+      {setup && fluctRows.length > 0 && (
         <>
-          <h3 className="figure-title">Rolling {ROLLING_WEEKS}-week QLIKE gap, challenger minus {recordName}</h3>
-          <LazyMount minHeight={{ wide: 180, narrow: 180 }} label="rolling comparison">
-            <RollingGap points={rolling} recordLabel={recordName} weeks={ROLLING_WEEKS} />
-          </LazyMount>
+          <div className="figure-head">
+            <h3 className="figure-title">
+              {viewValue === "cumulative"
+                ? `Cumulative QLIKE difference to ${recordName}, up = model lower`
+                : `Rolling DM t vs ${recordName}, ${fmtInt(setup.window)}-session windows, with the 5% band`}
+            </h3>
+            {cumRows.length > 0 && (
+              <Segmented label="Over-time view: rolling test or cumulative difference" options={STAB_VIEWS}
+                value={viewValue} onChange={onView} />
+            )}
+          </div>
+          {viewValue === "cumulative" && cumRows.length > 0 ? (
+            <>
+              <LazyMount minHeight={{ wide: cumRows.length * 86 + 22, narrow: cumRows.length * 86 + 22 }} label="cumulative difference">
+                <CumulativeRows rows={cumRows} recordLabel={recordName} endDate={lab?.stability?.cumulative?.end_date} />
+              </LazyMount>
+              <p className="panel-caption">{cumulativeCaption(recordName, lab?.stability?.cumulative?.end_date)}</p>
+            </>
+          ) : (
+            <>
+              {/* The chart's own height, fluctuationHeight() in charts/stabilityCharts.jsx: 280 px for three rows. */}
+              <LazyMount minHeight={{ wide: fluctRows.length * 86 + 22, narrow: fluctRows.length * 86 + 22 }} label="rolling test">
+                <FluctuationRows rows={fluctRows} setup={setup} recordLabel={recordName} />
+              </LazyMount>
+              <p className="panel-caption">{fluctuationCaption(setup, recordName)}</p>
+              <ul className="fluct-readings">
+                {fluctRows.map((row) => (
+                  <li key={row.name}><strong>{row.label}.</strong> {fluctuationReading(row, {
+                    recordName, setup, ledgerRow: ledger?.byId?.get(`vol_fluct_${row.key}`),
+                  })}</li>
+                ))}
+              </ul>
+            </>
+          )}
         </>
       )}
       <h3 className="figure-title">DM t vs {recordName}, by sampling grid</h3>

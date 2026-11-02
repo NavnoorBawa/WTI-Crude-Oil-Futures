@@ -40,8 +40,8 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   is significant against HAR-range (not after the ledger's adjustment) and inconclusive against the
   OVX-only regression (p = 0.056) and the challenger (0.070, outside the family). 26 new ledger rows
   (110 in all, 107 in the family); the SPA row's q fell to 0.084 because the new rows include strong
-  near-duplicates of DM rejections. STAB still shows the 52-week rolling gap until the dashboard
-  part.
+  near-duplicates of DM rejections. STAB shows the rolling DM t with the fluctuation band, a
+  cumulative view and both tests in its table view (ROADMAP 2.3, #101 and the dashboard part).
 - **Live record.** Daily calls are recorded and sealed in git on the `live-data` branch before their
   window opens; each call since 2026-10-28 also stores its fit, so it recomputes from its own entry.
   The first three windows resolved on 2026-10-29, 10-30 and 10-31: the Oct 20 call (47.3%, band
@@ -67,7 +67,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   accepted on 2026-11-01 after two scheduled publishes with anchors; LIVE and a second anchor
   remain). From #95 the Refresh workflow's three field jobs keep the unsealed shadow log of the
   whole field on the `field-data` branch (ROADMAP 1.8; `backend/field_record.py`, #94).
-- **Tests.** 670 Python (unittest), 281 frontend (node --test) and 14 browser checks (Playwright,
+- **Tests.** 670 Python (unittest), 287 frontend (node --test) and 15 browser checks (Playwright,
   the "Interface" CI job: axe, layout shift, overflow, keyboard, print, script budget). CI also runs
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
   Reproduce rebuild. Releases: `scripts/bump_version.py`, and `.github/workflows/release.yml`
@@ -130,10 +130,11 @@ a bit-for-bit rebuild under pandas 3.1.0. Newer ruff (pinned 0.17.0) and hypothe
 and its CI run is the test.
 
 ### 3. Research depth (each change goes through the ledger and the reproduce test)
-- **Stability of the challenger's edge.** The SPA rejection holds in each half, but the leader
-  differs (Combination in 2008–2016) and finer splits are weaker (by thirds: 0.051, 0.367, 0.010).
-  A Giacomini-Rossi fluctuation test or a cumulative loss-difference view (ROADMAP 2.3) would show
-  when the edge appears; report it, do not let it move the pinned test.
+- **Stability of the challenger's edge (ROADMAP 2.3, done).** The fluctuation test against the
+  challenger is inconclusive after the window-length adjustment (outside the family); the
+  cumulative view shows how much of its full-sample advantage came in 2020. Still open: a
+  rolling-window refit as robustness for both 2.3 tests, whose theory assumes bounded estimation
+  windows (the lab's expand).
 - **Regimes (ROADMAP 2.2, done) left two optional pieces.** A CALB dot plot of coverage by regime
   (design note's `CoverageByRegime`; CALB shows facts rows and tables instead) and a second FCST
   chart pane for the OVX/RV5 gap (it needs the forecast chart's percent formatting moved from

@@ -1,12 +1,13 @@
-// STAB figures: the yearly QLIKE gap of each comparison model to the model of record, and the
-// rolling QLIKE gap of the challenger on the weekly series. Plain SVG sized to the container, like
+// STAB figures: the yearly QLIKE gap of each comparison model to the model of record, the rolling
+// Diebold-Mariano t with its fluctuation band, and the cumulative QLIKE difference on the weekly series. Plain SVG sized to the container, like
 // svgCharts.jsx, whose frame and axes they share; colours come from CSS classes.
 import { useEffect, useState } from "react";
 import { scaleBand, scaleLinear, scaleUtc } from "d3-scale";
-import { area, line } from "d3-shape";
+import { line } from "d3-shape";
 import { fmtDate, fmtNum, fmtSigned } from "../lib/format";
+import { asArray } from "../lib/research";
 import { MONO_CHAR_PX, SANS_FONT, fontsReady } from "../theme/chartTheme";
-import { Frame, XAxis, YAxis, extent } from "./svgCharts";
+import { Frame, XAxis, extent } from "./svgCharts";
 
 // ------------------------------------------------------------------------ row titles
 
@@ -167,56 +168,155 @@ export function YearlyGapRows({ rows, recordLabel, limit }) {
   );
 }
 
-// ----------------------------------------------------------------------------- rolling gap
+// ------------------------------------------------------------------- rolling test and cumulative difference
 
-const ROLLING_HEIGHT = 180;
+const MULTIPLE_H = 86;    // one comparison's row: its title and its plot
+const MULTIPLE_TITLE = 16;
+const MULTIPLE_AXIS = 22; // year labels under the last row
+const MULTIPLE_LEFT = 40;
+
+/** The rolling-test figure's height for `count` rows (280 px for three). */
+export const fluctuationHeight = (count) => count * MULTIPLE_H + MULTIPLE_AXIS;
+
+const yearFormat = (t) => String(new Date(t).getUTCFullYear());
+
+/** The weekly points of a series as [time, value], from its first non-null value. */
+const points = (dates, values) => values.map((value, index) => [Date.parse(dates[index]), value])
+  .filter(([t, value]) => Number.isFinite(t) && value != null && Number.isFinite(value));
 
 /**
- * The drawing of RollingGap at a given width: the rolling mean QLIKE gap, challenger minus the
- * record, against a zero line. Below zero (tinted) the challenger had the lower loss over the
- * trailing window. The latest value is labelled at the line's end.
+ * The drawing of FluctuationRows at a given width: for each comparison, the rolling Diebold-Mariano t of the
+ * model of record against it on one symmetric scale shared by every row, the band ±c in the noise-zone fill with
+ * dashed edges, the path as a thin line, and each run outside the band as published (`outside_5pct`, its weekly
+ * span) drawn thick in the tone of the side with the lower loss. The client never decides a crossing itself.
  *
- * @param {{points: {date:string, value:number}[], recordLabel: string, weeks: number, width: number}} props
+ * @param {{rows: Array, setup: {c5:number}, recordLabel: string, width: number}} props
  */
-export function RollingGapSvg({ points, recordLabel, weeks, width }) {
-  const height = ROLLING_HEIGHT;
-  const rows = points.map((point) => ({ t: Date.parse(point.date), value: point.value }))
-    .filter((point) => Number.isFinite(point.t) && Number.isFinite(point.value));
-  if (rows.length < 2) return null;
-  const last = rows[rows.length - 1];
-  const latest = fmtSigned(last.value, 3);
-  const m = { top: 12, right: Math.ceil(latest.length * MONO_CHAR_PX) + 14, bottom: 24, left: 44 };
-  const x = scaleUtc().domain(extent(rows.map((row) => row.t))).range([m.left, width - m.right]);
-  const [lo, hi] = extent(rows.map((row) => row.value));
-  const y = scaleLinear().domain([Math.min(lo, 0), Math.max(hi, 0)]).nice(4).range([height - m.bottom, m.top]);
-  const below = area().x((row) => x(row.t)).y0(y(0)).y1((row) => y(Math.min(0, row.value)))(rows);
-  const path = line().x((row) => x(row.t)).y((row) => y(row.value))(rows);
-  const yearFormat = (t) => String(new Date(t).getUTCFullYear());
+export function FluctuationSvg({ rows, setup, recordLabel, width }) {
+  const height = fluctuationHeight(rows.length);
+  const all = rows.map((row) => points(row.dates, row.values));
+  const times = all.flat().map(([t]) => t);
+  const peak = Math.max(0, ...all.flat().map(([, value]) => Math.abs(value)));
+  const limit = Math.max(1.25 * setup.c5, Math.ceil(peak));
+  const x = scaleUtc().domain(extent(times)).range([MULTIPLE_LEFT, width - 6]);
+  const plotH = MULTIPLE_H - MULTIPLE_TITLE - 6;
+  const c = fmtNum(setup.c5, 2);
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart" role="img"
-      aria-label={`Rolling ${weeks}-week mean QLIKE gap, challenger minus ${recordLabel}, ${fmtDate(points[0].date)} to `
-        + `${fmtDate(points[points.length - 1].date)}: from ${fmtSigned(lo, 3)} to ${fmtSigned(hi, 3)}, latest ${latest}; `
-        + `below zero the challenger had the lower loss`}>
-      {/* The domain's foot sits on the year labels' baseline: its tick would run into the first year. */}
-      <YAxis scale={y} ticks={y.ticks(4).filter((t) => t !== y.domain()[0])} format={(t) => fmtSigned(t, 2)} left={m.left} right={width - m.right} />
-      <path d={below} className="fill-gap-better" />
-      <line className="stroke-axis" x1={m.left} x2={width - m.right} y1={y(0)} y2={y(0)} />
-      <path d={path} className="stroke-ink" fill="none" />
-      <circle cx={x(last.t)} cy={y(last.value)} r={3} className="fill-ink" />
-      <text className="value-label has-halo" x={x(last.t) + 6} y={y(last.value)} dy="0.32em">{latest}</text>
-      <text className="axis-note has-halo" x={m.left + 6} y={m.top + 4} dy="0.32em">{`↑ ${recordLabel} lower`}</text>
-      <text className="axis-note has-halo" x={m.left + 6} y={height - m.bottom - 6}>↓ challenger lower</text>
-      <XAxis scale={x} ticks={x.ticks(width < 480 ? 4 : 8)} format={yearFormat} y={height - m.bottom} />
+      aria-label={`Rolling Diebold-Mariano t of ${recordLabel} against each model, with the 5% band at ±${c}: ${rows
+        .map((row) => `${row.label}, ${row.block.rejects_5pct ? "outside the band" : "inside the band"}, max |t| ${fmtNum(row.block.sup, 2)}`)
+        .join("; ")}`}>
+      {rows.map((row, index) => {
+        const top = index * MULTIPLE_H + MULTIPLE_TITLE;
+        const y = scaleLinear().domain([-limit, limit]).range([top + plotH, top]);
+        const path = line().x(([t]) => x(t)).y(([, value]) => y(value));
+        const runs = asArray(row.block.outside_5pct).map((run) => {
+          const segment = row.values.slice(run.week_from, run.week_to + 1)
+            .map((value, offset) => [Date.parse(row.dates[run.week_from + offset]), value])
+            .filter(([t, value]) => Number.isFinite(t) && value != null);
+          return { run, segment };
+        }).filter(({ segment }) => segment.length > 0);
+        return (
+          <g key={row.name} className="fluct-row">
+            <text className={`multiple-title label-${row.challenger ? "alt" : "ink"}`} x={MULTIPLE_LEFT} y={top - 5}>
+              <title>{`${row.label}: above zero ${row.label} had the lower loss`}</title>
+              {fitTitleName(row.label, ` · max |t| ${fmtNum(row.block.sup, 2)}`, width - MULTIPLE_LEFT - 6)}
+              {` · max |t| ${fmtNum(row.block.sup, 2)}`}
+            </text>
+            <rect className="fill-noise-zone" x={MULTIPLE_LEFT} width={width - 6 - MULTIPLE_LEFT}
+              y={y(setup.c5)} height={y(-setup.c5) - y(setup.c5)} />
+            {[setup.c5, -setup.c5].map((edge) => (
+              <line key={edge} className="fluct-edge" x1={MULTIPLE_LEFT} x2={width - 6} y1={y(edge)} y2={y(edge)} />
+            ))}
+            {index === 0 && (
+              <text className="axis-label" x={MULTIPLE_LEFT - 6} y={y(setup.c5)} dy="0.32em" textAnchor="end">{`±${c}`}</text>
+            )}
+            <line className="stroke-axis" x1={MULTIPLE_LEFT} x2={width - 6} y1={y(0)} y2={y(0)} />
+            <path d={path(all[index]) ?? undefined} className="fluct-path" fill="none" />
+            {runs.map(({ run, segment }) => (
+              <path key={`${run.from}-${run.to}`} d={(segment.length > 1 ? path(segment) : `M${x(segment[0][0])},${y(segment[0][1])}h0.1`) ?? undefined}
+                className={`fluct-run ${run.sign > 0 ? (row.challenger ? "stroke-alt" : "stroke-ink") : "stroke-model"}`} fill="none">
+                <title>{`Outside the 5% band in windows ending ${fmtDate(run.from)} to ${fmtDate(run.to)}, `
+                  + `${run.sign > 0 ? row.label : recordLabel} lower`}</title>
+              </path>
+            ))}
+          </g>
+        );
+      })}
+      <XAxis scale={x} ticks={x.ticks(width < 480 ? 4 : 8)} format={yearFormat} y={height - MULTIPLE_AXIS} />
     </svg>
   );
 }
 
-/** RollingGap, sized to its container. */
-export function RollingGap({ points, recordLabel, weeks }) {
+/** The cumulative figure's height for `count` rows. */
+export const cumulativeHeight = (count) => count * MULTIPLE_H + MULTIPLE_AXIS;
+
+/**
+ * The drawing of CumulativeRows at a given width: each comparison's running sum of the model of record's daily QLIKE
+ * minus the model's, read weekly, against a zero line. The rows share one scale, except one whose range is far
+ * larger (persistence), which gets its own and says so in its title.
+ */
+export function CumulativeSvg({ rows, recordLabel, endDate, width }) {
+  const height = cumulativeHeight(rows.length);
+  const all = rows.map((row) => points(row.dates, row.values));
+  // The number at each line's end is the every-day total (row.end), else the line's last weekly value.
+  const endText = (row, series) => fmtSigned(row.end ?? series[series.length - 1]?.[1], 2);
+  const right = 8 + MONO_CHAR_PX * Math.max(6, ...rows.map((row, i) => endText(row, all[i]).length));
+  const x = scaleUtc().domain(extent(all.flat().map(([t]) => t))).range([MULTIPLE_LEFT, width - right]);
+  const span = (series) => Math.max(1e-9, ...series.map(([, value]) => Math.abs(value)));
+  const spans = all.map(span);
+  const typical = Math.max(...spans.filter((value) => value <= 10 * Math.min(...spans)));
+  const plotH = MULTIPLE_H - MULTIPLE_TITLE - 6;
   return (
-    <Frame
-      height={ROLLING_HEIGHT}
-      draw={(width) => <RollingGapSvg points={points} recordLabel={recordLabel} weeks={weeks} width={width} />}
-    />
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart" role="img"
+      aria-label={`Cumulative QLIKE of ${recordLabel} minus each model, summed over every out-of-sample day${endDate
+        ? ` to ${fmtDate(endDate)}` : ""}: ${rows.map((row, i) => `${row.label} ${endText(row, all[i])}`).join("; ")}; above `
+        + "zero the model had the lower loss"}>
+      {rows.map((row, index) => {
+        const own = spans[index] > 10 * typical;
+        const limit = own ? spans[index] : typical;
+        const top = index * MULTIPLE_H + MULTIPLE_TITLE;
+        const y = scaleLinear().domain([-limit, limit]).nice(2).range([top + plotH, top]);
+        const series = all[index];
+        const last = series[series.length - 1];
+        return (
+          <g key={row.name} className="cum-row">
+            <text className={`multiple-title label-${row.challenger ? "alt" : "ink"}`} x={MULTIPLE_LEFT} y={top - 5}>
+              {`${row.label}${own ? " · own scale" : ""}`}
+            </text>
+            <line className="stroke-axis" x1={MULTIPLE_LEFT} x2={width - right} y1={y(0)} y2={y(0)} />
+            {(index === 0 || own) && y.ticks(2).filter((t) => t !== 0).map((t) => (
+              <text key={t} className="axis-label" x={MULTIPLE_LEFT - 6} y={y(t)} dy="0.32em" textAnchor="end">{fmtSigned(t, 0)}</text>
+            ))}
+            <path d={line().x(([t]) => x(t)).y(([, value]) => y(value))(series) ?? undefined}
+              className={row.challenger ? "stroke-alt" : "stroke-ink"} fill="none" />
+            {last && <text className="value-label has-halo" x={x(last[0]) + 6} y={y(last[1])} dy="0.32em">{endText(row, series)}</text>}
+          </g>
+        );
+      })}
+      <XAxis scale={x} ticks={x.ticks(width < 480 ? 4 : 8)} format={yearFormat} y={height - MULTIPLE_AXIS} />
+    </svg>
+  );
+}
+
+/** FluctuationRows, sized to its container; drawn again once the title font has loaded. */
+export function FluctuationRows({ rows, setup, recordLabel }) {
+  const [, setFontsLoaded] = useState(false);
+  useEffect(() => {
+    let live = true;
+    fontsReady().then(() => { if (live) setFontsLoaded(true); });
+    return () => { live = false; };
+  }, []);
+  return (
+    <Frame height={fluctuationHeight(rows.length)}
+      draw={(width) => <FluctuationSvg rows={rows} setup={setup} recordLabel={recordLabel} width={width} />} />
+  );
+}
+
+/** CumulativeRows, sized to its container. */
+export function CumulativeRows({ rows, recordLabel, endDate }) {
+  return (
+    <Frame height={cumulativeHeight(rows.length)}
+      draw={(width) => <CumulativeSvg rows={rows} recordLabel={recordLabel} endDate={endDate} width={width} />} />
   );
 }
