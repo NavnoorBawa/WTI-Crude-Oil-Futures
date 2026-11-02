@@ -1,7 +1,7 @@
 # Handoff: state, open backlog and working loop
 
 Written on 2026-11-02, after the rounds that shipped ROADMAP 1.2 to 1.8 and 2.1 to 2.4 (#77 to
-#103 and the 2.4 branch), on top of 2.2.0 (PRs #68 to #76). The next session continues from here. Keep this file current: at the end of every round, tick off what
+#105), on top of 2.2.0 (PRs #68 to #76). The next session continues from here. Keep this file current: at the end of every round, tick off what
 shipped, add what the round found, and update the date.
 
 The destination, measured, and the staged plan to reach it are in `docs/ROADMAP.md`; this file
@@ -42,7 +42,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   (110 in all, 107 in the family); the SPA row's q fell to 0.084 because the new rows include strong
   near-duplicates of DM rejections. STAB shows the rolling DM t with the fluctuation band, a
   cumulative view and both tests in its table view (ROADMAP 2.3, #101 and the dashboard part).
-  The whole predictive distribution (ROADMAP 2.4, lab and ledger; RESULTS 2.9): seven models'
+  The whole predictive distribution (ROADMAP 2.4, #104 and #105; RESULTS 2.9): seven models'
   quantiles scored on the band's 4,370 days by CRPS over 19 quantiles and the 10%/90% pinball
   losses, each against the model of record by a batch-means test (the 9-lag DM variance is far too
   small for these persistent differences), and Berkowitz on each sampling grid. No CRPS difference

@@ -376,7 +376,7 @@ These stay out, whatever a review suggests, unless the owner changes the rules:
 Tick items here with the PR number and date when they ship, and move any new finding into
 `HANDOFF.md`'s backlog.
 
-- **2.4 Score the whole predictive distribution** (the lab part and the CALB/MODL part, 2026-11-02):
+- **2.4 Score the whole predictive distribution** (#104 and #105, 2026-11-02):
   `forecast_eval` gains the pinball loss, the CRPS from a quantile grid, the monotone rearrangement, trailing quantiles
   with their mid-rank PIT and its simulated null, the sample PIT, Berkowitz's LR3 with a doubly censored form, the
   batch-means test, and Bonferroni and Cauchy combinations;
