@@ -128,6 +128,38 @@ backs the new one.
 
 ### Research
 
+- **When the differences arise: conditional predictive ability and stability over time (ROADMAP 2.3,
+  first part).** `data/vol_lab.json` adds, for every model against the model of record, a
+  Giacomini-White (2006) test of whether the daily QLIKE difference moves with what is known at the
+  decision (its value five sessions earlier, ln OVX of the session before and the OVX/RV5 gap;
+  truncated kernel at 4 lags) and a Giacomini-Rossi (2010) fluctuation test: a rolling DM t, each
+  window on its own long-run variance, for windows of 0.1 to 0.5 of the sample, against a null
+  simulated with a fixed seed at this sample's length (5% band ±3.24 at μ = 0.2; Giacomini and
+  Rossi's coarser table gives 3.179), with a p-value adjusted for the choice among the five window
+  lengths. It also adds weekly cumulative QLIKE differences against the challenger, the OVX-only
+  regression, raw OVX and persistence. The ledger gains 26 rows in two families ("conditional
+  predictive ability", "stability over time"), not pre-specified; it registers the Giacomini-White
+  test's conditional part, because the form with a constant mostly repeats the full-sample DM test
+  and is published as context. The challenger's two rows are left out of the family (it was picked
+  on this sample). Results: the conditional part is significant at 5% against persistence (it
+  survives the ledger's adjustments), EWMA, HAR-RV, HAR-RV with downside semivolatility and LightGBM
+  (none survives, and with 40 Bartlett lags each is no longer significant); not against raw OVX, the
+  OVX-only regression, the combination, HAR-range, GARCH or GJR-GARCH. The fluctuation test rejects against every model the full-sample DM test already separates
+  from the model of record except the challenger (inconclusive after the window-length adjustment,
+  and outside the family), and against HAR-range (significant at 5%, not after the ledger's
+  adjustment); against the OVX-only regression it is inconclusive after the window-length
+  adjustment. The family grows from 83 to 107 rows. No existing row changes status or survival, and
+  no q-value crosses 0.05 or 0.10: the twelve q-values below 0.001 rise slightly (all stay below
+  0.001), the eighteen at 1 stay there, and the other 53 fall, because the new rows include strongly
+  significant near-duplicates of existing DM rejections (the SPA row's from 0.0996 to 0.084; RESULTS
+  section 6 says so). Both theories assume forecasts
+  re-estimated on rolling windows of bounded size, which is also what lets them compare nested
+  models; the lab's windows expand, so the p-values are approximate. The reproduce check
+  (`compare_reports`) lets a fluctuation p-value, which counts simulated draws, differ by up to 10
+  draws on another CPU; its flags stay exact. Rebuilt in the pinned container;
+  every other value in the artifact is unchanged. RESULTS section 2.8 states each result at the
+  strength its test supports.
+
 - **Coverage and loss by regime (ROADMAP 2.2, first part).** `data/vol_lab.json` labels every
   out-of-sample day at the decision, from what was known then (OVX thirds and RV5 thirds against
   earlier sessions only, OVX/RV5 against its trailing median, and whether the target window holds a

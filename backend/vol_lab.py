@@ -81,17 +81,19 @@ try:
     from . import market_data
     from . import vol_forecast as vf
     from .contract_calendar import contract_code, last_trade_date, next_contract
-    from .forecast_eval import (basel_zone, coverage_by_group_test, delayed_aci, christoffersen, dm_test, dq_test,
-                                hac_z, kupiec, mincer_zarnowitz, model_confidence_set, mse_var, newey_west_lrv, qlike,
-                                spa_test)
+    from .forecast_eval import (basel_zone, coverage_by_group_test, critical_value_mc_se, delayed_aci, christoffersen,
+                                dm_test, dq_test, fluctuation_null, fluctuation_reference, fluctuation_test, gw_test,
+                                hac_lrv, hac_z, kupiec, mincer_zarnowitz, model_confidence_set, mse_var, newey_west_lrv,
+                                qlike, rolling_dm, spa_test)
     from .safe_paths import data_json_path
 except ImportError:  # Direct invocation from backend/
     import market_data  # type: ignore[import-not-found, no-redef]
     import vol_forecast as vf  # type: ignore[import-not-found, no-redef]
     from contract_calendar import contract_code, last_trade_date, next_contract  # type: ignore[import-not-found, no-redef]
     from forecast_eval import (  # type: ignore[import-not-found, no-redef]
-        basel_zone, coverage_by_group_test, delayed_aci, christoffersen, dm_test, dq_test, hac_z,
-        kupiec, mincer_zarnowitz, model_confidence_set, mse_var, newey_west_lrv, qlike, spa_test)
+        basel_zone, coverage_by_group_test, critical_value_mc_se, delayed_aci, christoffersen, dm_test, dq_test,
+        fluctuation_null, fluctuation_reference, fluctuation_test, gw_test, hac_lrv, hac_z, kupiec, mincer_zarnowitz,
+        model_confidence_set, mse_var, newey_west_lrv, qlike, rolling_dm, spa_test)
     from safe_paths import data_json_path  # type: ignore[import-not-found, no-redef]
 
 ARTIFACT = "vol_lab.json"
@@ -114,11 +116,26 @@ REGIME_MIN_HISTORY = 250         # earlier values a cut point needs (vf.MIN_TRAI
 REGIME_GAP_WINDOW = 250          # trailing sessions for the OVX/RV5 gap's median
 REGIME_HAC_LAGS = 10             # the lab's HAC lag count for overlapping 5-session targets (coefficient_report)
 REGIME_ROBUST_LAGS = (20, 40)
+# Conditional predictive ability and stability over time (ROADMAP 2.3), reported against every model's QLIKE
+# difference with the model of record, never read by the challenger's choice, the band or the leaderboard.
+GW_LAGS = vf.H - 1               # Giacomini-White's truncated kernel at tau - 1: under their null the moments are MA(4)
+GW_ROBUST = (("bartlett", 10), ("bartlett", 40))
+FLUCT_MUS = (0.1, 0.2, 0.3, 0.4, 0.5)   # every window share the prototypes looked at; the ledger p adjusts over them
+FLUCT_MU = 0.2                   # the window drawn in STAB: the shortest whose size holds under every MA(4) design
+FLUCT_ROBUST = ("bartlett", 40)  # each window's variance allowing dependence beyond the 5-session overlap
+FLUCT_NULL_DRAWS = 49_999        # (draws + 1) * 0.05 and * 0.10 are integers: exact critical values
+FLUCT_SEED_TAG = 23              # null seed [SEED, FLUCT_SEED_TAG, n], fixed before its values were computed
+GR2010_TABLE1 = {0.1: (3.393, 3.170), 0.2: (3.179, 2.948), 0.3: (3.012, 2.766), 0.4: (2.890, 2.626),
+                 0.5: (2.779, 2.500)}   # Giacomini and Rossi (2010) Table 1, two-sided 5% and 10%
+STABILITY_SERIES = ("challenger", "ovx_only", "raw_ovx")                # weekly rolling-t paths
+CUMULATIVE_SERIES = ("challenger", "ovx_only", "raw_ovx", "persistence")  # weekly cumulative differences
 VAR_LEVELS = (0.05, 0.01)
 EWMA_LAMBDA = 0.94               # RiskMetrics daily decay
 GARCH_SCALE = 100.0              # arch fits percent returns for numerical stability
 GARCH_TOL = 1e-9                 # optimizer tolerance: converge to the optimum, not near it (below)
 REPRO_REL_TOL = 1e-4             # reproduction check: relative agreement required of every number
+SIMULATED_P_DRAWS = 10           # ...and of the fluctuation test's p-values, which count simulated draws: a sup that
+                                 # moves past one draw (a GARCH fit's last bits on another CPU) moves p by 1/(B + 1)
 LGBM_RETRAIN_WEEKS = 13          # retrain the tree model quarterly (it is the slow one)
 CONE_WINDOWS = (5, 10, 22, 66, 126, 252)
 CONE_PERCENTILES = (5, 25, 50, 75, 95)
@@ -1261,6 +1278,268 @@ def regime_report(frame: pd.DataFrame, conf: dict[str, dict[str, Any]], regimes:
     return {"regimes": block, "conformal": banded, "qlike": qlike_rows}
 
 
+def _mu_key(mu: float) -> str:
+    """0.2 -> "mu_0_2" (research_ledger paths split on dots)."""
+    return "mu_" + f"{mu:g}".replace(".", "_")
+
+
+def gw_instruments(d: np.ndarray, pos: np.ndarray, ln_ovx: np.ndarray, gap: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Giacomini-White instruments at each OOS row, all known at its decision: the differential of the row whose
+    session is 5 earlier (its target ended at this decision; the 4 rows between have not matured), ln OVX of the
+    session before and the OVX/RV5 gap. Returns (x, ok): ok marks rows with a matured lag and finite values."""
+    pos = np.asarray(pos, dtype=int)
+    n = pos.size
+    lag_row = np.minimum(np.searchsorted(pos, pos - vf.H), n - 1)
+    has_lag = pos[lag_row] == pos - vf.H
+    x = np.column_stack([np.where(has_lag, np.asarray(d, dtype=float)[lag_row], np.nan), ln_ovx, gap])
+    return x, has_lag & np.isfinite(x).all(axis=1)
+
+
+def _gw_block(d: np.ndarray, x: np.ndarray, grid: np.ndarray) -> dict[str, Any]:
+    """One model's Giacomini-White block: the full test (context), its conditional part (the ledger's), the OLS
+    coefficients in levels, and the robustness. A HAC matrix that is not positive definite publishes p_value null."""
+    try:
+        main = gw_test(d, x, lags=GW_LAGS)
+    except np.linalg.LinAlgError as exc:
+        return {"stat": None, "df": x.shape[1] + 1, "p_value": None, "n_days": int(d.size), "lags": GW_LAGS,
+                "kernel": "truncated", "conditional": {"stat": None, "df": x.shape[1], "p_value": None},
+                "robustness": {f"{kernel}_{lags}": {"p_value": None, "conditional_p_value": None}
+                               for kernel, lags in GW_ROBUST},
+                "not_computed": str(exc)}
+    b = main["coef"]
+    robust: dict[str, Any] = {}
+    for kernel, lags in GW_ROBUST:
+        try:
+            alt = gw_test(d, x, lags=lags, kernel=kernel)
+            robust[f"{kernel}_{lags}"] = {"p_value": alt["p_value"], "conditional_p_value": alt["conditional"]["p_value"]}
+        except np.linalg.LinAlgError as exc:
+            robust[f"{kernel}_{lags}"] = {"p_value": None, "conditional_p_value": None, "not_computed": str(exc)}
+    by_grid: dict[str, list[float | None]] = {"p_value": [], "conditional_p_value": []}
+    for g in range(vf.STEP):
+        mask = grid == g
+        try:
+            alt = gw_test(d[mask], x[mask], lags=0)
+            by_grid["p_value"].append(alt["p_value"])
+            by_grid["conditional_p_value"].append(alt["conditional"]["p_value"])
+        except np.linalg.LinAlgError:
+            by_grid["p_value"].append(None)
+            by_grid["conditional_p_value"].append(None)
+    robust["by_grid"] = by_grid
+    return {"stat": round(main["stat"], 3), "df": main["df"], "p_value": main["p_value"], "n_days": main["n"],
+            "lags": GW_LAGS, "kernel": "truncated",
+            "conditional": {"stat": round(main["conditional"]["stat"], 3), "df": main["conditional"]["df"],
+                            "p_value": main["conditional"]["p_value"]},
+            # Levels form: (ln OVX, gap) and (ln OVX, ln RV5) span the same space, gap = ln OVX - ln RV5.
+            "coef_levels": {"constant": round(b[0], 4), "d_lag": round(b[1], 4), "ln_ovx": round(b[2] + b[3], 4),
+                            "ln_rv5": round(-b[3], 4)},
+            "robustness": robust}
+
+
+def _week_span(rows: tuple[int, int], weekly_rows: np.ndarray, first_week: int) -> tuple[int, int]:
+    """Weekly indices bracketing OOS rows a..b, snapped outward, never before the first week with a value."""
+    wf = int(np.searchsorted(weekly_rows, rows[0], side="right")) - 1
+    wt = int(np.searchsorted(weekly_rows, rows[1], side="left"))
+    wf = max(wf, first_week)
+    wt = min(wt, weekly_rows.size - 1)
+    return wf, max(wt, wf)
+
+
+def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
+    """(first, last) index of every run of True in mask."""
+    edges = np.flatnonzero(np.diff(np.r_[0, mask.astype(int), 0]))
+    return [(int(a), int(b) - 1) for a, b in zip(edges[::2], edges[1::2])]
+
+
+def _peak(t: np.ndarray, ends: np.ndarray) -> dict[str, Any]:
+    k = int(np.argmax(np.abs(t)))
+    return {"sup": round(float(abs(t[k])), 3), "sign": int(np.sign(t[k])), "at": str(ends[k]), "_sup": float(abs(t[k]))}
+
+
+def stability_report(frame: pd.DataFrame, gap: np.ndarray, pos: np.ndarray, challenger: str) -> dict[str, Any]:
+    """Conditional predictive ability and stability over time (ROADMAP 2.3) of every model's daily QLIKE difference
+    with the model of record, d = QLIKE(har_iv) - QLIKE(model) (positive: the model's loss is lower, the sign of
+    dm_qlike_vs_har_iv). Returns the per-model `gw` and `fluctuation` blocks, the top-level `stability` block and
+    the weekly series. Giacomini-White: instruments known at the decision (d of the row 5 sessions earlier, the last
+    matured; ln OVX of the session before; the OVX/RV5 gap), truncated kernel at 4 lags. Fluctuation: a rolling DM t
+    on each window's own long-run variance, for every share in FLUCT_MUS, against one seeded null of Gaussian random
+    walks at this sample's length; the p-value adjusted for the choice among the shares is the ledger's. A test that
+    cannot be computed (a HAC matrix not positive definite, a window variance not positive) publishes p_value null
+    and `not_computed`; nothing here is read by the challenger's choice, the band or the leaderboard."""
+    act = frame["actual"].to_numpy()
+    LQ = {m: qlike(act, frame[m].to_numpy()) for m in MODEL_KEYS if m in frame}
+    dates = frame["date"].dt.strftime("%Y-%m-%d").to_numpy()
+    grid = frame["grid"].to_numpy()
+    n = len(frame)
+    ln_ovx = np.log(frame["ovx"].to_numpy())
+    gap = np.asarray(gap, dtype=float)
+    pos = np.asarray(pos, dtype=int)
+    windows = [int(round(mu * n)) for mu in FLUCT_MUS]
+    j_draw = FLUCT_MUS.index(FLUCT_MU)
+    m = windows[j_draw]
+    null = fluctuation_null(n, windows, draws=FLUCT_NULL_DRAWS, seed=[SEED, FLUCT_SEED_TAG, n])
+    reference = fluctuation_reference(null)
+    sorted_draw = reference[0][j_draw]
+    grid_sizes = sorted({int((grid == g).sum()) for g in range(vf.STEP)})
+    grid_nulls = {}
+    for size in grid_sizes:
+        col = fluctuation_null(size, [int(round(FLUCT_MU * size))], draws=FLUCT_NULL_DRAWS,
+                               seed=[SEED, FLUCT_SEED_TAG, size])
+        grid_nulls[size] = (col, fluctuation_reference(col))
+    base = fluctuation_test([0.0] * len(windows), null, reference)["critical"]
+    c5, c10 = base[j_draw]["0.05"], base[j_draw]["0.1"]
+    weekly_rows = np.flatnonzero(grid == 0)
+    first_week = int(np.flatnonzero(weekly_rows >= m - 1)[0])
+
+    def marginal(col: np.ndarray, sup: float) -> float:
+        return float((1 + (col >= sup).sum()) / (col.size + 1))
+
+    gw: dict[str, Any] = {}
+    fluct: dict[str, Any] = {}
+    paths: dict[str, np.ndarray | None] = {}
+    cumulative: dict[str, np.ndarray] = {}
+    first_ok = None
+    for key in MODEL_KEYS:
+        if key == CHAMPION or key not in LQ:
+            continue
+        d = LQ[CHAMPION] - LQ[key]
+        x, ok = gw_instruments(d, pos, ln_ovx, gap)
+        first_ok = ok
+        gw[key] = _gw_block(d[ok], x[ok], grid[ok])
+        cumulative[key] = np.cumsum(d)
+        try:
+            tests = [rolling_dm(d, w, lags=GW_LAGS)[0] for w in windows]
+        except ValueError as exc:
+            # Every field the ledger reads, null; the rest of the report is built as usual.
+            fluct[key] = {"sup": None, "sign": None, "at": None, "window_start": None, "p_value": None,
+                          "rejects_5pct": None, "rejects_10pct": None, "rejects_5pct_gr2010": None,
+                          "search_adjusted": {"over_mu": list(FLUCT_MUS), "min_p": None, "at_mu": None, "p_value": None},
+                          "by_mu": {_mu_key(mu): {"window_sessions": w, "p_value": None}
+                                    for j, (mu, w) in enumerate(zip(FLUCT_MUS, windows)) if j != j_draw},
+                          "robustness": {"bartlett_40": {"p_value": None}, "full_sample_variance": {"p_value": None},
+                                         "by_grid": {"outside_5pct": None}},
+                          "not_computed": str(exc)}
+            paths[key] = None
+            continue
+        peaks = [_peak(t, dates[w - 1:]) for t, w in zip(tests, windows)]
+        result = fluctuation_test([pk["_sup"] for pk in peaks], null, reference)
+        path = tests[j_draw]
+        ends = dates[m - 1:]
+        peak = peaks[j_draw]
+        p_draw = result["marginal_p"][j_draw]
+        means = np.convolve(d, np.ones(m), mode="valid") / m
+        k_peak = int(np.argmax(np.abs(path)))
+        k_same = int(np.argmax(np.sign(path[k_peak]) * means))
+        runs = []
+        for a, b in _runs(np.abs(path) > c5):
+            wf, wt = _week_span((a + m - 1, b + m - 1), weekly_rows, first_week)
+            runs.append({"from": str(ends[a]), "to": str(ends[b]), "sign": int(np.sign(path[a])), "sessions": b - a + 1,
+                         "week_from": wf, "week_to": wt})
+        robust: dict[str, Any] = {}
+        try:
+            alt = _peak(rolling_dm(d, m, lags=FLUCT_ROBUST[1], kernel=FLUCT_ROBUST[0])[0], ends)
+            p_alt = marginal(sorted_draw, alt.pop("_sup"))
+            robust["bartlett_40"] = {**alt, "p_value": p_alt, "rejects_5pct": p_alt < 0.05}
+        except ValueError as exc:
+            robust["bartlett_40"] = {"p_value": None, "not_computed": str(exc)}
+        sigma2 = float(hac_lrv(d, GW_LAGS)[0, 0])
+        csum = np.r_[0.0, np.cumsum(d)]
+        if sigma2 > 0:
+            full = _peak((csum[m:] - csum[:-m]) / np.sqrt(m * sigma2), ends)
+            p_full = marginal(sorted_draw, full.pop("_sup"))
+            robust["full_sample_variance"] = {**full, "p_value": p_full, "rejects_5pct": p_full < 0.05}
+        else:
+            robust["full_sample_variance"] = {"p_value": None, "not_computed": "the full-sample variance is not positive"}
+        signed: list[float | None] = []
+        grid_p: list[float | None] = []
+        for g in range(vf.STEP):
+            dg = d[grid == g]
+            col, _ = grid_nulls[dg.size]
+            try:
+                tg = rolling_dm(dg, int(round(FLUCT_MU * dg.size)), lags=0)[0]
+            except ValueError:
+                signed.append(None)
+                grid_p.append(None)
+                continue
+            kg = int(np.argmax(np.abs(tg)))
+            signed.append(round(float(tg[kg]), 2))
+            grid_p.append(marginal(col[:, 0], float(abs(tg[kg]))))
+        robust["by_grid"] = {"signed_sup": signed, "p_value": grid_p,
+                             "outside_5pct": int(sum(p is not None and p < 0.05 for p in grid_p))}
+        by_mu = {}
+        for j, (mu, w) in enumerate(zip(FLUCT_MUS, windows)):
+            if j == j_draw:
+                continue
+            pk = {k: v for k, v in peaks[j].items() if k != "_sup"}
+            by_mu[_mu_key(mu)] = {"window_sessions": w, **pk, "p_value": result["marginal_p"][j],
+                                  "rejects_5pct": result["marginal_p"][j] < 0.05}
+        fluct[key] = {
+            "sup": peak["sup"], "sign": peak["sign"], "at": peak["at"], "window_start": str(dates[k_peak]),
+            "p_value": p_draw, "rejects_5pct": p_draw < 0.05, "rejects_10pct": p_draw < 0.10,
+            "rejects_5pct_gr2010": peak["_sup"] > GR2010_TABLE1[FLUCT_MU][0],
+            "search_adjusted": {"over_mu": list(FLUCT_MUS), "min_p": result["min_p"],
+                                "at_mu": FLUCT_MUS[result["min_at"]], "p_value": result["p_value"]},
+            "max": round(float(path.max()), 3), "max_at": str(ends[int(np.argmax(path))]),
+            "min": round(float(path.min()), 3), "min_at": str(ends[int(np.argmin(path))]),
+            "crosses_both_sides": bool((path > c5).any() and (path < -c5).any()),
+            "outside_5pct": runs,
+            "peak_window_mean_diff": round(float(means[k_peak]), 4),
+            "largest_same_sign_window": {"mean_diff": round(float(means[k_same]), 4), "window_end": str(ends[k_same]),
+                                         "t": round(float(path[k_same]), 2)},
+            "by_mu": by_mu,
+            "robustness": robust,
+        }
+        paths[key] = path
+    mc_se = critical_value_mc_se(sorted_draw, 0.05)
+    block = {
+        "differential": ("QLIKE(har_iv) - QLIKE(model) on every out-of-sample day; positive when the model's loss is "
+                         "lower (the sign of dm_qlike_vs_har_iv)"),
+        "null": ("given what was known at each decision, equal expected QLIKE at every date; so no autocorrelation "
+                 "beyond the 5-session overlap"),
+        "gw": {"instruments": ["constant", "d_lag", "ln_ovx", "ovx_rv_gap"], "d_lag_sessions": vf.H, "lags": GW_LAGS,
+               "kernel": "truncated", "variance": "uncentred (the null imposed)",
+               "n_days": int(cast("np.ndarray", first_ok).sum()),
+               "first": str(dates[np.flatnonzero(cast("np.ndarray", first_ok))[0]]),
+               "conditional": "the instruments without the constant, chi2(3): unchanged by a constant shift of the differential",
+               "registered": "conditional part only; the chi2(4) form with the constant is context and not in the ledger",
+               "coef_levels": "OLS of the differential on (1, d_lag, ln OVX, ln RV5): the instruments' span in levels",
+               "robustness": ["bartlett_10", "bartlett_40", "by_grid (tau = 1, 0 lags)"]},
+        "fluctuation": {
+            "mu": FLUCT_MU, "window_sessions": m, "n_days": n, "first_window_end": str(dates[m - 1]),
+            "lags": GW_LAGS, "kernel": "truncated", "variance": "each window's own, around its mean",
+            "dated": "window end", "two_sided": True,
+            "critical_values": {"five_pct": round(c5, 4), "ten_pct": round(c10, 4), "mc_se_five_pct": round(mc_se, 4)},
+            "null": {"draws": FLUCT_NULL_DRAWS, "seed": [SEED, FLUCT_SEED_TAG, n],
+                     "method": "Gaussian random walks of n_days steps, one set for every window length"},
+            "search": {"over_mu": list(FLUCT_MUS),
+                       "method": "smallest marginal p over the window lengths, calibrated on the same walks"},
+            "gr2010_table1": {"five_pct": GR2010_TABLE1[FLUCT_MU][0], "ten_pct": GR2010_TABLE1[FLUCT_MU][1]},
+            "context": {_mu_key(mu): {"window_sessions": w,
+                                      "critical_values": {"five_pct": round(base[j]["0.05"], 4),
+                                                          "ten_pct": round(base[j]["0.1"], 4)},
+                                      "gr2010_table1": {"five_pct": GR2010_TABLE1[mu][0], "ten_pct": GR2010_TABLE1[mu][1]}}
+                        for j, (mu, w) in enumerate(zip(FLUCT_MUS, windows)) if j != j_draw},
+            "robustness": {"bartlett_40": "each window's Bartlett variance at 40 lags",
+                           "full_sample_variance": ("Giacomini and Rossi's form: one full-sample variance (truncated 4, "
+                                                    "uncentred)")},
+            "grid": {"window_weeks": int(round(FLUCT_MU * min(grid_sizes))), "lags": 0,
+                     "critical_values_five_pct": {str(size): round(fluctuation_test([0.0], col, ref)["critical"][0]["0.05"], 4)
+                                                  for size, (col, ref) in grid_nulls.items()}}},
+        "cumulative": {"end_date": str(dates[-1]),
+                       "end_all_days": {name: float(cumulative[challenger if name == "challenger" else name][-1])
+                                        for name in CUMULATIVE_SERIES}},
+        "series": {"fluct_t": list(STABILITY_SERIES), "cum_qlike_diff": list(CUMULATIVE_SERIES)},
+    }
+    series: dict[str, list[float | None]] = {}
+    for name in STABILITY_SERIES:
+        drawn = paths[challenger if name == "challenger" else name]
+        series[f"fluct_t_{name}"] = [None if drawn is None or r < m - 1 else round(float(drawn[r - m + 1]), 2)
+                                     for r in weekly_rows]
+    for name in CUMULATIVE_SERIES:
+        cum = cumulative[challenger if name == "challenger" else name]
+        series[f"cum_qlike_diff_{name}"] = [round(float(cum[r]), 3) for r in weekly_rows]
+    return {"gw": gw, "fluctuation": fluct, "stability": block, "series": series}
+
+
 def yearly(frame: pd.DataFrame, challenger: str) -> list[dict[str, Any]]:
     """Per calendar year, over every OOS day: direction hit rates and QLIKE."""
     out: list[dict[str, Any]] = []
@@ -1292,7 +1571,7 @@ def vol_cone(r: np.ndarray, dates: pd.DatetimeIndex, ovx_last: float | None) -> 
 
 
 def chart_series(frame: pd.DataFrame, conf: dict[str, dict[str, Any]], challenger: str,
-                 regimes: dict[str, Any] | None = None) -> dict[str, list[Any]]:
+                 regimes: dict[str, Any] | None = None, extra: dict[str, list[Any]] | None = None) -> dict[str, list[Any]]:
     """Compact weekly arrays (grid 0, the production grid) for the dashboard: percent units with 1
     decimal; elasticities and the OVX/RV5 log gap (with its trailing median, the regime split) with 3. VaR uses
     the grid's own filtered-historical-simulation quantiles."""
@@ -1321,6 +1600,7 @@ def chart_series(frame: pd.DataFrame, conf: dict[str, dict[str, Any]], challenge
         "rv_elasticity": [round(float(a + b + c), 3) for a, b, c in zip(wk["b_rv5"], wk["b_rv22"], wk["b_rv66"])],
         **({"ovx_rv_gap": [round(float(v), 3) for v in regimes["gap"][mask]],
             "ovx_rv_gap_median": [round(float(v), 3) for v in regimes["gap_median"][mask]]} if regimes else {}),
+        **(extra or {}),
     }
 
 
@@ -1343,6 +1623,10 @@ def build_report(snapshot: market_data.MarketSnapshot, *, progress: Progress | N
     board = leaderboard(frame)
     for row in board["models"]:
         row["qlike_by_regime"] = by_regime["qlike"][row["key"]]
+    stability = stability_report(frame, regimes["gap"], design.pos[np.asarray(design.ends)], challenger)
+    for row in board["models"]:
+        row["gw_qlike_vs_har_iv"] = stability["gw"].get(row["key"])
+        row["fluctuation_qlike_vs_har_iv"] = stability["fluctuation"].get(row["key"])
     selection = oos_selection(frame)
     report = {
         "generated_from": snapshot.manifest,
@@ -1376,9 +1660,10 @@ def build_report(snapshot: market_data.MarketSnapshot, *, progress: Progress | N
         "noise_floor": noise_floor(r, dates),
         "qlike_floor": qlike_floor(design),
         "regimes": by_regime["regimes"],
+        "stability": stability["stability"],
         "har_iv_coefficients": coefficient_report(design),
         "vol_cone": vol_cone(r, dates, float(ovx[-1]) if np.isfinite(ovx[-1]) else None),
-        "series": chart_series(frame, conf, challenger, regimes),
+        "series": chart_series(frame, conf, challenger, regimes, stability["series"]),
     }
     return report
 
@@ -1413,9 +1698,16 @@ def compare_reports(committed: Any, rebuilt: Any) -> dict[str, Any]:
     `violations` lists every difference that is not floating-point noise: a key, length, string,
     flag, null or integer that differs, or a number off by more than REPRO_REL_TOL relative and more
     than one unit in the last decimal it is published with (a value rounded to 3 places may land on
-    the other side of a rounding boundary). Empty means every conclusion reproduces."""
+    the other side of a rounding boundary). A fluctuation-test p-value counts simulated draws, so it may
+    also differ by up to SIMULATED_P_DRAWS draws; its flags stay exact. Empty means every conclusion
+    reproduces."""
     violations: list[str] = []
     numeric: list[tuple[float, str]] = []
+    draw_step = SIMULATED_P_DRAWS / (FLUCT_NULL_DRAWS + 1)
+
+    def simulated_p(path: str) -> bool:
+        leaf = path.rsplit("/", 1)[-1].split("[", 1)[0]
+        return "/fluctuation_qlike_vs_har_iv/" in path and leaf in ("p_value", "min_p")
 
     def walk(a: Any, b: Any, path: str) -> None:
         if isinstance(a, dict) and isinstance(b, dict):
@@ -1433,7 +1725,8 @@ def compare_reports(committed: Any, rebuilt: Any) -> dict[str, Any]:
             if a != b:
                 rel = abs(a - b) / max(abs(a), abs(b))
                 numeric.append((rel, path))
-                if rel > REPRO_REL_TOL and abs(a - b) > _last_place(a) * (1 + 1e-9):
+                if (rel > REPRO_REL_TOL and abs(a - b) > _last_place(a) * (1 + 1e-9)
+                        and not (simulated_p(path) and abs(a - b) <= draw_step * (1 + 1e-9))):
                     violations.append(f"{path}: committed {a!r}, rebuilt {b!r}")
         elif type(a) is not type(b) or a != b:
             violations.append(f"{path}: committed {a!r}, rebuilt {b!r}")

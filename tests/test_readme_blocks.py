@@ -34,3 +34,116 @@ class ThresholdAwarePTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StabilityBlocksTest(unittest.TestCase):
+    """RESULTS section 2.8 is generated from the artifact and the ledger, worded by the flags they hold (ROADMAP 2.3)."""
+
+    def setUp(self):
+        import copy
+
+        self.lab = copy.deepcopy(rb._lab())
+        self.ledger = copy.deepcopy(rb._ledger())
+
+    def patched(self, function):
+        from unittest import mock
+
+        with mock.patch.object(rb, "_lab", lambda: self.lab), mock.patch.object(rb, "_ledger", lambda: self.ledger):
+            return function()
+
+    def model(self, key):
+        return next(m for m in self.lab["leaderboard"]["models"] if m["key"] == key)
+
+    def row(self, rid):
+        return next(r for r in self.ledger["rows"] if r["id"] == rid)
+
+    def test_an_artifact_without_the_block_says_nothing(self):
+        del self.lab["stability"]
+        self.assertEqual(self.patched(rb.stability_block), "")
+        self.assertEqual(self.patched(rb.stability_reading), "")
+        self.assertNotIn("Giacomini", self.patched(rb.robustness_block))
+
+    def test_every_model_has_a_row_with_its_ledger_q_and_the_challenger_is_excluded(self):
+        text = self.patched(rb.stability_block)
+        for m in self.lab["leaderboard"]["models"]:
+            if m["key"] == self.lab["config"]["champion"]:
+                continue
+            line = next(l for l in text.splitlines() if l.startswith(f"| {m['label']} |"))
+            if m["key"] == self.lab["config"]["challenger"]:
+                self.assertEqual(line.count("excluded"), 2)
+            else:
+                self.assertIn(rb._pthr(self.row(f"vol_fluct_{m['key']}")["q_value_bh"]), line)
+        self.assertIn(f"±{rb._fmt(self.lab['stability']['fluctuation']['critical_values']['five_pct'], 2)}", text)
+        self.assertIn("approximate", text)
+
+    def test_each_fluctuation_reading_follows_its_flags(self):
+        text = self.patched(rb.stability_reading)
+        self.assertIn("OVX-only regression lower", text)
+        self.assertIn("inconclusive (p = 0.056", text)
+        self.assertIn("is nested in the model of record", text)
+        self.assertIn("not new evidence", text)
+        self.assertNotRegex(text, r"better in|better during|\bwon\b|no window shows|adds when|premium")
+        # Move the OVX-only regression's adjusted p below 0.05: the reading upgrades only as far as the ledger flag.
+        fl = self.model("ovx_only")["fluctuation_qlike_vs_har_iv"]
+        fl["search_adjusted"]["p_value"] = 0.03
+        self.row("vol_fluct_ovx_only").update(q_value_bh=0.08, survives_bh_5pct=False)
+        text = self.patched(rb.stability_reading)
+        self.assertIn("significant at 5% (p = 0.030; it does not survive the ledger's Benjamini-Hochberg adjustment, "
+                      "q = 0.080)", text)
+        # Above 0.10 it is not significant, whatever the window.
+        fl["search_adjusted"]["p_value"] = 0.2
+        self.assertIn("after the adjustment for the window length it is not significant (p = 0.200)",
+                      self.patched(rb.stability_reading))
+
+    def test_the_verdict_words_follow_the_house_thresholds_exactly(self):
+        fl = self.model("ovx_only")["fluctuation_qlike_vs_har_iv"]
+        fl["search_adjusted"]["p_value"] = 0.05
+        self.assertIn("after the adjustment for the window length it is inconclusive (p = 0.050",
+                      self.patched(rb.stability_reading))
+        fl["search_adjusted"]["p_value"] = 0.10
+        self.assertIn("after the adjustment for the window length it is not significant (p = 0.100)",
+                      self.patched(rb.stability_reading))
+
+    def test_the_conditional_part_reads_every_band_and_the_coefficient_sentence_needs_every_sign(self):
+        import re
+
+        # A conditional p between 0.05 and 0.10 is inconclusive, never left out.
+        self.model("har_rv")["gw_qlike_vs_har_iv"]["conditional"]["p_value"] = 0.07
+        text = self.patched(rb.stability_reading)
+        self.assertRegex(text, r"It is inconclusive against HAR-RV \(p = 0\.070\): not significant at 5%")
+        # One significant model whose fitted OVX association is positive: no "against all of them".
+        ovx = self.model("ovx_only")["gw_qlike_vs_har_iv"]
+        ovx["conditional"]["p_value"] = 0.03
+        self.assertGreater(ovx["coef_levels"]["ln_ovx"], 0)
+        self.assertNotIn("against all of them", self.patched(rb.stability_reading))
+        self.assertFalse(re.search(r"HAR-RV \+ downside semivol \(p = 0\.070", text))
+
+    def test_a_test_that_was_not_computed_prints_dashes(self):
+        fl = self.model("combo")["fluctuation_qlike_vs_har_iv"]
+        for key in ("sup", "sign", "at", "p_value"):
+            fl[key] = None
+        fl["search_adjusted"]["p_value"] = None
+        fl["robustness"]["by_grid"] = {"outside_5pct": None}
+        line = next(l for l in self.patched(rb.stability_block).splitlines() if l.startswith("| Combination |"))
+        self.assertNotIn("None", line)
+        self.assertTrue(line.rstrip(" |").endswith("—"), line)
+
+    def test_a_surviving_conditional_row_is_never_counted_as_restating_dm(self):
+        text = self.patched(rb.ledger_reading)
+        self.assertIn("fluctuation rows among them test a model the full-sample DM test already separates", text)
+        self.assertIn("The Giacomini-White conditional row against Persistence (RV5) asks a separate question", text)
+        self.assertNotIn("all 9 of them", text)
+
+    def test_a_robustness_form_in_another_band_is_named(self):
+        fl = self.model("raw_ovx")["fluctuation_qlike_vs_har_iv"]
+        fl["robustness"]["bartlett_40"]["p_value"] = 0.04
+        fl["robustness"]["bartlett_40"]["at"] = "2020-04-01"
+        self.assertIn("p = 0.040 with each window's variance at 40 Bartlett lags, largest |t| in the window ending "
+                      "2020-04-01", self.patched(rb.stability_reading))
+
+    def test_the_abstract_names_the_challenger_s_three_rows(self):
+        text = self.patched(rb.abstract)
+        self.assertIn("The challenger's three pairwise tests (full-sample, conditional and over-time) are left out", text)
+        self.assertIn("published as context and not registered", text)
+        self.ledger["summary"]["selected_after_search"] = ["vol_challenger_qlike"]
+        self.assertIn("The challenger's pairwise test is left out of that family", self.patched(rb.abstract))

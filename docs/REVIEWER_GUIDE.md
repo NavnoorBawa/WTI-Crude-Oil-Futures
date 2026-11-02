@@ -126,7 +126,7 @@ corrections to every number the project published before are in the
 [errata](../CHANGELOG.md#errata-published-numbers-that-were-wrong). The direction model's code is
 kept, so the post-mortem's runs can be repeated.
 
-## 5. No result is stated beyond its test (two minutes)
+## 5. No result is stated beyond its test (three minutes)
 
 Claim: every hypothesis the project tested is listed with its test and a multiplicity adjustment,
 and only the forward record can promote the challenger.
@@ -135,19 +135,41 @@ and only the forward record can promote the challenger.
 python -c "import json; s = json.load(open('data/research_ledger.json'))['summary']; print(json.dumps(s['by_status'], indent=1))"
 python -B -m unittest tests.test_research_ledger
 python -c "import json; rows = json.load(open('data/research_ledger.json'))['rows']; [print(r['id'], r['p_value'], r['status']) for r in rows if r['family'] == 'forecast interval']"
+python -c "import json; rows = json.load(open('data/research_ledger.json'))['rows']; [print(r['id'], r['p_value'], r['status']) for r in rows if r['family'] in ('conditional predictive ability', 'stability over time')]"
 ```
 
 Passing: the counts by status, and the ledger test (which rebuilds the ledger from the artifacts and
-requires it to equal the committed file) prints `OK`; the last command lists the band's tests by
-regime with the ledger's status for each. The
+requires it to equal the committed file) prints `OK`; the third command lists the band's tests by
+regime and the fourth each model's Giacomini-White conditional test (`vol_gw_*`) and fluctuation test
+(`vol_fluct_*`) against the model of record, each with the ledger's status. The
 [full results' ledger section](RESULTS.md#6-research-ledger) says how many supported rows survive
-Benjamini-Hochberg and Holm, and why the challenger's pairwise test is left out of that family (it
-was chosen by searching the same sample; Hansen's SPA test is its search-adjusted counterpart). The
+Benjamini-Hochberg and Holm, and why the challenger's three pairwise tests (full-sample, conditional
+and over time) are left out of that family (it was chosen by searching the same sample; Hansen's SPA
+test is the search-adjusted counterpart of the full-sample one, and the other two have none). The
 promotion rule, fixed before the first live forecast and pinned in code, is quoted in
 [section 3 of the full results](RESULTS.md#3-live-record-and-governance), with the power the single
 test has. [`PREREGISTRATION.md`](PREREGISTRATION.md) states it as a pre-registration (hypotheses,
 sample and stopping rule, analysis, what was known when it was fixed, deviations), with its tables
 and figures generated from the same constants and the commands that date it.
+
+The conditional and over-time tests (Giacomini-White, and Giacomini-Rossi's fluctuation test) have
+acceptance tests of their own (about half a minute; they read the pinned snapshot, no network):
+
+```bash
+python -B -m unittest -v tests.test_vol_lab.GiacominiWhiteTest tests.test_vol_lab.FluctuationTest
+```
+
+Passing: `ok` on every test, then `OK`. On simulated data, they check that the Giacomini-White test
+holds its size when the difference cannot be predicted and rejects when it can, that its statistics
+match cases with a known answer, and that its instruments use only what was known at each decision.
+They check that the fluctuation path equals a brute-force rolling Diebold-Mariano t (also on three of
+the snapshot's own differences), that the seeded null gives the critical values the lab publishes,
+and that the per-window test rejects close to its nominal 5% when the only dependence is the
+5-session overlap (Gaussian differences). Passing does not make the real-data p-values exact: both
+tests' theory assumes forecasts re-estimated on rolling windows of bounded size, which is what lets
+it cover nested models, while the lab's windows expand and HAR-RV and the OVX-only regression are
+nested in HAR-IV, so those p-values are approximate
+([methodology, section 7](METHODOLOGY.md#7-inference)).
 
 ## What would change the conclusions
 

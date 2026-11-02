@@ -222,8 +222,8 @@ Built from committed artifacts by `scripts/build_research_bundle.py`; see that s
 copy. Nothing in it is computed at deploy time. Top-level keys:
 
 - `schema_version`: 1.
-- `vol_lab`: `data/vol_lab.json` (backend/vol_lab.py) with `var_backtest` reduced to `{grid0, summary}`.
-  Key fields: `sample{n_days,n_weeks,first,last}`, `config{champion,challenger,...}`, `models[]`,
+- `vol_lab`: `data/vol_lab.json` (backend/vol_lab.py), copied whole except `var_backtest`, which is reduced
+  to `{grid0, summary}`. Key fields: `sample{n_days,n_weeks,first,last}`, `config{champion,challenger,...}`, `models[]`,
   `leaderboard{models[], mcs_qlike_included[], mcs_mse_included[], mcs_qlike_range_proxy_included[],
   mcs_excludes[], mcs_note, spa_qlike_vs_har_iv{statistic,best_model|null,t_stats{},p_consistent,p_lower,p_upper,
   non_studentized{p_lower,p_consistent,p_upper},models[],note},
@@ -242,6 +242,7 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   `n_days`, the days with a band), `regimes{what, decision, variables{ovx_tercile, ovx_rv_gap,
   rv5_tercile, target_spans_roll}, n_days_by_regime, cut_points{first, last}, test, note}` (each split's
   counts sum to `sample.n_days`), each `leaderboard.models[]` row's `qlike_by_regime{<split>{<level>}}`,
+  each row's `gw_qlike_vs_har_iv` and `fluctuation_qlike_vs_har_iv` and the top-level `stability` (below),
   `yearly[]`, `noise_floor`, `qlike_floor` (the proxy's QLIKE noise floor, never subtracted from a
   loss: `what, horizon_sessions, sims, seed, bar_seed_offset, seeds, rows_per_sim`,
   `five_return{proxy, normal{closed_form, formula, lower_bound, simulated_mean, simulated_range},
@@ -258,7 +259,103 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   digests), and `series` (weekly, grid 0): `date, actual, rv5, ovx, har_iv, har_iv_median, challenger,
   lo80, hi80, ret5, var95, var99, ovx_elasticity, rv_elasticity, ovx_rv_gap, ovx_rv_gap_median` (percent
   units; the OVX/RV5 log gap and its trailing median are unitless; elasticities
-  unitless).
+  unitless), plus the seven stability arrays below.
+
+  Conditional predictive ability and stability over time (`vol_lab.stability_report`) test each model's
+  daily QLIKE difference with the model of record, d = QLIKE(`har_iv`) − QLIKE(model), on every
+  out-of-sample day. It is positive when the model's loss is lower: the sign of `dm_qlike_vs_har_iv`. Both
+  tests share one null, the conditional one: given what was known at each decision, the two forecasts have
+  equal expected QLIKE at every date (so d has no autocorrelation beyond the 5-session overlap of the
+  targets). Both tests' theory assumes forecasts re-estimated on rolling windows of bounded size, which is
+  what lets it cover nested models. The lab's windows expand, and with expanding windows the usual limits
+  fail for nested models (HAR-RV and the OVX-only regression are nested in HAR-IV), so every p-value here is
+  approximate. Nothing else in the lab reads these fields: not the challenger's choice, the band or the
+  leaderboard.
+  - `leaderboard.models[].gw_qlike_vs_har_iv{stat, df, p_value, n_days, lags, kernel, conditional{stat, df,
+    p_value}, coef_levels{constant, d_lag, ln_ovx, ln_rv5}, robustness{bartlett_10{p_value,
+    conditional_p_value}, bartlett_40{p_value, conditional_p_value}, by_grid{p_value[5],
+    conditional_p_value[5]}}}`, null for `har_iv` (as its DM fields are): Giacomini-White (2006). The
+    top-level `stat`, `df` and `p_value` are the χ²(4) test with a constant. With the constant it mostly
+    repeats the DM test, so it is context and not in the ledger. `conditional` uses the same instruments
+    without the constant, around their means (χ²(3); a constant shift of d does not change it): its
+    `p_value` is the ledger's. Both use an uncentred HAC matrix (`kernel`, `lags`) on the `n_days` rows that
+    have a matured lag of d. `coef_levels` is the OLS fit of d on a constant, d of 5 sessions earlier, ln
+    OVX and ln RV5: descriptive, with no test per coefficient. `robustness` repeats both p-values with
+    Bartlett kernels at 10 and 40 lags, and on each weekly grid alone (`by_grid`: 0 lags, the lag of d being
+    the grid's previous row). It is context, not registered. `stat` is rounded to 3 dp and `coef_levels` to
+    4 dp; p-values are full floats. When either main HAC matrix (truncated kernel; the full test's or the
+    conditional part's) is not positive definite, `stat`, `p_value`, `conditional.stat` and
+    `conditional.p_value` are null, `robustness` holds only the two Bartlett entries with null p-values,
+    `coef_levels` and `by_grid` are absent, and `not_computed` names the reason. A Bartlett variant that
+    fails alone has null p-values and its own `not_computed`; a grid that fails has null entries.
+  - `leaderboard.models[].fluctuation_qlike_vs_har_iv`, null for `har_iv`: Giacomini-Rossi (2010), as a
+    rolling DM t over windows of `stability.fluctuation.window_sessions` days. Each window is divided by its
+    own long-run variance (that block's `kernel` and `lags`, around the window's mean) and dated at its last
+    day. `sup`, `sign` (+1 where the model's loss is lower) and `at`: the largest |t|, its sign and its
+    window's last day; `window_start`: that window's first day. `p_value`: this window length's p against
+    the simulated null, (1 + draws at or above `sup`) / (draws + 1). `rejects_5pct` and `rejects_10pct` are
+    `p_value` < 0.05 and < 0.10, so `rejects_5pct` agrees with the band
+    ±`stability.fluctuation.critical_values.five_pct` by construction; `rejects_5pct_gr2010` compares `sup`
+    with Giacomini and Rossi's Table 1 value instead. `search_adjusted{over_mu, min_p, at_mu, p_value}`: the
+    smallest p over the window lengths in `over_mu` (each a share of the out-of-sample days), the share that
+    gave it, and that minimum calibrated on the same simulation; this `p_value` is the ledger's. `max`,
+    `max_at`, `min`, `min_at`: the path's extremes and their window ends; `crosses_both_sides`: the path
+    leaves the band on both sides. `outside_5pct[{from, to, sign, sessions, week_from, week_to}]`: each run
+    of window ends outside the band, with its first and last window end, its sign and its length in
+    sessions. `week_from` and `week_to` index the `series` arrays: the last weekly date at or before the
+    run's first window end, and the first at or after its last (or the last weekly date), never before the
+    first non-null `fluct_t_*` value. They snap outward, so a run that falls between two weekly dates maps
+    to the segment between them. Each window is scaled by its own variability, so the peak is where the difference was most consistent,
+    not where it was largest: `peak_window_mean_diff` is the mean daily d in the peak's window, and
+    `largest_same_sign_window{mean_diff, window_end, t}` is the window with the largest mean of the peak's
+    sign. `by_mu{mu_0_1, mu_0_3, mu_0_4, mu_0_5}`: the other window lengths, each `{window_sessions, sup,
+    sign, at, p_value, rejects_5pct}` with its own p (context; the shortest window's p is anti-conservative
+    under the null). `robustness{bartlett_40, full_sample_variance}`: the same window length with each
+    window's Bartlett variance at 40 lags, and with Giacomini and Rossi's single full-sample variance, each
+    `{sup, sign, at, p_value, rejects_5pct}`; `robustness.by_grid{signed_sup[5], p_value[5], outside_5pct}`:
+    each weekly grid alone, against its own null (`stability.fluctuation.grid`), with the signed peak t, its
+    p and the number of grids with p < 0.05. The robustness is context, not registered. `sup`, `max`, `min`
+    and the `by_mu` and robustness sups are rounded to 3 dp, window means to 4 dp,
+    `largest_same_sign_window.t` and `signed_sup` to 2 dp; p-values are unrounded. When one window's
+    variance, at any of the five window lengths, is not positive, these fields are null, every field the
+    ledger reads among them: `sup`, `sign`, `at`, `window_start`, `p_value`, the three `rejects_*`,
+    `search_adjusted.min_p`, `.at_mu` and `.p_value`, each `by_mu.<mu>.p_value`,
+    `robustness.bartlett_40.p_value`, `robustness.full_sample_variance.p_value` and
+    `robustness.by_grid.outside_5pct`. Each `by_mu.<mu>` keeps only `window_sessions` and `p_value`, each
+    `robustness` entry only those nulls, the path fields from `max` to `largest_same_sign_window` are
+    absent, and `not_computed` names the reason. A robustness variance that fails alone has a null
+    `p_value` and its own `not_computed`; a grid that fails has null entries.
+  - `stability{differential, null, gw, fluctuation, cumulative, series}`: the settings and reference values
+    of both tests. `differential` and `null` state d's sign and the shared null in words (the simulation is
+    `fluctuation.null`). `gw{instruments[], d_lag_sessions, lags, kernel, variance, n_days, first,
+    conditional, registered, coef_levels, robustness[]}`: the instruments (all known at the decision), the
+    lag of d, the HAC settings, the rows tested and the first of them, and in words the conditional part,
+    what the ledger registers, the levels fit and the robustness variants. `fluctuation{mu, window_sessions,
+    n_days, first_window_end, lags, kernel, variance, dated, two_sided, critical_values{five_pct, ten_pct,
+    mc_se_five_pct}, null{draws, seed[], method}, search{over_mu[], method}, gr2010_table1{five_pct,
+    ten_pct}, context{mu_0_1, mu_0_3, mu_0_4, mu_0_5}, robustness{bartlett_40, full_sample_variance},
+    grid{window_weeks, lags, critical_values_five_pct{<grid length>}}}`: the drawn window (`mu` of the
+    `n_days` out-of-sample days, `window_sessions` long, the first ending on `first_window_end`) and its
+    variance. `critical_values` are the two-sided 5% and 10% values of sup |t| from the simulated null at
+    this sample's length, rounded to 4 dp so that the band and `rejects_5pct` stay consistent;
+    `mc_se_five_pct` is the Monte Carlo standard error of the 5% value. `null`: the number of draws, the
+    seed (`[vol_lab.SEED, 23, n_days]`, fixed before its values were computed) and the method, one set of
+    Gaussian random walks for every window length. `search`: the window lengths the adjusted p covers, and
+    how. `gr2010_table1`: Giacomini and Rossi's published Table 1 values, for comparison.
+    `context.<mu>{window_sessions, critical_values{five_pct, ten_pct}, gr2010_table1{five_pct, ten_pct}}`:
+    the same for the other window lengths. `robustness`: the two variance variants in words. `grid`: the
+    per-grid test's window in weeks, its lags and its 5% value for each grid length (keys are the lengths as
+    strings; each length has its own null). `cumulative{end_date, end_all_days{challenger, ovx_only,
+    raw_ovx, persistence}}`: the sum of d over every out-of-sample day up to `end_date`, at full precision.
+    It equals `sample.n_days` × the compared model's `dm_qlike_vs_har_iv.mean_diff` up to floating-point
+    rounding, and no test reads it. `series{fluct_t[], cum_qlike_diff[]}`: the comparisons behind the seven
+    series arrays.
+  - The seven `series` arrays, one value per weekly date: `fluct_t_{challenger, ovx_only, raw_ovx}`, the t
+    of the drawn window ending on that date (2 dp; null before the first full window, and throughout for a
+    test not computed), and `cum_qlike_diff_{challenger, ovx_only, raw_ovx, persistence}`, the every-day sum
+    of d up to that date (3 dp). The last weekly date can fall before `stability.cumulative.end_date`, so
+    the last value can differ from `end_all_days`. In these names, and in `stability.cumulative` and
+    `stability.series`, `challenger` is the lab's challenger (`config.challenger`), not a fixed model key.
 - `postmortem`: `five_year` and `ten_year`, each `{purged, leaked, config}`; a run is
   `{n, direction_acc_pct, p_value, sharpe, total_pnl_usd, max_drawdown_usd, mae_vs_best_baseline_pct, first, last,
   equity: [[date, cumulative_pnl_usd], ...]}`.
@@ -283,7 +380,17 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   `underpowered`; a row is `{id, date, family, hypothesis, test, statistic_name, statistic_value,
   p_value, q_bh, p_holm, survives_bh, clears_t3, pre_specified, status, artifact}`, with `status`
   one of those four keys, and `q_bh`, `p_holm`, `survives_bh` and `clears_t3` null for a row
-  selected after a search.
+  selected after a search. Two families test each model against the model of record, one row per
+  model: "conditional predictive ability" (`vol_gw_<model>`, the Giacomini-White conditional p) and
+  "stability over time" (`vol_fluct_<model>`, the fluctuation test's search-adjusted p). The χ²(4)
+  Giacomini-White form and every robustness variant stay in `vol_lab` as context; they are not rows.
+  Three rows are outside the family because they test the challenger, which was picked on this sample:
+  its full-sample, conditional and over-time rows (`vol_challenger_qlike`, `vol_gw_har_iv_range` and
+  `vol_fluct_har_iv_range`, all listed in `selected_after_search`). A row whose artifact could not
+  compute its test (a stored p-value of null) has a null `p_value`, is `inconclusive`, and is outside
+  the family too, with null `q_bh`, `p_holm`, `survives_bh` and `clears_t3`. Rows on the same loss
+  difference are dependent: Benjamini-Hochberg assumes positive dependence (PRDS) and Holm holds under
+  any dependence, and strongly significant near-duplicate rows lower other rows' q-values.
 
 `build_research_bundle.validate` requires the schema version, every `series` array to have
 `sample.n_weeks` entries, leaderboard rows with `key` and `qlike`, both post-mortem equity curves,

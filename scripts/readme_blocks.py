@@ -446,10 +446,21 @@ def abstract() -> str:
                    f"{len(s['supported_surviving_bh_5pct'])} survive Benjamini-Hochberg at 5%; "
                    f"{s['by_status']['not_supported']} are not supported (a failure to reject, not evidence against "
                    f"them) and {s['by_status']['retracted']} are retracted.")
-    if "vol_challenger_qlike" in selected:
+    searched = s.get("selected_after_search", [])
+    kinds = [kind for prefix, kind in (("vol_challenger_qlike", "full-sample"), ("vol_gw_", "conditional"),
+                                       ("vol_fluct_", "over-time")) if any(rid.startswith(prefix) for rid in searched)]
+    if kinds == ["full-sample"]:
         ledger_text += (" The challenger's pairwise test is left out of that family, because the challenger was "
                         "picked by searching the field on the same sample; the SPA test is its search-adjusted "
                         "counterpart.")
+    elif "full-sample" in kinds:
+        ledger_text += (f" The challenger's {_word(len(kinds))} pairwise tests ({_join(kinds)}) are left out of that "
+                        f"family, because the challenger was picked by searching the field on the same sample; the SPA "
+                        f"test is the search-adjusted counterpart of the full-sample one, and the other "
+                        f"{'one has' if len(kinds) == 2 else _word(len(kinds) - 1) + ' have'} none.")
+    if "stability" in _lab():
+        ledger_text += (" Robustness variants, and the χ²(4) Giacomini-White form, which includes the full-sample mean "
+                        "the DM test asks about, are published as context and not registered.")
     return (
         f"This project forecasts the realized volatility of front-month NYMEX WTI crude oil over the next five "
         f"sessions from free data, and keeps a public forward record of its live forecasts that scores only entries "
@@ -1105,6 +1116,184 @@ def regime_reading() -> str:
             "table is shown without one. A dependence found here is reported, never used to change the band.")
 
 
+def _robust_clause(p: float, robust: dict, at: str | None = None) -> str:
+    """The first robustness p (each window's variance at 40 Bartlett lags, then Giacomini and Rossi's full-sample
+    variance) that lands in another band than p, as a clause with its window when that differs; empty when both
+    agree (the regime blocks' rule)."""
+    for key, label in (("bartlett_40", "with each window's variance at 40 Bartlett lags"),
+                       ("full_sample_variance", "with Giacomini and Rossi's full-sample variance")):
+        value = robust.get(key, {}).get("p_value")
+        if value is not None and _band(value) != _band(p):
+            moved = robust[key].get("at")
+            return f"; {_peq_thr(value)} {label}" + (f", largest |t| in the window ending {moved}" if moved != at else "")
+    return ""
+
+
+def _stability_models(lab: dict) -> list[dict]:
+    """The models compared with the model of record, in the leaderboard's order, the timing control last."""
+    models = [m for m in lab["leaderboard"]["models"] if m.get("fluctuation_qlike_vs_har_iv") is not None]
+    return [m for m in models if not m.get("timing_control")] + [m for m in models if m.get("timing_control")]
+
+
+def stability_block() -> str:
+    """Giacomini-White's conditional part and the window-length-adjusted fluctuation test against every model, with
+    the ledger's q, and the forms kept as context (ROADMAP 2.3)."""
+    lab, ledger = _lab(), _ledger()
+    if "stability" not in lab:
+        return ""
+    fl_cfg, gw_cfg = lab["stability"]["fluctuation"], lab["stability"]["gw"]
+    chall_key = lab["config"]["challenger"]
+
+    def q(row: dict) -> str:
+        return "excluded" if row["selected_after_search"] else _pthr(row["q_value_bh"])
+
+    rows = ["| Model | DM p | GW conditional p | q | Fluctuation max \\|t\\| (window end) | p, μ = 0.2 | p, adjusted for "
+            "the window | q | Grids outside 5% |", "|---|---:|---:|---:|---|---:|---:|---:|---:|"]
+    for m in _stability_models(lab):
+        gw, fl = m["gw_qlike_vs_har_iv"], m["fluctuation_qlike_vs_har_iv"]
+        gw_row, fl_row = _ledger_row(ledger, f"vol_gw_{m['key']}"), _ledger_row(ledger, f"vol_fluct_{m['key']}")
+        peak = "—" if fl["sup"] is None else f"{_fmt(fl['sup'] * fl['sign'], 2, True)} ({fl['at']})"
+        outside = (fl["robustness"].get("by_grid") or {}).get("outside_5pct")
+        rows.append(f"| {m['label']} | {_pthr(m['dm_qlike_vs_har_iv']['p_value'])} | {_pthr(gw['conditional']['p_value'])} "
+                    f"| {q(gw_row)} | {peak} | {_pthr(fl['p_value'])} | {_pthr(fl['search_adjusted']['p_value'])} | "
+                    f"{q(fl_row)} | {'—' if outside is None else f'{outside}/{_grids(lab)}'} |")
+    mus = [key for key in fl_cfg["context"]]
+    rows += ["", "Context, not in the ledger:", "",
+             "| Model | GW with the constant, p (mostly repeats DM) | Fluctuation p, 40 Bartlett lags | Fluctuation p, "
+             "full-sample variance | " + " | ".join(f"p, μ = {k[3:].replace('_', '.')}" + (" †" if k == "mu_0_1" else "")
+                                                  for k in mus) + " |",
+             "|---|---:|---:|---:|" + "---:|" * len(mus)]
+    for m in _stability_models(lab):
+        gw, fl = m["gw_qlike_vs_har_iv"], m["fluctuation_qlike_vs_har_iv"]
+        rob = fl["robustness"]
+        rows.append(f"| {m['label']} | {_pthr(gw['p_value'])} | {_pthr(rob['bartlett_40']['p_value'])} | "
+                    f"{_pthr(rob['full_sample_variance']['p_value'])} | "
+                    + " | ".join(_pthr(fl["by_mu"][k]["p_value"]) for k in mus) + " |")
+    cv = fl_cfg["critical_values"]
+    rows += ["", f"Every test compares the model of record's daily QLIKE with the model's (the difference is positive "
+             f"when the model's loss is lower) on every out-of-sample day. GW: Giacomini and White (2006), the "
+             f"difference on its value {gw_cfg['d_lag_sessions']} sessions earlier (the last matured), ln OVX of the "
+             f"session before and ln(OVX/RV5), around their means (the conditional part, χ²(3)), on "
+             f"{gw_cfg['n_days']:,} days; uncentred HAC with a truncated kernel at {gw_cfg['lags']} lags. Fluctuation: "
+             f"Giacomini and Rossi (2010), a rolling Diebold-Mariano t over windows of {fl_cfg['window_sessions']:,} "
+             f"sessions (μ = {fl_cfg['mu']}), each on its own long-run variance; sign + where the model's loss was "
+             f"lower; band ±{_fmt(cv['five_pct'], 2)} at 5%, simulated for these {fl_cfg['n_days']:,} days "
+             f"({fl_cfg['null']['draws']:,} random walks; Giacomini and Rossi's table gives "
+             f"{_fmt(fl_cfg['gr2010_table1']['five_pct'], 3)}). The adjusted p accounts for the choice among the "
+             f"window lengths μ = {', '.join(str(v) for v in fl_cfg['search']['over_mu'])}. q from the ledger's "
+             f"Benjamini-Hochberg adjustment; {_model(lab, chall_key)['label']}'s rows are excluded because the "
+             f"challenger was picked on this sample. † anti-conservative under the null. Both theories assume forecasts "
+             f"re-estimated on rolling windows of bounded size, which is also what lets them compare nested models; the "
+             f"lab's windows expand and some models are nested in the model of record, so the p-values are approximate "
+             f"(docs/METHODOLOGY.md section 7). Source: lab."]
+    return "\n".join(rows)
+
+
+def stability_reading() -> str:
+    """The conditional and over-time tests in words, each at the strength it supports (ROADMAP 2.3)."""
+    lab, ledger = _lab(), _ledger()
+    if "stability" not in lab:
+        return ""
+    models = _stability_models(lab)
+    chall_key = lab["config"]["challenger"]
+    dm_sig = [m for m in models if m["dm_qlike_vs_har_iv"]["p_value"] < 0.05]
+    dm_not = [m for m in models if m["dm_qlike_vs_har_iv"]["p_value"] >= 0.05]
+    full_sig = [m for m in dm_sig if m["gw_qlike_vs_har_iv"]["p_value"] is not None and m["gw_qlike_vs_har_iv"]["p_value"] < 0.05]
+    full_extra = [m for m in dm_not if m["gw_qlike_vs_har_iv"]["p_value"] is not None and m["gw_qlike_vs_har_iv"]["p_value"] < 0.05]
+    parts = [f"With the constant included, the Giacomini-White test rejects at 5% for {_count(len(full_sig), len(dm_sig))} "
+             f"models the full-sample DM test separates from the model of record and for "
+             f"{'none' if not full_extra else _names(full_extra)} of the other {len(dm_not)}, so that form mostly "
+             f"repeats DM and is context, not in the ledger."]
+    cond = [m for m in models if m["key"] != chall_key and m["gw_qlike_vs_har_iv"]["conditional"]["p_value"] is not None]
+    sig = [m for m in cond if m["gw_qlike_vs_har_iv"]["conditional"]["p_value"] < 0.05]
+    if sig:
+        rows = {m["key"]: _ledger_row(ledger, f"vol_gw_{m['key']}") for m in sig}
+        survive = [m for m in sig if rows[m["key"]]["survives_bh_5pct"]]
+        weak = [m for m in sig if _band(m["gw_qlike_vs_har_iv"]["robustness"]["bartlett_40"]["conditional_p_value"]) > 0]
+        coef = [m["gw_qlike_vs_har_iv"]["coef_levels"]["ln_ovx"] for m in sig]
+        text = (f"Its conditional part, whether the difference moves with what is known at the decision, is significant "
+                f"at 5% against {_names(sig)} ({', '.join(_peq_thr(m['gw_qlike_vs_har_iv']['conditional']['p_value']) for m in sig)})")
+        text += (f"; {'only ' if 0 < len(survive) < len(sig) else ''}{_names(survive)} "
+                 f"{'survives' if len(survive) == 1 else 'survive'} the ledger's Benjamini-Hochberg adjustment"
+                 if survive else "; none survives the ledger's Benjamini-Hochberg adjustment")
+        if weak:
+            share = "all of them" if len(weak) == len(sig) else f"{len(weak)} of the {len(sig)}"
+            text += f", and with 40 Bartlett lags {share} ({_names(weak)}) are no longer significant at 5%"
+        text += "."
+        if all(c < 0 for c in coef):
+            text += (f" In the levels fit the difference falls as OVX rises at a given RV5 against all of them "
+                     f"({_fmt(max(coef), 2)} to {_fmt(min(coef), 2)} per unit of ln OVX): the model of record's fitted "
+                     f"advantage over them is larger when OVX is higher at the same RV5. The coefficients are "
+                     f"descriptive; none is tested on its own.")
+        parts.append(text)
+    mid = [m for m in cond if 0.05 <= m["gw_qlike_vs_har_iv"]["conditional"]["p_value"] < 0.10]
+    if mid:
+        parts.append(f"It is inconclusive against {_names(mid)} "
+                     f"({', '.join(_peq_thr(m['gw_qlike_vs_har_iv']['conditional']['p_value']) for m in mid)}): not "
+                     f"significant at 5%.")
+    quiet = [m for m in cond if m["gw_qlike_vs_har_iv"]["conditional"]["p_value"] >= 0.10]
+    if quiet:
+        parts.append(f"It is not significant against {_names(quiet)}; a failure to reject is not evidence that the "
+                     f"difference does not move with the state.")
+    fl_rows = {m["key"]: _ledger_row(ledger, f"vol_fluct_{m['key']}") for m in models}
+    adj = {m["key"]: m["fluctuation_qlike_vs_har_iv"]["search_adjusted"]["p_value"] for m in models}
+    restated = [m for m in models if m["key"] != chall_key and adj[m["key"]] is not None and adj[m["key"]] < 0.05
+                and m["dm_qlike_vs_har_iv"]["p_value"] < 0.05]
+    if restated:
+        parts.append(f"Over time, the fluctuation test rejects equal accuracy at every date, after the adjustment for the "
+                     f"window length, against {_names(restated)} (adjusted p ≤ {_pthr(max(adj[m['key']] for m in restated))}); "
+                     f"the full-sample DM test already separates each of them from the model of record, so this mostly "
+                     f"restates it.")
+    for m in models:
+        if m in restated or adj[m["key"]] is None:
+            continue
+        fl, p_adj = m["fluctuation_qlike_vs_har_iv"], adj[m["key"]]
+        row = fl_rows[m["key"]]
+        mu = lab["stability"]["fluctuation"]["mu"]
+        if fl["crosses_both_sides"]:
+            where = (f"the μ = {mu} path leaves the band on both sides, with {m['label']} lower in the window ending "
+                     f"{fl['max_at']} and the model of record lower in the window ending {fl['min_at']}")
+        elif fl["outside_5pct"]:
+            lower = m["label"] if fl["sign"] > 0 else "the model of record"
+            first, last = fl["outside_5pct"][0]["from"], fl["outside_5pct"][-1]["to"]
+            where = (f"the μ = {mu} path leaves the band, with {lower} lower, in windows ending "
+                     + (first if first == last else f"{first} to {last}"))
+        else:
+            where = f"the μ = {mu} path stays inside the band"
+        # Robustness forms are for this window length, so they are read against its p.
+        detail = (f"{_peq_thr(fl['p_value'])} for that window length"
+                  f"{_robust_clause(fl['p_value'], fl['robustness'], fl['at'])}")
+        nested = (f" {m['label']} is nested in the model of record, and estimation noise in the larger model favours the "
+                  f"smaller one in finite samples, so this speaks to the forecasts as produced."
+                  if m["key"] in ("ovx_only", "har_rv") else "")
+        if m["key"] == chall_key:
+            parts.append(f"Against {m['label']}, {where} ({detail}; {_peq_thr(p_adj)} after the adjustment for the window "
+                         f"length). It was picked as the challenger on this sample, so this is not new evidence, and its "
+                         f"row is left out of the ledger's family.")
+        elif p_adj < 0.05:
+            survives = "survives" if row["survives_bh_5pct"] else "does not survive"
+            parts.append(f"Against {m['label']}, whose full-sample DM test {_peq_thr(m['dm_qlike_vs_har_iv']['p_value'])} "
+                         f"does not separate it from the model of record, {where} ({detail}); after the adjustment for "
+                         f"the window length it is significant at 5% ({_peq_thr(p_adj)}; it {survives} the ledger's "
+                         f"Benjamini-Hochberg adjustment, q = {_pthr(row['q_value_bh'])}).{nested}")
+        elif p_adj < 0.10:
+            parts.append(f"Against {m['label']}, {where} ({detail}); after the adjustment for the window length it is "
+                         f"inconclusive ({_peq_thr(p_adj)}; q = {_pthr(row['q_value_bh'])} after the ledger's "
+                         f"adjustment).{nested}")
+        else:
+            parts.append(f"Against {m['label']}, {where} ({detail}); after the adjustment for the window length it is "
+                         f"not significant ({_peq_thr(p_adj)}).{nested}")
+    cum = lab["stability"]["cumulative"]["end_all_days"]
+    named = {"challenger": _model(lab, chall_key)["label"], "ovx_only": _model(lab, "ovx_only")["label"],
+             "raw_ovx": _model(lab, "raw_ovx")["label"], "persistence": _model(lab, "persistence")["label"]}
+    parts.append("Each window is scaled by its own variability, so a window outside the band is where the difference "
+                 "was most consistent, not where it was largest. Summed over every out-of-sample day, the difference is "
+                 + _join([f"{value:+,.2f}".replace("-", "−") + f" against {named[key]}" for key, value in cum.items()
+                          if key in named])
+                 + " (positive where the model's loss was lower); the sum is descriptive, and no test reads it.")
+    return " ".join(parts)
+
+
 def calibration_reading() -> str:
     lab, prod = _lab(), _prod()
     champ, chall = _champ(lab), _chall(lab)
@@ -1427,6 +1616,10 @@ def robustness_block() -> str:
         f"grids ranges {_fmt(min(qby))} to {_fmt(max(qby))}; the challenger is in the {_mcs_level(lab)} MCS on "
         f"{chall['in_mcs_qlike_grids']}/{grids} and the model of record on {champ['in_mcs_qlike_grids']}/{grids}. A "
         f"conclusion that holds on one grid and not the next is reported as fragile.",
+        *(["- **Over time and by state.** Section 2.8 asks whether the loss difference with each model moves with what "
+            "is known at the decision (Giacomini-White) and whether the two were equally accurate in expectation at "
+            "every date (a fluctuation test)."]
+          if "stability" in lab else []),
         f"- **Confidence-set settings.** The full-sample QLIKE set (blocks of {lab['config']['mcs']['block_daily']} "
         f"days) keeps {members(board['mcs_qlike_included'])}. "
         + " ".join(f"With {size}-day blocks it keeps {members(keys)}." for size, keys in blocks) + " "
@@ -1807,6 +2000,31 @@ def ledger_reading() -> str:
         text.append(f"One supported row is not in the table: \"{row['hypothesis'].rstrip('.')}\" "
                     f"({_peq(row['p_value'])}). {picked}, so that pairwise p-value ignores the search, and the row is "
                     f"left out of the multiplicity family.{verdict}")
+    later = [r for r in led["rows"] if r["family"] in ("conditional predictive ability", "stability over time")
+             and r.get("survives_bh_5pct")]
+    if later:
+        # The fluctuation test's null includes equal average loss, so a rejection where DM rejects mostly restates DM;
+        # Giacomini-White's conditional part is unchanged by a constant shift of the difference and asks another question.
+        fluct = [r for r in later if r["family"] == "stability over time"]
+        repeats = [r for r in fluct if r["context"].get("dm_p") is not None and r["context"]["dm_p"] < 0.05]
+        cond = [r for r in later if r["family"] == "conditional predictive ability"]
+        named = [r["hypothesis"].split("model of record and ", 1)[-1].split(" moves with", 1)[0] for r in cond]
+        sentence = (f"Of the rows that test conditional predictive ability and stability over time, {len(later)} survive "
+                    f"the Benjamini-Hochberg adjustment.")
+        if fluct:
+            share = f"All {len(fluct)}" if len(repeats) == len(fluct) else f"{len(repeats)} of the {len(fluct)}"
+            sentence += (f" {share} fluctuation rows among them test a model the full-sample DM test already separates "
+                         f"from the model of record (section 2.8), so they mostly restate that difference."
+                         if len(fluct) > 1 else
+                         f" The fluctuation row among them {'tests a model the full-sample DM test already separates' if repeats else 'tests a model the full-sample DM test does not separate'} from the model of record (section 2.8).")
+        if cond:
+            sentence += (f" The Giacomini-White conditional {'row' if len(cond) == 1 else 'rows'} against {_join(named)} "
+                         f"{'asks' if len(cond) == 1 else 'ask'} a separate question, whether the difference moves with "
+                         f"what is known at the decision; a constant shift of the difference does not change "
+                         f"{'it' if len(cond) == 1 else 'them'}.")
+        text.append(sentence + " Rows on the same loss difference are dependent; Benjamini-Hochberg assumes that "
+                    "dependence is positive, Holm holds under any dependence, and strongly significant rows like these "
+                    "lower the other rows' q-values.")
     retracted = s["by_status"]["retracted"]
     vrp = rows_by_id.get("vrp_exists")
     text.append(f"The {retracted} retracted rows stay in the multiplicity count, since they were tested, but none is "
