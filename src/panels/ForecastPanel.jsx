@@ -37,12 +37,24 @@ const bandPart = (part, name) => (part?.n
 const bandCell = (row) => (row.lo != null && row.hi != null ? `${fmtNum(row.lo, 1)}–${fmtNum(row.hi, 1)}` : DASH);
 const insideValue = (row) => (row.actual == null || row.lo == null || row.hi == null ? null : isInside(row) ? "yes" : "no");
 
+/** The OVX/RV5 log gap's columns, shown when the lab series carries it (vol_lab.series.ovx_rv_gap). */
+const GAP_COLUMNS = [
+  {
+    key: "gap", label: "OVX/RV5 (log)", align: "right", hideBelow: 1000,
+    title: "ln(OVX of the session before / RV5 to the decision), known at the decision; the regime split compares it with its trailing median",
+    render: (row) => fmtSigned(row.gap, 2),
+  },
+  // Its trailing median (the regime split's cut point), for the CSV only.
+  { key: "gapMedian", label: "OVX/RV5 (log) trailing median", className: "col-csv-only" },
+];
+
 /**
  * The FCST table's columns. The CSV (DataTable csvColumns) takes raw values: the band's two edges
- * from columns shown only there, the errors unrounded.
+ * from columns shown only there, the errors unrounded. With `gap`, the OVX/RV5 log gap follows OVX.
  * @param {string} modelName
+ * @param {{gap?: boolean}} [options]
  */
-export const forecastTableColumns = (modelName) => [
+export const forecastTableColumns = (modelName, { gap = false } = {}) => [
   { key: "date", label: "Forecast date", rowHeader: true, render: (row) => fmtDate(row.date) },
   { key: "actual", label: "Realized", align: "right", render: (row) => fmtNum(row.actual, 1) },
   { key: "forecast", label: modelName, csvLabel: `${modelName} forecast`, align: "right", render: (row) => fmtNum(row.forecast, 1) },
@@ -73,6 +85,7 @@ export const forecastTableColumns = (modelName) => [
     sortable: true, firstDirection: "desc", render: (row) => fmtNum(row.qlike, 3),
   },
   { key: "ovx", label: "OVX", align: "right", hideBelow: 640, render: (row) => fmtNum(row.ovx, 1) },
+  ...(gap ? GAP_COLUMNS : []),
 ];
 
 /**
@@ -99,7 +112,8 @@ export function ForecastTable({ rows, modelName }) {
   }, [showAll]);
   const tableRows = useMemo(() => (showAll ? rows : rows.slice(-TABLE_WEEKS)).slice().reverse(), [rows, showAll]);
   const exportRows = useMemo(() => rows.slice().reverse(), [rows]);
-  const columns = useMemo(() => forecastTableColumns(modelName), [modelName]);
+  const hasGap = useMemo(() => rows.some((row) => row.gap != null), [rows]);
+  const columns = useMemo(() => forecastTableColumns(modelName, { gap: hasGap }), [modelName, hasGap]);
 
   return (
     <DataTable

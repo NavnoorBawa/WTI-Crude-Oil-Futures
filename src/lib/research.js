@@ -133,6 +133,7 @@ export const mcsLevel = (lab) => {
  * @property {number|null} utility        realized utility, % (higher is better)
  * @property {number|null} mzSlope
  * @property {number|null} mzSe
+ * @property {Record<string, Record<string, number>>|null} qlikeByRegime  QLIKE by regime label (descriptive)
  * @property {"record"|"challenger"|null} role
  * @property {Set<string>} info           see informationSet()
  */
@@ -177,6 +178,7 @@ export const leaderboardRows = (lab) => {
       mzP: num(model.mincer_zarnowitz?.p_unbiased),
       directionAcc: num(model.direction_acc_pct),
       qlikeByGrid: asArray(model.qlike_by_grid).map(num),
+      qlikeByRegime: asObject(model.qlike_by_regime),
       role: model.key === champion ? "record" : model.key === challenger ? "challenger" : null,
       info: informationSet(model, { comboMembers, byKey }),
     };
@@ -330,6 +332,8 @@ export const forecastRows = (lab, recentOos) => {
         ovx: num(series.ovx?.[index]),
         challenger: num(series.challenger?.[index]),
         rv5: num(series.rv5?.[index]),
+        gap: num(series.ovx_rv_gap?.[index]),
+        gapMedian: num(series.ovx_rv_gap_median?.[index]),
       });
     });
   }
@@ -344,7 +348,7 @@ export const forecastRows = (lab, recentOos) => {
       const rv5 = num(recent.rv5?.[index]);
       const row = rows.get(date);
       if (!row) {
-        rows.set(date, { date, source: "live", actual, forecast, lo, hi, ovx: null, challenger: null, rv5 });
+        rows.set(date, { date, source: "live", actual, forecast, lo, hi, ovx: null, challenger: null, rv5, gap: null, gapMedian: null });
         return;
       }
       if (lo != null && hi != null) Object.assign(row, { lo, hi, source: "live" });

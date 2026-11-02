@@ -1,7 +1,7 @@
 # Handoff: state, open backlog and working loop
 
-Written on 2026-10-31, after the round that shipped the pre-registration (#77) and the Health
-check (#78), on top of 2.2.0 (PRs #68 to #76). The next session continues from here. Keep this file current: at the end of every round, tick off what
+Written on 2026-11-02, after the rounds that shipped ROADMAP 1.2 to 1.8, 2.1 and 2.2 (#77 to
+#100), on top of 2.2.0 (PRs #68 to #76). The next session continues from here. Keep this file current: at the end of every round, tick off what
 shipped, add what the round found, and update the date.
 
 The destination, measured, and the staged plan to reach it are in `docs/ROADMAP.md`; this file
@@ -28,6 +28,11 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   its inputs or its pins, and weekly). The losses' level is read against the proxy's QLIKE noise
   floor (`vol_lab.qlike_floor`, ROADMAP 2.1): at least 0.213 against the five-return proxy, more
   with heavier tails; shown on the QLIKE tile and in MODL, never subtracted from a loss or test.
+  Coverage and loss by regime at the decision (`vol_lab.regimes`, ROADMAP 2.2): none of the eight
+  tests of equal coverage across regimes is significant at 5%; the model of record across OVX
+  thirds is inconclusive (p = 0.083 at 10 HAC lags, 0.111 at 20; q = 0.277). CALB states it, MODL
+  has a "by regime" view (descriptive), FCST shows the OVX/RV5 gap; the eight rows are in the
+  ledger's "forecast interval" family, not pre-specified.
 - **Live record.** Daily calls are recorded and sealed in git on the `live-data` branch before their
   window opens; each call since 2026-10-28 also stores its fit, so it recomputes from its own entry.
   The first three windows resolved on 2026-10-29, 10-30 and 10-31: the Oct 20 call (47.3%, band
@@ -53,7 +58,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   accepted on 2026-11-01 after two scheduled publishes with anchors; LIVE and a second anchor
   remain). From #95 the Refresh workflow's three field jobs keep the unsealed shadow log of the
   whole field on the `field-data` branch (ROADMAP 1.8; `backend/field_record.py`, #94).
-- **Tests.** 645 Python (unittest), 273 frontend (node --test) and 13 browser checks (Playwright,
+- **Tests.** 645 Python (unittest), 281 frontend (node --test) and 14 browser checks (Playwright,
   the "Interface" CI job: axe, layout shift, overflow, keyboard, print, script budget). CI also runs
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
   Reproduce rebuild. Releases: `scripts/bump_version.py`, and `.github/workflows/release.yml`
@@ -120,6 +125,10 @@ and its CI run is the test.
   differs (Combination in 2008–2016) and finer splits are weaker (by thirds: 0.051, 0.367, 0.010).
   A Giacomini-Rossi fluctuation test or a cumulative loss-difference view (ROADMAP 2.3) would show
   when the edge appears; report it, do not let it move the pinned test.
+- **Regimes (ROADMAP 2.2, done) left two optional pieces.** A CALB dot plot of coverage by regime
+  (design note's `CoverageByRegime`; CALB shows facts rows and tables instead) and a second FCST
+  chart pane for the OVX/RV5 gap (it needs the forecast chart's percent formatting moved from
+  `localization` to the series and a re-measured figure height). Neither changes a number.
 - **Estimation error.** DM, MCS and SPA compare forecasts as produced on expanding windows; a
   rolling-window variant would give the Giacomini-White reading (ROADMAP 2.3).
 - **Benchmark breadth.** On free daily data only: HAR with a jump/continuous split (range-based

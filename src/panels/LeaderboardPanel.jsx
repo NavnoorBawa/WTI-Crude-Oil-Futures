@@ -1,7 +1,9 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
+import { useViewParam } from "../app/viewState";
 import Chip from "../components/Chip";
 import DataTable from "../components/DataTable";
 import Panel from "../components/Panel";
+import Segmented from "../components/Segmented";
 import keepHyphenated from "../components/keepHyphenated";
 import { ALPHA, leaderboardAssertion, leaderboardDetail, spaAssertion } from "../lib/assertions";
 import { mcsRobustness, qlikeFloorNote, qlikeScale } from "../lib/comparison";
@@ -10,7 +12,10 @@ import {
   asArray, asObject, asText, getLab, getVol, hasMcsResults, leaderboardRows, mcsLevel, modelLabels, qlikeFloor, researchLedger,
   shortLabel, withModelLabels,
 } from "../lib/research";
+import { MODL_VIEWS, regimeLabelText, regimeLossNote, regimeLossSplit, regimeQlike } from "../lib/regimes";
 import { ResearchUnavailable } from "./common";
+
+const VIEW_VALUES = MODL_VIEWS.map((view) => view.value);
 
 const INPUT_TEXT = (info) => {
   const parts = [];
@@ -102,6 +107,44 @@ export function GridTable({ rows }) {
         })),
       ]}
       rows={rows}
+    />
+  );
+}
+
+/**
+ * MODL's regime view: each model's QLIKE on all days and within each regime of one split, every model in
+ * the leaderboard's order with the timing control kept below. Descriptive: no column carries a test.
+ */
+export function RegimeTable({ rows, split, footnote }) {
+  return (
+    <DataTable
+      caption={`QLIKE by regime at the decision: ${split.group}`}
+      rowKey={(row) => row.key}
+      rowClass={rowClass}
+      initialSort={{ key: "qlike", direction: "asc" }}
+      pinLast={isPinned}
+      exportName={`leaderboard-by-${split.view}`}
+      groups={[{ label: null, span: 2 }, { label: split.head, span: split.levels.length }]}
+      columns={[
+        { key: "label", label: "Model", rowHeader: true, sortable: true, render: (row) => <ModelCell row={row} />, csv: modelText },
+        {
+          // Shown at every width: the column-group row's spans count it, so hiding it would shift the split's head.
+          key: "qlike", label: "All days", csvLabel: "QLIKE, all days", title: "QLIKE on every out-of-sample day", align: "right",
+          sortable: true, render: (row) => <span className="num">{fmtNum(row.qlike, 4)}</span>,
+        },
+        ...split.levels.map((level) => ({
+          key: `regime-${level.key}`,
+          label: level.n != null ? `${level.label}, ${fmtInt(level.n)}${NBSP}d` : level.label,
+          csvLabel: `QLIKE, ${level.label}${level.n != null ? ` (${level.n} days)` : ""}`,
+          title: level.n != null ? `QLIKE on the ${fmtInt(level.n)} days in this regime` : undefined,
+          align: "right", sortable: true,
+          sortValue: (row) => regimeQlike(row, split.key, level.key),
+          csv: (row) => regimeQlike(row, split.key, level.key),
+          render: (row) => <span className="num">{fmtNum(regimeQlike(row, split.key, level.key), 4)}</span>,
+        })),
+      ]}
+      rows={rows}
+      footnote={footnote}
     />
   );
 }
@@ -245,6 +288,10 @@ export default function LeaderboardPanel({ data, research, researchStatus }) {
   const lags = num(asArray(board?.models).find((model) => model?.dm_qlike_vs_har_iv?.lags != null)?.dm_qlike_vs_har_iv?.lags);
   const recordName = record ? shortLabel(record.label) : "the model of record";
   const labels = modelLabels(lab);
+  const [viewValue, setView] = useViewParam("modl", VIEW_VALUES, "all");
+  const onView = useCallback((value) => setView(value), [setView]);
+  const views = useMemo(() => MODL_VIEWS.filter((view) => view.value === "all" || regimeLossSplit(lab, rows, view.value)), [lab, rows]);
+  const split = viewValue === "all" ? null : regimeLossSplit(lab, rows, viewValue);
 
   if (!rows.length) {
     return (
@@ -272,6 +319,11 @@ export default function LeaderboardPanel({ data, research, researchStatus }) {
 
   // Visible under the ranking: what qualifies the record's comparison (the SPA test) and how to
   // read DM t. Everything else is method, in the notes.
+  const challengerRow = rows.find((row) => row.role === "challenger");
+  const regimeNote = regimeLossNote(lab, rows, {
+    recordName, challengerName: challengerRow ? shortLabel(challengerRow.label) : "The challenger",
+  });
+
   const footnote = (
     <ul className="footnotes">
       {spaText && (
@@ -314,6 +366,9 @@ export default function LeaderboardPanel({ data, research, researchStatus }) {
       : null,
     `Utility: ${utilityText}`,
     "Inputs: OVX = implied vol, range = intraday high/low, returns only = neither.",
+    views.length > 1
+      ? `By regime: ${regimeLabelText(lab) ?? ""} Each model's QLIKE is averaged over the leaderboard's days with that label.`
+      : null,
     selection && num(selection.qlike) != null
       ? `Switching each day to the model with the best trailing ${fmtInt(lab?.config?.selection_window_weeks)}-week QLIKE scores ${fmtNum(selection.qlike, 4)} vs ${fmtNum(selection.qlike_har_iv, 4)} for ${recordName}${selectionP != null ? ` (DM ${fmtP(selectionP)})` : ""}${selectionP != null && selectionP >= ALPHA ? `: not a significant gain over always using ${recordName}.` : "."}`
       : null,
@@ -343,7 +398,16 @@ export default function LeaderboardPanel({ data, research, researchStatus }) {
       resetKey={research}
       tableLabel="By grid"
       table={() => <GridTable rows={rows} />}
+      controls={views.length > 1
+        ? <Segmented label="Leaderboard view: all days or by regime" options={views} value={split ? viewValue : "all"} onChange={onView} />
+        : null}
     >
+      {split ? (
+        <div className="leaderboard leaderboard--regime">
+          {/* Keyed by the split, so each view starts from its own initial sort. */}
+          <RegimeTable key={split.view} rows={rows} split={split} footnote={regimeNote ? <ul className="footnotes"><li>{regimeNote}</li></ul> : null} />
+        </div>
+      ) : (
       <div className="leaderboard">
         <DataTable
           caption="Model leaderboard: out-of-sample QLIKE, Diebold-Mariano and Model Confidence Set"
@@ -360,7 +424,8 @@ export default function LeaderboardPanel({ data, research, researchStatus }) {
           footnote={footnote}
         />
       </div>
-      {showMatrix && (
+      )}
+      {!split && showMatrix && (
         <div className="mcs-matrix">
           <h3 className="figure-title">MCS membership under other settings</h3>
           <McsMatrix robustness={robustness} level={level} />

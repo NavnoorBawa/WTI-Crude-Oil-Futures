@@ -3,6 +3,7 @@
 // the fixtures); the functions after them touch the DOM and run only in the browser.
 import { fmtNum } from "../lib/format";
 import { GLOSSARY } from "../lib/glossary";
+import { MODL_VIEWS, regimeLossSplit } from "../lib/regimes";
 import {
   asText, getLab, leaderboardRows, ledgerStatusLabel, ledgerText, mcsLevel, modelLabels, postmortemWindow, researchLedger,
   shortLabel, varRows,
@@ -34,6 +35,8 @@ const VIEW_SETTINGS = [
   { key: "var", section: "risk", setting: "VaR level", detail: "Backtest by method", values: [["99", "99%"], ["95", "95%"]] },
   { key: "leak", section: "leak", setting: "window", detail: "Walk-forward window", values: [["5y", "5Y"], ["10y", "10Y"]] },
   { key: "mkt", section: "mkt", setting: "range", detail: "Price chart", values: [["1w", "1W"], ["1m", "1M"], ["1y", "1Y"], ["all", "All"]] },
+  { key: "modl", section: "modl", setting: "view", detail: "Leaderboard, all days or QLIKE by regime",
+    values: MODL_VIEWS.map((view) => [view.value, view.name]) },
 ];
 const LEAK_WINDOWS = { "5y": "five_year", "10y": "ten_year" };
 
@@ -46,6 +49,11 @@ const availableValues = (setting, { research }) => {
     return values.filter(([value]) => levels.has(value));
   }
   if (setting.key === "risk") return getLab(research)?.var_backtest ? values : [];
+  if (setting.key === "modl") {
+    const lab = getLab(research);
+    const rows = leaderboardRows(lab);
+    return values.filter(([value]) => value === "all" || regimeLossSplit(lab, rows, value));
+  }
   return values;
 };
 

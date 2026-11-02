@@ -8,6 +8,7 @@ const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 // Module-private helpers exposed to the tests by name (the module must still define each one).
 const PRIVATE_HELPERS = {
   "/src/charts/PriceChart.jsx": ["buildActualPoints", "buildPriceViews", "formatWallTime"],
+  "/src/charts/ForecastChart.jsx": ["describeRow"],
 };
 
 export const readFixture = (name) =>
@@ -46,6 +47,7 @@ export async function loadDashboard() {
     quote: await load("/src/app/quote.js"),
     format: await load("/src/lib/format.js"),
     research: await load("/src/lib/research.js"),
+    regimes: await load("/src/lib/regimes.js"),
     assertions: await load("/src/lib/assertions.js"),
     table: await load("/src/components/DataTable.jsx"),
     theme: await load("/src/theme/chartTheme.js"),

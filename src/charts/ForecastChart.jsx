@@ -3,7 +3,7 @@ import { LineSeries, LineStyle, MismatchDirection, PriceScaleMode, createChart, 
 import { BandSeries } from "./bandSeries";
 import ChartFigure from "./ChartFigure";
 import { SCREEN_THEME, SURFACE, baseChartOptions, fontsReady, withAlpha } from "../theme/chartTheme";
-import { DASH, fmtDate, fmtInt, fmtNum, fmtSpan } from "../lib/format";
+import { DASH, fmtDate, fmtInt, fmtNum, fmtSigned, fmtSpan } from "../lib/format";
 import { ANNOTATION_MIN_PX, fitsInPlot, fmtAxisPercent, frameRange, installTickFormatter, timeKey, useChartReader } from "./lwUtil";
 
 export const FORECAST_RANGES = { "1Y": 365, "3Y": 3 * 365, ALL: null };
@@ -126,6 +126,7 @@ const describeRow = (row, modelLabel, hasOvx) => {
     `${modelLabel} ${fmtNum(row.forecast, 1)}%`,
     row.lo != null ? `80% band ${fmtNum(row.lo, 1)} to ${fmtNum(row.hi, 1)}%${isOutsideBand(row) ? ", realized outside it" : ""}` : "no band",
     hasOvx && row.ovx != null ? `OVX ${fmtNum(row.ovx, 1)}%` : null,
+    row.gap != null ? `OVX/RV5 log gap ${fmtSigned(row.gap, 2)}${row.gapMedian != null ? `, trailing median ${fmtSigned(row.gapMedian, 2)}` : ""}` : null,
   ];
   return parts.filter(Boolean).join("; ");
 };

@@ -6,6 +6,7 @@ import { after, before, test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadDashboard, readFixture, visibleText } from "./load.mjs";
+import { committedLab, committedLedger, withRegimes } from "./splice.mjs";
 
 const FIXED_NOW = Date.parse("2026-10-21T12:00:00Z");
 Date.now = () => FIXED_NOW;
@@ -151,37 +152,65 @@ test("CALB: the weekly-grid MZ slope reproduces the production slope, and both s
   assert.equal(cone.mzWeekly(null), null);
 });
 
-test("CALB: coverage by OVX tercile equals an independent count, with n and the OVX range", () => {
-  const s = lab.series;
-  const weeks = s.date.map((_, i) => ({ ovx: s.ovx[i], actual: s.actual[i], lo: s.lo80[i], hi: s.hi80[i] }))
-    .filter((w) => [w.ovx, w.actual, w.lo, w.hi].every((v) => typeof v === "number"));
-  const sorted = weeks.map((w) => w.ovx).sort((a, b) => a - b);
-  const cut = (q) => sorted[Math.ceil(q * sorted.length) - 1];
-  const [c1, c2] = [cut(1 / 3), cut(2 / 3)];
-  const expected = [
-    weeks.filter((w) => w.ovx <= c1),
-    weeks.filter((w) => w.ovx > c1 && w.ovx <= c2),
-    weeks.filter((w) => w.ovx > c2),
-  ].map((group) => {
-    const inside = group.filter((w) => w.actual >= w.lo && w.actual <= w.hi).length;
-    return { n: group.length, covered: inside, low: Math.min(...group.map((w) => w.ovx)), high: Math.max(...group.map((w) => w.ovx)) };
-  });
-  const terciles = cone.coverageByOvxTercile(s);
-  assert.equal(terciles.length, 3);
-  terciles.forEach((row, i) => {
-    assert.equal(row.n, expected[i].n);
-    assert.equal(row.covered, expected[i].covered);
-    assert.equal(row.ovxLow, expected[i].low);
-    assert.equal(row.ovxHigh, expected[i].high);
-    assert.ok(Math.abs(row.coverage - (100 * expected[i].covered) / expected[i].n) < 1e-9);
-  });
-  assert.equal(terciles.reduce((sum, row) => sum + row.n, 0), weeks.length);
+test("CALB: coverage by regime at the decision is read from the artifact, and no regime is named by an OVX range", () => {
+  const spliced = withRegimes(research);
+  const regimesLib = m.regimes;
+  const art = committedLab();
+  const c = art.conformal[champion];
+  const html = section(render(data, spliced).html, "calb");
+  const body = visibleText(html);
   const f = m.format;
-  const body = visibleText(section(render(data).html, "calb"));
-  for (const row of terciles) {
-    assert.ok(body.includes(`OVX ${f.fmtNum(row.ovxLow, 1)}–${f.fmtNum(row.ovxHigh, 1)} ${f.fmtPct(row.coverage)} of ${f.fmtInt(row.n)} wk`), "regime fact");
+  assert.ok(body.includes(`Coverage by regime at the decision, ${f.fmtInt(c.n_days)} days with a band`), body);
+  for (const [split, levels] of Object.entries({ ovx_tercile: ["low", "mid", "high"], ovx_rv_gap: ["at_or_below", "above"],
+    rv5_tercile: ["low", "mid", "high"], target_spans_roll: ["no", "yes"] })) {
+    assert.equal(levels.reduce((sum, level) => sum + c.n_days_by_regime[split][level], 0), c.n_days, split);
+    for (const level of levels) {
+      const label = regimesLib.REGIME_SPLITS.find((s) => s.key === split).levels[level];
+      assert.ok(body.includes(`${label} ${f.fmtPct(c.coverage_by_regime_pct[split][level])} of ${f.fmtInt(c.n_days_by_regime[split][level])}`),
+        `${split} ${level}`);
+    }
   }
-  assert.deepEqual(cone.coverageByOvxTercile(null), []);
+  // The statement, rebuilt here from the artifact and the ledger.
+  const cc = c.conditional_coverage;
+  const ledger = committedLedger();
+  const q = ledger.rows.find((row) => row.id === `band_regime_ovx_tercile_${champion}`).q_value_bh;
+  const ovx = Object.values(c.coverage_by_regime_pct.ovx_tercile);
+  const pq = (v) => { const text = f.fmtPValue(v, { digits: 3 }); return /^[<>]/.test(text) ? `p ${text}` : `p = ${text}`; };
+  const expected = `Across OVX thirds at the decision the model of record's band covered ${f.fmtPct(Math.min(...ovx))} to `
+    + `${f.fmtPct(Math.max(...ovx))}; the test of equal coverage across OVX thirds is inconclusive (${pq(cc.ovx_tercile.p_value)}; `
+    + `q = ${f.fmtPValue(q, { digits: 3 })} after the ledger's adjustment; ${pq(cc.ovx_tercile.robustness.hac_lags_20.p_value)} with 20 HAC lags). `
+    + `No dependence detected across OVX/RV5 halves, RV5 thirds or roll windows (${pq(cc.ovx_rv_gap.p_value)}, `
+    + `${pq(cc.rv5_tercile.p_value)}, ${pq(cc.target_spans_roll.p_value)}). `
+    + "A dependence found here is reported, never used to change the band.";
+  assert.ok(body.includes(expected.replace(/\u00a0/g, " ")), body);
+  assert.doesNotMatch(body, /OVX \d+(\.\d)?–\d/, "a third's OVX range moves over time, so no fixed range is shown");
+  assert.doesNotMatch(body, /hides|regime-dependent|evidence of|suggests|calibrated in every|premium/i);
+  // Without the blocks (the fixture predates them) the section is absent.
+  assert.ok(!visibleText(section(render(data).html, "calb")).includes("Coverage by regime"));
+});
+
+test("regime verdicts follow the house words at every p and never upgrade on robustness", () => {
+  const verdict = (p, p20, q = 0.3) => m.regimes.regimeVerdict({ short: "OVX thirds", test: { p, p20, p40: p20, pAll: p20 } }, { q });
+  assert.match(verdict(0.03, 0.04), /is significant at 5% \(p.=.0\.030; q.=.0\.300 after the ledger's adjustment\)$/);
+  assert.match(verdict(0.03, 0.07), /is significant at 5% .*; p.=.0\.070 with 20 HAC lags\)$/);
+  assert.match(verdict(0.07, 0.07), /is inconclusive \(p.=.0\.070; q.=.0\.300 after the ledger's adjustment\)$/);
+  assert.match(verdict(0.07, 0.2), /is inconclusive .*; p.=.0\.200 with 20 HAC lags\)$/);
+  assert.equal(verdict(0.2, 0.03), null, "a robustness p never turns 'not detected' into a verdict");
+  // The thresholds are strict: p = 0.05 is inconclusive, p = 0.10 detects nothing.
+  assert.match(verdict(0.05, 0.05), /is inconclusive/);
+  assert.equal(verdict(0.1, 0.1), null);
+  // A robustness p in a stronger band is reported too, without changing the verdict.
+  assert.match(verdict(0.07, 0.03), /is inconclusive .*; p.=.0\.030 with 20 HAC lags\)$/);
+  // The all-regimes form is named when only it lands in another band.
+  const allCells = m.regimes.regimeVerdict({ short: "OVX thirds", test: { p: 0.07, p20: 0.08, p40: 0.09, pAll: 0.2 } }, { q: 0.3 });
+  assert.match(allCells, /; p.=.0\.200 with every regime tested against the target\)$/);
+  // A significant split says whether it survives the ledger's Benjamini-Hochberg adjustment.
+  const flagged = (survives) => m.regimes.regimeVerdict({ short: "OVX thirds", test: { p: 0.03, p20: 0.04, p40: 0.04, pAll: 0.04 } },
+    { q: 0.21, survives_bh: survives });
+  assert.match(flagged(false), /is significant at 5% \(p.=.0\.030; it does not survive the ledger's Benjamini-Hochberg adjustment, q.=.0\.210\)$/);
+  assert.match(flagged(true), /it survives the ledger's Benjamini-Hochberg adjustment, q.=.0\.210\)$/);
+  assert.equal(m.regimes.regimeCoverage(null, "har_iv").length, 0);
+  assert.equal(m.regimes.regimeCoverageAssertion(research.vol_lab, champion, null), null);
 });
 
 test("CALB keeps the mechanism in the notes and the by-construction caveat in view", () => {
@@ -309,4 +338,65 @@ test("RISK: the caption gives the Kupiec counts; the method notes say when the r
   const expected = roundingNote(riskCaptionCounts(m.research.varRows(lab)), drawnBreachCounts(m.research.varSeries(lab)));
   const notes = visibleText(html.match(/<div class="disclosure-body">([\s\S]*?)<\/div>/)?.[1] ?? "");
   assert.equal(notes.includes("rounded to 0.1 pt"), expected != null, notes);
+});
+
+test("CALB's regime tables hold the artifact's values for each model, and the ledger's q for each model's row", () => {
+  const spliced = withRegimes(research).vol_lab;
+  const art = committedLab();
+  const ledger = committedLedger();
+  const challenger = art.config.challenger;
+  const rows = m.regimes.regimeCoverageRows(spliced, champion, challenger);
+  const splits = Object.entries(art.regimes.variables).map(([key, variable]) => [key, variable.levels]);
+  assert.deepEqual(rows.map((row) => row.id), splits.flatMap(([key, levels]) => levels.map((level) => `${key}:${level}`)));
+  for (const row of rows) {
+    const [split, level] = row.id.split(":");
+    const ours = art.conformal[champion];
+    const cell = ours.conditional_coverage[split].cells.find((c) => c.regime === level);
+    assert.equal(row.n, ours.n_days_by_regime[split][level], row.id);
+    assert.equal(row.inside, cell.inside, row.id);
+    assert.equal(row.coverage, ours.coverage_by_regime_pct[split][level], row.id);
+    assert.equal(row.above, ours.miss_above_by_regime_pct[split][level], row.id);
+    assert.equal(row.below, ours.miss_below_by_regime_pct[split][level], row.id);
+    assert.equal(row.score, ours.interval_score_by_regime[split][level], row.id);
+    assert.equal(row.logScore, ours.log_interval_score_by_regime[split][level], row.id);
+    assert.equal(row.hacP, cell.hac_p, `${row.id}: the regime's own p, not its z`);
+    assert.deepEqual([row.binomial.min, row.binomial.max, row.binomial.n],
+      [Math.min(...cell.binomial_p_by_grid), Math.max(...cell.binomial_p_by_grid), cell.binomial_p_by_grid.length], row.id);
+    assert.equal(row.challenger, art.conformal[challenger].coverage_by_regime_pct[split][level], `${row.id}: the challenger's own coverage`);
+  }
+  const bundled = m.research.researchLedger(withRegimes(research));
+  const tests = m.regimes.regimeTestRows(spliced, bundled, [[champion, "record"], [challenger, "challenger"]]);
+  assert.equal(tests.length, 2 * splits.length);
+  for (const row of tests) {
+    const [model, split] = row.id.split(":");
+    const cc = art.conformal[model].conditional_coverage[split];
+    assert.deepEqual([row.test.wald, row.test.df, row.test.p, row.test.lags], [cc.wald, cc.df, cc.p_value, cc.hac_lags], row.id);
+    assert.deepEqual([row.test.p20, row.test.p40, row.test.pAll],
+      [cc.robustness.hac_lags_20.p_value, cc.robustness.hac_lags_40.p_value, cc.robustness.all_cells.p_value], row.id);
+    assert.equal(row.q, ledger.rows.find((r) => r.id === `band_regime_${split}_${model}`).q_value_bh, `${row.id}: that model's own q`);
+    assert.equal(row.model, model === champion ? "record" : "challenger");
+  }
+});
+
+test("CALB's notes say what each regime's p tests, count the per-grid binomials, and read every setting from the payload", () => {
+  const spliced = withRegimes(research);
+  spliced.vol_lab = structuredClone(spliced.vol_lab);
+  spliced.vol_lab.regimes.variables.ovx_rv_gap.window_sessions = 300;
+  spliced.vol_lab.regimes.test.hac_lags = 12;
+  const notes = visibleText(section(render(data, spliced).html, "calb").match(/<details class="disclosure panel-notes">([\s\S]*?)<\/details>/)?.[1] ?? "");
+  const art = committedLab();
+  const cc = art.conformal[champion].conditional_coverage;
+  const tests = Object.values(cc).reduce((sum, split) => sum + split.cells.reduce((n, cell) => n + cell.binomial_p_by_grid.length, 0), 0);
+  const grids = Math.max(...Object.values(cc).flatMap((split) => split.cells.map((cell) => cell.binomial_p_by_grid.length)));
+  assert.ok(notes.includes("over the previous 300 sessions"), "the gap's window is read");
+  assert.match(notes, /\(\s*HAC Wald, 12 lags\); a single regime's coverage carries no verdict\./, "the lags are read");
+  const target = m.format.fmtInt(art.conformal[champion].target_coverage_pct);
+  assert.ok(notes.includes(`Each regime's own HAC p tests that regime's coverage against the ${target}% target, and the binomial range `
+    + `gives the lowest and highest exact binomial p of the regime's ${grids} non-overlapping sampling grids, each treating its weeks as `
+    + `independent: ${tests} such tests per model, so values below 0.05 are expected by chance. Neither carries a verdict.`), notes);
+  assert.ok(notes.includes("so it does not compare one regime with another; the log interval score scores the same band on the log scale"), notes);
+  assert.doesNotMatch(notes, /compares the two models within a regime/);
+  // Without binomials, the HAC p's sentence stands alone.
+  assert.equal(m.regimes.regimeCellCaveat([{ binomial: null }], 80), "Each regime's own HAC p tests that regime's coverage against the 80% target; it carries no verdict.");
+  assert.equal(m.regimes.regimeCellCaveat([], 80), null);
 });

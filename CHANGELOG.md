@@ -162,6 +162,26 @@ backs the new one.
 
 ### Dashboard
 
+- **Coverage and loss by regime in CALB and MODL (ROADMAP 2.2, second part).** CALB states the
+  model of record's coverage by regime from the lab's labels: the range of each split whose test of
+  equal coverage is significant or inconclusive, worded at that test's strength with the ledger's q
+  (for a significant split, whether it survives the ledger's Benjamini-Hochberg adjustment) and the
+  first robustness check that lands in another band, and the splits where none is detected grouped
+  with their p-values. A row of facts per split gives each regime's coverage and days, and the table
+  view adds the per-regime counts, misses, interval scores, each regime's own HAC p and the per-grid
+  binomial range, and the tests with their robustness and q. The notes say what each regime's p
+  tests and count the per-grid binomials shown (50 per model), so values below 0.05 among them are
+  expected by chance; none carries a verdict. The old OVX split, which cut
+  the whole sample by thirds known only afterwards, is removed. MODL gains a view control (All,
+  OVX, OVX/RV5, RV5, Roll; the URL's `modl` key and the palette) that shows each model's QLIKE
+  within the regimes of one split, each column with its days. A footnote says it is descriptive
+  and that the challenger's lower loss than the record in all 10 regimes across the four splits
+  repeats the full-sample comparison that picked it. The title never changes with the view.
+- **The OVX/RV5 gap on FCST (ROADMAP 2.2, third part).** The FCST table (from 1000 px) gains the
+  week's OVX/RV5 log gap at the decision, the quantity the regime split cuts at its trailing median;
+  the CSV adds that median, and the chart's keyboard reading of a week names both. A test checks
+  that the gap equals ln(OVX/RV5) of the same row within the printed values' rounding.
+
 - **The proxy's noise floor on the QLIKE tile and in MODL (ROADMAP 2.1, second part).** The QLIKE
   tile's footnote adds "proxy's noise floor ≥ 0.213" (the closed form, read from the artifact); its
   glyph, value, comparisons and the other tiles are unchanged (a mark on the glyph would turn the
