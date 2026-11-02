@@ -10,7 +10,8 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
  *   var     RISK VaR level              99 | 95             (default 99)
  *   leak    LEAK window                 5y | 10y            (default 5y)
  *   mkt     MKT chart range             1w | 1m | 1y | all  (default all)
- *   modl    MODL view                   all | ovx | gap | rv5 | roll (default all: every day; the others split by regime)
+ *   modl    MODL view                   all | ovx | gap | rv5 | roll | dist (default all: every day; ovx to roll
+ *                                       split QLIKE by regime; dist scores the whole predictive distribution)
  *   stab    STAB over-time view         test | cumulative   (default test: the rolling test with its band)
  *   table   sections in table view      comma list of section ids, e.g. table=fcst,modl
  *   family  LEDG family filter          a family key        (default: all families)

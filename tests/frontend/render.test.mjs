@@ -331,11 +331,25 @@ test("no source file restates a statistic from the fixtures as a literal", () =>
     for (const block of Object.values(committed.conformal)) {
       walk(block.coverage_by_regime_pct); walk(block.interval_score_by_regime); walk(block.conditional_coverage);
     }
+    // The whole distribution (ROADMAP 2.4): the scores, shares, chance bands and tests the page shows.
+    const shownDist = committed.distribution;
+    walk([shownDist.config.gaussian_ratio_k19, shownDist.config.berkowitz.null_size_pct]);
+    for (const model of shownDist.models) {
+      walk([model.crps_grid_pct, model.pinball_10_pct, model.pinball_90_pct, model.coverage_10_90_pct, model.pit_decile_share_pct,
+        model.pit_chance_center_pct, model.pit_chance_band_pct, model.berkowitz.p_value, model.berkowitz.mc_se ?? null,
+        model.berkowitz.p_chi2 ?? null, model.berkowitz.randomized_tail?.p_value ?? null,
+        model.berkowitz.by_grid.map((grid) => [grid.lr, grid.p_value])]);
+      for (const test of Object.values(model.dm_vs_har_iv ?? {})) walk([test.stat, test.p_value, test.concentration ?? null]);
+    }
+    const field = shownDist.quantile_har_field;
+    walk([field.mcs.p_values, field.spa.p_consistent, field.dm_qlike_vs_har_iv.batch_means.p_value, field.alt_point_forecast.mcs_p,
+      Object.values(field).map((value) => value?.p_quantile_har ?? null)]);
   }
   // ... and fail on any of them written as a numeric literal in src/ (design constants are integers
   // or listed here with their reason).
   const allowed = new Set([
     "1.96", // the two-sided 5% critical value of the normal distribution, used for reference lines
+    "1.25", // stabilityCharts' headroom over the fluctuation band (a Berkowitz LR of 1.249 prints as 1.25)
   ]);
   const root = fileURLToPath(new URL("../../src", import.meta.url));
   const files = [];

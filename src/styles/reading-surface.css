@@ -47,8 +47,11 @@
    (the retraction line grows when research.json arrives). */
 .strip-row > * { flex-basis: 100%; }
 
-/* Lazy figures reserve their mounted height (LazyMount sets both variables). */
+/* Lazy figures reserve their mounted height (LazyMount sets the three variables). */
 .lazy-mount > .figure-placeholder { min-height: var(--lazy-h, 240px); }
+@media (max-width: 899px) {
+  .lazy-mount > .figure-placeholder { min-height: var(--lazy-h-mid, var(--lazy-h, 240px)); }
+}
 @media (max-width: 640px) {
   .lazy-mount > .figure-placeholder { min-height: var(--lazy-h-narrow, var(--lazy-h, 240px)); }
 }

@@ -1,17 +1,20 @@
 import { useMemo } from "react";
-import { getCoverageByYear, getMzForest } from "../charts/lazy";
+import { getCoverageByYear, getMzForest, getPitRows, getPitTables } from "../charts/lazy";
 import DataTable from "../components/DataTable";
 import LazyMount from "../components/LazyMount";
 import Panel, { REPRODUCE } from "../components/Panel";
 import { INTERVAL_LEVEL_PCT, calibrationAssertion, calibrationDetail } from "../lib/assertions";
 import { mzWeekly } from "../lib/cone";
+import {
+  berkowitzSummary, chanceNote, distributionModels, distributionNotes, distributionSample, pitRows, pitTitle,
+} from "../lib/distribution";
 import { DASH, NBSP, fmtInt, fmtNum, fmtPValue, fmtPct, num } from "../lib/format";
 import { regimeCellCaveat, regimeCoverage, regimeCoverageAssertion, regimeCoverageRows, regimeLabelText, regimeTestRows } from "../lib/regimes";
 import { asObject, coverageByYear, getLab, getRoles, getVol, leaderboardRows, modelLabels, researchLedger, shortLabel } from "../lib/research";
 import { Facts, Legend, ResearchUnavailable } from "./common";
 
 const SOURCE = {
-  artifact: ["research.json → vol_lab.conformal", "vol_lab.regimes", "vol_lab.leaderboard", "vol_lab.series", "ledger",
+  artifact: ["research.json → vol_lab.conformal", "vol_lab.regimes", "vol_lab.leaderboard", "vol_lab.series", "vol_lab.distribution", "ledger",
     "data.json → vol_forecast.validation"],
   reproduce: [REPRODUCE.lab, REPRODUCE.validation],
 };
@@ -26,6 +29,14 @@ const mzHeight = (rows) => ({
   wide: rows.length * MZ_ROW + 30 + rows.filter((row) => row.tag).length * MZ_LINE,
   narrow: rows.length * MZ_ROW + 30 + 3 * MZ_LINE,
 });
+// The PIT figure's own height at every width, pitHeight() in charts/distributionCharts.jsx: 46 px a row and 22 px
+// of axis (344 px for seven models). Its summary sits above it in this module, so the reservation is exact.
+const PIT_ROW = 46;
+const PIT_AXIS = 22;
+// CALB's table view: the PIT and Berkowitz tables reserve about their height, by model, above 640 px and at or below
+// (measured for seven models: 1,060 px at 768 and from 1,440 up, 860 to 1,077 between; 988 at 390, 885 to 1,042 from
+// 320 to 640). They sit under the Mincer-Zarnowitz table, past the first screen.
+const PIT_TABLES_ROW = { wide: 148, narrow: 138 };
 
 /** "p = 0.161" (or "p < 0.001"): the 3 decimals of the MZ table, so a fact and its table row agree. */
 const pText = (value) => {
@@ -74,6 +85,11 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
   const challengerConformal = asObject(lab?.conformal?.[challenger]);
   const CoverageByYear = getCoverageByYear();
   const MzForest = getMzForest();
+  const PitRows = getPitRows();
+  const PitTables = getPitTables();
+  const ledger = useMemo(() => researchLedger(research), [research]);
+  const distRows = useMemo(() => distributionModels(lab), [lab]);
+  const pit = useMemo(() => pitRows(distRows), [distRows]);
   const weeklyMz = asObject(validation?.har_mincer_zarnowitz);
   const recordMz = mzRows.find((row) => row.key === champion) ?? null;
   const labDays = num(lab?.leaderboard?.n_days) ?? num(lab?.sample?.n_days);
@@ -146,7 +162,9 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
         + "log interval score scores the same band on the log scale and is scale-free. Roll windows are never scored in the live "
         + "record; that split describes the lab's band only."
       : null,
+    ...distributionNotes(lab),
   ];
+  const summary = pit.length ? berkowitzSummary(lab, ledger) : null;
 
   return (
     <Panel
@@ -249,6 +267,12 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
             ]}
             rows={mzRows}
           />
+          {pit.length > 0 && (
+            <LazyMount minHeight={{ wide: pit.length * PIT_TABLES_ROW.wide + PIT_AXIS, narrow: pit.length * PIT_TABLES_ROW.narrow + PIT_AXIS }}
+              label="distribution tables">
+              <PitTables rows={distRows} ledger={ledger} sample={distributionSample(lab)} />
+            </LazyMount>
+          )}
         </>
       )}
     >
@@ -277,6 +301,20 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
           <LazyMount minHeight={mzHeight(mzRows)} label="calibration chart">
             <MzForest rows={mzRows} />
           </LazyMount>
+        </>
+      )}
+      {pit.length > 0 && (
+        <>
+          <h3 className="figure-title">{pitTitle(lab)}</h3>
+          {summary && <p className="prose-note pit-summary">{summary}</p>}
+          <Legend items={[
+            { tone: "chance", label: "chance range under a correct forecast" },
+            { tone: "pit-line", label: "one bin's share of the days", shape: "dashed" },
+          ]} />
+          <LazyMount minHeight={pit.length * PIT_ROW + PIT_AXIS} label="PIT histogram">
+            <PitRows rows={pit} />
+          </LazyMount>
+          <p className="panel-caption pit-note">{chanceNote(pit)}</p>
         </>
       )}
     </Panel>

@@ -1,12 +1,15 @@
 import { useCallback, useMemo } from "react";
 import { useViewParam } from "../app/viewState";
+import { getDistributionScores } from "../charts/lazy";
 import Chip from "../components/Chip";
 import DataTable from "../components/DataTable";
+import LazyMount from "../components/LazyMount";
 import Panel from "../components/Panel";
 import Segmented from "../components/Segmented";
 import keepHyphenated from "../components/keepHyphenated";
 import { ALPHA, leaderboardAssertion, leaderboardDetail, spaAssertion } from "../lib/assertions";
 import { mcsRobustness, qlikeFloorNote, qlikeScale } from "../lib/comparison";
+import { DIST_VIEW, distributionModels, distributionSample, hasDistribution } from "../lib/distribution";
 import { DASH, NBSP, fmtInt, fmtNum, fmtP, fmtPValue, fmtSpan, num, withCentralTime } from "../lib/format";
 import {
   asArray, asObject, asText, getLab, getVol, hasMcsResults, leaderboardRows, mcsLevel, modelLabels, qlikeFloor, researchLedger,
@@ -16,6 +19,13 @@ import { MODL_VIEWS, regimeLabelText, regimeLossNote, regimeLossSplit, regimeQli
 import { ResearchUnavailable } from "./common";
 
 const VIEW_VALUES = MODL_VIEWS.map((view) => view.value);
+// The distribution view (table and readings, one lazy chunk) reserves about its own height: a dense row a model (a
+// chipped or tagged name wraps on a phone), its header and caption, and the readings under it, which wrap with the
+// width, so the reservation is measured, not exact. For seven models, with the fixture and the published payload:
+// 719 to 737 px from 1,440 px up (665 at 1,280, 757 at 1,024, 848 at 900), 889 to 1,086 px from 641 to 899 (1,002 at
+// 768), and 1,039 to 1,634 px at 640 and below (1,367 to 1,385 at 390). Each range reserves its common width's height,
+// so a desktop landing on ?modl=dist hardly moves; on a tablet or phone the view runs past the first screen.
+const distHeight = (count) => ({ wide: count * 34 + 490, mid: count * 44 + 694, narrow: count * 52 + 1012 });
 
 const INPUT_TEXT = (info) => {
   const parts = [];
@@ -205,6 +215,32 @@ export function McsMatrix({ robustness, level }) {
 }
 
 /**
+ * MODL's distribution view (?modl=dist), one lazy chunk: the scores table and, under it, each score's reading at the
+ * strength its test supports, the challenger's, the view's footnote and the robustness rerun with the outside model
+ * (charts/distributionCharts.jsx, lib/distributionScores.js). QLIKE stays the ranking: no QLIKE number is shown here,
+ * since these scores use the band's days.
+ */
+export function DistributionView({ lab, ledger, recordName }) {
+  const DistributionScores = getDistributionScores();
+  return (
+    <div className="leaderboard leaderboard--dist">
+      <LazyMount minHeight={distHeight(distributionModels(lab).length)} label="distribution scores">
+        <DistributionScores lab={lab} ledger={ledger} recordName={recordName}
+          caption={`Scores of the whole predictive distribution, ${distributionSample(lab)}, in vol points (lower is better), each tested against ${recordName}`} />
+      </LazyMount>
+    </div>
+  );
+}
+
+/** The view control's accessible name, from the views the payload offers. */
+const viewLabel = (views) => {
+  const kinds = ["all days"];
+  if (views.some((view) => view.split)) kinds.push("QLIKE by regime");
+  if (views.some((view) => view.value === DIST_VIEW)) kinds.push("the predictive distribution's scores");
+  return `Leaderboard view: ${kinds.length > 2 ? `${kinds.slice(0, -1).join(", ")} or ${kinds.at(-1)}` : kinds.join(" or ")}`;
+};
+
+/**
  * The leaderboard's columns. On a phone (640px and below) the model, QLIKE, DM t, MCS p and In set
  * columns stay, so the ranking and its tests read without sideways scrolling; the rest hide. The
  * CSV holds what each cell shows ("yes", "2 of 5", "not eligible"), never a sort key.
@@ -290,8 +326,13 @@ export default function LeaderboardPanel({ data, research, researchStatus }) {
   const labels = modelLabels(lab);
   const [viewValue, setView] = useViewParam("modl", VIEW_VALUES, "all");
   const onView = useCallback((value) => setView(value), [setView]);
-  const views = useMemo(() => MODL_VIEWS.filter((view) => view.value === "all" || regimeLossSplit(lab, rows, view.value)), [lab, rows]);
-  const split = viewValue === "all" ? null : regimeLossSplit(lab, rows, viewValue);
+  const distAvailable = hasDistribution(lab);
+  const views = useMemo(() => MODL_VIEWS.filter((view) => view.value === "all"
+    || (view.value === DIST_VIEW ? distAvailable : regimeLossSplit(lab, rows, view.value))), [lab, rows, distAvailable]);
+  const distView = viewValue === DIST_VIEW && distAvailable;
+  const split = viewValue === "all" || distView ? null : regimeLossSplit(lab, rows, viewValue);
+  const view = distView ? DIST_VIEW : split ? viewValue : "all";
+  const ledger = useMemo(() => researchLedger(research), [research]);
 
   if (!rows.length) {
     return (
@@ -302,7 +343,7 @@ export default function LeaderboardPanel({ data, research, researchStatus }) {
     );
   }
 
-  const spaText = spaAssertion(spa, { recordName, mcsLevel: level, ledgerRow: researchLedger(research)?.byId.get("vol_spa_beats_record") });
+  const spaText = spaAssertion(spa, { recordName, mcsLevel: level, ledgerRow: ledger?.byId.get("vol_spa_beats_record") });
   const selectionP = num(selection?.dm_vs_har_iv?.p_value);
   const liveNoiseMean = num(liveNoise?.dir_acc_pct_mean);
   const utilityText = `Realized utility of a volatility-targeting investor, % per year (Bollerslev et al. 2018)${utilityMax != null ? `; perfect foresight ${fmtNum(utilityMax, 2)}%` : ""}.`;
@@ -394,15 +435,17 @@ export default function LeaderboardPanel({ data, research, researchStatus }) {
       ]}
       caption={`QLIKE on every out-of-sample day (overlapping 5-session targets). The Model Confidence Set keeps each eligible model not significantly worse than the best eligible one${level != null ? ` at ${level}%` : ""}${mcsAvailable ? "" : "; this research.json carries no MCS results"}.`}
       notes={notes}
-      source={{ artifact: "research.json → vol_lab.leaderboard" }}
+      source={{ artifact: distAvailable ? ["research.json → vol_lab.leaderboard", "vol_lab.distribution", "ledger"] : "research.json → vol_lab.leaderboard" }}
       resetKey={research}
       tableLabel="By grid"
       table={() => <GridTable rows={rows} />}
       controls={views.length > 1
-        ? <Segmented label="Leaderboard view: all days or by regime" options={views} value={split ? viewValue : "all"} onChange={onView} />
+        ? <Segmented label={viewLabel(views)} options={views} value={view} onChange={onView} />
         : null}
     >
-      {split ? (
+      {distView ? (
+        <DistributionView lab={lab} ledger={ledger} recordName={recordName} />
+      ) : split ? (
         <div className="leaderboard leaderboard--regime">
           {/* Keyed by the split, so each view starts from its own initial sort. */}
           <RegimeTable key={split.view} rows={rows} split={split} footnote={regimeNote ? <ul className="footnotes"><li>{regimeNote}</li></ul> : null} />
@@ -425,7 +468,7 @@ export default function LeaderboardPanel({ data, research, researchStatus }) {
         />
       </div>
       )}
-      {!split && showMatrix && (
+      {view === "all" && showMatrix && (
         <div className="mcs-matrix">
           <h3 className="figure-title">MCS membership under other settings</h3>
           <McsMatrix robustness={robustness} level={level} />

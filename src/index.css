@@ -559,7 +559,9 @@ button { font: inherit; color: inherit; }
 .facts .fact dt { white-space: normal; }
 
 /* ------------------------------------------------------------------------------------ controls */
-.segmented { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: var(--radius); }
+/* A group that cannot fit its row wraps inside the panel instead of running off its left edge (the controls row
+   aligns right). */
+.segmented { display: inline-flex; flex-wrap: wrap; max-width: 100%; border: 1px solid var(--rule-strong); border-radius: var(--radius); }
 .segmented-button,
 .toggle-button,
 .button {
@@ -667,6 +669,8 @@ button { font: inherit; color: inherit; }
 .footnotes li { position: relative; padding-left: var(--sp-3); }
 .footnotes li::before { content: "–"; position: absolute; left: 0; color: var(--text-4); }
 .panel-table .table-wrap + .table-wrap { margin-top: var(--sp-5); }
+/* A lazy table (CALB's distribution tables) keeps the same space under the table before it. */
+.panel-table .table-wrap + .lazy-mount { margin-top: var(--sp-5); }
 
 .model-cell { display: inline-flex; align-items: center; gap: var(--sp-2); }
 .model-name { color: var(--text-1); }
@@ -839,8 +843,9 @@ tr.is-timing-control:first-of-type > *, tr:not(.is-timing-control) + tr.is-timin
 /* Forced colors force no SVG fill or stroke: text, halos, the noise zone and neutral marks take the
    system colours, so labels keep their contrast; series hues stay, each paired with a shape or label. */
 @media (forced-colors: active) {
-  /* !important: per-label tints (.row-label.is-strong, .label-*) and the halo rule in a later sheet out-rank a plain override. */
-  .svg-chart text { fill: CanvasText !important; }
+  /* !important: per-label tints (.row-label.is-strong, .label-*) and the halo rule in a later sheet out-rank a plain override.
+     A tspan with its own tint (.row-tag, .pit-tag) does not inherit the text's fill, so it is named too. */
+  .svg-chart :is(text, tspan) { fill: CanvasText !important; }
   .svg-chart .has-halo, .svg-chart text.halo { stroke: Canvas !important; }
   .fill-noise-zone { fill: Canvas; stroke: GrayText; stroke-dasharray: 2 3; }
   .svg-chart :is(.fill-ink, .fill-neutral, .fill-muted, .fill-grid-dot, .bar-train) { fill: CanvasText; }

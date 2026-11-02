@@ -250,6 +250,171 @@ test("STAB's rolling test and cumulative view fit 390 and 320 px, pass axe, and 
   }
 });
 
+// The distribution block (ROADMAP 2.4) is newer than the fixture: the committed block is spliced in. MODL's
+// distribution view and CALB's PIT figure and tables must fit a desktop and a phone and pass axe; the PIT figure must
+// fill exactly the height its placeholder reserved, and the two text views about theirs (measured at 1,440 and 390 px,
+// so close there; 320 px is the far end of the phone range, where their prose takes more lines); the view shows no
+// QLIKE and no MCS matrix; the control writes ?modl=dist. At 1,440 px the PIT figure's 10% line must stand apart from
+// the bars and the chance range on screen and under forced colours (its tag forced too), and a printed page (about
+// 725 CSS px) must show each p once.
+test("MODL's distribution view and CALB's PIT figure and tables fit 1440, 390 and 320 px, pass axe, and keep their reservations", async () => {
+  const { withDistribution } = await import("../frontend/splice.mjs");
+  const fixture = JSON.parse(readFileSync(join(FIXTURES, PAYLOADS["/research.json"]), "utf8"));
+  const research = JSON.stringify(withDistribution(fixture));
+  const qlikes = fixture.vol_lab.leaderboard.models.map((model) => model.qlike.toFixed(4));
+  for (const width of [1440, 390, 320]) {
+    for (const path of ["/?modl=dist#modl", "/?table=calb#calb"]) {
+      const { context, page, problems } = await openPage({ width, height: width > 640 ? 900 : 844 }, { path, research });
+      try {
+        await page.waitForSelector("#modl .segmented");
+        await mountEverything(page);
+        await page.evaluate(() => window.dispatchEvent(new Event("lazy:mount-all")));
+        if (path.includes("modl=dist")) await page.waitForSelector("#modl .leaderboard--dist table");
+        else await page.waitForSelector("#calb .panel-table table caption >> text=/Berkowitz's test/");
+        const state = await page.evaluate((values) => {
+          // The height a wrapper's placeholder reserves at this width, as the stylesheet sets it: a probe placeholder.
+          const reservedIn = (mount) => {
+            if (!mount) return null;
+            const probe = document.createElement("div");
+            probe.className = "figure-placeholder";
+            mount.append(probe);
+            const height = parseFloat(getComputedStyle(probe).minHeight);
+            probe.remove();
+            return height;
+          };
+          const dist = document.querySelector("#modl .leaderboard--dist");
+          const distMount = dist?.querySelector(".lazy-mount");
+          const pit = document.querySelector("#calb .pit-chart");
+          const mount = pit?.closest(".lazy-mount");
+          const tablesMount = document.querySelector("#calb .panel-table .lazy-mount");
+          const wraps = [...document.querySelectorAll("#calb .panel-table > .table-wrap")];
+          const gap = (above, below) => below.getBoundingClientRect().top - above.getBoundingClientRect().bottom;
+          return {
+            overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            pressed: [...document.querySelectorAll("#modl .segmented-button[aria-pressed='true']")].map((b) => b.textContent),
+            matrix: Boolean(document.querySelector("#modl .mcs-matrix")),
+            leaderboard: Boolean(document.querySelector("#modl-har_iv")),
+            distRows: dist ? dist.querySelectorAll("tbody tr").length : null,
+            qlikeShown: dist ? values.filter((value) => dist.textContent.includes(value)) : [],
+            readings: dist ? /The rerun selects nothing/.test(dist.textContent) : null,
+            distReserved: reservedIn(distMount),
+            distDrawn: distMount ? distMount.getBoundingClientRect().height : null,
+            reserved: reservedIn(mount),
+            drawn: pit ? pit.getBoundingClientRect().height : null,
+            mounted: mount ? mount.getBoundingClientRect().height : null,
+            tablesReserved: reservedIn(tablesMount),
+            tablesDrawn: tablesMount ? tablesMount.getBoundingClientRect().height : null,
+            // The space above the lazy distribution tables, and between the tables before them.
+            tablesGap: tablesMount && wraps.length ? gap(tablesMount.previousElementSibling, tablesMount) : null,
+            tableGaps: wraps.slice(1).map((wrap, index) => gap(wraps[index], wrap)),
+            calbTables: [...document.querySelectorAll("#calb caption")].map((caption) => caption.textContent),
+          };
+        }, qlikes);
+        assert.ok(state.overflow <= 0, `${width}px ${path}: the page scrolls sideways by ${state.overflow}px`);
+        // A text view reserves about its height: close at the widths it was measured at, within a fifth at 320 px.
+        const near = (drawn, reserved, what) => {
+          const tolerance = width === 320 ? 0.2 : 0.03;
+          assert.ok(reserved > 0 && Math.abs(drawn - reserved) <= tolerance * drawn,
+            `${width}px ${what}: reserved ${reserved}px, drawn ${drawn}px (more than ${tolerance * 100}% apart)`);
+        };
+        if (path.includes("modl=dist")) {
+          assert.deepEqual(state.pressed, ["CRPS"], `${width}px: the URL's view is the pressed one`);
+          assert.equal(state.matrix, false, "the MCS matrix belongs to the all-days view");
+          assert.equal(state.leaderboard, false, "the QLIKE table gives way to the distribution's");
+          assert.deepEqual(state.qlikeShown, [], "no QLIKE number in the distribution view");
+          assert.ok(state.distRows >= 1 && state.readings, `${width}px: the table and its readings (${state.distRows})`);
+          near(state.distDrawn, state.distReserved, "MODL's distribution view");
+          // The PIT figure (in CALB's figure view here) fills exactly the height its placeholder reserved.
+          assert.ok(state.reserved > 0 && state.drawn === state.reserved && state.mounted === state.reserved,
+            `${width}px: reserved ${state.reserved}px, drawn ${state.drawn}px, mount ${state.mounted}px`);
+        } else {
+          assert.ok(state.calbTables.some((caption) => /^Share of days between consecutive predicted deciles/.test(caption)), "CALB's PIT table");
+          assert.ok(state.calbTables.some((caption) => /^Berkowitz's test on each sampling grid/.test(caption)), "CALB's Berkowitz table");
+          near(state.tablesDrawn, state.tablesReserved, "CALB's distribution tables");
+          assert.ok(state.tableGaps.length > 0 && state.tableGaps.every((value) => value > 0), `${width}px: ${state.tableGaps}`);
+          assert.ok(Math.abs(state.tablesGap - state.tableGaps[0]) < 0.5,
+            `${width}px: ${state.tablesGap}px above the lazy tables, ${state.tableGaps}px between the others`);
+        }
+        await page.evaluate(AXE);
+        const violations = await page.evaluate(async () => {
+          const result = await axe.run({ include: [["#modl"], ["#calb"]] }, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } });
+          return result.violations.filter((v) => v.impact === "serious" || v.impact === "critical")
+            .map((v) => `${v.id} (${v.impact}): ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(", ")}`);
+        });
+        assert.deepEqual(violations, [], `${width}px ${path}: serious or critical axe violations`);
+        if (path.includes("modl=dist")) {
+          // "All" returns to the bare URL, the leaderboard and its matrix; "CRPS" writes the view again.
+          const title = await page.locator("#modl h2").textContent();
+          await page.getByRole("button", { name: "All", exact: true }).click();
+          assert.doesNotMatch(page.url(), /modl=/);
+          assert.ok(await page.locator("#modl-har_iv").count(), "the leaderboard is back");
+          assert.ok(await page.locator("#modl .mcs-matrix").count(), "the matrix is back");
+          assert.equal(await page.locator("#modl h2").textContent(), title, "the title does not change with the view");
+          await page.getByRole("button", { name: "CRPS", exact: true }).click();
+          assert.match(page.url(), /[?&]modl=dist\b/);
+          await page.waitForSelector("#modl .leaderboard--dist table");
+        }
+        if (width === 1440 && path.includes("modl=dist")) {
+          // The PIT figure's 10% line against the neutral bars and the chance range it crosses, as the page draws them.
+          const marks = () => page.evaluate(() => {
+            const chart = document.querySelector("#calb .pit-chart");
+            const style = (selector) => getComputedStyle(chart.querySelector(selector));
+            const tag = chart.querySelector(".pit-tag");
+            return {
+              line: style(".stroke-target").stroke, bar: style(".pit-bar.fill-neutral").fill,
+              chance: style(".pit-chance").fill, chanceEdge: style(".pit-chance").stroke,
+              tag: tag ? getComputedStyle(tag).fill : null, title: tag ? getComputedStyle(tag.parentElement).fill : null,
+            };
+          });
+          // Chromium restyles a frame or more after an emulated media change, so each reading waits for the figure's
+          // title (CanvasText when forced, black or white by scheme) to leave the colour it had before the change.
+          const settled = (before) => page.waitForFunction((fill) => {
+            const tag = document.querySelector("#calb .pit-chart .pit-tag");
+            return tag && getComputedStyle(tag.parentElement).fill !== fill;
+          }, before.title, { timeout: 5000 });
+          const screen = await marks();
+          assert.notEqual(screen.line, screen.bar, "the 10% line is not drawn in the neutral bars' colour");
+          assert.notEqual(screen.line, screen.chance, "the 10% line is not drawn in the chance range's colour");
+          let previous = screen;
+          for (const scheme of ["light", "dark"]) {
+            await page.emulateMedia({ forcedColors: "active", colorScheme: scheme });
+            await settled(previous);
+            const forced = await marks();
+            assert.notEqual(forced.line, forced.bar, `forced colours (${scheme}): the 10% line over the neutral bars`);
+            assert.ok(forced.line !== forced.chance && forced.chance !== forced.chanceEdge,
+              `forced colours (${scheme}): the chance range is an outline apart from the line (${JSON.stringify(forced)})`);
+            assert.ok(forced.tag && forced.tag === forced.title, `forced colours (${scheme}): the tag is forced with its title (${forced.tag}, ${forced.title})`);
+            previous = forced;
+          }
+          await page.emulateMedia({ forcedColors: "none", colorScheme: null });
+          await settled(previous);
+          // Printed (about 725 CSS px wide), the p columns are kept, so no p is repeated under its t. Each step waits for
+          // its rules: on a 725 px screen the p columns are hidden; printed at that width they are back.
+          const pColumns = (shown) => page.waitForFunction((want) => [...document.querySelectorAll("#modl .leaderboard--dist table thead th")]
+            .some((th) => th.getClientRects().length > 0 && /^p\b/.test(th.textContent.trim())) === want, shown, { timeout: 5000 });
+          await page.setViewportSize({ width: 725, height: 900 });
+          await pColumns(false);
+          await page.emulateMedia({ media: "print" });
+          await pColumns(true);
+          const printed = await page.evaluate(() => {
+            const shown = (node) => node.getClientRects().length > 0;
+            const table = document.querySelector("#modl .leaderboard--dist table");
+            return {
+              pColumns: [...table.querySelectorAll("thead th")].filter((th) => shown(th) && /^p\b/.test(th.textContent.trim())).length,
+              pUnderT: [...table.querySelectorAll(".dist-p")].filter(shown).length,
+            };
+          });
+          assert.ok(printed.pColumns > 0 && printed.pUnderT === 0, `print: ${printed.pColumns} p columns and ${printed.pUnderT} p under a t`);
+          await page.emulateMedia({ media: "screen" });
+        }
+        assert.deepEqual(problems, [], "console errors, page errors or failed requests");
+      } finally {
+        await context.close();
+      }
+    }
+  }
+});
+
 // The price axis settles on its width after the first frames; a chart nobody has touched must still
 // sit on its range preset, so no "Reset view" is offered.
 for (const viewport of VIEWPORTS) {
