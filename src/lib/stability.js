@@ -109,9 +109,9 @@ export const fluctuationReading = (row, { recordName, setup, ledgerRow }) => {
   }
   const same = asObject(fl.largest_same_sign_window);
   if (same && same.window_end !== fl.at) {
-    parts.push(`The largest mean difference in that direction is ${fmtSigned(num(same.mean_diff), 3)} a day, in the window `
-      + `ending ${fmtDate(same.window_end)} (t${NBSP}=${NBSP}${fmtNum(num(same.t), 2)}); at the peak it is `
-      + `${fmtSigned(num(fl.peak_window_mean_diff), 3)}.`);
+    parts.push(`The largest window mean difference with ${lower} lower is ${fmtSigned(num(same.mean_diff), 3)} a day, in `
+      + `the window ending ${fmtDate(same.window_end)} (t${NBSP}=${NBSP}${fmtNum(num(same.t), 2)}); in the window of max |t| `
+      + `(ending ${fmtDate(fl.at)}) it is ${fmtSigned(num(fl.peak_window_mean_diff), 3)}.`);
   }
   if (fl.crosses_both_sides) parts.push("The path leaves the band on both sides.");
   if (row.challenger) parts.push("Picked as the challenger on this sample, so not new evidence; nothing here re-selects it.");
@@ -129,10 +129,11 @@ export const fluctuationCaption = (setup, recordName) => `Each point is the Dieb
   + "throughout. Because each window is scaled by its own variability, a calm window with a small, steady difference "
   + "can sit further out than a turbulent window with a larger one: read the size of a difference in the cumulative view.";
 
-/** The cumulative view's caption. */
-export const cumulativeCaption = (recordName) => `Sum of ${recordName}'s daily QLIKE minus the model's from the first `
-  + "out-of-sample day, read weekly: a line rises while the model has the lower loss. Descriptive: no test reads its "
-  + "level or slope.";
+/** The cumulative view's caption; `endDate` is the last out-of-sample day, which the number at each line's end sums to. */
+export const cumulativeCaption = (recordName, endDate) => `Sum of ${recordName}'s daily QLIKE minus the model's from the first `
+  + "out-of-sample day, read weekly: a line rises while the model has the lower loss. "
+  + (endDate ? `The number at each line's end sums every out-of-sample day to ${fmtDate(endDate)}, a few sessions past the last weekly point. ` : "")
+  + "Descriptive: no test reads its level or slope.";
 
 const join = (names) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0] ?? "");
 
@@ -150,27 +151,33 @@ export const gwNote = (lab, ledger) => {
   const name = (row) => shortLabel(row.label);
   const sig = tested.filter((row) => band(p(row)) === 0);
   const mid = tested.filter((row) => band(p(row)) === 1);
-  const survive = sig.filter((row) => ledger?.byId?.get(`vol_gw_${row.key}`)?.survives_bh === true);
+  // Survival is stated only where the ledger carries the rows (the challenger's is outside the family).
+  const registered = sig.filter((row) => typeof ledger?.byId?.get(`vol_gw_${row.key}`)?.survives_bh === "boolean");
+  const survive = registered.filter((row) => ledger.byId.get(`vol_gw_${row.key}`).survives_bh === true);
   const weak = sig.filter((row) => band(num(gw.get(row.key).robustness?.bartlett_40?.conditional_p_value) ?? 0) > 0);
   const parts = ["Giacomini-White asks whether the loss difference moves with what is known at the decision (its value "
     + "5 sessions earlier, OVX and OVX's gap to RV5)."];
   if (sig.length) {
     let text = `Its conditional part is significant at 5% against ${fmtInt(sig.length)} of ${fmtInt(tested.length)} models `
       + `(${join(sig.map((row) => `${name(row)}, ${pEq(p(row))}`))})`;
-    text += survive.length ? `; ${join(survive.map(name))} ${survive.length === 1 ? "survives" : "survive"} the ledger's adjustment`
-      : "; none survives the ledger's adjustment";
+    if (registered.length) {
+      text += survive.length ? `; ${join(survive.map(name))} ${survive.length === 1 ? "survives" : "survive"} the ledger's adjustment`
+        : "; none survives the ledger's adjustment";
+    }
     if (weak.length) {
       text += `; with 40 Bartlett lags ${weak.length === sig.length ? "all of them" : `${fmtInt(weak.length)} of the ${fmtInt(sig.length)}`} `
         + `(${join(weak.map(name))}) ${weak.length === 1 ? "is" : "are"} no longer significant at 5%`;
     }
     parts.push(`${text}.`);
-  } else {
-    parts.push(`Its conditional part is not significant at 5% against any of the ${fmtInt(tested.length)} models.`);
   }
   if (mid.length) parts.push(`It is inconclusive against ${join(mid.map((row) => `${name(row)} (${pEq(p(row))})`))}.`);
-  parts.push(`Against the other ${fmtInt(tested.length - sig.length - mid.length)} it is not significant; a failure to `
-    + "reject is not evidence that the difference does not move with the state. With the constant included the test "
-    + "mostly repeats the DM test, so that form is context and not in the ledger.");
+  const rest = tested.length - sig.length - mid.length;
+  const caveat = "a failure to reject is not evidence that the difference does not move with the state";
+  if (rest > 0) {
+    parts.push(sig.length || mid.length ? `Against the other ${fmtInt(rest)} it is not significant; ${caveat}.`
+      : `Its conditional part is not significant at 5% against any of the ${fmtInt(tested.length)} models; ${caveat}.`);
+  }
+  parts.push("With the constant included the test mostly repeats the DM test, so that form is context and not in the ledger.");
   return parts.join(" ");
 };
 

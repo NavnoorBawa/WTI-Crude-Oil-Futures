@@ -242,9 +242,9 @@ export default function StabilityPanel({ research, researchStatus }) {
           {viewValue === "cumulative" && cumRows.length > 0 ? (
             <>
               <LazyMount minHeight={{ wide: cumRows.length * 86 + 22, narrow: cumRows.length * 86 + 22 }} label="cumulative difference">
-                <CumulativeRows rows={cumRows} recordLabel={recordName} />
+                <CumulativeRows rows={cumRows} recordLabel={recordName} endDate={lab?.stability?.cumulative?.end_date} />
               </LazyMount>
-              <p className="panel-caption">{cumulativeCaption(recordName)}</p>
+              <p className="panel-caption">{cumulativeCaption(recordName, lab?.stability?.cumulative?.end_date)}</p>
             </>
           ) : (
             <>

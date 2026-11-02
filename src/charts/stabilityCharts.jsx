@@ -256,18 +256,22 @@ export const cumulativeHeight = (count) => count * MULTIPLE_H + MULTIPLE_AXIS;
  * minus the model's, read weekly, against a zero line. The rows share one scale, except one whose range is far
  * larger (persistence), which gets its own and says so in its title.
  */
-export function CumulativeSvg({ rows, recordLabel, width }) {
+export function CumulativeSvg({ rows, recordLabel, endDate, width }) {
   const height = cumulativeHeight(rows.length);
   const all = rows.map((row) => points(row.dates, row.values));
-  const x = scaleUtc().domain(extent(all.flat().map(([t]) => t))).range([MULTIPLE_LEFT, width - 52]);
+  // The number at each line's end is the every-day total (row.end), else the line's last weekly value.
+  const endText = (row, series) => fmtSigned(row.end ?? series[series.length - 1]?.[1], 2);
+  const right = 8 + MONO_CHAR_PX * Math.max(6, ...rows.map((row, i) => endText(row, all[i]).length));
+  const x = scaleUtc().domain(extent(all.flat().map(([t]) => t))).range([MULTIPLE_LEFT, width - right]);
   const span = (series) => Math.max(1e-9, ...series.map(([, value]) => Math.abs(value)));
   const spans = all.map(span);
   const typical = Math.max(...spans.filter((value) => value <= 10 * Math.min(...spans)));
   const plotH = MULTIPLE_H - MULTIPLE_TITLE - 6;
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart" role="img"
-      aria-label={`Cumulative QLIKE of ${recordLabel} minus each model, from the first out-of-sample day: ${rows
-        .map((row) => `${row.label} ${fmtSigned(row.end, 2)}`).join("; ")}; above zero the model had the lower loss`}>
+      aria-label={`Cumulative QLIKE of ${recordLabel} minus each model, summed over every out-of-sample day${endDate
+        ? ` to ${fmtDate(endDate)}` : ""}: ${rows.map((row, i) => `${row.label} ${endText(row, all[i])}`).join("; ")}; above `
+        + "zero the model had the lower loss"}>
       {rows.map((row, index) => {
         const own = spans[index] > 10 * typical;
         const limit = own ? spans[index] : typical;
@@ -280,13 +284,13 @@ export function CumulativeSvg({ rows, recordLabel, width }) {
             <text className={`multiple-title label-${row.challenger ? "alt" : "ink"}`} x={MULTIPLE_LEFT} y={top - 5}>
               {`${row.label}${own ? " · own scale" : ""}`}
             </text>
-            <line className="stroke-axis" x1={MULTIPLE_LEFT} x2={width - 52} y1={y(0)} y2={y(0)} />
+            <line className="stroke-axis" x1={MULTIPLE_LEFT} x2={width - right} y1={y(0)} y2={y(0)} />
             {(index === 0 || own) && y.ticks(2).filter((t) => t !== 0).map((t) => (
               <text key={t} className="axis-label" x={MULTIPLE_LEFT - 6} y={y(t)} dy="0.32em" textAnchor="end">{fmtSigned(t, 0)}</text>
             ))}
             <path d={line().x(([t]) => x(t)).y(([, value]) => y(value))(series) ?? undefined}
               className={row.challenger ? "stroke-alt" : "stroke-ink"} fill="none" />
-            {last && <text className="value-label has-halo" x={x(last[0]) + 6} y={y(last[1])} dy="0.32em">{fmtSigned(row.end ?? last[1], 2)}</text>}
+            {last && <text className="value-label has-halo" x={x(last[0]) + 6} y={y(last[1])} dy="0.32em">{endText(row, series)}</text>}
           </g>
         );
       })}
@@ -310,9 +314,9 @@ export function FluctuationRows({ rows, setup, recordLabel }) {
 }
 
 /** CumulativeRows, sized to its container. */
-export function CumulativeRows({ rows, recordLabel }) {
+export function CumulativeRows({ rows, recordLabel, endDate }) {
   return (
     <Frame height={cumulativeHeight(rows.length)}
-      draw={(width) => <CumulativeSvg rows={rows} recordLabel={recordLabel} width={width} />} />
+      draw={(width) => <CumulativeSvg rows={rows} recordLabel={recordLabel} endDate={endDate} width={width} />} />
   );
 }
