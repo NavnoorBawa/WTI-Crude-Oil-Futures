@@ -376,6 +376,22 @@ These stay out, whatever a review suggests, unless the owner changes the rules:
 Tick items here with the PR number and date when they ship, and move any new finding into
 `HANDOFF.md`'s backlog.
 
+- **2.2 Coverage and loss by regime** (#99, #100, 2026-11-02): `vol_lab.regimes` labels every
+  out-of-sample day at the decision from strictly earlier sessions (OVX of the session before and
+  RV5 to the decision against thirds of their history to date, OVX/RV5 against its median over the
+  previous 250 sessions, a roll among the target's five sessions); the two banded models' coverage,
+  misses and interval scores by regime with a HAC Wald test of equal miss rates and its robustness;
+  every model's QLIKE by regime; the gap in the weekly series; eight ledger rows. CALB states the
+  result at each test's strength, MODL has a "by regime" view, FCST shows the gap. Accepted: the
+  no-look-ahead tests (an exact per-row recomputation, and extreme later values leave earlier labels
+  unchanged) and the counts summing to n_days pass. None of the eight tests is significant; the
+  model of record across OVX thirds is inconclusive. Departures: the per-regime binomial is computed
+  per sampling grid (daily misses overlap); the equal-rates form is the primary test, with every
+  regime against the target as robustness (the adaptive band pins the pooled level); "RV percentile
+  bucket" became RV5 thirds and "trailing median" 250 sessions; the definitions were fixed after
+  prototype runs, so the rows are not pre-specified; QLIKE by regime is descriptive, with no rows;
+  "counts sum to n_days" holds as two totals (labels to the 4,634 days, the band's cells to its
+  4,370 days after the warm-up).
 - **2.1 The QLIKE floor set by proxy noise** (#97, #98, 2026-11-01): `vol_lab.qlike_floor` with
   the closed form (−ψ(5/2) − ln(2/5) = 0.213, the roadmap's figure: the target is not demeaned), the
   exact Student-t floor, the floor on the direction noise floor's own simulations, a kurtosis-matched
