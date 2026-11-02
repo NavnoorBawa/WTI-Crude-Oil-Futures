@@ -6,7 +6,8 @@ examined. Every statistic and p-value is READ from a committed artifact by its J
 computed by a standard formula from fields read the same way (an exact binomial test from a stored
 accuracy and sample size, a normal p-value from a stored z, the larger of two stored p-values when a
 claim needs both tests, the largest of the per-run p-values when runs share their data and so cannot
-be pooled); nothing is typed in by hand. The row records which fields it used, so each number can be
+be pooled, the Bonferroni bound min(1, k x the smallest) when any one of k runs may reject); nothing
+is typed in by hand. The row records which fields it used, so each number can be
 checked against its artifact.
 
 Status, from the test as the project ran it (one- or two-sided as recorded in `sided`):
@@ -191,6 +192,23 @@ class LargestOverRuns:
         paths = [f"{self.runs}[{i}].{self.p}" for i in range(len(runs))]
         used = {path: resolve(doc, path) for path in paths}
         return max(float(v) for v in used.values()), used
+
+
+@dataclass(frozen=True)
+class BonferroniOverRuns:
+    """Union-intersection test that at least one run rejects: min(1, k x the smallest of the k runs' stored p-values,
+    `{runs}[i].{p}`). Valid however the runs depend on one another (here the five sampling grids, disjoint weeks of
+    one series), where LargestOverRuns tests that every run rejects."""
+    runs: str
+    p: str
+
+    def __call__(self, doc: Artifact) -> tuple[float, dict[str, Any]]:
+        runs = resolve(doc, self.runs)
+        if not isinstance(runs, list) or not runs:
+            raise FieldError(f"{self.runs}: not a non-empty list of runs")
+        paths = [f"{self.runs}[{i}].{self.p}" for i in range(len(runs))]
+        used = {path: resolve(doc, path) for path in paths}
+        return min(1.0, len(paths) * min(float(v) for v in used.values())), used
 
 
 @dataclass(frozen=True)
@@ -778,9 +796,138 @@ def _conditional_rows() -> list[Row]:
     return rows
 
 
+_LD = "distribution.models[key={}]"
+# The models whose whole predictive distribution the lab scores (ROADMAP 2.4), in the artifact's order. The quantile
+# HAR is a robustness competitor outside LAB_COMPARED: it is never ranked, banded or selected.
+DISTRIBUTION_MODELS = ("har_iv_range", "ovx_only", "garch", "gjr", "ewma", "quantile_har")
+_SCORES = (("crps", "crps_grid", "CRPS over 19 quantiles"), ("pinball10", "pinball_10", "the 10% pinball loss"),
+           ("pinball90", "pinball_90", "the 90% pinball loss"))
+_DIST_FORKS = ("Chosen after the scores were seen, and published beside the registered choices: the vol-point scale "
+               "(the log scale is context), equal weights on the 19 quantiles, the batch-means variance and its 12 "
+               "periods (8 and 16, dm_test's 9 lags, Newey-West (1994) and each sampling grid on its own are context), "
+               "and registering all three scores (docs/METHODOLOGY.md section 7).")
+
+
+def _distribution_rows() -> list[Row]:
+    """The whole predictive distribution (ROADMAP 2.4). Family "predictive distribution": each model's grid CRPS and
+    its 10% and 90% pinball losses against the model of record's, by a batch-means Diebold-Mariano test (the
+    differences stay correlated for weeks, beyond what 9 Bartlett lags see); two-sided, a positive statistic means
+    the named model scores lower. Family "distribution calibration": Berkowitz's LR3 on each sampling grid, Bonferroni
+    over the five grids, against the reference that fits each PIT construction; two-sided, no `expects`. The
+    challenger's three score rows are selected after a search and stay out of the family; the log-scale CRPS, the
+    CRPS Model Confidence Set and the quantile HAR's field rerun stay in the artifact as context."""
+    rows = []
+    for m in DISTRIBUTION_MODELS:
+        base = _LD.format(m)
+        picked = m == CHALLENGER
+        for tag, score, phrase in _SCORES:
+            dm = f"{base}.dm_vs_har_iv.{score}"
+            if picked:
+                hypothesis = f"The challenger HAR-IV-range's predictive distribution beats the model of record's on {phrase}."
+            elif m == "quantile_har":
+                hypothesis = f"A quantile HAR-IV regression's predictive distribution beats the model of record's on {phrase}."
+            else:
+                hypothesis = "The model of record's predictive distribution beats {model}'s on " + phrase + "."
+            context = {"score_model": f"{base}.{score}_pct", "score_har_iv": f"{_LD.format('har_iv')}.{score}_pct",
+                       "periods_model_lower": f"{dm}.periods_model_lower", "p_groups_8": f"{dm}.groups_8.p_value",
+                       "p_groups_16": f"{dm}.groups_16.p_value", "p_dm_test_9": f"{dm}.dm_test.p_value",
+                       "p_nw94": f"{dm}.nw94.p_value", "p_grid_bonferroni": f"{dm}.grid_bonferroni_p",
+                       "n_days": "distribution.n_days", "method": f"{base}.method"}
+            if score == "crps_grid":
+                context["p_log_scale"] = f"{base}.dm_vs_har_iv.crps_grid_log.p_value"
+                context["share_2020_pct"] = f"{dm}.concentration.share_2020_pct"
+            if m == "quantile_har":
+                field = "distribution.quantile_har_field"
+                if score == "crps_grid":
+                    context.update({"qlike_batch_means_p": f"{field}.dm_qlike_vs_har_iv.batch_means.p_value",
+                                    "qlike_mcs_p": f"{field}.mcs.p_values.quantile_har",
+                                    "spa_p_with_it": f"{field}.spa.p_consistent"})
+            else:
+                context["dm_qlike_p"] = f"{_LM.format(m)}.dm_qlike_vs_har_iv.p_value"
+            if picked:
+                note = ("Selected after a search: the challenger is the lowest-QLIKE model of the field on this same "
+                        "sample, so this pairwise p-value ignores the search. The row is left out of the multiplicity "
+                        "family; no search-adjusted version exists (the SPA test searches the field on QLIKE). "
+                        + _DIST_FORKS)
+            elif m == "quantile_har":
+                note = ("A robustness competitor outside the benchmark field: never ranked, banded, selected or "
+                        "eligible for the live pair. Its design (HAR-IV's terms), its quarterly refits, the exact "
+                        "linear-program solver and its point forecast were chosen after prototype runs on this sample. "
+                        + _DIST_FORKS)
+            else:
+                note = _DIST_FORKS
+            rows.append(Row(
+                id=f"vol_{tag}_{m}", family="predictive distribution", source=LAB, hypothesis=hypothesis,
+                test=("Batch-means Diebold-Mariano (Ibragimov and Mueller 2010) on the daily score difference: its "
+                      "mean in 12 consecutive periods of about 17 months, t-test with 11 df, two-sided; a positive "
+                      "statistic means the named model scores lower than HAR-IV. Scores in vol points on the "
+                      "conformal band's days."),
+                statistic=("batch-means t", f"{dm}.stat"), p=Field(f"{dm}.p_value"), sided="two",
+                expects=POSITIVE if picked or m == "quantile_har" else NEGATIVE,
+                context=context, names={"model": f"{base}.label"}, note=note, selected_after_search=picked))
+    for m in ("har_iv", *DISTRIBUTION_MODELS):
+        base = _LD.format(m)
+        berk = f"{base}.berkowitz"
+        context = {f"p_grid_{g}": f"{berk}.by_grid[{g}].p_value" for g in range(5)}
+        context.update({"grids_below_5pct": f"{berk}.grids_below_5pct", "p_cauchy": f"{berk}.p_cauchy",
+                        "reference": f"{berk}.reference", "mu_grid_0": f"{berk}.by_grid[0].mu",
+                        "sigma_grid_0": f"{berk}.by_grid[0].sigma", "pit_construction": f"{base}.pit_construction"})
+        if m in ("har_iv", "har_iv_range", "ovx_only"):
+            context.update({"rho_grid_0": f"{berk}.by_grid[0].rho", "p_chi2": f"{berk}.p_chi2", "mc_se": f"{berk}.mc_se",
+                            "window_exceedance_days": f"{berk}.window_exceedances.days",
+                            "exceedance_null_mean": f"{berk}.window_exceedances.null_mean",
+                            "exceedance_null_q95": f"{berk}.window_exceedances.null_q95"})
+            hypothesis = ("{model}'s predictive distribution is miscalibrated: on non-overlapping weeks its PITs are "
+                          "not independent standard uniforms.")
+            test = ("Berkowitz (2001) LR3 on the normal scores of each sampling grid's weeks (non-overlapping), "
+                    "against a seeded simulated null of this PIT construction (trailing ranks under the 5-session "
+                    "overlap; chi-squared with 3 df is far too conservative for it); Bonferroni over the five grids; "
+                    "two-sided.")
+            note = ("The PIT is the outcome's mid-rank among the trailing residuals, which re-centres itself across "
+                    "overlapping weeks and caps |z| near 3.2, so its LR is referred to a simulated null; the null was "
+                    "adopted after the chi-squared p-values (context p_chi2) were seen. The p-value counts simulated "
+                    "draws (Monte Carlo standard error in context mc_se).")
+        elif m == "quantile_har":
+            context.update({"p_randomized_tail": f"{berk}.randomized_tail.p_value",
+                            "randomized_tail_seed_min": f"{berk}.randomized_tail.seed_min",
+                            "randomized_tail_seed_max": f"{berk}.randomized_tail.seed_max"})
+            hypothesis = ("A quantile HAR-IV regression's predictive distribution is miscalibrated between and beyond "
+                          "its 5% and 95% quantiles (a doubly censored normal test; it does not test independence).")
+            test = ("Doubly censored normal likelihood ratio adapted from Berkowitz's (2001) censored likelihood: the "
+                    "normal score is observed between the 5% and 95% quantiles and only counted beyond them; i.i.d. "
+                    "N(mu, sigma^2) against N(0, 1), chi-squared with 2 df, on each sampling grid; Bonferroni over the "
+                    "five grids; two-sided.")
+            note = ("Its quantiles say nothing beyond the 5% and 95% levels, so the tails are censored. A seeded "
+                    "randomized-tail PIT was tried first (context, with its spread over 100 seeds); the censored form "
+                    "was registered after it because its p-value does not depend on a seed. Context grids_below_5pct "
+                    "says on how many grids the test rejects.")
+        else:
+            if m in ("garch", "gjr"):
+                context.update({"rho_grid_0": f"{berk}.by_grid[0].rho", "p_count_pit": f"{berk}.p_count_pit",
+                                "clamp_days": f"{berk}.clamp_days", "extreme_days": f"{berk}.extreme_days",
+                                "p_static_t": f"{base}.alternatives.static_t.berkowitz_p"})
+                note = ("The PIT reads the simulated sample's Hazen CDF, continuous in its inputs, chosen for "
+                        "reproduction stability after the count PIT's p (context p_count_pit) was seen. The literal "
+                        "reading, a Student-t on the expected variance path, is context (p_static_t).")
+            else:
+                context["rho_grid_0"] = f"{berk}.by_grid[0].rho"
+                note = "The normal score of a far-tail week comes from the survival function, so it stays finite."
+            hypothesis = ("{model}'s predictive distribution is miscalibrated: on non-overlapping weeks its PITs are "
+                          "not independent standard uniforms.")
+            test = ("Berkowitz (2001) LR3 on the normal scores of each sampling grid's weeks (non-overlapping), "
+                    "chi-squared with 3 df; Bonferroni over the five grids; two-sided.")
+        rows.append(Row(
+            id=f"vol_berkowitz_{m}", family="distribution calibration", source=LAB, hypothesis=hypothesis, test=test,
+            statistic=("grids below 5%", f"{berk}.grids_below_5pct"), p=BonferroniOverRuns(f"{berk}.by_grid", "p_value"),
+            sided="two", context=context, names={"model": f"{base}.label"},
+            note=note + " The reference per PIT construction and the Bonferroni combination were fixed after "
+                        "prototype runs on this sample (docs/METHODOLOGY.md section 7)."))
+    return rows
+
+
 def ledger_rows() -> list[Row]:
     return (_direction_rows() + _leak_rows() + _carry_rows() + _vrp_rows() + _vol_rows() + _var_rows() + _band_rows()
-            + _conditional_rows() + _shock_rows())
+            + _conditional_rows() + _distribution_rows() + _shock_rows())
 
 
 def source_names() -> set[str]:

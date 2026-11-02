@@ -221,10 +221,22 @@ class NoLookAheadTest(unittest.TestCase):
         d2 = lab.build_design(r2, dates, ovx2, ohlc2)
         moved = lab.walk_forward(d2)
         # Every forecast up to and including week k is unchanged; the TARGET for week k may change.
-        for key in lab.MODEL_KEYS:
+        params = [f"{m}__{p}" for m in ("garch", "gjr") for p in ("h1", *lab.GARCH_PARAMS)]
+        for key in [*lab.MODEL_KEYS, *params]:
             np.testing.assert_allclose(base[key].iloc[: k + 1].to_numpy(), moved[key].iloc[: k + 1].to_numpy(),
                                        rtol=1e-9, err_msg=key)
         self.assertFalse(np.allclose(base["actual"].iloc[k + 1:], moved["actual"].iloc[k + 1:]))
+        # The kept parameters are the ones behind each GARCH forecast: their expected variance path (gamma / 2 for
+        # symmetric shocks) gives the published point forecast, so the predictive distribution simulates that model.
+        for m in ("garch", "gjr"):
+            mu, omega, alpha, gamma, beta, _ = (base[f"{m}__{p}"].to_numpy() for p in lab.GARCH_PARAMS)
+            h = [base[f"{m}__h1"].to_numpy()]
+            for _ in range(vf.H - 1):
+                h.append(omega + (alpha + gamma / 2 + beta) * h[-1])
+            point = np.sqrt(np.mean(h, axis=0) * lab.ANNUAL) / lab.GARCH_SCALE
+            np.testing.assert_allclose(point, base[m].to_numpy(), rtol=1e-12, err_msg=m)
+            self.assertEqual(bool((gamma == 0).all()), m == "garch")
+            self.assertTrue(np.isfinite(mu).all())
 
     def test_range_features_read_the_test_days_bar_only_to_its_settlement(self):
         # Yahoo's daily High and Low run to the 17:00 ET close, after the 14:30 ET settlement (Close).
@@ -1123,6 +1135,220 @@ class SecondSourceTest(unittest.TestCase):
         found = lab.roll_convention_audit(_snapshot(close, eia))
         self.assertEqual(found["roll_days_after_eia"], 2)                     # CLF24 and CLG24 roll after 12-15
         self.assertEqual(found["contracts_checked"], 1)                       # CLZ23 (last trade 2023-11-20)
+
+
+class DistributionTest(unittest.TestCase):
+    """ROADMAP 2.4 in the lab: the quantile HAR's exact LP, the GARCH family's and EWMA's predictive distributions, the
+    scores on a truncated fast walk of the snapshot, and the guard that keeps the quantile HAR out of everything that
+    ranks, bands or selects a model."""
+
+    ROWS = 900                                            # the truncated design: ~10 quarterly refits
+
+    @classmethod
+    def setUpClass(cls):
+        import dataclasses
+
+        r, dates, ovx, ohlc = md.research_inputs(md.load_snapshot())
+        cls.design = lab.build_design(r, dates, vf._pick_ovx(ovx), ohlc)
+        cls.short = dataclasses.replace(cls.design, ends=[e for e in cls.design.ends if e < cls.ROWS])
+        cls.frame = lab.walk_forward(cls.short, include_slow=False)
+        cls.qhar = lab.quantile_har(cls.design, rows=cls.ROWS)
+
+    def _check_loss(self, ly, A, beta, tau):
+        return float(np.sum(fe.pinball_loss(ly, A @ beta, tau)))
+
+    def test_the_lp_is_the_exact_quantile_regression(self):
+        import warnings
+        from types import SimpleNamespace
+
+        from statsmodels.regression.quantile_regression import QuantReg
+
+        A = np.column_stack([np.ones(600), np.log(self.design.X[:600])])
+        ly = np.log(self.design.y[:600])
+        taus = (0.05, 0.5, 0.95)
+        beta = lab._quantile_fit(ly, A, taus)
+        for tau, b in zip(taus, beta):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                irls = QuantReg(ly, A).fit(q=tau, max_iter=20000).params
+            # The LP is the exact optimum: its check loss is never above the iterative fit's, and the two agree.
+            self.assertLessEqual(self._check_loss(ly, A, b, tau), self._check_loss(ly, A, irls, tau) * (1 + 1e-12))
+            np.testing.assert_allclose(b, irls, rtol=1e-5, atol=1e-5, err_msg=str(tau))
+        noisy = ly * (1 + 1e-15 * np.random.default_rng(1).standard_normal(ly.size))
+        np.testing.assert_allclose(lab._quantile_fit(noisy, A, taus), beta, rtol=0, atol=1e-12)
+        failed = SimpleNamespace(status=2, message="The problem is infeasible.")
+        with mock.patch("scipy.optimize.linprog", return_value=failed):
+            with self.assertRaisesRegex(RuntimeError, "quantile LP failed at tau=0.05"):
+                lab._quantile_fit(ly, A, taus)
+
+    def test_the_quantile_har_follows_the_tree_models_schedule_and_never_looks_ahead(self):
+        import dataclasses
+
+        self.assertEqual(lab.QHAR_RETRAIN_WEEKS, lab.LGBM_RETRAIN_WEEKS)
+        ends = self.short.ends
+        period = lab.LGBM_RETRAIN_WEEKS * vf.STEP
+        schedule = sorted({max(ends[0], vf.MIN_TRAIN + (e - vf.MIN_TRAIN) // period * period) for e in ends})
+        q = self.qhar
+        self.assertEqual(q["fit_rows"], schedule)
+        self.assertEqual(q["refits"], len(schedule))
+        self.assertEqual(q["q"].shape, (len(ends), len(lab.DIST_TAUS)))
+        self.assertTrue(np.all(np.diff(q["q"], axis=1) >= 0))
+        np.testing.assert_allclose(q["forecast"], q["q"][:, lab.DIST_MEDIAN] * np.sqrt(q["median_smear"]), rtol=1e-15)
+        # A crossing is counted on the regression's own quantiles, before they are sorted.
+        i = int(np.argmax(q["crossed"])) if q["crossed"].any() else 0
+        fit_row = max(row for row in schedule if row <= ends[i])
+        A = np.column_stack([np.ones(self.ROWS), np.log(self.design.X[: self.ROWS])])
+        beta = lab._quantile_fit(np.log(self.design.y[: fit_row - (vf.H - 1)]), A[: fit_row - (vf.H - 1)], lab.DIST_TAUS)
+        raw = beta @ A[ends[i]]
+        self.assertEqual(bool(np.any(np.diff(raw) < 0)), bool(q["crossed"][i]))
+        np.testing.assert_allclose(q["q"][i], np.exp(np.sort(raw)), rtol=1e-12)
+        # Outcomes that have not matured at row k (targets of rows k - 4 onwards) leave every row up to k unchanged.
+        rows, k = 400, 330
+        base = lab.quantile_har(self.design, rows=rows)
+        y = self.design.y.copy()
+        y[k - (vf.H - 1):] *= 3.0
+        moved = lab.quantile_har(dataclasses.replace(self.design, y=y), rows=rows)
+        upto = ends.index(k) + 1
+        np.testing.assert_array_equal(moved["q"][:upto], base["q"][:upto])
+        self.assertFalse(np.array_equal(moved["q"][upto:], base["q"][upto:]))
+
+    def test_the_garch_simulation_follows_its_variance_path(self):
+        from scipy import stats
+
+        U = lab._sobol_shocks()
+        np.testing.assert_array_equal(U, lab._sobol_shocks())                      # seeded
+        self.assertEqual(U.shape, (2 ** lab.DIST_SIM_LOG2, vf.H))
+        nu = 7.0
+        z = stats.t.ppf(U, nu) * np.sqrt((nu - 2) / nu)
+        mu, omega, alpha, gamma, beta, h1 = 0.03, 0.05, 0.04, 0.08, 0.88, 4.0
+        sim, static = lab._garch_rv5(z, (mu, omega, alpha, gamma, beta), h1)
+        path = [h1]
+        for _ in range(vf.H - 1):
+            path.append(omega + (alpha + gamma / 2 + beta) * path[-1])
+        expected = (vf.H * mu ** 2 + sum(path)) * (lab.ANNUAL / vf.H) / lab.GARCH_SCALE ** 2
+        # E sum r_k^2 = 5 mu^2 + sum_k E h_k for both readings; the static one holds h_k at E h_k.
+        self.assertAlmostEqual(float(np.mean(sim ** 2)) / expected, 1.0, delta=0.005)
+        self.assertAlmostEqual(float(np.mean(static ** 2)) / expected, 1.0, delta=0.002)
+        self.assertTrue(np.all(np.diff(sim) >= 0) and np.all(np.diff(static) >= 0))
+        # The asymmetric recursion spreads the distribution beyond the static reading's.
+        self.assertGreater(np.quantile(sim, 0.95) - np.quantile(sim, 0.05),
+                           np.quantile(static, 0.95) - np.quantile(static, 0.05))
+
+    def test_the_ewma_distribution_is_a_scaled_chi_square_with_a_survival_tail(self):
+        frame = pd.DataFrame({"ewma": [0.3, 0.3, 0.3], "actual": [0.3, 1.8, 0.01]})
+        pred = lab.ewma_predictive(frame)
+        np.testing.assert_allclose(np.round(pred["q"][0, [0, lab.DIST_MEDIAN, -1]] / 0.3, 3), [0.479, 0.933, 1.488])
+        self.assertTrue(np.isfinite(pred["z"]).all())
+        self.assertGreater(pred["z"][1], 10)                         # a 6-sigma week: the cdf alone reads 1
+        self.assertLess(pred["z"][2], -5)
+
+    def test_the_scores_on_a_fast_walk(self):
+        frame, n = self.frame, len(self.frame)
+        conf = lab.conformal_report(frame, "har_iv_range")
+        rep = lab.distribution_scores(frame, self.qhar, conf, "har_iv_range", null_draws=200)
+        crps = rep.pop("_crps")
+        self.assertIsNone(lab.distribution_mcs(crps))                # no GARCH models without the slow walk
+        rows = {m["key"]: m for m in rep["models"]}
+        self.assertEqual(list(rows), ["har_iv", "har_iv_range", "ovx_only", "ewma", lab.QHAR_KEY])
+        first = lab.WARMUP * vf.STEP + vf.H - 1
+        self.assertEqual(rep["n_days"], n - first)
+        self.assertEqual(rep["n_days"], conf["har_iv"]["n_days"])           # the band's days
+        # HAR-IV's grid CRPS by hand: trailing residual quantiles around the median forecast.
+        y, med = frame["actual"].to_numpy(), frame["har_iv__med"].to_numpy()
+        e = np.log(y) - np.log(med)
+        taus = np.asarray(lab.DIST_TAUS)
+        scores = []
+        for i in range(first, n):
+            q = med[i] * np.exp(np.quantile(e[max(0, i - vf.H + 1 - lab.CONFORMAL_WINDOW): i - vf.H + 1], taus))
+            scores.append(2 / taus.size * np.sum((y[i] - q) * (taus - (y[i] < q))))
+        self.assertEqual(rows["har_iv"]["crps_grid_pct"], round(float(np.mean(scores)) * 100, 3))
+        # The band's interval score splits into its two pinball losses; the band is not these quantiles.
+        for key in ("har_iv", "har_iv_range"):
+            split = rows[key]["band_split"]
+            self.assertAlmostEqual(split["interval_score_pct"], conf[key]["interval_score_pct"], delta=0.011)
+            self.assertNotIn("band_split", rows["ovx_only"])
+        # At tau = 0.10 and 0.90 the trailing quantiles are delayed_aci's bounds without its adaptive step.
+        aci = fe.delayed_aci(e, delay=vf.H, alpha=0.2, gamma=0.0, window=lab.CONFORMAL_WINDOW, warmup=lab.WARMUP * vf.STEP)
+        tq = fe.trailing_quantiles(e, (0.1, 0.9), delay=vf.H, window=lab.CONFORMAL_WINDOW, warmup=lab.WARMUP * vf.STEP)
+        np.testing.assert_array_equal(tq["q"][first:, 0], aci["lo"][first:])
+        np.testing.assert_array_equal(tq["q"][first:, 1], aci["hi"][first:])
+        for key, row in rows.items():
+            berk = row["berkowitz"]
+            self.assertEqual(len(berk["by_grid"]), vf.STEP, key)
+            self.assertEqual(berk["p_value"], min(1.0, vf.STEP * min(g["p_value"] for g in berk["by_grid"])), key)
+            self.assertAlmostEqual(sum(row["pit_decile_share_pct"]), 100, delta=0.6)
+            self.assertEqual(len(row["pit_chance_band_pct"]), 10)
+            if key == lab.CHAMPION:
+                self.assertIsNone(row["dm_vs_har_iv"])
+                continue
+            dm = row["dm_vs_har_iv"]["crps_grid"]
+            self.assertEqual(len(dm["period_means"]), lab.DIST_DM_GROUPS)
+            self.assertEqual(dm["periods_model_lower"] + dm["periods_har_iv_lower"], lab.DIST_DM_GROUPS)
+            self.assertEqual(np.sign(dm["stat"]), np.sign(dm["mean_diff"]))
+        self.assertEqual({rows[k]["berkowitz"]["reference"] for k in ("har_iv", "har_iv_range", "ovx_only")},
+                         {"simulated null"})
+        self.assertEqual(rows["ewma"]["berkowitz"]["reference"], "chi2(3)")
+        qb = rows[lab.QHAR_KEY]["berkowitz"]
+        self.assertEqual((qb["registered"], qb["reference"]), ("censored", "doubly censored, chi2(2)"))
+        self.assertEqual(rows[lab.QHAR_KEY]["quantile_har"]["refits"], self.qhar["refits"])
+        self.assertEqual(rep["config"]["gaussian_ratio_k19"], 1.048263)
+
+    def test_the_quantile_har_never_enters_the_field(self):
+        import ast
+        import inspect
+
+        from backend import field_record as fr
+        from backend import research_ledger as rl
+
+        for name, field in (("MODEL_KEYS", lab.MODEL_KEYS), ("FEASIBLE", lab.FEASIBLE), ("LOG_MODELS", lab.LOG_MODELS),
+                            ("LAB_COMPARED", rl.LAB_COMPARED), ("FIELD_KEYS", fr.FIELD_KEYS)):
+            self.assertNotIn(lab.QHAR_KEY, field, name)
+        names = {"quantile_har", "QHAR_KEY", "_quantile_fit", "quantile_har_field", "distribution_report",
+                 "distribution_scores", "distribution_mcs", "garch_predictive", "empirical_predictive", "ewma_predictive",
+                 "_garch_rv5", "GARCH_PARAMS"}
+        tree = ast.parse(inspect.getsource(lab))
+        readers = {node.name for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                   and any(isinstance(n, ast.Name) and n.id in names for n in ast.walk(node))}
+        self.assertEqual(readers, {"build_report", "_garch_columns", "garch_predictive", "distribution_scores",
+                                   "distribution_report", "quantile_har_field", "field", "member", "quantile_har"})
+        for function in (lab.choose_challenger, lab.oos_selection, lab.conformal_report, lab.leaderboard, lab._losses,
+                         lab.stability_report, lab.regime_report, lab.var_backtest, lab.chart_series):
+            source = inspect.getsource(function)
+            self.assertFalse([name for name in names if name in source], function.__name__)
+        # And on a frame: a quantile_har column changes neither the challenger, the selection nor the band. The fast
+        # walk stands in for the slow models with distinct deterministic copies (identical ones break arch's MCS).
+        frame = self.frame.copy()
+        for key, source, scale in (("garch", "ewma", 1.03), ("gjr", "ewma", 0.97), ("lgbm", "har_rv", 1.02)):
+            frame[key] = frame[f"{key}__med"] = frame[source] * scale
+        frame["combo"] = np.sqrt(np.mean([frame[m] ** 2 for m in lab.COMBO_MEMBERS], axis=0))
+        frame["combo__med"] = np.exp(np.mean([np.log(frame[f"{m}__med"]) for m in lab.COMBO_MEMBERS], axis=0))
+        added = frame.copy()
+        added[lab.QHAR_KEY] = added[f"{lab.QHAR_KEY}__med"] = self.qhar["forecast"]
+        self.assertEqual(lab.choose_challenger(added), lab.choose_challenger(frame))
+        self.assertEqual(json.dumps(lab._jsonable(lab.oos_selection(added))),
+                         json.dumps(lab._jsonable(lab.oos_selection(frame))))
+        strip = lambda conf: {k: {kk: vv for kk, vv in v.items() if not kk.startswith("_")} for k, v in conf.items()}  # noqa: E731
+        self.assertEqual(strip(lab.conformal_report(added, "har_iv_range")),
+                         strip(lab.conformal_report(frame, "har_iv_range")))
+
+    def test_a_berkowitz_p_from_the_simulated_null_may_move_a_few_draws(self):
+        step = 1 / (lab.DIST_NULL_DRAWS + 1)
+        block = {"distribution": {"models": [
+            {"pit_construction": "trailing_rank", "berkowitz": {"p_value": 0.0925, "p_cauchy": 0.05, "mc_se": 0.0067,
+                                                                "p_chi2": 0.356, "by_grid": [{"p_value": 0.0185}]}},
+            {"pit_construction": "exact", "berkowitz": {"p_value": 0.0023, "by_grid": [{"p_value": 0.0015}]}}]}}
+        moved = json.loads(json.dumps(block))
+        trailing, exact = (m["berkowitz"] for m in moved["distribution"]["models"])
+        trailing["by_grid"][0]["p_value"] += 9 * step
+        trailing["p_value"] += 45 * step
+        trailing["p_cauchy"] += 30 * step
+        self.assertEqual(lab.compare_reports(block, moved)["violations"], [])
+        trailing["by_grid"][0]["p_value"] += 3 * step                      # beyond the allowance
+        self.assertEqual(len(lab.compare_reports(block, moved)["violations"]), 1)
+        trailing["by_grid"][0]["p_value"] -= 3 * step
+        trailing["p_chi2"] += 0.002                                        # chi2: not a count of draws
+        exact["by_grid"][0]["p_value"] += 0.0005                           # a parametric PIT's p: not either
+        self.assertEqual(len(lab.compare_reports(block, moved)["violations"]), 2)
 
 
 class ArtifactContractTest(unittest.TestCase):
