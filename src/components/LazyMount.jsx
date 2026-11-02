@@ -20,20 +20,21 @@ const IDLE_FALLBACK_MS = 1500;
 const STALL_MS = 5000;
 
 /**
- * The height a placeholder reserves, at or above 640px (wide) and below (narrow). A number reserves
+ * The height a placeholder reserves: `wide` above 640px, `narrow` at 640px and below, and `mid` from
+ * 641 to 899px for a figure whose height changes there too (`wide` when not given). A number reserves
  * the same height at every width; a missing or invalid value falls back to DEFAULT_HEIGHT.
  *
- * @param {number|{wide?: number, narrow?: number}} [minHeight]
- * @returns {{wide: number, narrow: number}}
+ * @param {number|{wide?: number, mid?: number, narrow?: number}} [minHeight]
+ * @returns {{wide: number, mid: number, narrow: number}}
  */
 export const reservedHeights = (minHeight) => {
   const valid = (value) => (Number.isFinite(value) && value >= 0 ? Math.round(value) : null);
   if (typeof minHeight === "number") {
     const height = valid(minHeight) ?? DEFAULT_HEIGHT;
-    return { wide: height, narrow: height };
+    return { wide: height, mid: height, narrow: height };
   }
   const wide = valid(minHeight?.wide) ?? valid(minHeight?.narrow) ?? DEFAULT_HEIGHT;
-  return { wide, narrow: valid(minHeight?.narrow) ?? wide };
+  return { wide, mid: valid(minHeight?.mid) ?? wide, narrow: valid(minHeight?.narrow) ?? wide };
 };
 
 // ------------------------------------------------------------------------------- mount queue
@@ -181,8 +182,8 @@ function MountSignal({ onMount }) {
  * not a live region, so a screen reader is not interrupted while the page fills in.
  *
  * @param {object} props
- * @param {number|{wide: number, narrow: number}} [props.minHeight]  reserved height in px; with an
- *   object, `narrow` applies at 640px and below
+ * @param {number|{wide: number, mid?: number, narrow: number}} [props.minHeight]  reserved height in
+ *   px; with an object, `narrow` applies at 640px and below and `mid` from 641 to 899px
  * @param {string} [props.label]       what is loading ("chart")
  * @param {string} [props.rootMargin]  IntersectionObserver margin
  * @param {boolean} [props.background] mount in the background once the page has settled (default);
@@ -223,15 +224,16 @@ export default function LazyMount({
     };
   }, [rootMargin, visible, background]);
 
-  const { wide, narrow } = reservedHeights(minHeight);
-  // Only the placeholder reserves height (CSS reads these variables): a loaded chart sizes itself.
+  const { wide, mid, narrow } = reservedHeights(minHeight);
+  // Only the placeholder reserves height (CSS reads these variables): a loaded chart sizes itself. Each
+  // is set on every wrapper, so none is inherited from an enclosing one.
   const placeholder = <div className="figure-placeholder">Loading {label}…</div>;
   return (
     <div
       ref={ref}
       className="lazy-mount"
       aria-busy={mounted ? undefined : "true"}
-      style={{ "--lazy-h": `${wide}px`, "--lazy-h-narrow": `${narrow}px` }}
+      style={{ "--lazy-h": `${wide}px`, "--lazy-h-narrow": `${narrow}px`, "--lazy-h-mid": `${mid}px` }}
     >
       {visible ? (
         <Suspense fallback={placeholder}>

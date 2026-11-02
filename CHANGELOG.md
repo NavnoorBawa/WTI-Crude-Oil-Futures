@@ -284,12 +284,18 @@ backs the new one.
   only where the record scores lower, the challenger's pinball edge as picked on this sample and
   outside the family, a footnote on what the scores are, and the quantile HAR's QLIKE rerun with
   every setting in or out. The title, default view and ranking stay QLIKE. The figure reserves its
-  exact height (rows × 46 + 22 px); the readings and both tables load with one lazy chunk. A view
-  control that cannot fit its row now wraps instead of running off the panel's left edge. Tests:
-  the verdict bands at 0.049, 0.05, 0.099 and 0.10 with q on either side of 0.05, the order and the
-  tag, the chance note and the rerun footnote from the artifact, the figure's geometry, and in a
-  browser `?modl=dist` and `?table=calb` at 390 and 320 px (no sideways scroll, axe clean, the
-  reserved height equal to the drawn one).
+  exact height (rows × 46 + 22 px); MODL's view and CALB's tables, which are text, reserve the
+  height measured at 1,440, 768 and 390 px (a lazy placeholder can now hold a third height, from
+  641 to 899 px); the readings and both tables load with one lazy chunk. A view control that cannot
+  fit its row now wraps instead of running off the panel's left edge, and under forced colours a
+  label's tinted part (MZ's row tag, the PIT figure's tag) takes the system text colour with the
+  rest of its label. Tests: the verdict bands at
+  0.049, 0.05, 0.099 and 0.10 with q at 0.04, 0.05 and 0.06, each reading's direction and verdict
+  wording, the order and the tag, the chance note and the rerun footnote from the artifact, every
+  cell of both views' tables in its column, the figure's geometry, and in a browser `?modl=dist` and
+  `?table=calb` at 1440, 390 and 320 px (no sideways scroll, axe clean, the figure's reserved height
+  equal to the drawn one and the text views' close to it, the 10% line apart from the bars and the
+  chance ranges on screen and under forced colours, each p printed once).
 - **The OVX/RV5 gap on FCST (ROADMAP 2.2, third part).** The FCST table (from 1000 px) gains the
   week's OVX/RV5 log gap at the decision, the quantity the regime split cuts at its trailing median;
   the CSV adds that median, and the chart's keyboard reading of a week names both. A test checks

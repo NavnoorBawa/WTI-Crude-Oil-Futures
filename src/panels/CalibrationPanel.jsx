@@ -33,8 +33,10 @@ const mzHeight = (rows) => ({
 // of axis (344 px for seven models). Its summary sits above it in this module, so the reservation is exact.
 const PIT_ROW = 46;
 const PIT_AXIS = 22;
-// CALB's table view: the PIT and Berkowitz tables reserve about 144 px a model.
-const PIT_TABLES_ROW = 144;
+// CALB's table view: the PIT and Berkowitz tables reserve about their height, by model, above 640 px and at or below
+// (measured for seven models: 1,060 px at 768 and from 1,440 up, 860 to 1,077 between; 988 at 390, 885 to 1,042 from
+// 320 to 640). They sit under the Mincer-Zarnowitz table, past the first screen.
+const PIT_TABLES_ROW = { wide: 148, narrow: 138 };
 
 /** "p = 0.161" (or "p < 0.001"): the 3 decimals of the MZ table, so a fact and its table row agree. */
 const pText = (value) => {
@@ -266,8 +268,8 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
             rows={mzRows}
           />
           {pit.length > 0 && (
-            // The two tables' height, about (measured for seven models: 880 to 1,090 px at every width).
-            <LazyMount minHeight={pit.length * PIT_TABLES_ROW + PIT_AXIS} label="distribution tables">
+            <LazyMount minHeight={{ wide: pit.length * PIT_TABLES_ROW.wide + PIT_AXIS, narrow: pit.length * PIT_TABLES_ROW.narrow + PIT_AXIS }}
+              label="distribution tables">
               <PitTables rows={distRows} ledger={ledger} sample={distributionSample(lab)} />
             </LazyMount>
           )}
@@ -307,7 +309,7 @@ export default function CalibrationPanel({ data, research, researchStatus }) {
           {summary && <p className="prose-note pit-summary">{summary}</p>}
           <Legend items={[
             { tone: "chance", label: "chance range under a correct forecast" },
-            { tone: "median", label: "one bin's share of the days", shape: "dashed" },
+            { tone: "pit-line", label: "one bin's share of the days", shape: "dashed" },
           ]} />
           <LazyMount minHeight={pit.length * PIT_ROW + PIT_AXIS} label="PIT histogram">
             <PitRows rows={pit} />

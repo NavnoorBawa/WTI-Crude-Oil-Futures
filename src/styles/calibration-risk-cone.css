@@ -25,14 +25,21 @@
 .pit-chance { fill: var(--text-4); }
 .pit-tag { fill: var(--text-3); font-weight: 400; }
 .swatch-chance { --c: var(--text-4); height: 8px; }
+/* The dashed 10% line in ink: in the neutral bars' text-3 it vanished wherever it crossed one, and it read at about
+   1.5:1 on the text-4 chance range. Its legend key matches it. */
+.pit-chart .stroke-target { stroke: var(--text-1); }
+.swatch-pit-line { --c: var(--text-1); }
 .pit-summary + .legend { margin-top: var(--sp-3); }
 .pit-note { margin-top: var(--sp-2); }
 /* The distribution tables' names, references and context wrap within a measure, so the grids' columns get the room;
    a "by chance" row reads muted, under the models it holds for. */
 .data-table .dist-wrap { white-space: normal; min-width: 7rem; max-width: 13rem; }
 .data-table tr.is-chance :is(th, td) { color: var(--text-3); }
+/* Forced colours: the neutral bars are CanvasText, so the 10% line is GrayText (restated here, since the screen rule
+   above out-ranks index.css's) and the chance range is a GrayText outline on Canvas, apart from the line. */
 @media (forced-colors: active) {
-  .svg-chart .pit-chance { fill: GrayText; }
+  .svg-chart .pit-chance { fill: Canvas; stroke: GrayText; }
+  .svg-chart.pit-chart .stroke-target { stroke: GrayText; }
 }
 
 /* ---------------------------------------------------------------------------------------- risk */

@@ -4,7 +4,7 @@
 // the field) and the rows of CALB's table view. Every number comes from the payload; the wording follows the band
 // its p falls in ("significant" below 0.05, "inconclusive" from 0.05 to 0.10).
 import { NBSP, fmtInt, fmtNum, fmtSigned, num } from "./format";
-import { asArray, asObject, asText, mcsLevel } from "./research";
+import { asArray, asObject, asText, isTimingControl, mcsLevel } from "./research";
 import {
   ALPHA, band, capitalize, distributionBlock, distributionModels, join, p3, pct, pEq, pitRows, proseName, referenceWords, span,
   years,
@@ -80,7 +80,8 @@ export const scoreReading = (lab, ledger, score) => {
   let text = `On ${score.phrase}, ${clauses.join("; ")}.`;
   if (score.key === "crps_grid") {
     // As RESULTS 2.9 reads it: the models the record scores lower than, short of p = 0.20 (a total near zero makes
-    // the shares meaningless).
+    // the shares meaningless). The shares keep the artifact's one decimal: RESULTS rounds them to whole percents half
+    // to even and toFixed rounds half up, so whole percents here could disagree with it (40.5% is 40% there, 41% here).
     const behind = tests.filter((row) => t(row) < 0 && p(row) < 0.2)
       .map((row) => ({ row, test: testOf(row, score.key) }))
       .filter(({ test }) => asObject(test.concentration));
@@ -88,8 +89,8 @@ export const scoreReading = (lab, ledger, score) => {
       const groups = num(testOf(behind[0].row, score.key).groups);
       text += ` Against ${join(behind.map(({ row }) => proseName(row)))}, ${R} scored the lower CRPS in `
         + `${span(behind.map(({ test }) => num(test.periods_har_iv_lower)))}${groups != null ? ` of ${fmtInt(groups)}` : ""} periods, `
-        + `but 2020 carries ${span(behind.map(({ test }) => num(test.concentration.share_2020_pct)), 0, "%")} of each total `
-        + `difference, and the 1% of days with the largest differences ${span(behind.map(({ test }) => num(test.concentration.share_largest_1pct_days_pct)), 0, "%")}.`;
+        + `but 2020 carries ${span(behind.map(({ test }) => num(test.concentration.share_2020_pct)), 1, "%")} of each total `
+        + `difference, and the 1% of days with the largest differences ${span(behind.map(({ test }) => num(test.concentration.share_largest_1pct_days_pct)), 1, "%")}.`;
     }
   }
   return text;
@@ -146,7 +147,8 @@ export const distributionFootnote = (lab) => {
   const cfg = asObject(block.config) ?? {};
   const rows = distributionModels(lab);
   const record = rows.find((row) => row.role === "record");
-  const board = asArray(lab?.leaderboard?.models).map((model) => asText(model?.key)).filter(Boolean);
+  // The timing control (same-day OVX) is not a feasible forecast, so it is counted apart, as MODL's meta counts it.
+  const board = asArray(lab?.leaderboard?.models).filter((model) => !isTimingControl(model)).map((model) => asText(model?.key)).filter(Boolean);
   const scored = new Set(rows.map((row) => row.key));
   const missing = board.filter((key) => !scored.has(key)).length;
   const taus = asArray(cfg.taus).map(num).filter((value) => value != null);

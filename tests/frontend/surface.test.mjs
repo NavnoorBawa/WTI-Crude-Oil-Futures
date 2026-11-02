@@ -173,24 +173,70 @@ test("the price change is set in the text colour with a direction arrow, and the
   assert.ok(colours.length > 0 && colours.every((rule) => rule.decls.color === "var(--text-2)"), "no gain/loss colour on the change");
 });
 
+test("a value moved under another below a width shows there on screens only, as the hidden column it replaces", () => {
+  // A printed page is about 725 CSS px wide and keeps every column, so a copy shown in place of a hidden column (MODL's
+  // p under each t in the distribution view) must be screen-only, or print shows it twice.
+  const all = rules();
+  const hide = all.filter((rule) => rule.selectors.some((selector) => /\.col-hide-900\b/.test(selector)) && rule.decls.display === "none");
+  const show = all.filter((rule) => rule.selectors.some((selector) => /\.dist-p\b/.test(selector)) && rule.decls.display && rule.decls.display !== "none");
+  assert.ok(hide.length > 0 && show.length > 0);
+  for (const rule of [...hide, ...show]) {
+    assert.ok(rule.context.some((at) => /@media\s+screen\s+and\s+\(max-width:\s*899px\)/.test(at)), `${rule.selectors.join(", ")} in ${rule.context.join(" ") || "no media query"}`);
+  }
+});
+
+test("a lazy table keeps the space a table gets under the table before it", () => {
+  // CALB's distribution tables sit in a LazyMount wrapper after the MZ table, so the sibling rule between two tables
+  // does not reach them; the wrapper takes the same margin.
+  const all = rules();
+  const margin = (selector) => all.find((rule) => rule.context.length === 0 && rule.selectors.includes(selector))?.decls["margin-top"];
+  const between = margin(".panel-table .table-wrap + .table-wrap");
+  assert.ok(between, "the space between two tables");
+  assert.equal(margin(".panel-table .table-wrap + .lazy-mount"), between);
+});
+
+test("forced colours: every SVG label is forced, and the PIT figure's 10% line stays apart from its bars and chance range", () => {
+  const all = rules();
+  const forced = all.filter((rule) => rule.context.some((at) => /forced-colors:\s*active/.test(at)));
+  // A tspan with its own tint (MZ's row tag, PIT's "not in the benchmark") does not inherit its text's forced fill.
+  const labels = forced.find((rule) => rule.selectors.some((selector) => /^\.svg-chart :is\((?=[^)]*\btext\b)(?=[^)]*\btspan\b)[^)]*\)$/.test(selector)));
+  assert.ok(labels && /^CanvasText\s*!important$/.test(labels.decls.fill), "text and tspan take CanvasText");
+  // The last rule that sets a property for a selector matching the pattern (later rules win at equal weight).
+  const last = (pool, pattern, property) => pool.filter((rule) => rule.selectors.some((selector) => pattern.test(selector)))
+    .map((rule) => rule.decls[property]).filter(Boolean).at(-1);
+  // Forced: the neutral bars are CanvasText, the 10% line GrayText, the chance range a GrayText outline on Canvas.
+  assert.equal(last(forced, /\.fill-neutral\b/, "fill"), "CanvasText");
+  assert.equal(last(forced, /\.pit-chart \.stroke-target$/, "stroke"), "GrayText");
+  assert.equal(last(forced, /\.pit-chance$/, "fill"), "Canvas");
+  assert.equal(last(forced, /\.pit-chance$/, "stroke"), "GrayText");
+  // On screen the line is in ink, not in the neutral bars' or the chance range's tint.
+  const screen = all.filter((rule) => rule.context.length === 0);
+  const line = last(screen, /^\.pit-chart \.stroke-target$/, "stroke");
+  assert.ok(line && line !== last(screen, /^\.fill-neutral$/, "fill") && line !== last(screen, /^\.pit-chance$/, "fill"), `line ${line}`);
+});
+
 test("a lazy figure reserves its height per breakpoint and is busy, not a live region, until it mounts", async () => {
   const { default: LazyMount, reservedHeights } = await m.load("/src/components/LazyMount.jsx");
-  assert.deepEqual(reservedHeights(320), { wide: 320, narrow: 320 });
-  assert.deepEqual(reservedHeights({ wide: 360, narrow: 324 }), { wide: 360, narrow: 324 });
-  assert.deepEqual(reservedHeights({ wide: 200 }), { wide: 200, narrow: 200 });
-  assert.deepEqual(reservedHeights(undefined), { wide: 240, narrow: 240 });
-  assert.deepEqual(reservedHeights({ wide: Number.NaN, narrow: -5 }), { wide: 240, narrow: 240 });
+  assert.deepEqual(reservedHeights(320), { wide: 320, mid: 320, narrow: 320 });
+  assert.deepEqual(reservedHeights({ wide: 360, narrow: 324 }), { wide: 360, mid: 360, narrow: 324 });
+  assert.deepEqual(reservedHeights({ wide: 200 }), { wide: 200, mid: 200, narrow: 200 });
+  assert.deepEqual(reservedHeights({ wide: 730, mid: 1002, narrow: 1376 }), { wide: 730, mid: 1002, narrow: 1376 });
+  assert.deepEqual(reservedHeights(undefined), { wide: 240, mid: 240, narrow: 240 });
+  assert.deepEqual(reservedHeights({ wide: Number.NaN, mid: -1, narrow: -5 }), { wide: 240, mid: 240, narrow: 240 });
 
   const html = renderToStaticMarkup(createElement(LazyMount, { minHeight: { wide: 360, narrow: 324 }, label: "forecast chart" },
     createElement("div", { className: "the-chart" })));
-  assert.match(html, /^<div class="lazy-mount" aria-busy="true" style="--lazy-h:360px;--lazy-h-narrow:324px">/);
+  assert.match(html, /^<div class="lazy-mount" aria-busy="true" style="--lazy-h:360px;--lazy-h-narrow:324px;--lazy-h-mid:360px">/);
   assert.ok(html.includes('<div class="figure-placeholder">Loading forecast chart…</div>'), html);
   assert.ok(!html.includes("the-chart"), "the figure itself waits for the client");
   assert.ok(!html.includes('role="status"'));
-  // The CSS reads the variables, with the narrow one at 640px and below.
+  // The CSS reads the variables, with the mid one below 900px and the narrow one at 640px and below (in that order, so
+  // the narrow one wins on a phone).
   const reserve = rules().filter((rule) => rule.selectors.includes(".lazy-mount > .figure-placeholder"));
   assert.ok(reserve.some((rule) => rule.context.length === 0 && /var\(--lazy-h\b/.test(rule.decls["min-height"])));
-  assert.ok(reserve.some((rule) => rule.context.some((at) => /max-width:\s*640px/.test(at)) && /var\(--lazy-h-narrow\b/.test(rule.decls["min-height"])));
+  const midRule = reserve.findIndex((rule) => rule.context.some((at) => /max-width:\s*899px/.test(at)) && /var\(--lazy-h-mid\b/.test(rule.decls["min-height"]));
+  const narrowRule = reserve.findIndex((rule) => rule.context.some((at) => /max-width:\s*640px/.test(at)) && /var\(--lazy-h-narrow\b/.test(rule.decls["min-height"]));
+  assert.ok(midRule >= 0 && narrowRule > midRule, `mid rule ${midRule}, narrow rule ${narrowRule}`);
 
   // On the whole dashboard every placeholder is in a busy wrapper, and none is a live region.
   const dashboard = renderToStaticMarkup(createElement(m.dashboard.default, {

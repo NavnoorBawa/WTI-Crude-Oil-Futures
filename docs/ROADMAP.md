@@ -398,10 +398,17 @@ Tick items here with the PR number and date when they ship, and move any new fin
   gave p = 0.157); the DM tests use batch means because the 9-lag variance is far too small for these persistent
   differences; the scale, weights, periods, GARCH construction and references were chosen after scores were seen and
   the rows are not pre-specified. On the page: the readings MODL's view and CALB's table view need load with their
-  lazy chunk (`lib/distributionScores.js`); the entry grows by about 10 KB (to 307,282 B of 327,680; the first
-  load's scripts 178,096 B gzipped of 184,320); below 900 px each test's p sits under its t, and at 360 px and below
-  MODL's view leaves Berkowitz's p to CALB. Not done: horizons (2.5) and a batch-means p beside the published QLIKE
-  DMs (backlog).
+  lazy chunk (`lib/distributionScores.js`); the entry grows by about 10 KB (to 307,434 B of 327,680; the first
+  load's scripts 178,173 B gzipped of 184,320); below 900 px each test's p sits under its t (on screen; print keeps the
+  p columns), and at 360 px and below MODL's view leaves Berkowitz's p to CALB. MODL's view and CALB's tables are
+  text that rewraps with the width, so their placeholders reserve a measured height, not the exact one asked for at
+  390 and 320 px: a placeholder can now hold a third height (641 to 899 px), and each range reserves its common
+  width's (MODL's view, seven models: 728, 1,002 and 1,376 px, within about 2% at 1,440, 768 and 390 px; elsewhere
+  up to about 120 px off above 640 px and up to about 340 px at or below, at 320 px and from 480 to 640 px; CALB's
+  tables, under the MZ table, up to about 200 px from 900 to 1,279 px). The browser check holds the PIT figure exact
+  and the text views within 3% at 1,440 and 390 px and 20% at 320 px. The CRPS reading quotes the 2020 and
+  largest-days shares to one decimal, since RESULTS rounds them to whole percents half to even. Not done: horizons
+  (2.5) and a batch-means p beside the published QLIKE DMs (backlog).
 - **2.3 Conditional predictive ability and stability over time** (#101 and the STAB part,
   2026-11-02): `forecast_eval.gw_test` and the fluctuation test (`rolling_dm`, a seeded null of
   random walks at the sample's resolution, critical values and a p adjusted for the choice among

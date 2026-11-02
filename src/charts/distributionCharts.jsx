@@ -136,7 +136,8 @@ const nameColumn = { key: "label", label: "Model", rowHeader: true, className: "
 // CALB's tables name a model as its MZ table does: the name, and a tag on a muted line.
 const plainName = {
   key: "label", label: "Model", rowHeader: true, className: "dist-wrap",
-  render: (row) => (row.chance ? <span className="muted">{row.label}</span> : <>{keepHyphenated(row.label)}{row.tag && <span className="cell-note">{row.tag}</span>}</>),
+  render: (row) => (row.chance ? <span className="muted">{keepHyphenated(row.label)}</span>
+    : <>{keepHyphenated(row.label)}{row.tag && <span className="cell-note">{row.tag}</span>}</>),
   csv: (row) => (row.tag ? `${row.label} (${row.tag})` : row.label),
 };
 const srName = (visible, hidden) => <>{visible}<span className="sr-only">{` (${hidden})`}</span></>;

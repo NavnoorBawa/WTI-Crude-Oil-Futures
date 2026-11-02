@@ -20,9 +20,12 @@ import { ResearchUnavailable } from "./common";
 
 const VIEW_VALUES = MODL_VIEWS.map((view) => view.value);
 // The distribution view (table and readings, one lazy chunk) reserves about its own height: a dense row a model (a
-// chipped or tagged name wraps on a phone), its header and caption, and the readings under it (measured: 720 to
-// 1,070 px above 640 px, 1,030 to 1,600 px at or below).
-const distHeight = (count) => ({ wide: count * 34 + 660, narrow: count * 52 + 1050 });
+// chipped or tagged name wraps on a phone), its header and caption, and the readings under it, which wrap with the
+// width, so the reservation is measured, not exact. For seven models, with the fixture and the published payload:
+// 719 to 737 px from 1,440 px up (665 at 1,280, 757 at 1,024, 848 at 900), 889 to 1,086 px from 641 to 899 (1,002 at
+// 768), and 1,039 to 1,634 px at 640 and below (1,367 to 1,385 at 390). Each range reserves its common width's height,
+// so a desktop landing on ?modl=dist hardly moves; on a tablet or phone the view runs past the first screen.
+const distHeight = (count) => ({ wide: count * 34 + 490, mid: count * 44 + 694, narrow: count * 52 + 1012 });
 
 const INPUT_TEXT = (info) => {
   const parts = [];

@@ -65,11 +65,12 @@ tr.is-challenger .set-mark.is-in { color: var(--s-alt); }
 }
 
 /* ---------------------------------------------------------------------------- MODL distribution view */
-/* Below 900px each test's p sits under its t (the p columns are hidden there; the CSV keeps them). */
+/* Below 900px each test's p sits under its t (the p columns are hidden there; the CSV keeps them). Screens only, as
+   for the hidden columns: print keeps the p columns, so the p under each t would print twice. */
 .dist-p { display: none; }
 /* Its short headers may wrap ("Pinball / 10%"), so the scores fit a tablet without a sideways scroll. */
 .leaderboard--dist .data-table thead th { white-space: normal; }
-@media (max-width: 899px) {
+@media screen and (max-width: 899px) {
   .leaderboard--dist .data-table :is(th, td):not(:first-child) { padding-left: 6px; padding-right: 6px; }
   .leaderboard--dist .stat-cell { flex-direction: column; align-items: flex-end; gap: 0; }
   .leaderboard--dist .dist-p { display: block; font-size: var(--fs-11); color: var(--text-3); white-space: nowrap; }

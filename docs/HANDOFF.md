@@ -58,8 +58,8 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   their batch-means t and p, the readings at each test's strength and the quantile HAR's QLIKE rerun
   as a footnote. The readings and both views' tables load with one lazy chunk
   (`charts/distributionCharts.jsx`, `lib/distributionScores.js`); what CALB's first render needs is
-  in `lib/distribution.js`, in the entry (307,282 B of the 327,680 B budget; the first load's
-  scripts 178,096 B gzipped of 184,320 B).
+  in `lib/distribution.js`, in the entry (307,434 B of the 327,680 B budget; the first load's
+  scripts 178,173 B gzipped of 184,320 B).
 - **Live record.** Daily calls are recorded and sealed in git on the `live-data` branch before their
   window opens; each call since 2026-10-28 also stores its fit, so it recomputes from its own entry.
   The first three windows resolved on 2026-10-29, 10-30 and 10-31: the Oct 20 call (47.3%, band
@@ -202,7 +202,12 @@ and its CI run is the test.
   scale (by design: no zoomed axis); a second, deviation-from-10% view would make it legible.
 - Model names in prose break at their hyphens ("HAR-IV-" / "range") in MODL's readings and other
   footnotes; tables use `keepHyphenated`, prose does not.
-- The first-load gzip headroom is about 6.2 KB after 2.4 (entry +10.2 KB). The CALB method notes
+- MODL's distribution view and CALB's distribution tables (ROADMAP 2.4) reserve a measured height
+  per range (LazyMount's wide, mid and narrow values, set from 1,440, 768 and 390 px), not their
+  exact one: the rendered text is up to about 340 px off between 480 and 640 px, about 260 px at
+  320 px, and CALB's tables about 200 px from 900 to 1,279 px, below the first screen in the
+  landings measured. A reservation that follows the text, or an intrinsic one, would remove it.
+- The first-load gzip headroom is about 6.1 KB after 2.4 (entry +10.4 KB). The CALB method notes
   (about 3 KB of the entry) could load with the lazy chunk if a later item needs the room.
 
 ### 5. Engineering
