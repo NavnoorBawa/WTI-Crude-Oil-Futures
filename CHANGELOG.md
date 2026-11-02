@@ -92,6 +92,13 @@ backs the new one.
 
 ### Engineering
 
+- **The jump palette loads on demand.** Its list of everything it can reach and its ranking moved
+  from `src/app/commands.js` to `src/app/paletteCommands.js`, loaded with the palette (lazily,
+  then preloaded when the page is idle), so the first screen's scripts are 12.8 kB smaller (3.0 kB
+  gzipped; the entry script itself is 29.6 kB smaller, part of it moved into a preloaded chunk
+  that still loads first). A palette whose chunk fails to load closes with a notice, and the next
+  open retries; a browser check covers both. Room for ROADMAP 2.4's figures.
+
 - **A pinned reproduce environment.** A `Dockerfile` (Python 3.12.14 and Node 24.21.0 images pinned
   by digest, each at least 14 days old; dependencies only from `requirements*.txt` and
   `package-lock.json`; the Reproduce workflow's numeric environment), a `Makefile` with one target

@@ -1,14 +1,39 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Component, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Chip from "../components/Chip";
-import CommandPalette from "../components/CommandPalette";
 import { copyText } from "../lib/clipboard";
 import { fmtAge, fmtCT } from "../lib/format";
 import useNow from "../lib/useNow";
 import { getPrimarySection, goToAdjacentSection, pinSection, sectionUrl, setPrimarySection } from "./commands";
 import { REPO_URL, STALE_SNAPSHOT_MS } from "./config";
+import { retryingLazy } from "./lazyChunk";
 import { SECTIONS, sectionById, startsGroup } from "./sections";
 import useShortcuts, { isTypingTarget, useSingleKeys } from "./useShortcuts";
 import { parseViewList, parseViewParams, useViewList } from "./viewState";
+
+// The palette (its list of everything it can reach, and its ranking) loads when it is first opened, so the first
+// screen's script does not carry it; a failed load is retried on the next open (see app/lazyChunk.js).
+const getCommandPalette = retryingLazy(() => import("../components/CommandPalette.jsx"));
+
+/** A palette whose chunk failed to load closes and says so (onFail), instead of reaching the page's boundary. */
+class PaletteBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { failed: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error) {
+    console.warn("[palette] could not load", error);
+    this.props.onFail();
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
 
 const EMPTY = new Set();
 // Scrolling has settled once no scroll event arrives for this long; only then can a pinned
@@ -238,6 +263,7 @@ function useToast() {
  */
 export default function TopBar({ frozenAtMs, lastUpdate, hasData, data = null, research = null }) {
   const ready = Boolean(hasData) && !data?.error;
+  const CommandPalette = getCommandPalette();
   const barRef = useRef(null);
   const navRef = useRef(null);
   const openerRef = useRef(null);
@@ -263,6 +289,12 @@ export default function TopBar({ frozenAtMs, lastUpdate, hasData, data = null, r
     setPalette(null);
     if (restore && opener?.isConnected && opener !== document.body) opener.focus({ preventScroll: true });
   }, []);
+
+  // The palette's chunk failed to load: close, say so, and the next open loads it again.
+  const onPaletteFail = useCallback(() => {
+    closePalette({ restore: true });
+    notify("The jump palette could not load; open it again to retry");
+  }, [closePalette, notify]);
 
   const onShortcut = useCallback((action) => {
     const current = getPrimarySection();
@@ -342,14 +374,18 @@ export default function TopBar({ frozenAtMs, lastUpdate, hasData, data = null, r
         </div>
       </div>
       {palette && ready && (
-        <CommandPalette
-          key={palette.nonce}
-          initialView={palette.view}
-          data={data}
-          research={research}
-          onClose={closePalette}
-          notify={notify}
-        />
+        <PaletteBoundary key={palette.nonce} onFail={onPaletteFail}>
+        <Suspense fallback={null}>
+          <CommandPalette
+            key={palette.nonce}
+            initialView={palette.view}
+            data={data}
+            research={research}
+            onClose={closePalette}
+            notify={notify}
+          />
+        </Suspense>
+        </PaletteBoundary>
       )}
       <p className="nav-toast" role="status" data-shown={toast ? "" : undefined}>{toast}</p>
     </header>

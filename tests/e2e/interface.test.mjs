@@ -69,7 +69,7 @@ after(async () => {
 
 /** A page at `viewport` with console errors, page errors and failed requests collected, and the first
  * screen's layout shifts summed from navigation on (shifts right after input do not count, as in CLS). */
-const openPage = async (viewport, { now = FRESH, path = "/", research = null } = {}) => {
+const openPage = async (viewport, { now = FRESH, path = "/", research = null, before = null } = {}) => {
   const context = await browser.newContext({
     viewport: { width: viewport.width, height: viewport.height }, locale: "en-US", timezoneId: "America/Chicago",
     reducedMotion: "reduce",
@@ -88,6 +88,7 @@ const openPage = async (viewport, { now = FRESH, path = "/", research = null } =
   });
   // A payload other than the fixture (e.g. with blocks newer than it), served at the same path.
   if (research != null) await page.route("**/research.json", (route) => route.fulfill({ contentType: TYPES[".json"], body: research }));
+  if (before) await before(page);
   await page.goto(`${origin}${path}`, { waitUntil: "networkidle" });
   return { context, page, problems };
 };
@@ -480,6 +481,42 @@ test("phone: a data.json refresh that returns the same snapshot leaves a panned 
     assert.equal(refetches, 1, "data.json was fetched again");
     assert.equal(await page.locator("#fcst .reset-view").count(), 1, "the pan survived: the identical snapshot was not set again");
     assert.deepEqual(problems, []);
+  } finally {
+    await context.close();
+  }
+});
+
+test("the jump palette loads on demand, and a failed load closes it with a notice and retries on the next open", async () => {
+  // The first request for the palette's chunk fails (the idle preload's or the first open's, whichever comes first);
+  // a failed module fetch is cached, so the first open fails and the next one loads it under a retry URL.
+  let aborted = 0;
+  const before = (page) => page.route(/CommandPalette-[^/]*\.js/, (route) => {
+    if (aborted === 0) {
+      aborted += 1;
+      return route.abort();
+    }
+    return route.continue();
+  });
+  const { context, page, problems } = await openPage(VIEWPORTS[0], { before });
+  try {
+    await page.waitForSelector("#verdict-title");
+    // The first screen is index.html's entry and module preloads; the palette's chunk is not among them.
+    const html = await (await page.request.get(`${origin}/`)).text();
+    assert.doesNotMatch(html, /CommandPalette-/, "the palette's chunk is not part of the first screen");
+    await page.waitForTimeout(1500);                                      // the idle preload has run
+    await page.keyboard.press("/");
+    await page.waitForFunction(() => /could not load/.test(document.querySelector(".nav-toast")?.textContent ?? ""));
+    assert.equal(await page.locator("dialog[open]").count(), 0, "no half-open palette");
+    assert.ok(await page.locator("#verdict-title").count(), "the page is still there");
+    await page.keyboard.press("/");
+    await page.waitForSelector("dialog[open]");
+    assert.equal(aborted, 1);
+    await page.keyboard.press("Escape");
+    // The aborted request (its failed resource, and the import it failed) is the one failure expected here.
+    const expected = (problem) => /CommandPalette|Failed to fetch dynamically imported module|\[palette\]/.test(problem)
+      || problem === "console: Failed to load resource: net::ERR_FAILED";
+    assert.ok(problems.filter((problem) => problem.includes("net::ERR_FAILED")).length <= 1, problems.join("\n"));
+    assert.deepEqual(problems.filter((problem) => !expected(problem)), []);
   } finally {
     await context.close();
   }
