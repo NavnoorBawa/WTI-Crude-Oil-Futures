@@ -110,9 +110,10 @@ into those pages from the artifacts.
 
 The challenger is the lowest-QLIKE feasible model in the full-sample 90% Model Confidence Set
 other than the model of record (`vol_lab.choose_challenger`; the timing control is never
-eligible). It is chosen on the same sample it is evaluated on, so its pairwise Diebold-Mariano test
-against the model of record ignores the search: the SPA test (section 7) is the search-adjusted one,
-the research ledger leaves the pairwise test out of its multiplicity family (section 17), and the
+eligible). It is chosen on the same sample it is evaluated on, so its pairwise tests against the
+model of record ignore the search: Diebold-Mariano, and section 7's conditional and over-time
+tests. The SPA test (section 7) is the search-adjusted counterpart of the first; the other two have
+none. The research ledger leaves all three out of its multiplicity family (section 17), and the
 challenger is promoted only on its forward record (section 12), whose test is pinned to it.
 
 ## 4. Walk-forward and purge
@@ -188,12 +189,13 @@ residuals understate its error.
 
 - **Sampling.** Forecasts are made every out-of-sample day; consecutive targets overlap by up to
   four sessions. Pooled statistics use Newey-West long-run variances (automatic bandwidth, at least
-  the overlap). Because results computed on one sampling grid can differ from the next, the QLIKE
-  comparisons (each model's loss, its Diebold-Mariano test against the model of record and its
-  Model Confidence Set membership) are also run on each of the five non-overlapping 5-session
-  sampling grids (offsets 0–4; each grid's dates fall on every weekday), and the report says on how
-  many a result holds. The VaR backtests (section 10) run only on the grids. Every other statistic
-  is computed over every out-of-sample day unless its section says otherwise.
+  the overlap), except where a test below names its own kernel. Because results computed on one
+  sampling grid can differ from the next, the QLIKE comparisons (each model's loss, its
+  Diebold-Mariano test against the model of record and its Model Confidence Set membership) are
+  also run on each of the five non-overlapping 5-session sampling grids (offsets 0–4; each grid's
+  dates fall on every weekday), and the report says on how many a result holds. The VaR backtests
+  (section 10) run only on the grids. Every other statistic is computed over every out-of-sample day
+  unless its section says otherwise.
 - **Diebold-Mariano** (1995) on loss differentials with the Harvey-Leybourne-Newbold (1997)
   small-sample factor and Student-t reference.
 - **Model Confidence Set** (Hansen, Lunde and Nason 2011; `arch.bootstrap.MCS`, range statistic,
@@ -220,10 +222,161 @@ residuals understate its error.
   record; the model with the largest studentized gain (`best_model`) is the one whose t-statistic
   sets the test statistic, so its own null is rejected at the same family-wise level (the first
   step of a stepwise SPA). Nothing is claimed about any other model.
+- **Conditional predictive ability (Giacomini-White 2006)** (`forecast_eval.gw_test`,
+  `vol_lab.gw_instruments`, `vol_lab.stability_report`). Diebold-Mariano asks whether two forecasts
+  have the same average loss. This test asks whether their difference moves with what was known at
+  the decision. Its null: given what was known at each decision, neither forecast has the lower
+  expected QLIKE (`E[d_t | F_t] = 0` at every *t*).
+  - **The difference.** `d_t = QLIKE(har_iv)_t − QLIKE(model)_t` on every out-of-sample day, so a
+    positive value means the other model's loss is lower. This is the sign of each model's
+    Diebold-Mariano statistic against the model of record (`dm_qlike_vs_har_iv`).
+  - **Instruments and timing.** Each is known at the 14:30 ET settlement of session *t* (section 1):
+    a constant; `d_{t−5}`, the difference of the forecast made five sessions earlier; ln(OVX/100) of
+    the session before, the models' own lagged input; and the OVX/RV5 gap of section 9,
+    `ln(OVX_{t−1}/100) − ln RV5_t`, whose RV5 uses returns up to *t*. The lag is `d_{t−5}`, not
+    `d_{t−1}`, because a difference is known only once its target is: the forecast made five
+    sessions earlier targets sessions *t − 4* to *t*, which settle at the decision, while the four
+    forecasts in between target weeks that end after it. `d_{t−1}` would look ahead. The lag is
+    found by session position, and a day without a matured lag is dropped.
+  - **Statistic.** With `h_t` the four instruments, `Z_t = h_t·d_t` and `W = n·Z̄′Ω̂⁻¹Z̄`, against χ²
+    with 4 degrees of freedom. `Ω̂ = Γ₀ + Σ_{j=1..4} (Γ_j + Γ_j′)` with `Γ_j = n⁻¹ Σ_t Z_t Z′_{t−j}`:
+    uncentred (the null imposed) and with the truncated kernel, weight 1 at every lag up to 4. This
+    is Giacomini and White's estimator for forecasts τ steps ahead, at τ − 1 = 4 lags. Under the null
+    the moments are a moving average of order at most 4 (the targets overlap by four sessions), so
+    their autocovariances after lag 4 are zero and the estimator is consistent. Bartlett weights would
+    shrink exactly the autocovariances the overlap makes real.
+  - **Conditional part** (the test the ledger registers). The same instruments without the constant,
+    around their means: `u_t = (x_t − x̄)(d_t − d̄)` and `W_c = n·ū′Ω̂_u⁻¹ū` with the same estimator,
+    against χ² with 3 degrees of freedom. It asks whether the difference moves with the state, not
+    whether it is zero on average: adding a constant to `d` leaves it unchanged. The χ²(4) form
+    includes the full-sample mean, so it mostly repeats the Diebold-Mariano test; it is published as
+    context (`gw_qlike_vs_har_iv.p_value`) and not registered. The conditional part is not free of
+    the challenger's selection, though. Being unchanged by a shift does not make it independent of
+    the mean: when the difference's variance moves with the instruments, its moments are correlated
+    with `d̄`, so picking the model with the lowest mean loss moves them as well. The challenger's
+    row is therefore marked selected after a search (section 17).
+  - **Size and power.** In simulations run when the test was designed (nulls with the 5-session
+    overlap, Gaussian and heavy-tailed, at about this sample's length), both forms held their size
+    at 5% with this estimator, while Bartlett weights at the same 4 lags over-rejected well beyond
+    it. `tests/test_vol_lab.py` repeats the Gaussian case (it requires a rejection rate between 3.5%
+    and 6.5% at a nominal 5%, and power above 90% when the difference is predictable). Power is low
+    when the differences are heavy-tailed, so a failure to reject is not evidence that the
+    difference does not move with the state.
+  - **Coefficients** (`coef_levels`): the OLS coefficients of `d` on (1, `d_{t−5}`, ln OVX, ln RV5).
+    They span the same space as the instruments (the gap is ln OVX − ln RV5), so the test is the
+    same, but in levels the OVX coefficient is OVX's association with the difference at a given RV5.
+    They are descriptive: no coefficient is tested on its own.
+  - **Not computed.** The truncated kernel does not guarantee a positive semi-definite matrix. When a
+    HAC matrix's smallest eigenvalue is at most 1e-12 times its largest, `gw_test` raises, and the lab
+    publishes that test with a null p-value and a `not_computed` reason instead of stopping the build
+    (the fluctuation test below does the same when a window's variance is not positive). Its ledger
+    row then has no p-value (section 17). There is no fallback estimator: one chosen after seeing the
+    data would be another search.
+  - **Robustness** (published, not registered): both forms with Bartlett weights at 10 and 40 lags;
+    and both on each of the five sampling grids, one forecast a week, with no lags (the targets do
+    not overlap, and the lag is the grid's previous week).
+  - The instruments, the kernel and its lags were fixed after prototype runs on this sample, so the
+    ledger rows are not pre-specified. The p-values are approximate (forecasts as produced, below).
+- **Stability over time (Giacomini-Rossi 2010)** (`forecast_eval.rolling_dm`, `fluctuation_null`,
+  `fluctuation_reference`, `fluctuation_test`, `critical_value_mc_se`; `vol_lab.stability_report`).
+  Giacomini and Rossi's fluctuation test: a rolling Diebold-Mariano t on the same difference `d`,
+  which shows when in the sample the two forecasts' accuracy differed.
+  - **Path.** A window holds `m = round(μ·P)` consecutive out-of-sample days, of `P` in all. For the
+    window ending on day *j*, `t_j = Σ d_i / √(m·σ̂²_j)`, where `σ̂²_j = γ̂₀ + 2 Σ_{k=1..4} γ̂_k` is that
+    window's own long-run variance: around the window's mean, truncated kernel, 4 lags. There is no
+    Harvey-Leybourne-Newbold factor. Each `t_j` is dated at its window's last day, the decision date
+    of the window's last forecast (whose outcome is known five sessions later).
+  - **Why each window has its own variance.** Giacomini and Rossi divide every window by one
+    full-sample variance. QLIKE differences are far more variable in turbulent years than in calm
+    ones, so one variance is too small for turbulent windows and too large for calm ones. In
+    simulations run when the test was designed, on heteroskedastic nulls, that form over-rejected at
+    a nominal 5%, and the form with each window's own variance did not.
+  - **The null** is the conditional one, the same as Giacomini and White's: given what was known at
+    each decision, the two forecasts have equal expected QLIKE at every date. It implies that `d` has
+    no autocorrelation beyond the 5-session overlap, which is what makes a window variance at 4 lags
+    consistent. Under it, in the same simulations, the test at μ = 0.2 stayed close to its nominal
+    size when the only dependence was the overlap, and below it on the heteroskedastic paths above;
+    `tests/test_vol_lab.py` repeats the Gaussian case (a rejection rate between 3% and 8% at a nominal
+    5%). It is not Giacomini and Rossi's weaker null, equal expected loss at every date, which also
+    allows a persistent zero-mean component. Under that null, with dependence beyond the overlap
+    (a persistent zero-mean autoregressive component), the test over-rejects substantially, and no
+    window variance tried repaired it. Longer kernels over-reject even when the only dependence is
+    the overlap (Bartlett weights at 40 lags, with Gaussian differences), because one window cannot
+    estimate a long bandwidth precisely.
+  - **Window lengths.** μ = 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, all published.
+    μ = 0.2 is the display window: the weekly paths (`fluct_t_*`) and each model's `p_value` and
+    `rejects_5pct` use it. It is the shortest window whose size stayed close to or below 5% on
+    every simulated null with only the overlap; μ = 0.1 over-rejected on the Gaussian one, so its
+    p-value is anti-conservative and is labelled so wherever it is printed. The simulations do not
+    single out 0.2 on power: no length had the most power for every kind of episode.
+  - **Statistic and decision.** For each length, the two-sided `sup_j |t_j|`, with its sign and
+    window. Its marginal p-value is (1 + the number of null draws at least as large) / (`B + 1`).
+    The critical value `c_α` is the null draw for which `sup > c_α` exactly when `p < α`; with
+    `B = 49,999` draws, `(B + 1)·α` is a whole number at 5% and 10%, so the band of ±`c_0.05` and
+    the p-value agree by construction.
+  - **The simulated null.** Giacomini and Rossi's limit, `sup_s |B(s) − B(s − μ)| / √μ`, is
+    simulated at the sample's own resolution: Gaussian random walks of `P` steps,
+    `S = [0, cumsum(e)]`, and for each length `max_i |S_i − S_{i−m}| / √m`. One set of walks serves
+    every length, so the five columns are the joint null the search adjustment needs. The seed is
+    `[SEED, 23, P]`: the lab's seed, `FLUCT_SEED_TAG` and the number of days, so the daily sample
+    and the weekly grids (one null per grid length) draw from separate streams. The seed rule was
+    fixed before its values were computed, and its outcomes are published as they come. The Monte Carlo standard error of the 5%
+    critical value (`critical_values.mc_se_five_pct`) is about 0.006, so a critical value's second
+    decimal is the last meaningful one.
+  - **Search-adjusted p-value** (the one the ledger registers). All five lengths were looked at in
+    prototype runs before μ = 0.2 was fixed, and the length decides some verdicts, so the ledger's
+    p-value adjusts for the choice. It is the smallest of the five marginal p-values, calibrated on
+    the same simulated walks (the min-p adjustment; Westfall and Young 1993). The observed sups and
+    the `B` null draws are treated as `B + 1` exchangeable values: each draw gets its own marginal
+    p-value for every length (its rank) and its smallest over the five, and the adjusted p-value is
+    (1 + the number of draws whose smallest p is at most the observed one) / (`B + 1`). With one
+    length it equals the marginal p-value, and it is never below the smallest one. It inherits
+    μ = 0.1's over-rejection: in the same simulations it over-rejected somewhat under the Gaussian
+    null, so there its p-value is somewhat too small, and it was conservative under the
+    heteroskedastic ones. It adjusts for the window length only; nothing adjusts for the
+    choice of window variance, which was made on simulated size.
+  - **The published table.** Giacomini and Rossi's Table 1 two-sided values are published beside the
+    simulated ones. At μ = 0.2 the table's 5% value is 3.179 and the simulation at this sample's
+    length gives 3.2434. The table is close to a simulation on a few hundred steps, so on the
+    simulated null at this length the table's value rejects somewhat more than 5% of the time. `rejects_5pct_gr2010` records each model's verdict at the table's value.
+  - **Robustness** (published, not registered), at μ = 0.2: each window's Bartlett variance at 40
+    lags (`bartlett_40`), which allows dependence up to 40 sessions at the cost of over-rejecting
+    when the only dependence is the overlap and the differences are Gaussian (above); Giacomini and
+    Rossi's one full-sample variance (`full_sample_variance`; truncated kernel, 4 lags, uncentred);
+    and each sampling grid on its own, one forecast a week, with no lags (the targets do not
+    overlap), a window of 0.2 of the grid's weeks and its own simulated null.
+  - **What a rejection means.** It is evidence that at some dates one forecast was expected to be
+    more accurate, given what was known at the time: a window's mean difference departs from zero,
+    or the difference persists beyond the overlap. The null includes equal average loss, so a model that is worse
+    throughout rejects it too: a rejection is not by itself instability, and where the full-sample
+    Diebold-Mariano test rejects, this test mostly repeats it. Each window is scaled by its own
+    variability, so `|t_j|` measures how consistent the window's difference was, not how large: a
+    calm window with a small, steady difference can lie outside the band while a turbulent window
+    with a larger one lies inside. The peak is where the difference was most consistent, not where
+    it was largest. The artifact therefore also publishes the peak window's mean difference and the
+    largest window mean of the same sign, with its window end and t; the size of a difference is
+    read from those and from the cumulative difference (next).
+  - The window lengths, the window variance and the simulated null were fixed after prototype runs
+    on this sample, and the seed before the production build, so the ledger rows are not
+    pre-specified. The p-values are approximate (forecasts as produced, below).
+- **Cumulative difference** (`stability.cumulative` and the `cum_qlike_diff_*` series): the running
+  sum of `d` over every out-of-sample day, read at each weekly date, for the comparisons with the
+  challenger, the OVX-only regression, raw OVX and persistence. Its slope per day over a stretch is
+  the average daily difference there. Its every-day total (`end_all_days`) equals the number of days times the
+  Diebold-Mariano mean difference (`dm_qlike_vs_har_iv.mean_diff`) up to floating-point rounding. It
+  is descriptive: no test reads its level or slope.
 - **Forecasts as produced.** Diebold-Mariano, the Model Confidence Set and the SPA test compare the
   forecasts each method produced on its expanding window, treating them as given: the error in the
   estimated parameters is not accounted for (West 1996), so these are tests of forecasting methods
-  as run here, not of population models.
+  as run here, not of population models. The Giacomini-White and Giacomini-Rossi tests take the
+  same view (Giacomini and White state their null about the forecasting method: the model together
+  with its estimation scheme), but their theory assumes forecasts re-estimated on a rolling window
+  of bounded size, and that assumption is what lets Giacomini and White compare nested models. The
+  lab refits on expanding windows, and HAR-RV and the OVX-only regression are nested in HAR-IV.
+  With expanding windows the usual limits fail for nested models: when the larger model's extra
+  terms are zero, the two forecasts converge as the estimates do (Clark and McCracken 2001), and in
+  finite samples the larger model's estimation noise favours the smaller one. Their p-values are
+  therefore approximate.
 - **Out-of-sample selection.** Each day, the feasible model (persistence excluded) with the lowest
   QLIKE over the previous 156 weeks of matured outcomes; the model of record for the first 52 weeks.
 - **Mincer-Zarnowitz**: regress realized variance on forecast variance; an unbiased forecast has
@@ -527,7 +680,8 @@ another. That test replaced a pooled one after the runs were seen, so those rows
 pre-specified.
 
 - **Status**, from the test as run: supported (p < 0.05 in the hypothesis's direction),
-  inconclusive (0.05 ≤ p < 0.10), not supported (p ≥ 0.10, or the estimate points the other way),
+  inconclusive (0.05 ≤ p < 0.10, or no p-value because the artifact could not compute the test:
+  section 7's "not computed" rule), not supported (p ≥ 0.10, or the estimate points the other way),
   or retracted (the evidence was invalid when produced: the leaked walk-forward, roll-contaminated
   returns, or a test whose null was wrong). Not supported is a failure to reject the null, not
   evidence against the hypothesis. Where the artifact records the test's power, `underpowered` is
@@ -535,31 +689,43 @@ pre-specified.
   rows keep their p-values and stay in the multiplicity count, but are never counted as survivors.
 - **Multiplicity**, across the rows with a p-value, on the two-sided p (a one-sided p doubled,
   capped at 1): Benjamini-Hochberg (1995) q-values, Holm (1979) adjusted p-values, and the
-  Harvey, Liu and Zhu (2016) hurdle t > 3 on the normal quantile of that p. A row marked
-  `selected_after_search` tests a model picked as the best of a field on the same sample (the
-  challenger against the model of record): its pairwise p-value ignores the search, so it is left
-  out of the family, its adjusted fields are null, and its note names the search-adjusted test of
-  the same question (the SPA row).
+  Harvey, Liu and Zhu (2016) hurdle t > 3 on the normal quantile of that p. Rows marked
+  `selected_after_search` test a model picked as the best of a field on the same sample: the
+  challenger's full-sample, conditional and over-time comparisons with the model of record. Their
+  p-values ignore the search, so they are left out of the family and their adjusted fields are
+  null. Each note names the search-adjusted test where one exists or says none does: the SPA row
+  adjusts the full-sample comparison, and the other two have none. Rows on the same loss
+  difference are dependent (a model's Giacomini-White and fluctuation rows, and its
+  Diebold-Mariano row where there is one): Benjamini-Hochberg assumes positive dependence (PRDS;
+  Benjamini and Yekutieli 2001), Holm holds under any dependence, and strongly significant
+  near-duplicate rows lower other rows' q-values.
 - `pre_specified` is true only where the code documents the test as fixed before the data were
   seen; most of the project was exploratory.
 - **Families** name the kind of claim (direction model, leak anatomy, carry, variance risk premium,
-  volatility forecast, value at risk, forecast interval, supply shock); the label does not split the
-  adjustment: every row with a p-value, except one selected after a search (above), shares one
-  multiplicity family.
+  volatility forecast, value at risk, forecast interval, conditional predictive ability, stability
+  over time, supply shock); the label does not split the adjustment: every row with a p-value,
+  except those selected after a search (the challenger's full-sample, conditional and over-time
+  rows; above), shares one multiplicity family. Robustness variants and the χ²(4) Giacomini-White
+  form, which includes the full-sample mean the DM test asks about, are published as context and
+  not registered.
 
 ## References
 
 - Alizadeh, S., Brandt, M., Diebold, F. (2002). Range-based estimation of stochastic volatility models. *Journal of Finance* 57(3).
 - Bekaert, G., Hoerova, M. (2014). The VIX, the variance premium and stock market volatility. *Journal of Econometrics* 183(2).
 - Benjamini, Y., Hochberg, Y. (1995). Controlling the false discovery rate: a practical and powerful approach to multiple testing. *Journal of the Royal Statistical Society B* 57(1).
+- Benjamini, Y., Yekutieli, D. (2001). The control of the false discovery rate in multiple testing under dependency. *Annals of Statistics* 29(4).
 - Berger, R. L. (1982). Multiparameter hypothesis testing and acceptance sampling. *Technometrics* 24(4).
 - Bollerslev, T., Hood, B., Huss, J., Pedersen, L. H. (2018). Risk everywhere: modeling and managing volatility. *Review of Financial Studies* 31(7).
 - Christoffersen, P. (1998). Evaluating interval forecasts. *International Economic Review* 39(4).
+- Clark, T. E., McCracken, M. W. (2001). Tests of equal forecast accuracy and encompassing for nested models. *Journal of Econometrics* 105(1).
 - Corsi, F. (2009). A simple approximate long-memory model of realized volatility. *Journal of Financial Econometrics* 7(2).
 - Diebold, F., Mariano, R. (1995). Comparing predictive accuracy. *Journal of Business & Economic Statistics* 13(3).
 - Duan, N. (1983). Smearing estimate: a nonparametric retransformation method. *JASA* 78(383).
 - Engle, R., Manganelli, S. (2004). CAViaR: conditional autoregressive value at risk by regression quantiles. *JBES* 22(4).
 - Gebru, T. et al. (2021). Datasheets for datasets. *Communications of the ACM* 64(12).
+- Giacomini, R., Rossi, B. (2010). Forecast comparisons in unstable environments. *Journal of Applied Econometrics* 25(4).
+- Giacomini, R., White, H. (2006). Tests of conditional predictive ability. *Econometrica* 74(6).
 - Gibbs, I., Candès, E. (2021). Adaptive conformal inference under distribution shift. *NeurIPS*.
 - Glosten, L., Jagannathan, R., Runkle, D. (1993). On the relation between the expected value and the volatility of the nominal excess return on stocks. *Journal of Finance* 48(5).
 - Gneiting, T., Raftery, A. (2007). Strictly proper scoring rules, prediction, and estimation. *JASA* 102(477).
@@ -585,4 +751,6 @@ pre-specified.
 - Politis, D., Romano, J. (1994). The stationary bootstrap. *JASA* 89(428).
 - Rogers, L. C. G., Satchell, S. (1991). Estimating variance from high, low and closing prices. *Annals of Applied Probability* 1(4).
 - Sheppard, W. F. (1899). On the application of the theory of error to cases of normal distribution and normal correlation. *Philosophical Transactions of the Royal Society A* 192.
+- West, K. D. (1996). Asymptotic inference about predictive ability. *Econometrica* 64(5).
+- Westfall, P. H., Young, S. S. (1993). *Resampling-Based Multiple Testing: Examples and Methods for p-Value Adjustment*. Wiley.
 - Yang, D., Zhang, Q. (2000). Drift-independent volatility estimation based on high, low, open, and close prices. *Journal of Business* 73(3).

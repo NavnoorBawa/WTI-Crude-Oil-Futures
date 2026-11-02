@@ -627,6 +627,54 @@ class FluctuationTest(unittest.TestCase):
         self.assertTrue(0.03 <= np.mean(rejected) <= 0.08, np.mean(rejected))
 
 
+class StabilityReportTest(unittest.TestCase):
+    """vol_lab.stability_report on a small synthetic frame: a test it cannot compute is published as such, and the
+    rest of the report is built."""
+
+    @staticmethod
+    def _frame(n=1500, seed=5):
+        rng = np.random.default_rng(seed)
+        dates = pd.bdate_range("2010-01-04", periods=n)
+        actual = np.exp(rng.normal(-1.2, 0.3, n))
+        frame = pd.DataFrame({"date": dates, "grid": np.arange(n) % vf.STEP, "actual": actual,
+                              "ovx": np.exp(rng.normal(-1.0, 0.2, n))})
+        for k, key in enumerate(lab.MODEL_KEYS):
+            frame[key] = actual * np.exp(rng.normal(0.0, 0.3 + 0.01 * k, n))
+        frame["combo"] = frame["har_iv"]                    # identical forecasts: d = 0 everywhere
+        return frame, np.arange(n) + 300, rng.normal(0.2, 0.3, n)
+
+    def test_a_test_that_cannot_be_computed_is_published_as_such(self):
+        from backend import research_ledger as rl
+
+        frame, pos, gap = self._frame()
+        rep = lab.stability_report(frame, gap, pos, "har_iv_range")
+        gw, fl = rep["gw"]["combo"], rep["fluctuation"]["combo"]
+        self.assertIsNone(gw["p_value"])
+        self.assertIsNone(gw["conditional"]["p_value"])
+        self.assertIn("not positive definite", gw["not_computed"])
+        self.assertIsNone(fl["p_value"])
+        self.assertIsNone(fl["search_adjusted"]["p_value"])
+        self.assertIn("not positive", fl["not_computed"])
+        for key in lab.MODEL_KEYS:
+            if key not in (lab.CHAMPION, "combo"):
+                self.assertIsNotNone(rep["gw"][key]["conditional"]["p_value"], key)
+                self.assertIsNotNone(rep["fluctuation"][key]["search_adjusted"]["p_value"], key)
+        self.assertTrue(all(v is None for v in rep["series"]["fluct_t_challenger"][:20]))
+        # The ledger rows built from such a block have no p-value, read as inconclusive, and are outside the family.
+        doc = json.loads((ROOT / "data" / "vol_lab.json").read_text())
+        for model in doc["leaderboard"]["models"]:
+            if model["key"] == "combo":
+                model["gw_qlike_vs_har_iv"] = json.loads(json.dumps(lab._jsonable(gw)))
+                model["fluctuation_qlike_vs_har_iv"] = json.loads(json.dumps(lab._jsonable(fl)))
+        ledger = rl.build(lambda name: doc if name == rl.LAB else rl.load_artifact(name))
+        rows = {r["id"]: r for r in ledger["rows"]}
+        for rid in ("vol_gw_combo", "vol_fluct_combo"):
+            self.assertIsNone(rows[rid]["p_value"], rid)
+            self.assertEqual(rows[rid]["status"], "inconclusive", rid)
+            self.assertIsNone(rows[rid]["q_value_bh"], rid)
+        self.assertEqual(ledger["summary"]["rows_in_multiplicity_family"], ledger["summary"]["rows_with_p_value"] - 3)
+
+
 class LossAndTestTest(unittest.TestCase):
     def test_qlike_zero_only_at_truth(self):
         self.assertAlmostEqual(float(fe.qlike(np.array([0.3]), np.array([0.3]))[0]), 0.0)
@@ -1190,6 +1238,96 @@ class ArtifactContractTest(unittest.TestCase):
         imported = {alias.name for node in ast.walk(ast.parse(inspect.getsource(rl)))
                     if isinstance(node, (ast.Import, ast.ImportFrom)) for alias in node.names}
         self.assertFalse({"vol_lab", "backend.vol_lab"} & imported)        # the ledger reads the artifact only
+
+    def test_stability_blocks_are_consistent(self):
+        from scipy import stats
+
+        stab = self.report["stability"]
+        fluct = stab["fluctuation"]
+        c5 = fluct["critical_values"]["five_pct"]
+        weeks = len(self.report["series"]["date"])
+        n_days = self.report["sample"]["n_days"]
+        self.assertEqual((fluct["mu"], fluct["window_sessions"], fluct["n_days"]), (lab.FLUCT_MU, round(0.2 * n_days), n_days))
+        self.assertEqual(fluct["null"]["seed"], [lab.SEED, lab.FLUCT_SEED_TAG, n_days])
+        for model in self.report["leaderboard"]["models"]:
+            key = model["key"]
+            gw, fl = model["gw_qlike_vs_har_iv"], model["fluctuation_qlike_vs_har_iv"]
+            if key == lab.CHAMPION:
+                self.assertIsNone(gw)
+                self.assertIsNone(fl)
+                continue
+            with self.subTest(key):
+                self.assertAlmostEqual(gw["p_value"], stats.chi2.sf(gw["stat"], gw["df"]), delta=2e-3 * max(gw["p_value"], 1e-3))
+                c = gw["conditional"]
+                self.assertAlmostEqual(c["p_value"], stats.chi2.sf(c["stat"], c["df"]), delta=2e-3 * max(c["p_value"], 1e-3))
+                self.assertEqual((gw["df"], c["df"], gw["n_days"]), (4, 3, stab["gw"]["n_days"]))
+                self.assertEqual(fl["rejects_5pct"], fl["p_value"] < 0.05)
+                self.assertEqual(fl["rejects_10pct"], fl["p_value"] < 0.10)
+                if abs(fl["sup"] - c5) > 1e-3:
+                    self.assertEqual(fl["rejects_5pct"], fl["sup"] > c5)
+                marginals = [fl["p_value"]] + [v["p_value"] for v in fl["by_mu"].values()]
+                self.assertEqual(fl["search_adjusted"]["min_p"], min(marginals))
+                self.assertGreaterEqual(fl["search_adjusted"]["p_value"], fl["search_adjusted"]["min_p"])
+                self.assertTrue(fluct["first_window_end"] <= fl["max_at"] <= self.report["sample"]["last"])
+                self.assertTrue(fluct["first_window_end"] <= fl["min_at"] <= self.report["sample"]["last"])
+                self.assertEqual(fl["crosses_both_sides"], fl["max"] > c5 and fl["min"] < -c5)
+                if fl["outside_5pct"]:
+                    self.assertTrue(fl["rejects_5pct"])
+                dm = model["dm_qlike_vs_har_iv"]
+                if dm["p_value"] < 0.05 and fl["rejects_5pct"]:
+                    self.assertEqual(fl["sign"], int(np.sign(dm["mean_diff"])))
+        for name in stab["series"]["fluct_t"]:
+            values = self.report["series"][f"fluct_t_{name}"]
+            self.assertEqual(len(values), weeks)
+            first = next(i for i, v in enumerate(values) if v is not None)
+            self.assertTrue(all(v is not None for v in values[first:]))
+            self.assertGreaterEqual(self.report["series"]["date"][first], fluct["first_window_end"])
+        drawn = {"challenger": self.report["config"]["challenger"], "ovx_only": "ovx_only", "raw_ovx": "raw_ovx"}
+        for name, key in drawn.items():
+            model = next(m for m in self.report["leaderboard"]["models"] if m["key"] == key)
+            values = self.report["series"][f"fluct_t_{name}"]
+            for run in model["fluctuation_qlike_vs_har_iv"]["outside_5pct"]:
+                self.assertTrue(0 <= run["week_from"] <= run["week_to"] < weeks, run)
+                self.assertTrue(all(values[i] is not None for i in range(run["week_from"], run["week_to"] + 1)))
+        for name in stab["series"]["cum_qlike_diff"]:
+            self.assertEqual(len(self.report["series"][f"cum_qlike_diff_{name}"]), weeks)
+
+    def test_stability_blocks_are_current(self):
+        fast = _fast_lab()
+        frame, challenger = fast["frame"], self.report["config"]["challenger"]
+        with mock.patch.object(lab, "fluctuation_null", _cached_null):
+            rebuilt = json.loads(json.dumps(lab._jsonable(lab.stability_report(
+                frame, fast["regimes"]["gap"], fast["pos"], challenger))))
+        committed = {m["key"]: m for m in self.report["leaderboard"]["models"]}
+        for key, block in rebuilt["gw"].items():
+            diff = lab.compare_reports(committed[key]["gw_qlike_vs_har_iv"], block)
+            self.assertEqual(diff["violations"], [], (key, diff))
+        for key, block in rebuilt["fluctuation"].items():
+            diff = lab.compare_reports(committed[key]["fluctuation_qlike_vs_har_iv"], block)
+            self.assertEqual(diff["violations"], [], (key, diff))
+        diff = lab.compare_reports(self.report["stability"], rebuilt["stability"])
+        self.assertEqual(diff["violations"], [], diff)
+        for key, values in rebuilt["series"].items():
+            self.assertEqual(values, self.report["series"][key], key)
+        # The every-day cumulative total is n times DM's mean difference, to floating-point rounding.
+        n_days = self.report["sample"]["n_days"]
+        for name, total in self.report["stability"]["cumulative"]["end_all_days"].items():
+            key = challenger if name == "challenger" else name
+            self.assertLess(abs(total - n_days * committed[key]["dm_qlike_vs_har_iv"]["mean_diff"]), 1e-9, name)
+
+    def test_nothing_that_ranks_or_bands_a_model_reads_the_stability_tests(self):
+        import ast
+        import inspect
+
+        names = {"stability_report", "gw_test", "gw_instruments", "rolling_dm", "fluctuation_null", "fluctuation_test",
+                 "fluctuation_reference", "_gw_block", "hac_lrv", "critical_value_mc_se"}
+        tree = ast.parse(inspect.getsource(lab))
+        readers = {node.name for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                   and any(isinstance(n, ast.Name) and n.id in names for n in ast.walk(node))}
+        self.assertEqual(readers, {"stability_report", "_gw_block", "build_report"})
+        for function in (lab.choose_challenger, lab.oos_selection, lab.conformal_report, lab.leaderboard):
+            source = inspect.getsource(function)
+            self.assertFalse([name for name in names if name in source], function.__name__)
 
     def test_the_second_source_blocks_are_current_and_say_what_the_docs_say(self):
         snapshot = md.load_snapshot()

@@ -22,7 +22,7 @@ flowchart LR
         EC["data/eia_*.json<br/>(copies pinned in the manifest,<br/>a second source for CL=F)"]
     end
     subgraph offline["Rebuilt in CI from committed inputs"]
-        L["backend/vol_lab.py<br/>14 models, MCS, SPA, VaR, conformal<br/>(Reproduce workflow, weekly)"]
+        L["backend/vol_lab.py<br/>14 models, MCS, SPA, VaR, conformal,<br/>GW and fluctuation tests<br/>(Reproduce workflow, weekly)"]
         LA["backend/leak_anatomy.py<br/>(unit suite: a subset of runs)"]
         C["carry / supply-shock studies<br/>(unit suite: full rebuild)"]
     end
@@ -177,8 +177,8 @@ flowchart TB
 | Path | Role |
 |---|---|
 | `backend/vol_forecast.py` | Model of record (HAR-IV v2): validation, live forecast, interval, economic tests |
-| `backend/vol_lab.py` | Benchmark field and evaluation on the pinned snapshot |
-| `backend/forecast_eval.py` | Shared statistics (DM, MCS, Mincer-Zarnowitz, VaR tests, conformal) |
+| `backend/vol_lab.py` | Benchmark field and evaluation on the pinned snapshot; `stability_report`: every model's Giacomini-White and fluctuation tests against the model of record, and weekly series for a few of those comparisons (rolling t, cumulative QLIKE difference) |
+| `backend/forecast_eval.py` | Shared statistics (DM, MCS, Mincer-Zarnowitz, VaR tests, conformal; the Giacomini-White test, `hac_lrv` and `gw_test`; the Giacomini-Rossi fluctuation test, `rolling_dm`, `fluctuation_null`, `fluctuation_reference`, `fluctuation_test` and `critical_value_mc_se`) |
 | `backend/market_data.py` | Pinned, hash-verified data snapshot |
 | `backend/vol_record.py` | Live forward record, its seal and the promotion test (stdlib only) |
 | `backend/contract_calendar.py` | CME CL calendar: last trade dates, sessions, rolls (stdlib only) |

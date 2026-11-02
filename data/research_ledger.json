@@ -3097,7 +3097,7 @@
       "date": "2026-10-20",
       "family": "conditional predictive ability",
       "hypothesis": "The QLIKE difference between the model of record and Persistence (RV5) moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
-      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "Wald chi2",
         "value": 21.002
@@ -3149,7 +3149,7 @@
       "date": "2026-10-20",
       "family": "stability over time",
       "hypothesis": "Given what was known at each decision, the model of record and Persistence (RV5) were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
-      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "smallest p over window lengths",
         "value": 2e-05
@@ -3217,7 +3217,7 @@
       "date": "2026-10-20",
       "family": "conditional predictive ability",
       "hypothesis": "The QLIKE difference between the model of record and Raw OVX moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
-      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "Wald chi2",
         "value": 1.392
@@ -3269,7 +3269,7 @@
       "date": "2026-10-20",
       "family": "stability over time",
       "hypothesis": "Given what was known at each decision, the model of record and Raw OVX were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
-      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "smallest p over window lengths",
         "value": 0.2058
@@ -3337,7 +3337,7 @@
       "date": "2026-10-20",
       "family": "conditional predictive ability",
       "hypothesis": "The QLIKE difference between the model of record and EWMA (RiskMetrics) moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
-      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "Wald chi2",
         "value": 8.21
@@ -3389,7 +3389,7 @@
       "date": "2026-10-20",
       "family": "stability over time",
       "hypothesis": "Given what was known at each decision, the model of record and EWMA (RiskMetrics) were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
-      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "smallest p over window lengths",
         "value": 6e-05
@@ -3457,7 +3457,7 @@
       "date": "2026-10-20",
       "family": "conditional predictive ability",
       "hypothesis": "The QLIKE difference between the model of record and GARCH(1,1)-t moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
-      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "Wald chi2",
         "value": 4.777
@@ -3509,7 +3509,7 @@
       "date": "2026-10-20",
       "family": "stability over time",
       "hypothesis": "Given what was known at each decision, the model of record and GARCH(1,1)-t were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
-      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "smallest p over window lengths",
         "value": 6e-05
@@ -3577,7 +3577,7 @@
       "date": "2026-10-20",
       "family": "conditional predictive ability",
       "hypothesis": "The QLIKE difference between the model of record and GJR-GARCH(1,1)-t moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
-      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "Wald chi2",
         "value": 3.781
@@ -3629,7 +3629,7 @@
       "date": "2026-10-20",
       "family": "stability over time",
       "hypothesis": "Given what was known at each decision, the model of record and GJR-GARCH(1,1)-t were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
-      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "smallest p over window lengths",
         "value": 0.00218
@@ -3697,7 +3697,7 @@
       "date": "2026-10-20",
       "family": "conditional predictive ability",
       "hypothesis": "The QLIKE difference between the model of record and HAR-RV moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
-      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "Wald chi2",
         "value": 8.188
@@ -3749,7 +3749,7 @@
       "date": "2026-10-20",
       "family": "stability over time",
       "hypothesis": "Given what was known at each decision, the model of record and HAR-RV were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
-      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "smallest p over window lengths",
         "value": 6e-05
@@ -3817,7 +3817,7 @@
       "date": "2026-10-20",
       "family": "conditional predictive ability",
       "hypothesis": "The QLIKE difference between the model of record and HAR-RV + downside semivol moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
-      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "Wald chi2",
         "value": 8.505
@@ -3869,7 +3869,7 @@
       "date": "2026-10-20",
       "family": "stability over time",
       "hypothesis": "Given what was known at each decision, the model of record and HAR-RV + downside semivol were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
-      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "smallest p over window lengths",
         "value": 6e-05
@@ -3937,7 +3937,7 @@
       "date": "2026-10-20",
       "family": "conditional predictive ability",
       "hypothesis": "The QLIKE difference between the model of record and HAR-range moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
-      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "Wald chi2",
         "value": 3.182
@@ -3989,7 +3989,7 @@
       "date": "2026-10-20",
       "family": "stability over time",
       "hypothesis": "Given what was known at each decision, the model of record and HAR-range were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
-      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "smallest p over window lengths",
         "value": 0.00392
@@ -4057,7 +4057,7 @@
       "date": "2026-10-20",
       "family": "conditional predictive ability",
       "hypothesis": "The QLIKE difference between the model of record and OVX-only regression moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
-      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "Wald chi2",
         "value": 1.204
@@ -4109,7 +4109,7 @@
       "date": "2026-10-20",
       "family": "stability over time",
       "hypothesis": "Given what was known at each decision, the model of record and OVX-only regression were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
-      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "smallest p over window lengths",
         "value": 0.0203
@@ -4177,7 +4177,7 @@
       "date": "2026-10-20",
       "family": "conditional predictive ability",
       "hypothesis": "The QLIKE difference between the model of record and HAR-IV, same-day OVX (v1 timing) moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
-      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "Wald chi2",
         "value": 3.614
@@ -4229,7 +4229,7 @@
       "date": "2026-10-20",
       "family": "stability over time",
       "hypothesis": "Given what was known at each decision, the model of record and HAR-IV, same-day OVX (v1 timing) were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
-      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "smallest p over window lengths",
         "value": 0.00054
@@ -4297,7 +4297,7 @@
       "date": "2026-10-20",
       "family": "conditional predictive ability",
       "hypothesis": "The QLIKE difference between the model of record and HAR-IV-range moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
-      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "Wald chi2",
         "value": 3.632
@@ -4349,7 +4349,7 @@
       "date": "2026-10-20",
       "family": "stability over time",
       "hypothesis": "Given what was known at each decision, the model of record and HAR-IV-range were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
-      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "smallest p over window lengths",
         "value": 0.02644
@@ -4417,7 +4417,7 @@
       "date": "2026-10-20",
       "family": "conditional predictive ability",
       "hypothesis": "The QLIKE difference between the model of record and LightGBM moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
-      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "Wald chi2",
         "value": 9.446
@@ -4469,7 +4469,7 @@
       "date": "2026-10-20",
       "family": "stability over time",
       "hypothesis": "Given what was known at each decision, the model of record and LightGBM were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
-      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "smallest p over window lengths",
         "value": 2e-05
@@ -4537,7 +4537,7 @@
       "date": "2026-10-20",
       "family": "conditional predictive ability",
       "hypothesis": "The QLIKE difference between the model of record and Combination moves with what is known at the decision: its last matured value, OVX and the OVX/RV5 gap.",
-      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-White (2006), conditional part: the QLIKE difference on its value 5 sessions earlier, ln OVX of the session before and ln(OVX/RV5), around their means; uncentred HAC, truncated kernel at 4 lags (the 5-session overlap); chi-squared with 3 df; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "Wald chi2",
         "value": 5.419
@@ -4589,7 +4589,7 @@
       "date": "2026-10-20",
       "family": "stability over time",
       "hypothesis": "Given what was known at each decision, the model of record and Combination were not equally accurate in expectation at every date: in some window of the out-of-sample days their expected QLIKE difference is not zero.",
-      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
+      "test": "Giacomini-Rossi (2010) fluctuation test as a rolling Diebold-Mariano t over windows of 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, each standardized by its own long-run variance (truncated kernel, 4 lags: under the null the only autocorrelation is the 5-session overlap); sup |t| for each window length against the test's limit, simulated with a fixed seed at this sample's length; the p-value is the smallest of the five, adjusted for the choice on the same simulation; two-sided. The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.",
       "statistic": {
         "name": "smallest p over window lengths",
         "value": 0.07688

@@ -81,7 +81,7 @@ generated from the committed artifacts (`scripts/readme_blocks.py`, checked in C
 | QLIKE, every OOS day (lower is better) | 0.370 | 0.353 | persistence 0.952; OVX-only regression 0.368; Raw OVX 0.374; the proxy's noise floor: at least 0.213 (exact with normal returns of constant variance; more with heavier tails or a variance moving within the week; not identified from daily closes; RESULTS section 2.1) |
 | Diebold-Mariano on QLIKE vs the model of record (pairwise) | — | +3.10 (p = 0.002; before adjusting for the search that chose it) | OVX-only regression +0.47 (p = 0.641) |
 | In the 90% Model Confidence Set (full sample; sampling grids) | no, MCS p 0.037 (2/5 grids) | yes, MCS p 1.000 (5/5 grids) | 4 of 13 feasible models; the timing control is excluded |
-| Hansen SPA, null: no model beats the model of record | p = 0.011 | — | 12 feasible alternatives; significant at 5%, not after the ledger's Benjamini-Hochberg adjustment (q = 0.0996) |
+| Hansen SPA, null: no model beats the model of record | p = 0.011 | — | 12 feasible alternatives; significant at 5%, not after the ledger's Benjamini-Hochberg adjustment (q = 0.084) |
 | Mincer-Zarnowitz slope (joint unbiasedness p) | 0.86 (0.161) | 0.81 (0.142) | 1 (unbiased) |
 | 80% conformal interval coverage | 80.0% | 80.0% | target 80% |
 | Realized utility (% per year) | 3.25 | 3.30 | maximum 4.0 |

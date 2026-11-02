@@ -47,7 +47,8 @@ class LedgerIsCurrentTest(unittest.TestCase):
     def test_rows_cover_every_research_family(self):
         families = {r["family"] for r in _committed()["rows"]}
         self.assertEqual(families, {"direction model", "leak anatomy", "carry", "variance risk premium",
-                                    "volatility forecast", "value at risk", "forecast interval", "supply shock"})
+                                    "volatility forecast", "value at risk", "forecast interval",
+                                    "conditional predictive ability", "stability over time", "supply shock"})
 
     def test_statuses_follow_the_rules(self):
         for row in _committed()["rows"]:
@@ -82,13 +83,19 @@ class MultiplicityTest(unittest.TestCase):
         # The challenger is the best of the field on the same sample: its pairwise p ignores the search.
         ledger = _committed()
         selected = [r for r in ledger["rows"] if r["selected_after_search"]]
-        self.assertEqual([r["id"] for r in selected], ["vol_challenger_qlike"])
-        self.assertEqual(ledger["summary"]["selected_after_search"], ["vol_challenger_qlike"])
+        expected = ["vol_challenger_qlike", "vol_gw_har_iv_range", "vol_fluct_har_iv_range"]
+        self.assertEqual([r["id"] for r in selected], expected)
+        self.assertEqual(ledger["summary"]["selected_after_search"], expected)
         s = ledger["summary"]
         for row in selected:
             for key in ("q_value_bh", "p_holm", "survives_bh_5pct", "survives_holm_5pct", "clears_hlz_t3"):
                 self.assertIsNone(row[key], key)
-            self.assertIn("vol_spa_beats_record", row["note"])
+            # Each names the search-adjusted test where one exists, or says none does.
+            if row["id"] == "vol_gw_har_iv_range":
+                self.assertIn("no search-adjusted version of this test exists", row["note"])
+                self.assertNotIn("vol_spa_beats_record", row["note"])
+            else:
+                self.assertIn("vol_spa_beats_record", row["note"])
             for key in ("supported_surviving_bh_5pct", "supported_surviving_holm_5pct", "supported_clearing_hlz_t3",
                         "supported_failing_bh_5pct"):
                 self.assertNotIn(row["id"], s[key], key)
@@ -268,6 +275,43 @@ class BandRegimeRowsTest(unittest.TestCase):
         gap = rows["band_regime_ovx_rv_gap_har_iv"]["hypothesis"]
         self.assertIn(f"previous {lab['regimes']['variables']['ovx_rv_gap']['window_sessions']} sessions", gap)
         self.assertNotIn("{", gap)
+
+
+class ConditionalAndStabilityRowsTest(unittest.TestCase):
+    """ROADMAP 2.3's rows: the Giacomini-White conditional part and the window-length-adjusted fluctuation test,
+    every model against the model of record."""
+
+    def test_the_rows_read_the_registered_forms(self):
+        from backend import vol_lab
+
+        ledger = _committed()
+        lab = rl.load_artifact(rl.LAB)
+        self.assertEqual(list(rl.LAB_COMPARED), [m for m in vol_lab.MODEL_KEYS if m != vol_lab.CHAMPION])
+        self.assertEqual(rl.CHALLENGER, lab["config"]["challenger"])
+        models = {m["key"]: m for m in lab["leaderboard"]["models"]}
+        rows = {r["id"]: r for r in ledger["rows"]}
+        gw_rows = [r for r in ledger["rows"] if r["family"] == "conditional predictive ability"]
+        fl_rows = [r for r in ledger["rows"] if r["family"] == "stability over time"]
+        self.assertEqual([r["id"] for r in gw_rows], [f"vol_gw_{m}" for m in rl.LAB_COMPARED])
+        self.assertEqual([r["id"] for r in fl_rows], [f"vol_fluct_{m}" for m in rl.LAB_COMPARED])
+        for m in rl.LAB_COMPARED:
+            gw, fl = rows[f"vol_gw_{m}"], rows[f"vol_fluct_{m}"]
+            block_gw, block_fl = models[m]["gw_qlike_vs_har_iv"], models[m]["fluctuation_qlike_vs_har_iv"]
+            with self.subTest(m):
+                self.assertEqual(gw["p_value"], block_gw["conditional"]["p_value"])
+                self.assertEqual(fl["p_value"], block_fl["search_adjusted"]["p_value"])
+                for row in (gw, fl):
+                    self.assertEqual(row["p_two_sided"], row["p_value"])
+                    self.assertFalse(row["pre_specified"])
+                    self.assertEqual(row["selected_after_search"], m == rl.CHALLENGER)
+                    self.assertEqual(row["context"]["dm_p"], models[m]["dm_qlike_vs_har_iv"]["p_value"])
+                    self.assertIn(models[m]["label"], row["hypothesis"])
+                    self.assertIn("approximate", row["test"])
+                self.assertEqual(gw["context"]["df"], 3)
+                self.assertEqual(gw["context"]["p_with_constant"], block_gw["p_value"])
+                self.assertEqual(fl["context"]["p_mu_0_2"], block_fl["p_value"])
+                self.assertEqual(fl["context"]["critical_5pct"], lab["stability"]["fluctuation"]["critical_values"]["five_pct"])
+                self.assertGreaterEqual(fl["p_value"], 1 / (lab["stability"]["fluctuation"]["null"]["draws"] + 1))
 
 
 class ResolveTest(unittest.TestCase):

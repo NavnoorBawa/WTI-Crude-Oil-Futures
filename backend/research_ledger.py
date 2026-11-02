@@ -703,8 +703,9 @@ def _band_rows() -> list[Row]:
 LAB_COMPARED = ("persistence", "raw_ovx", "ewma", "garch", "gjr", "har_rv", "har_rs", "har_range", "ovx_only",
                 "har_iv_sameday", "har_iv_range", "lgbm", "combo")
 CHALLENGER = "har_iv_range"
-_APPROXIMATE = ("The theory assumes rolling estimation windows and non-nested models; the lab's windows are expanding "
-                "and HAR-RV and the OVX-only regression are nested in HAR-IV, so the p-value is approximate.")
+_APPROXIMATE = ("The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it "
+                "compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in "
+                "HAR-IV, so the p-value is approximate.")
 
 
 def _conditional_rows() -> list[Row]:

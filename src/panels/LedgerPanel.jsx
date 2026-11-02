@@ -26,8 +26,8 @@ const STATUS_TITLE = {
 };
 const UNDERPOWERED_TITLE = "The test's recorded power is below its target, so a failure to reject says little about whether the effect exists";
 const AFTER_SEARCH_TITLE = "The model was chosen as the best of a field on this same sample, so this pairwise p-value ignores that search. "
-  + "The row is left out of the multiplicity adjustment (no q-value, Holm p-value or t > 3 flag); the Hansen SPA row of this ledger "
-  + "tests the same question with the search taken into account.";
+  + "The row is left out of the multiplicity adjustment (no q-value, Holm p-value or t > 3 flag); where a search-adjusted test "
+  + "exists (the Hansen SPA row, for the full-sample comparison), the row's note names it.";
 const PRE_SPECIFIED_TITLE = "The code documents this test as fixed before the data were seen; most of the project was exploratory";
 // The default order (status rank, then q), as a sort the URL leaves out.
 const DEFAULT_SORT = Object.freeze({ key: "status", direction: "asc" });

@@ -213,7 +213,7 @@ strength its test supports. Nothing here re-selects the challenger: the pair is 
     close" note with data rather than prose.
 12. **Multiplicity as the ledger grows: online control and registered rows.** BH and Holm are
     recomputed over the whole family whenever a row is added, so an old claim's status can flip
-    because of hypotheses tested later, and only 3 of 84 rows are pre-specified. Add to
+    because of hypotheses tested later, and only 3 of 110 rows are pre-specified. Add to
     `research_ledger.py` online false-discovery control (LORD++, Ramdas et al. 2017; SAFFRON,
     Ramdas et al. 2018) at FDR 0.05 over rows ordered by date, storing per row the online alpha
     and rejection flags and a wealth path in the summary, with BH, Holm and HLZ kept as the batch

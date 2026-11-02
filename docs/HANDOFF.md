@@ -22,7 +22,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   test of the whole field (2.2.0; arch 8.0.0 ignores its `studentize` flag, so the 0.072 published
   before was the non-studentized test, see the CHANGELOG errata) rejects "no alternative beats the
   model of record" at p = 0.011 (0.005 to 0.027 across blocks and halves; the 2008–2016 leader is
-  the Combination), but not after the ledger's Benjamini-Hochberg adjustment (q = 0.0996). The
+  the Combination), but not after the ledger's Benjamini-Hochberg adjustment (q = 0.084). The
   challenger runs live under the pinned 52-week, one-look promotion test. `data/vol_lab.json`
   rebuilds bit for bit (Reproduce workflow: on every PR or push to `main` that touches the pipeline,
   its inputs or its pins, and weekly). The losses' level is read against the proxy's QLIKE noise
@@ -32,7 +32,16 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   tests of equal coverage across regimes is significant at 5%; the model of record across OVX
   thirds is inconclusive (p = 0.083 at 10 HAC lags, 0.111 at 20; q = 0.277). CALB states it, MODL
   has a "by regime" view (descriptive), FCST shows the OVX/RV5 gap; the eight rows are in the
-  ledger's "forecast interval" family, not pre-specified.
+  ledger's "forecast interval" family, not pre-specified. When the differences arise (ROADMAP 2.3,
+  lab and ledger; RESULTS 2.8): Giacomini-White's conditional part is significant against
+  persistence (surviving the ledger's adjustments), EWMA, HAR-RV, HAR-RS and LightGBM (none
+  surviving; not significant with 40 Bartlett lags), and not against raw OVX, the OVX-only
+  regression, the combination, HAR-range or the GARCH models; the fluctuation test, adjusted for five window lengths, mostly restates the DM rejections,
+  is significant against HAR-range (not after the ledger's adjustment) and inconclusive against the
+  OVX-only regression (p = 0.056) and the challenger (0.070, outside the family). 26 new ledger rows
+  (110 in all, 107 in the family); the SPA row's q fell to 0.084 because the new rows include strong
+  near-duplicates of DM rejections. STAB still shows the 52-week rolling gap until the dashboard
+  part.
 - **Live record.** Daily calls are recorded and sealed in git on the `live-data` branch before their
   window opens; each call since 2026-10-28 also stores its fit, so it recomputes from its own entry.
   The first three windows resolved on 2026-10-29, 10-30 and 10-31: the Oct 20 call (47.3%, band
@@ -58,7 +67,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   accepted on 2026-11-01 after two scheduled publishes with anchors; LIVE and a second anchor
   remain). From #95 the Refresh workflow's three field jobs keep the unsealed shadow log of the
   whole field on the `field-data` branch (ROADMAP 1.8; `backend/field_record.py`, #94).
-- **Tests.** 645 Python (unittest), 281 frontend (node --test) and 14 browser checks (Playwright,
+- **Tests.** 664 Python (unittest), 281 frontend (node --test) and 14 browser checks (Playwright,
   the "Interface" CI job: axe, layout shift, overflow, keyboard, print, script budget). CI also runs
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
   Reproduce rebuild. Releases: `scripts/bump_version.py`, and `.github/workflows/release.yml`
