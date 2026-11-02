@@ -256,7 +256,8 @@ residuals understate its error.
     with `d̄`, so picking the model with the lowest mean loss moves them as well. The challenger's
     row is therefore marked selected after a search (section 17).
   - **Size and power.** In simulations run when the test was designed (nulls with the 5-session
-    overlap, Gaussian and heavy-tailed, at about this sample's length), both forms held their size
+    overlap, Gaussian and heavy-tailed, at about this sample's length; only the Gaussian cases are kept
+    in the repository, as tests), both forms held their size
     at 5% with this estimator, while Bartlett weights at the same 4 lags over-rejected well beyond
     it. `tests/test_vol_lab.py` repeats the Gaussian case (it requires a rejection rate between 3.5%
     and 6.5% at a nominal 5%, and power above 90% when the difference is predictable). Power is low
@@ -280,7 +281,7 @@ residuals understate its error.
 - **Stability over time (Giacomini-Rossi 2010)** (`forecast_eval.rolling_dm`, `fluctuation_null`,
   `fluctuation_reference`, `fluctuation_test`, `critical_value_mc_se`; `vol_lab.stability_report`).
   Giacomini and Rossi's fluctuation test: a rolling Diebold-Mariano t on the same difference `d`,
-  which shows when in the sample the two forecasts' accuracy differed.
+  which shows in which windows equal accuracy is rejected.
   - **Path.** A window holds `m = round(μ·P)` consecutive out-of-sample days, of `P` in all. For the
     window ending on day *j*, `t_j = Σ d_i / √(m·σ̂²_j)`, where `σ̂²_j = γ̂₀ + 2 Σ_{k=1..4} γ̂_k` is that
     window's own long-run variance: around the window's mean, truncated kernel, 4 lags. There is no
@@ -289,7 +290,9 @@ residuals understate its error.
   - **Why each window has its own variance.** Giacomini and Rossi divide every window by one
     full-sample variance. QLIKE differences are far more variable in turbulent years than in calm
     ones, so one variance is too small for turbulent windows and too large for calm ones. In
-    simulations run when the test was designed, on heteroskedastic nulls, that form over-rejected at
+    simulations run when the test was designed, on heteroskedastic nulls (Student-t differences with
+    5 and 3 degrees of freedom, scaled by a persistent volatility path; not kept in the repository,
+    whose tests repeat only the Gaussian cases), that form over-rejected at
     a nominal 5%, and the form with each window's own variance did not.
   - **The null** is the conditional one, the same as Giacomini and White's: given what was known at
     each decision, the two forecasts have equal expected QLIKE at every date. It implies that `d` has
@@ -306,7 +309,8 @@ residuals understate its error.
   - **Window lengths.** μ = 0.1, 0.2, 0.3, 0.4 and 0.5 of the out-of-sample days, all published.
     μ = 0.2 is the display window: the weekly paths (`fluct_t_*`) and each model's `p_value` and
     `rejects_5pct` use it. It is the shortest window whose size stayed close to or below 5% on
-    every simulated null with only the overlap; μ = 0.1 over-rejected on the Gaussian one, so its
+    every simulated null with only the overlap; μ = 0.1 over-rejected on the Gaussian one
+    (`tests/test_vol_lab.py` repeats that case and requires a rejection rate above 6%), so its
     p-value is anti-conservative and is labelled so wherever it is printed. The simulations do not
     single out 0.2 on power: no length had the most power for every kind of episode.
   - **Statistic and decision.** For each length, the two-sided `sup_j |t_j|`, with its sign and

@@ -1153,9 +1153,10 @@ def stability_block() -> str:
         gw, fl = m["gw_qlike_vs_har_iv"], m["fluctuation_qlike_vs_har_iv"]
         gw_row, fl_row = _ledger_row(ledger, f"vol_gw_{m['key']}"), _ledger_row(ledger, f"vol_fluct_{m['key']}")
         peak = "—" if fl["sup"] is None else f"{_fmt(fl['sup'] * fl['sign'], 2, True)} ({fl['at']})"
+        outside = (fl["robustness"].get("by_grid") or {}).get("outside_5pct")
         rows.append(f"| {m['label']} | {_pthr(m['dm_qlike_vs_har_iv']['p_value'])} | {_pthr(gw['conditional']['p_value'])} "
                     f"| {q(gw_row)} | {peak} | {_pthr(fl['p_value'])} | {_pthr(fl['search_adjusted']['p_value'])} | "
-                    f"{q(fl_row)} | {fl['robustness'].get('by_grid', {}).get('outside_5pct', '—')}/{_grids(lab)} |")
+                    f"{q(fl_row)} | {'—' if outside is None else f'{outside}/{_grids(lab)}'} |")
     mus = [key for key in fl_cfg["context"]]
     rows += ["", "Context, not in the ledger:", "",
              "| Model | GW with the constant, p (mostly repeats DM) | Fluctuation p, 40 Bartlett lags | Fluctuation p, "
@@ -1225,6 +1226,11 @@ def stability_reading() -> str:
                      f"advantage over them is larger when OVX is higher at the same RV5. The coefficients are "
                      f"descriptive; none is tested on its own.")
         parts.append(text)
+    mid = [m for m in cond if 0.05 <= m["gw_qlike_vs_har_iv"]["conditional"]["p_value"] < 0.10]
+    if mid:
+        parts.append(f"It is inconclusive against {_names(mid)} "
+                     f"({', '.join(_peq_thr(m['gw_qlike_vs_har_iv']['conditional']['p_value']) for m in mid)}): not "
+                     f"significant at 5%.")
     quiet = [m for m in cond if m["gw_qlike_vs_har_iv"]["conditional"]["p_value"] >= 0.10]
     if quiet:
         parts.append(f"It is not significant against {_names(quiet)}; a failure to reject is not evidence that the "
@@ -1611,7 +1617,8 @@ def robustness_block() -> str:
         f"{chall['in_mcs_qlike_grids']}/{grids} and the model of record on {champ['in_mcs_qlike_grids']}/{grids}. A "
         f"conclusion that holds on one grid and not the next is reported as fragile.",
         *(["- **Over time and by state.** Section 2.8 asks whether the loss difference with each model moves with what "
-            "is known at the decision (Giacomini-White) and whether it holds at every date (a fluctuation test)."]
+            "is known at the decision (Giacomini-White) and whether the two were equally accurate in expectation at "
+            "every date (a fluctuation test)."]
           if "stability" in lab else []),
         f"- **Confidence-set settings.** The full-sample QLIKE set (blocks of {lab['config']['mcs']['block_daily']} "
         f"days) keeps {members(board['mcs_qlike_included'])}. "
@@ -1996,13 +2003,28 @@ def ledger_reading() -> str:
     later = [r for r in led["rows"] if r["family"] in ("conditional predictive ability", "stability over time")
              and r.get("survives_bh_5pct")]
     if later:
-        repeats = [r for r in later if r["context"].get("dm_p") is not None and r["context"]["dm_p"] < 0.05]
-        text.append(f"Of the rows that test conditional predictive ability and stability over time, {len(later)} survive "
-                    f"the Benjamini-Hochberg adjustment, and {_count(len(repeats), len(later))} of them test a model the "
-                    f"full-sample DM test already separates from the model of record (section 2.8): they restate that "
-                    f"difference rather than add a separate one. Rows on the same loss difference are dependent; "
-                    f"Benjamini-Hochberg assumes that dependence is positive, Holm holds under any dependence, and "
-                    f"strongly significant rows like these lower the other rows' q-values.")
+        # The fluctuation test's null includes equal average loss, so a rejection where DM rejects mostly restates DM;
+        # Giacomini-White's conditional part is unchanged by a constant shift of the difference and asks another question.
+        fluct = [r for r in later if r["family"] == "stability over time"]
+        repeats = [r for r in fluct if r["context"].get("dm_p") is not None and r["context"]["dm_p"] < 0.05]
+        cond = [r for r in later if r["family"] == "conditional predictive ability"]
+        named = [r["hypothesis"].split("model of record and ", 1)[-1].split(" moves with", 1)[0] for r in cond]
+        sentence = (f"Of the rows that test conditional predictive ability and stability over time, {len(later)} survive "
+                    f"the Benjamini-Hochberg adjustment.")
+        if fluct:
+            share = f"All {len(fluct)}" if len(repeats) == len(fluct) else f"{len(repeats)} of the {len(fluct)}"
+            sentence += (f" {share} fluctuation rows among them test a model the full-sample DM test already separates "
+                         f"from the model of record (section 2.8), so they mostly restate that difference."
+                         if len(fluct) > 1 else
+                         f" The fluctuation row among them {'tests a model the full-sample DM test already separates' if repeats else 'tests a model the full-sample DM test does not separate'} from the model of record (section 2.8).")
+        if cond:
+            sentence += (f" The Giacomini-White conditional {'row' if len(cond) == 1 else 'rows'} against {_join(named)} "
+                         f"{'asks' if len(cond) == 1 else 'ask'} a separate question, whether the difference moves with "
+                         f"what is known at the decision; a constant shift of the difference does not change "
+                         f"{'it' if len(cond) == 1 else 'them'}.")
+        text.append(sentence + " Rows on the same loss difference are dependent; Benjamini-Hochberg assumes that "
+                    "dependence is positive, Holm holds under any dependence, and strongly significant rows like these "
+                    "lower the other rows' q-values.")
     retracted = s["by_status"]["retracted"]
     vrp = rows_by_id.get("vrp_exists")
     text.append(f"The {retracted} retracted rows stay in the multiplicity count, since they were tested, but none is "

@@ -134,6 +134,8 @@ EWMA_LAMBDA = 0.94               # RiskMetrics daily decay
 GARCH_SCALE = 100.0              # arch fits percent returns for numerical stability
 GARCH_TOL = 1e-9                 # optimizer tolerance: converge to the optimum, not near it (below)
 REPRO_REL_TOL = 1e-4             # reproduction check: relative agreement required of every number
+SIMULATED_P_DRAWS = 10           # ...and of the fluctuation test's p-values, which count simulated draws: a sup that
+                                 # moves past one draw (a GARCH fit's last bits on another CPU) moves p by 1/(B + 1)
 LGBM_RETRAIN_WEEKS = 13          # retrain the tree model quarterly (it is the slow one)
 CONE_WINDOWS = (5, 10, 22, 66, 126, 252)
 CONE_PERCENTILES = (5, 25, 50, 75, 95)
@@ -1696,9 +1698,16 @@ def compare_reports(committed: Any, rebuilt: Any) -> dict[str, Any]:
     `violations` lists every difference that is not floating-point noise: a key, length, string,
     flag, null or integer that differs, or a number off by more than REPRO_REL_TOL relative and more
     than one unit in the last decimal it is published with (a value rounded to 3 places may land on
-    the other side of a rounding boundary). Empty means every conclusion reproduces."""
+    the other side of a rounding boundary). A fluctuation-test p-value counts simulated draws, so it may
+    also differ by up to SIMULATED_P_DRAWS draws; its flags stay exact. Empty means every conclusion
+    reproduces."""
     violations: list[str] = []
     numeric: list[tuple[float, str]] = []
+    draw_step = SIMULATED_P_DRAWS / (FLUCT_NULL_DRAWS + 1)
+
+    def simulated_p(path: str) -> bool:
+        leaf = path.rsplit("/", 1)[-1].split("[", 1)[0]
+        return "/fluctuation_qlike_vs_har_iv/" in path and leaf in ("p_value", "min_p")
 
     def walk(a: Any, b: Any, path: str) -> None:
         if isinstance(a, dict) and isinstance(b, dict):
@@ -1716,7 +1725,8 @@ def compare_reports(committed: Any, rebuilt: Any) -> dict[str, Any]:
             if a != b:
                 rel = abs(a - b) / max(abs(a), abs(b))
                 numeric.append((rel, path))
-                if rel > REPRO_REL_TOL and abs(a - b) > _last_place(a) * (1 + 1e-9):
+                if (rel > REPRO_REL_TOL and abs(a - b) > _last_place(a) * (1 + 1e-9)
+                        and not (simulated_p(path) and abs(a - b) <= draw_step * (1 + 1e-9))):
                     violations.append(f"{path}: committed {a!r}, rebuilt {b!r}")
         elif type(a) is not type(b) or a != b:
             violations.append(f"{path}: committed {a!r}, rebuilt {b!r}")

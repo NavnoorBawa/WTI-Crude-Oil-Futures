@@ -615,16 +615,20 @@ class FluctuationTest(unittest.TestCase):
         self.assertFalse(np.array_equal(a, fe.fluctuation_null(500, (50, 100), draws=999, seed=[1, 2, 4])))
 
     def test_the_per_window_test_holds_its_size_under_the_overlap(self):
+        # At mu = 0.2 it holds its size; at mu = 0.1 (463 sessions) it over-rejects, which is why that window's
+        # p-value is labelled anti-conservative wherever it is printed.
         null = self.null()
-        c5 = fe.fluctuation_test([0.0] * 5, null, fe.fluctuation_reference(null))["critical"][1]["0.05"]
+        critical = fe.fluctuation_test([0.0] * 5, null, fe.fluctuation_reference(null))["critical"]
         rng = np.random.default_rng(np.random.SeedSequence([20261020, 2304]))
-        rejected = []
-        for _ in range(1500):
+        rejected, rejected_short = [], []
+        for _ in range(2000):
             e = rng.standard_normal(4634 + vf.H)
             c = np.r_[0.0, np.cumsum(e)]
             d = c[vf.H + 1:] - c[1:-vf.H]                        # MA(4): the overlap and nothing else
-            rejected.append(np.abs(_rolling_dm_prefix(d, 927, lags=4)).max() > c5)
+            rejected.append(np.abs(_rolling_dm_prefix(d, 927, lags=4)).max() > critical[1]["0.05"])
+            rejected_short.append(np.abs(_rolling_dm_prefix(d, 463, lags=4)).max() > critical[0]["0.05"])
         self.assertTrue(0.03 <= np.mean(rejected) <= 0.08, np.mean(rejected))
+        self.assertGreater(np.mean(rejected_short), 0.06)
 
 
 class StabilityReportTest(unittest.TestCase):
@@ -1405,6 +1409,29 @@ class ArtifactContractTest(unittest.TestCase):
         # Same model, timing and weekly grid (grid 0); the snapshot and the production run may differ
         # by a week at the end of the sample.
         self.assertAlmostEqual(champ["qlike_by_grid"][0], prod["har_qlike"], delta=0.005)
+
+    def test_a_simulated_p_value_may_move_a_few_draws_but_its_flag_may_not(self):
+        step = 1 / (lab.FLUCT_NULL_DRAWS + 1)
+        block = {"leaderboard": {"models": [{"fluctuation_qlike_vs_har_iv": {
+            "p_value": 0.04578, "rejects_5pct": True, "search_adjusted": {"p_value": 0.0702, "min_p": 0.0264},
+            "by_mu": {"mu_0_4": {"p_value": 0.04578}}, "robustness": {"by_grid": {"p_value": [0.0114, 0.03]}}},
+            "dm_qlike_vs_har_iv": {"p_value": 0.04578}}]}}
+        moved = json.loads(json.dumps(block))
+        fl = moved["leaderboard"]["models"][0]["fluctuation_qlike_vs_har_iv"]
+        fl["p_value"] -= step
+        fl["by_mu"]["mu_0_4"]["p_value"] -= step
+        fl["search_adjusted"]["p_value"] += 6 * step
+        fl["search_adjusted"]["min_p"] += step
+        fl["robustness"]["by_grid"]["p_value"][0] += 2 * step
+        self.assertEqual(lab.compare_reports(block, moved)["violations"], [])
+        fl["search_adjusted"]["p_value"] += 20 * step                       # beyond the allowance
+        self.assertEqual(len(lab.compare_reports(block, moved)["violations"]), 1)
+        fl["search_adjusted"]["p_value"] -= 20 * step
+        fl["rejects_5pct"] = False                                          # a conclusion is never noise
+        self.assertEqual(len(lab.compare_reports(block, moved)["violations"]), 1)
+        fl["rejects_5pct"] = True
+        moved["leaderboard"]["models"][0]["dm_qlike_vs_har_iv"]["p_value"] -= step   # not a simulated p
+        self.assertEqual(len(lab.compare_reports(block, moved)["violations"]), 1)
 
     def test_reproduction_rule_separates_noise_from_a_changed_result(self):
         committed = {"sets": ["a", "b"], "p": 0.0028, "acc": 66.1, "raw": 0.20370903366594823, "n": 4}

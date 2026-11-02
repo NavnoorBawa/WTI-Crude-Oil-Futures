@@ -149,11 +149,14 @@ backs the new one.
   and outside the family), and against HAR-range (significant at 5%, not after the ledger's
   adjustment); against the OVX-only regression it is inconclusive after the window-length
   adjustment. The family grows from 83 to 107 rows. No existing row changes status or survival, and
-  no q-value crosses 0.05 or 0.10; nine q-values below 0.001 rise slightly, and the rest fall,
-  because the new rows include strongly significant near-duplicates of existing DM rejections (the
-  SPA row's from 0.0996 to 0.084; RESULTS section 6 says so). Both theories assume forecasts
+  no q-value crosses 0.05 or 0.10: the twelve q-values below 0.001 rise slightly (all stay below
+  0.001), the eighteen at 1 stay there, and the other 53 fall, because the new rows include strongly
+  significant near-duplicates of existing DM rejections (the SPA row's from 0.0996 to 0.084; RESULTS
+  section 6 says so). Both theories assume forecasts
   re-estimated on rolling windows of bounded size, which is also what lets them compare nested
-  models; the lab's windows expand, so the p-values are approximate. Rebuilt in the pinned container;
+  models; the lab's windows expand, so the p-values are approximate. The reproduce check
+  (`compare_reports`) lets a fluctuation p-value, which counts simulated draws, differ by up to 10
+  draws on another CPU; its flags stay exact. Rebuilt in the pinned container;
   every other value in the artifact is unchanged. RESULTS section 2.8 states each result at the
   strength its test supports.
 

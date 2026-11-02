@@ -277,6 +277,15 @@ class BandRegimeRowsTest(unittest.TestCase):
         self.assertNotIn("{", gap)
 
 
+class OptionalFieldTest(unittest.TestCase):
+    def test_a_stored_null_reads_as_no_p_value_only_where_optional(self):
+        with self.assertRaises(TypeError):
+            rl.Field("a")({"a": None})
+        self.assertEqual(rl.Field("a", optional=True)({"a": None}), (None, {"a": None}))
+        self.assertEqual(rl.Field("a", optional=True)({"a": 0.2}), (0.2, {"a": 0.2}))
+        self.assertEqual(rl.Field("a")({"a": 0.2}), (0.2, {"a": 0.2}))
+
+
 class ConditionalAndStabilityRowsTest(unittest.TestCase):
     """ROADMAP 2.3's rows: the Giacomini-White conditional part and the window-length-adjusted fluctuation test,
     every model against the model of record."""

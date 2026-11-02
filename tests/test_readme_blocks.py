@@ -95,6 +95,45 @@ class StabilityBlocksTest(unittest.TestCase):
         self.assertIn("after the adjustment for the window length it is not significant (p = 0.200)",
                       self.patched(rb.stability_reading))
 
+    def test_the_verdict_words_follow_the_house_thresholds_exactly(self):
+        fl = self.model("ovx_only")["fluctuation_qlike_vs_har_iv"]
+        fl["search_adjusted"]["p_value"] = 0.05
+        self.assertIn("after the adjustment for the window length it is inconclusive (p = 0.050",
+                      self.patched(rb.stability_reading))
+        fl["search_adjusted"]["p_value"] = 0.10
+        self.assertIn("after the adjustment for the window length it is not significant (p = 0.100)",
+                      self.patched(rb.stability_reading))
+
+    def test_the_conditional_part_reads_every_band_and_the_coefficient_sentence_needs_every_sign(self):
+        import re
+
+        # A conditional p between 0.05 and 0.10 is inconclusive, never left out.
+        self.model("har_rv")["gw_qlike_vs_har_iv"]["conditional"]["p_value"] = 0.07
+        text = self.patched(rb.stability_reading)
+        self.assertRegex(text, r"It is inconclusive against HAR-RV \(p = 0\.070\): not significant at 5%")
+        # One significant model whose fitted OVX association is positive: no "against all of them".
+        ovx = self.model("ovx_only")["gw_qlike_vs_har_iv"]
+        ovx["conditional"]["p_value"] = 0.03
+        self.assertGreater(ovx["coef_levels"]["ln_ovx"], 0)
+        self.assertNotIn("against all of them", self.patched(rb.stability_reading))
+        self.assertFalse(re.search(r"HAR-RV \+ downside semivol \(p = 0\.070", text))
+
+    def test_a_test_that_was_not_computed_prints_dashes(self):
+        fl = self.model("combo")["fluctuation_qlike_vs_har_iv"]
+        for key in ("sup", "sign", "at", "p_value"):
+            fl[key] = None
+        fl["search_adjusted"]["p_value"] = None
+        fl["robustness"]["by_grid"] = {"outside_5pct": None}
+        line = next(l for l in self.patched(rb.stability_block).splitlines() if l.startswith("| Combination |"))
+        self.assertNotIn("None", line)
+        self.assertTrue(line.rstrip(" |").endswith("—"), line)
+
+    def test_a_surviving_conditional_row_is_never_counted_as_restating_dm(self):
+        text = self.patched(rb.ledger_reading)
+        self.assertIn("fluctuation rows among them test a model the full-sample DM test already separates", text)
+        self.assertIn("The Giacomini-White conditional row against Persistence (RV5) asks a separate question", text)
+        self.assertNotIn("all 9 of them", text)
+
     def test_a_robustness_form_in_another_band_is_named(self):
         fl = self.model("raw_ovx")["fluctuation_qlike_vs_har_iv"]
         fl["robustness"]["bartlett_40"]["p_value"] = 0.04

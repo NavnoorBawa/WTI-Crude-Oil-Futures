@@ -63,7 +63,8 @@ jobs:
       # rebuild can be bit for bit. Where it is not, backend/vol_lab.py compare_reports decides:
       # every model set, flag, label and count must be identical and every number equal to 1e-4
       # relative or to the last decimal it is published with (the GARCH refits converge tightly, so
-      # kernel differences stay near 2e-5). data/vol_lab.json is generated under these variables.
+      # kernel differences stay near 2e-5); a fluctuation-test p-value, which counts simulated draws,
+      # may also move by up to 10 draws. data/vol_lab.json is generated under these variables.
       OMP_NUM_THREADS: '1'
       OPENBLAS_NUM_THREADS: '1'
       MKL_NUM_THREADS: '1'

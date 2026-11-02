@@ -321,7 +321,7 @@ figures, labelled not calibrated and not evidence of skill.
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("robustness_block") ]]] -->
 
 - **Sampling grids.** The model of record's QLIKE on the five 5-session sampling grids ranges 0.358 to 0.378; the challenger is in the 90% MCS on 5/5 and the model of record on 2/5. A conclusion that holds on one grid and not the next is reported as fragile.
-- **Over time and by state.** Section 2.8 asks whether the loss difference with each model moves with what is known at the decision (Giacomini-White) and whether it holds at every date (a fluctuation test).
+- **Over time and by state.** Section 2.8 asks whether the loss difference with each model moves with what is known at the decision (Giacomini-White) and whether the two were equally accurate in expectation at every date (a fluctuation test).
 - **Confidence-set settings.** The full-sample QLIKE set (blocks of 20 days) keeps HAR-IV-range, Combination, OVX-only regression and Raw OVX. With 10-day blocks it keeps HAR-IV-range. With 40-day blocks it keeps HAR-IV-range, Combination, OVX-only regression and Raw OVX. On 2008–2016 alone (2,177 days) it keeps Combination, HAR-IV-range, HAR-range, Raw OVX and OVX-only regression. On 2017–2026 alone (2,457 days) it keeps HAR-IV-range.
 - **Implied-vol timing.** OVX settles at 16:15 ET, after the 14:30 CL settlement that opens the target window, so the model uses the previous session's OVX. Using the same day's value, as the timing control in the table above does, lowers QLIKE to 0.358 (DM +3.99, p < 0.001): the extra 1h45m of information is worth having, and is not available at the decision time. It is a timing control, excluded from every confidence set, the SPA test, the selection below and the choice of challenger.
 - **Roll gaps** (production run). `CL=F` books each roll's calendar spread as a return. With the 283 roll days through 2024 rebuilt as same-contract returns from EIA's curve, the production model's QLIKE is 0.368 over the same 927 weeks (0.376 as published).
@@ -337,7 +337,8 @@ on the dashboard, in its STAB, CONE and MODL (by grid) sections.
 ### 2.8 When the differences arise
 
 The tests above compare average losses over the whole sample. Two more ask when a difference
-arises: whether it moves with what is known at the decision, and whether it holds at every date.
+arises: whether it moves with what is known at the decision (Giacomini-White), and whether the two
+forecasts were equally accurate in expectation at every date (a fluctuation test).
 
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("stability_block") ]]] -->
 
@@ -595,8 +596,10 @@ tests to pass, such as a supply-shock group against both placebos, takes the lar
 claim about runs that reuse the same data, such as the block-shuffled leak runs, takes the largest
 of the per-run p-values rather than a pooled one. A row that tests a model picked as the best of a
 field on the same sample is marked as selected after a search and left out of the adjustments,
-because its pairwise p-value ignores the search; the search-adjusted test of the same question is a
-row of its own. A status is a verdict on the test as run: "not supported" is a failure to reject,
+because its pairwise p-value ignores the search; where a search-adjusted test of the same question
+exists (Hansen's SPA, for the full-sample comparison), it is a row of its own, and the challenger's
+conditional and over-time comparisons have none. A status is a verdict on the test as run: "not
+supported" is a failure to reject,
 and where the artifact records the test's power the row says whether it was underpowered.
 
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("ledger_block") ]]] -->
@@ -643,7 +646,7 @@ Source: `data/research_ledger.json`, rebuilt from the artifacts by `python -m ba
 
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("ledger_reading") ]]] -->
 
-Both supported leak demonstrations survive every adjustment, so some of the project's strongest results are about how its own first result was wrong. The block-shuffled demonstration does not pool its 10 runs, which permute the same returns: it claims that every run beats its own base rate, and its p-value is the largest of the 10 per-run p-values (an intersection-union test, valid however the runs depend on one another; section 4). The synthetic one pools runs on independent returns. One supported row is not in the table: "The challenger HAR-IV-range beats the model of record on QLIKE" (p = 0.002). The challenger is the lowest-loss model of the field on the same sample, so that pairwise p-value ignores the search, and the row is left out of the multiplicity family. The search-adjusted test of the same question, Hansen's SPA, gives p = 0.011, so after the search the edge is significant at 5%, though the rejection does not survive the ledger's Benjamini-Hochberg adjustment across the 107 hypotheses in its multiplicity family (q = 0.084); the live promotion test (section 3) decides whether the challenger replaces the model of record. Of the rows that test conditional predictive ability and stability over time, 9 survive the Benjamini-Hochberg adjustment, and all 9 of them test a model the full-sample DM test already separates from the model of record (section 2.8): they restate that difference rather than add a separate one. Rows on the same loss difference are dependent; Benjamini-Hochberg assumes that dependence is positive, Holm holds under any dependence, and strongly significant rows like these lower the other rows' q-values. The 9 retracted rows stay in the multiplicity count, since they were tested, but none is counted as a survivor; one of them is the share of periods with OVX above realized volatility tested against 50%, the wrong null for a premium (section 2.5).
+Both supported leak demonstrations survive every adjustment, so some of the project's strongest results are about how its own first result was wrong. The block-shuffled demonstration does not pool its 10 runs, which permute the same returns: it claims that every run beats its own base rate, and its p-value is the largest of the 10 per-run p-values (an intersection-union test, valid however the runs depend on one another; section 4). The synthetic one pools runs on independent returns. One supported row is not in the table: "The challenger HAR-IV-range beats the model of record on QLIKE" (p = 0.002). The challenger is the lowest-loss model of the field on the same sample, so that pairwise p-value ignores the search, and the row is left out of the multiplicity family. The search-adjusted test of the same question, Hansen's SPA, gives p = 0.011, so after the search the edge is significant at 5%, though the rejection does not survive the ledger's Benjamini-Hochberg adjustment across the 107 hypotheses in its multiplicity family (q = 0.084); the live promotion test (section 3) decides whether the challenger replaces the model of record. Of the rows that test conditional predictive ability and stability over time, 9 survive the Benjamini-Hochberg adjustment. All 8 fluctuation rows among them test a model the full-sample DM test already separates from the model of record (section 2.8), so they mostly restate that difference. The Giacomini-White conditional row against Persistence (RV5) asks a separate question, whether the difference moves with what is known at the decision; a constant shift of the difference does not change it. Rows on the same loss difference are dependent; Benjamini-Hochberg assumes that dependence is positive, Holm holds under any dependence, and strongly significant rows like these lower the other rows' q-values. The 9 retracted rows stay in the multiplicity count, since they were tested, but none is counted as a survivor; one of them is the share of periods with OVX above realized volatility tested against 50%, the wrong null for a premium (section 2.5).
 <!-- [[[end]]] -->
 
 ## 7. Reproduce
@@ -685,9 +688,10 @@ same numeric environment the rebuild is bit for bit. Across BLAS thread counts a
 iterative GARCH fits differ in the last bits. The Reproduce workflow therefore pins a numeric
 environment, and `vol_lab.compare_reports` defines a match: every model set, flag, label and count
 identical, and every number within 1e-4 relative or within one unit of the last decimal it is
-published with. Rebuilds with four BLAS threads and with one both match by that definition. On other
-BLAS or CPU kernels the iterative GARCH fits can move a rounded figure by one unit in its last
-decimal, which `compare_reports` accepts. The workflow runs on pull requests and pushes that change
+published with; the fluctuation test's p-values, which count simulated draws, may also differ by up
+to 10 simulated draws (2e-4). Rebuilds with four BLAS threads and with one both match by that
+definition. On other BLAS or CPU kernels the iterative GARCH fits can move a rounded figure by one
+unit in its last decimal, or a fluctuation p-value by a draw, which `compare_reports` accepts. The workflow runs on pull requests and pushes that change
 the lab's inputs, every week, and on demand. The Tests workflow's unit suite rebuilds the carry, supply-shock and ledger
 artifacts and part of the leak anatomy; its `cog --check` and figure check confirm only that the
 docs match the committed artifacts. Nothing in CI regenerates the production validation or the
