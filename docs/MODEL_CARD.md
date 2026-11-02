@@ -87,6 +87,8 @@ generated from the committed artifacts (`scripts/readme_blocks.py`, checked in C
 | Realized utility (% per year) | 3.25 | 3.30 | maximum 4.0 |
 | OVX elasticity (HAC t), full-sample fit | 1.03 (13.2) | — | 1 = proportional to implied vol |
 | Vol-target overlay: Sharpe minus buy-and-hold (p) | −0.12 (0.408) | — | production run, 800 weeks |
+| CRPS over 19 quantiles, vol points (4,370 days; lower is better) | 8.234 | 8.214 (batch-means p = 0.780) | OVX-only regression 8.237; GARCH(1,1)-t 9.034; GJR-GARCH(1,1)-t 9.051; EWMA (RiskMetrics) 9.597; the quantile HAR 8.209 |
+| Calibration of the whole distribution: Berkowitz p over the sampling grids | 0.092 | 0.203 | small p: miscalibrated; RESULTS section 2.9 |
 | Direction accuracy, every OOS day (not skill evidence) | 72.6% | 72.4% | noise floor 75.2% (HAR without OVX on simulated returns with nothing to forecast); production run: model of record 74.4% on the weekly grid vs a floor of 75.2% |
 
 Every-day rows and the SPA test are from the lab (`data/vol_lab.json`, rebuilt in CI); the overlay and production-grid direction figures are from a recorded run on downloaded data (`data/vol_forecast_validation.json`).

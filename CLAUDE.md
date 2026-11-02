@@ -45,7 +45,7 @@ their window opens and scored afterwards. Site: https://navnoorbawa.github.io/WT
   `PYTHONPATH=. python -m cogapp --check README.md docs/RESULTS.md docs/MODEL_CARD.md docs/DATASHEET.md docs/PREREGISTRATION.md`,
   `python -B scripts/make_figures.py && git diff --stat -- docs/figures` (must be empty),
   `python scripts/validate_frozen_payload.py tests/fixtures/valid_frozen_payload.json`.
-- Reproduce test, as `.github/workflows/reproduce.yml` runs it (about 4 minutes):
+- Reproduce test, as `.github/workflows/reproduce.yml` runs it (about 7 minutes):
   `OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_CORETYPE=Haswell
   NPY_DISABLE_CPU_FEATURES="X86_V4 AVX512_ICL AVX512_SPR" PYTHONHASHSEED=0 PYTHONPATH=. RUN_SLOW=1
   VOL_LAB_REBUILT=/tmp/vol_lab.rebuilt.json python -B -m unittest -v

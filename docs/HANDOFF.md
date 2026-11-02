@@ -30,7 +30,7 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   with heavier tails; shown on the QLIKE tile and in MODL, never subtracted from a loss or test.
   Coverage and loss by regime at the decision (`vol_lab.regimes`, ROADMAP 2.2): none of the eight
   tests of equal coverage across regimes is significant at 5%; the model of record across OVX
-  thirds is inconclusive (p = 0.083 at 10 HAC lags, 0.111 at 20; q = 0.223). CALB states it, MODL
+  thirds is inconclusive (p = 0.083 at 10 HAC lags, 0.111 at 20; q = 0.220). CALB states it, MODL
   has a "by regime" view (descriptive), FCST shows the OVX/RV5 gap; the eight rows are in the
   ledger's "forecast interval" family, not pre-specified. When the differences arise (ROADMAP 2.3,
   lab and ledger; RESULTS 2.8): Giacomini-White's conditional part is significant against
@@ -42,6 +42,17 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   (110 in all, 107 in the family); the SPA row's q fell to 0.084 because the new rows include strong
   near-duplicates of DM rejections. STAB shows the rolling DM t with the fluctuation band, a
   cumulative view and both tests in its table view (ROADMAP 2.3, #101 and the dashboard part).
+  The whole predictive distribution (ROADMAP 2.4, lab and ledger; RESULTS 2.9): seven models'
+  quantiles scored on the band's 4,370 days by CRPS over 19 quantiles and the 10%/90% pinball
+  losses, each against the model of record by a batch-means test (the 9-lag DM variance is far too
+  small for these persistent differences), and Berkowitz on each sampling grid. No CRPS difference
+  is significant (GARCH-t inconclusive, p = 0.088); on the 90% pinball loss the record is
+  significantly lower than GARCH-t and EWMA (neither survives BH); Berkowitz rejects OVX-only,
+  GARCH-t, GJR-t, EWMA (surviving BH) and the quantile HAR (not surviving), is inconclusive for the
+  record (p = 0.092) and does not reject the challenger. The quantile HAR is a robustness
+  competitor outside the field and the live pair. 25 new rows (135 in all, 129 in the family), no
+  survival flag changed; the rebuild takes about seven minutes. The dashboard does not read the
+  block yet (2.4's second part: CALB PIT histograms and a MODL "CRPS" view).
 - **Live record.** Daily calls are recorded and sealed in git on the `live-data` branch before their
   window opens; each call since 2026-10-28 also stores its fit, so it recomputes from its own entry.
   The first three windows resolved on 2026-10-29, 10-30 and 10-31: the Oct 20 call (47.3%, band
@@ -139,6 +150,15 @@ and its CI run is the test.
   (design note's `CoverageByRegime`; CALB shows facts rows and tables instead) and a second FCST
   chart pane for the OVX/RV5 gap (it needs the forecast chart's percent formatting moved from
   `localization` to the series and a re-measured figure height). Neither changes a number.
+- **The published QLIKE DMs use the 9-lag rule (from ROADMAP 2.4).** The distribution scores showed
+  that persistent loss differences outrun 9 Bartlett lags, so 2.4 registers a batch-means test.
+  The published QLIKE DM p-values should gain the batch-means p as context (every published
+  "significant" QLIKE verdict holds under it in the design check; this changes no number now).
+- **The record's residual window (from ROADMAP 2.4).** Its outcome fell outside the trailing
+  780-day residual range on 35 days against 22 expected (95th percentile 31; descriptive): a longer
+  or tail-weighted window is a candidate, and the quantile HAR's upper tail (its 90% pinball edge is
+  inconclusive) another. ROADMAP 2.12 (online FDR) is the next multiplicity step, so old decisions
+  stop moving as rows are added.
 - **Estimation error.** DM, MCS and SPA compare forecasts as produced on expanding windows; a
   rolling-window variant would give the Giacomini-White reading (ROADMAP 2.3).
 - **Benchmark breadth.** On free daily data only: HAR with a jump/continuous split (range-based

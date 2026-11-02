@@ -27,7 +27,7 @@ Passing: one `Checking <file>` line per page and exit status 0. The sentences ar
 tied" or "inconclusive: not significant at 5%" follows from the p-value in the artifact, not from the
 prose. On the dashboard, each section's source line names the payload fields it reads.
 
-## 2. The benchmark field reproduces from pinned inputs (four minutes)
+## 2. The benchmark field reproduces from pinned inputs (seven minutes)
 
 Claim: `data/vol_lab.json`, the source of the model comparison, is rebuilt from a data snapshot whose
 digests are pinned, with no network access.
@@ -136,16 +136,20 @@ python -c "import json; s = json.load(open('data/research_ledger.json'))['summar
 python -B -m unittest tests.test_research_ledger
 python -c "import json; rows = json.load(open('data/research_ledger.json'))['rows']; [print(r['id'], r['p_value'], r['status']) for r in rows if r['family'] == 'forecast interval']"
 python -c "import json; rows = json.load(open('data/research_ledger.json'))['rows']; [print(r['id'], r['p_value'], r['status']) for r in rows if r['family'] in ('conditional predictive ability', 'stability over time')]"
+python -c "import json; rows = json.load(open('data/research_ledger.json'))['rows']; [print(r['id'], r['p_value'], r['status']) for r in rows if r['family'] in ('predictive distribution', 'distribution calibration')]"
 ```
 
 Passing: the counts by status, and the ledger test (which rebuilds the ledger from the artifacts and
 requires it to equal the committed file) prints `OK`; the third command lists the band's tests by
 regime and the fourth each model's Giacomini-White conditional test (`vol_gw_*`) and fluctuation test
-(`vol_fluct_*`) against the model of record, each with the ledger's status. The
+(`vol_fluct_*`) against the model of record, each with the ledger's status, and the fifth the
+predictive-distribution rows (CRPS, the 10% and 90% pinball losses, and Berkowitz's calibration test).
+The
 [full results' ledger section](RESULTS.md#6-research-ledger) says how many supported rows survive
-Benjamini-Hochberg and Holm, and why the challenger's three pairwise tests (full-sample, conditional
-and over time) are left out of that family (it was chosen by searching the same sample; Hansen's SPA
-test is the search-adjusted counterpart of the full-sample one, and the other two have none). The
+Benjamini-Hochberg and Holm, and why the challenger's six pairwise tests (full-sample, conditional,
+over time and three on the predictive distribution) are left out of that family (it was chosen by
+searching the same sample; Hansen's SPA test is the search-adjusted counterpart of the full-sample one,
+and the other five have none). The
 promotion rule, fixed before the first live forecast and pinned in code, is quoted in
 [section 3 of the full results](RESULTS.md#3-live-record-and-governance), with the power the single
 test has. [`PREREGISTRATION.md`](PREREGISTRATION.md) states it as a pre-registration (hypotheses,
@@ -170,6 +174,23 @@ tests' theory assumes forecasts re-estimated on rolling windows of bounded size,
 it cover nested models, while the lab's windows expand and HAR-RV and the OVX-only regression are
 nested in HAR-IV, so those p-values are approximate
 ([methodology, section 7](METHODOLOGY.md#7-inference)).
+
+The scores of the whole predictive distribution (ROADMAP 2.4) have acceptance tests too (about half a
+minute; no network):
+
+```bash
+python -B -m unittest -v tests.test_vol_lab.DistributionScoreTest tests.test_vol_lab.TrailingPitTest \
+  tests.test_vol_lab.BerkowitzTest tests.test_vol_lab.DistributionDmTest tests.test_vol_lab.DistributionTest
+```
+
+Passing: `ok` on every test, then `OK`. They check that the CRPS of a point forecast is its absolute
+error, that the 19-quantile score of a correct normal forecast reads its known 4.83% above the closed
+form and converges to it as the grid widens, and that Berkowitz's test rejects about 5% of independent
+uniform PITs. They check that the trailing-rank PIT's simulated null holds its size on fresh draws
+where χ²(3) does not, that the batch-means test holds its size under persistent differences where the
+9-lag Diebold-Mariano test does not, that the quantile HAR's linear program is the exact quantile
+regression and never reads a future outcome, and that nothing that ranks, bands or selects a model
+reads the quantile HAR ([methodology, section 7](METHODOLOGY.md#7-inference)).
 
 ## What would change the conclusions
 

@@ -141,9 +141,137 @@ class StabilityBlocksTest(unittest.TestCase):
         self.assertIn("p = 0.040 with each window's variance at 40 Bartlett lags, largest |t| in the window ending "
                       "2020-04-01", self.patched(rb.stability_reading))
 
-    def test_the_abstract_names_the_challenger_s_three_rows(self):
+    def test_the_abstract_names_the_challenger_s_rows_by_kind(self):
         text = self.patched(rb.abstract)
-        self.assertIn("The challenger's three pairwise tests (full-sample, conditional and over-time) are left out", text)
+        self.assertIn("The challenger's six pairwise tests (full-sample, conditional, over-time and three on the "
+                      "predictive distribution) are left out", text)
+        self.assertIn("and the other five have none", text)
         self.assertIn("published as context and not registered", text)
+        self.ledger["summary"]["selected_after_search"] = ["vol_challenger_qlike", "vol_gw_har_iv_range",
+                                                           "vol_fluct_har_iv_range"]
+        self.assertIn("The challenger's three pairwise tests (full-sample, conditional and over-time) are left out",
+                      self.patched(rb.abstract))
         self.ledger["summary"]["selected_after_search"] = ["vol_challenger_qlike"]
         self.assertIn("The challenger's pairwise test is left out of that family", self.patched(rb.abstract))
+
+
+class DistributionBlocksTest(StabilityBlocksTest.__base__):
+    """RESULTS section 2.9 is generated from the artifact and the ledger, each verdict at its test's strength
+    (ROADMAP 2.4)."""
+
+    setUp = StabilityBlocksTest.setUp
+    patched = StabilityBlocksTest.patched
+    row = StabilityBlocksTest.row
+
+    def dist(self, key):
+        return next(m for m in self.lab["distribution"]["models"] if m["key"] == key)
+
+    def test_an_artifact_without_the_block_says_nothing(self):
+        del self.lab["distribution"]
+        self.assertEqual(self.patched(rb.distribution_block), "")
+        self.assertEqual(self.patched(rb.distribution_reading), "")
+        self.assertNotIn("Section 2.9", self.patched(rb.robustness_block))
+        self.assertNotIn("CRPS", self.patched(rb.abstract))
+
+    def test_every_model_has_its_scores_tests_and_ledger_q(self):
+        text = self.patched(rb.distribution_block)
+        for m in self.lab["distribution"]["models"]:
+            line = next(l for l in text.splitlines()[text.splitlines().index("| Model | CRPS | q | Pinball 10% | q | "
+                                                                              "Pinball 90% | q | Berkowitz p (reference) | q |"):]
+                        if l.startswith(f"| {m['label']} |"))
+            q = rb._pthr(self.row(f"vol_berkowitz_{m['key']}")["q_value_bh"])
+            self.assertTrue(line.rstrip(" |").endswith(q), line)
+            if m["key"] == self.lab["config"]["challenger"]:
+                self.assertEqual(line.count("excluded"), 3, line)
+            elif m["key"] == self.lab["config"]["champion"]:
+                self.assertIn("| — | — |", line)
+        self.assertIn(f"{self.dist('har_iv')['crps_grid_pct']:.3f}", text)
+
+    def test_each_verdict_is_worded_at_its_strength(self):
+        text = self.patched(rb.distribution_reading)
+        garch = self.dist("garch")["dm_vs_har_iv"]
+        self.assertTrue(0.05 <= garch["crps_grid"]["p_value"] < 0.10)
+        self.assertIn("the record's lower score is inconclusive against GARCH(1,1)-t", text)
+        self.assertIn("the model of record scores significantly lower than GARCH(1,1)-t and EWMA (RiskMetrics)", text)
+        self.assertIn("Neither survives the ledger's Benjamini-Hochberg adjustment", text)
+        self.assertIn("so this is not new evidence", text)
+        self.assertIn("with its 9 Bartlett lags", text)
+        # A p-value that moves below 5% moves its words: the CRPS difference against GARCH becomes significant.
+        garch["crps_grid"]["p_value"] = 0.03
+        self.row("vol_crps_garch")["survives_bh_5pct"] = False
+        self.assertIn("On CRPS over 19 quantiles, the model of record scores significantly lower than GARCH(1,1)-t "
+                      "(p = 0.030)", self.patched(rb.distribution_reading))
+
+    def test_the_challenger_s_scores_are_worded_by_direction_and_level(self):
+        chall = self.dist(self.lab["config"]["challenger"])["dm_vs_har_iv"]
+        self.assertIn("HAR-IV-range scores significantly lower than the model of record on the 90% pinball loss",
+                      self.patched(rb.distribution_reading))
+        chall["pinball_10"].update(stat=-2.4, p_value=0.03)
+        chall["crps_grid"].update(stat=2.0, p_value=0.07)
+        text = self.patched(rb.distribution_reading)
+        self.assertIn("the model of record scores significantly lower than HAR-IV-range on the 10% pinball loss (−2.40, "
+                      f"p = 0.030, lower in {chall['pinball_10']['periods_har_iv_lower']} of 12 periods)", text)
+        self.assertIn("HAR-IV-range scores lower than the model of record on CRPS over 19 quantiles, inconclusively "
+                      "(+2.00, p = 0.070", text)
+        self.assertIn("the challenger was picked on this sample, so this is not new evidence", text)
+
+    def test_the_calibration_reading_always_states_the_adjustment(self):
+        for row in self.ledger["rows"]:
+            if row["family"] == "distribution calibration":
+                row["survives_bh_5pct"] = False
+        text = self.patched(rb.distribution_reading)
+        self.assertIn("none survives the ledger's Benjamini-Hochberg adjustment (q = ", text)
+        self.assertNotIn("does not survive it", text)
+        self.assertIn("The quantile HAR's rejection rests on one of five grids", text)
+
+    def test_context_verdicts_follow_their_p_values_and_sides(self):
+        for key in ("garch", "gjr"):
+            self.dist(key)["alternatives"]["static_t"]["berkowitz_p"] = 0.3
+        self.dist("ovx_only")["dm_vs_har_iv"]["crps_grid_log"].update(stat=2.5, p_value=0.02)
+        text = self.patched(rb.distribution_reading)
+        self.assertIn("Berkowitz does not reject at 10% GARCH(1,1)-t and GJR-GARCH(1,1)-t (p = 0.300, p = 0.300)", text)
+        self.assertNotIn("Berkowitz rejects GARCH", text)
+        self.assertIn("on the log scale OVX-only regression scores a significantly lower CRPS than the model of record", text)
+
+    def test_a_result_against_the_registered_direction_cites_no_adjusted_support(self):
+        self.dist("quantile_har")["dm_vs_har_iv"]["crps_grid"].update(stat=-2.6, p_value=0.03)
+        text = self.patched(rb.distribution_reading)
+        crps = text[text.index("On CRPS over 19 quantiles"):text.index("On the 10% pinball loss")]
+        self.assertIn("the model of record scores significantly lower than the quantile HAR (p = 0.030)", crps)
+        self.assertIn("The difference against the quantile HAR runs opposite to the direction the ledger registered", crps)
+        self.assertNotIn("Benjamini-Hochberg", crps)          # no adjusted support cited for an unregistered direction
+        # With a registered result beside it, the adjustment names its own subject.
+        self.dist("garch")["dm_vs_har_iv"]["crps_grid"].update(stat=-2.5, p_value=0.03)
+        crps = (lambda t: t[t.index("On CRPS over 19 quantiles"):t.index("On the 10% pinball loss")])(
+            self.patched(rb.distribution_reading))
+        self.assertIn("The result against GARCH(1,1)-t does not survive the ledger's Benjamini-Hochberg adjustment", crps)
+        self.assertNotIn(" It does not survive", crps)
+
+    def test_the_tail_reading_reads_the_chance_bands(self):
+        text = self.patched(rb.distribution_reading)
+        self.assertIn("EWMA (RiskMetrics)'s two outer tenths both lie above their chance bands", text)
+        self.assertNotIn("HAR-IV (model of record)'s two outer tenths", text)
+        gjr = self.dist("gjr")
+        gjr["pit_decile_share_pct"] = [4.0, *gjr["pit_decile_share_pct"][1:9], 24.0]
+        self.assertIn("the highest tenth of GJR-GARCH(1,1)-t lies above its chance band (24.0%)",
+                      self.patched(rb.distribution_reading))
+
+    def test_fragile_t3_flags_are_computed(self):
+        text = self.patched(rb.ledger_reading)
+        self.assertIn("vol_berkowitz_garch at t = 3.044 with the PIT form chosen after the count PIT's p was seen, "
+                      "which gives t = 2.996", text)
+        self.assertIn("vol_berkowitz_ovx_only at t = 3.090, which one Monte Carlo standard error", text)
+        self.row("vol_berkowitz_garch")["context"]["p_count_pit"] = 0.0001
+        one = self.patched(rb.ledger_reading)
+        self.assertNotIn("vol_berkowitz_garch at t", one)
+        self.assertIn("One of the calibration rows clears the t > 3 hurdle narrowly", one)
+
+    def test_the_ledger_reading_names_rows_that_survive_only_with_the_new_families(self):
+        text = self.patched(rb.ledger_reading)
+        self.assertIn("The 25 rows on the whole predictive distribution (section 2.9) add 22 to the family", text)
+        self.assertNotIn("Without them", text)
+        weak = self.row("carry_spread_post2007")
+        weak["survives_bh_5pct"] = True                        # a fixture: it could survive only with the new rows
+        self.assertIn("Without them, carry_spread_post2007 would not survive it.", self.patched(rb.ledger_reading))
+        self.assertIn("Another supported row is not in the table", text)
+        self.assertIn("No search-adjusted version of this test exists", text)

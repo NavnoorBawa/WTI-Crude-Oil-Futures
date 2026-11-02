@@ -81,19 +81,23 @@ try:
     from . import market_data
     from . import vol_forecast as vf
     from .contract_calendar import contract_code, last_trade_date, next_contract
-    from .forecast_eval import (basel_zone, coverage_by_group_test, critical_value_mc_se, delayed_aci, christoffersen,
-                                dm_test, dq_test, fluctuation_null, fluctuation_reference, fluctuation_test, gw_test,
-                                hac_lrv, hac_z, kupiec, mincer_zarnowitz, model_confidence_set, mse_var, newey_west_lrv,
-                                qlike, rolling_dm, spa_test)
+    from .forecast_eval import (basel_zone, batch_means_test, berkowitz_censored, berkowitz_test, bonferroni_min,
+                                cauchy_combination, coverage_by_group_test, critical_value_mc_se, crps_from_quantiles,
+                                delayed_aci, christoffersen, dm_test, dq_test, fluctuation_null, fluctuation_reference,
+                                fluctuation_test, gw_test, hac_lrv, hac_z, kupiec, mincer_zarnowitz, model_confidence_set,
+                                mse_var, newey_west_lrv, nw94_bandwidth, pinball_loss, qlike, rank_pit_null, rearrange,
+                                rolling_dm, sample_pit, spa_test, trailing_quantiles)
     from .safe_paths import data_json_path
 except ImportError:  # Direct invocation from backend/
     import market_data  # type: ignore[import-not-found, no-redef]
     import vol_forecast as vf  # type: ignore[import-not-found, no-redef]
     from contract_calendar import contract_code, last_trade_date, next_contract  # type: ignore[import-not-found, no-redef]
     from forecast_eval import (  # type: ignore[import-not-found, no-redef]
-        basel_zone, coverage_by_group_test, critical_value_mc_se, delayed_aci, christoffersen, dm_test, dq_test,
+        basel_zone, batch_means_test, berkowitz_censored, berkowitz_test, bonferroni_min, cauchy_combination,
+        coverage_by_group_test, critical_value_mc_se, crps_from_quantiles, delayed_aci, christoffersen, dm_test, dq_test,
         fluctuation_null, fluctuation_reference, fluctuation_test, gw_test, hac_lrv, hac_z, kupiec, mincer_zarnowitz,
-        model_confidence_set, mse_var, newey_west_lrv, qlike, rolling_dm, spa_test)
+        model_confidence_set, mse_var, newey_west_lrv, nw94_bandwidth, pinball_loss, qlike, rank_pit_null, rearrange,
+        rolling_dm, sample_pit, spa_test, trailing_quantiles)
     from safe_paths import data_json_path  # type: ignore[import-not-found, no-redef]
 
 ARTIFACT = "vol_lab.json"
@@ -130,6 +134,24 @@ GR2010_TABLE1 = {0.1: (3.393, 3.170), 0.2: (3.179, 2.948), 0.3: (3.012, 2.766), 
 STABILITY_SERIES = ("challenger", "ovx_only", "raw_ovx")                # weekly rolling-t paths
 CUMULATIVE_SERIES = ("challenger", "ovx_only", "raw_ovx", "persistence")  # weekly cumulative differences
 VAR_LEVELS = (0.05, 0.01)
+# The whole predictive distribution (ROADMAP 2.4): every setting below was fixed before the artifact was rebuilt.
+DIST_TAUS = tuple(round(0.05 * k, 2) for k in range(1, 20))   # 19 levels; grid CRPS = their mean quantile score
+DIST_PINBALL_TAUS = (0.10, 0.90)
+DIST_MEDIAN = DIST_TAUS.index(0.5)
+DIST_DECILES = tuple(DIST_TAUS.index(round(0.1 * k, 1)) for k in range(1, 10))   # the PIT histogram's bin edges
+DIST_SIM_LOG2 = 14               # GARCH-family predictive: 2^14 scrambled Sobol paths of 5 sessions
+DIST_SEED_TAG = 24               # seeds [SEED, 24] (Sobol), [SEED, 24, 1, k] (rank-PIT null), [SEED, 24, n(, k)] (tails)
+DIST_DM_GROUPS = 12              # batch-means DM (Ibragimov and Mueller 2010): 12 consecutive periods of ~17 months
+DIST_DM_GROUPS_CONTEXT = (8, 16)
+DIST_ACF_LAGS = (5, 10, 20, 40)
+DIST_NULL_DRAWS = 10_000         # simulated null of the trailing-rank PIT's per-grid Berkowitz LR
+DIST_NULL_BIN_DRAWS = 2_000      # ...of which the first 2,000 give each PIT bin's chance spread
+DIST_TAIL_SEEDS = 100            # the quantile HAR's randomized-tail PIT (context): its spread over seeds
+DIST_MCS_BLOCKS = (20, 40, 80)   # Model Confidence Set on the grid CRPS (context)
+GARCH_PARAMS = ("mu", "omega", "alpha", "gamma", "beta", "nu")
+QHAR_KEY = "quantile_har"        # a robustness competitor: never in MODELS, FEASIBLE or the live pair
+QHAR_LABEL = "Quantile HAR-IV (not in the benchmark)"
+QHAR_RETRAIN_WEEKS = 13          # LightGBM's quarterly schedule (LGBM_RETRAIN_WEEKS)
 EWMA_LAMBDA = 0.94               # RiskMetrics daily decay
 GARCH_SCALE = 100.0              # arch fits percent returns for numerical stability
 GARCH_TOL = 1e-9                 # optimizer tolerance: converge to the optimum, not near it (below)
@@ -392,6 +414,8 @@ class _GarchState:
     def __init__(self, asymmetric: bool) -> None:
         self.o = 1 if asymmetric else 0
         self.params: np.ndarray | None = None
+        # The parameters and one-step variance (percent^2) behind the latest forecast: its predictive distribution.
+        self.last: tuple[np.ndarray, float] | None = None
 
     def forecast(self, returns: np.ndarray, horizon: int, refit: bool = True) -> float:
         from arch import arch_model
@@ -412,7 +436,15 @@ class _GarchState:
             else:
                 res = model.fix(self.params)
         var = res.forecast(horizon=horizon, reindex=False).variance.to_numpy()[-1]
+        self.last = (np.asarray(res.params, dtype=float).copy(), float(var[0]))
         return float(np.sqrt(np.mean(var) * ANNUAL) / GARCH_SCALE)
+
+
+def _garch_columns(key: str, params: np.ndarray, h1: float, asymmetric: bool) -> dict[str, float]:
+    """The frame's `<key>__h1` (one-step variance, percent^2) and `<key>__<param>` columns: what garch_predictive
+    simulates from. arch orders the parameters mu, omega, alpha, [gamma,] beta, nu; GARCH's gamma is 0."""
+    values = (h1, params[0], params[1], params[2], params[3] if asymmetric else 0.0, params[-2], params[-1])
+    return {f"{key}__{name}": float(v) for name, v in zip(("h1", *GARCH_PARAMS), values)}
 
 
 def _lgbm() -> Any:
@@ -502,7 +534,9 @@ def walk_forward(d: Design, *, include_slow: bool = True, progress: Progress | N
     purge: no training target overlaps the test target) and returns up to and including the test
     day for the time-series models, so nothing after the test day's settlement is used (except the
     test day's OVX close by the timing control). GARCH is re-estimated on grid-0 days and filtered
-    daily; the tree model is retrained every quarter.
+    daily; the tree model is retrained every quarter. With the slow models, the GARCH family's parameters in
+    force and one-step variance are kept too (`<key>__h1`, `<key>__mu`, ...: _garch_columns), for their
+    predictive distributions; nothing that ranks, bands or selects a model reads them.
     """
     X, XR, y = d.X, d.XR, d.y
     designs = _regression_designs(X, XR, d.lev, d.ovx_same)
@@ -534,6 +568,8 @@ def walk_forward(d: Design, *, include_slow: bool = True, progress: Progress | N
         if include_slow:
             for key, state in (("garch", garch), ("gjr", gjr)):
                 f[key] = f[f"{key}__med"] = state.forecast(past, vf.H, refit=grid == 0)
+                params, h1 = cast("tuple[np.ndarray, float]", state.last)
+                f.update(_garch_columns(key, params, h1, state.o == 1))
             med = tree.median(end)
             oos = tree.oos_smear(end)
             f["lgbm__med"], f["lgbm"] = med, med * float(np.sqrt(tree.in_sample_smear if oos is None else oos))
@@ -1540,6 +1576,478 @@ def stability_report(frame: pd.DataFrame, gap: np.ndarray, pos: np.ndarray, chal
     return {"gw": gw, "fluctuation": fluct, "stability": block, "series": series}
 
 
+# ----------------------------------------------------------------------------------------------
+# The whole predictive distribution (ROADMAP 2.4)
+# ----------------------------------------------------------------------------------------------
+
+def _quantile_fit(y_log: np.ndarray, A: np.ndarray, taus: Sequence[float]) -> np.ndarray:
+    """Koenker-Bassett linear quantile regression of y_log on A at each level, solved exactly as the standard linear
+    program (2p + 2n non-negative variables, n equality rows) by scipy's HiGHS interior point with crossover: an exact
+    optimum. Where near-equal optima exist, last-bit input noise can move the solution between them, by far less than
+    the reproduction tolerance. Returns (len(taus), p) coefficients."""
+    from scipy import sparse
+    from scipy.optimize import linprog
+
+    n, p = A.shape
+    a = sparse.csr_matrix(A)
+    eye = sparse.identity(n, format="csr")
+    a_eq: Any = sparse.hstack([a, -a, eye, -eye]).tocsc()      # scipy's stubs do not list sparse A_eq
+    out = np.empty((len(taus), p))
+    for k, tau in enumerate(taus):
+        c = np.concatenate([np.zeros(2 * p), np.full(n, tau), np.full(n, 1.0 - tau)])
+        res: Any = linprog(c, A_eq=a_eq, b_eq=y_log, bounds=(0, None), method="highs-ipm")
+        if res.status != 0:
+            raise RuntimeError(f"quantile LP failed at tau={tau}: {res.message}")
+        out[k] = res.x[:p] - res.x[p:2 * p]
+    return out
+
+
+def quantile_har(d: Design, *, rows: int | None = None) -> dict[str, Any]:
+    """The quantile HAR-IV: linear quantile regressions of log RV5 on HAR-IV's terms (the design's X, logged) at the
+    19 levels of DIST_TAUS, fitted on the purged training rows (< fit_row - 4) of LightGBM's quarterly schedule and
+    rearranged by sorting each day (Chernozhukov, Fernandez-Val and Galichon 2010). Its point forecast follows the
+    lab's rule for a log model: the rearranged median times sqrt(Duan smearing of the median fit's training
+    residuals). A robustness competitor, outside MODELS and FEASIBLE: nothing that ranks, bands or selects a model
+    reads it. `rows` truncates the design (tests)."""
+    X, y = (d.X, d.y) if rows is None else (d.X[:rows], d.y[:rows])
+    ends = [e for e in d.ends if e < len(y)]
+    A = np.column_stack([np.ones(len(X)), np.log(X)])
+    ly = np.log(y)
+    period = QHAR_RETRAIN_WEEKS * vf.STEP
+    raw = np.empty((len(ends), len(DIST_TAUS)))
+    smear = np.empty(len(ends))
+    fit_rows: list[int] = []
+    beta = np.empty((len(DIST_TAUS), A.shape[1]))
+    s = 1.0
+    for i, end in enumerate(ends):
+        fit_row = max(ends[0], vf.MIN_TRAIN + (end - vf.MIN_TRAIN) // period * period)
+        if not fit_rows or fit_row != fit_rows[-1]:
+            train_end = fit_row - (vf.H - 1)
+            beta = _quantile_fit(ly[:train_end], A[:train_end], DIST_TAUS)
+            s = float(np.mean(np.exp(2.0 * (ly[:train_end] - A[:train_end] @ beta[DIST_MEDIAN]))))
+            fit_rows.append(fit_row)
+        raw[i] = beta @ A[end]
+        smear[i] = s
+    log_q, crossed = rearrange(raw)
+    q = np.exp(log_q)
+    return {"q": q, "crossed": crossed, "median_smear": smear, "forecast": q[:, DIST_MEDIAN] * np.sqrt(smear),
+            "fit_rows": fit_rows, "refits": len(fit_rows)}
+
+
+def empirical_predictive(frame: pd.DataFrame, key: str) -> dict[str, Any]:
+    """A log model's predictive distribution from its own matured errors: its median forecast times exp of the
+    trailing quantiles of its matured log residuals, over the conformal band's window (CONFORMAL_WINDOW days, 5-session
+    delay, WARMUP weeks' warm-up) without the band's adaptive step. The normal score is that of the outcome's mid-rank
+    among the same residuals."""
+    med = frame[f"{key}__med"].to_numpy()
+    e = np.log(frame["actual"].to_numpy()) - np.log(med)
+    tq = trailing_quantiles(e, DIST_TAUS, delay=vf.H, window=CONFORMAL_WINDOW, warmup=WARMUP * vf.STEP)
+    return {"q": med[:, None] * np.exp(tq["q"]), "z": stats.norm.ppf(tq["pit"]), "rank": tq["rank"],
+            "n_past": tq["n_past"]}
+
+
+def _sobol_shocks() -> np.ndarray:
+    """2^DIST_SIM_LOG2 scrambled Sobol points in vf.H dimensions (one per session), seeded [SEED, DIST_SEED_TAG]."""
+    sampler = stats.qmc.Sobol(d=vf.H, scramble=True, rng=np.random.default_rng([SEED, DIST_SEED_TAG]))
+    return cast("np.ndarray", sampler.random_base2(DIST_SIM_LOG2))
+
+
+def _garch_rv5(z: np.ndarray, params: npt.ArrayLike, h1: float) -> tuple[np.ndarray, np.ndarray]:
+    """The 5-session realized vol (decimal, annualized; sorted) of each shock path z (draws x vf.H, unit variance)
+    run through the fitted recursion from one-step variance h1 (percent^2): eps_k = sqrt(h_k) z_k, r_k = mu + eps_k,
+    h_{k+1} = omega + (alpha + gamma 1{eps_k < 0}) eps_k^2 + beta h_k. Second, the "static" reading: the same shocks
+    on the variance path held at its expectation (gamma enters as gamma / 2 for symmetric shocks), as the point
+    forecast's own variance path."""
+    mu, omega, alpha, gamma, beta = (float(v) for v in np.asarray(params, dtype=float)[:5])
+    h = np.full(z.shape[0], h1)
+    h_bar = float(h1)
+    ssq, ssq_static = np.zeros(z.shape[0]), np.zeros(z.shape[0])
+    for k in range(z.shape[1]):
+        eps = np.sqrt(h) * z[:, k]
+        ssq += (mu + eps) ** 2
+        h = omega + (alpha + gamma * (eps < 0)) * eps ** 2 + beta * h
+        ssq_static += (mu + np.sqrt(h_bar) * z[:, k]) ** 2
+        h_bar = omega + (alpha + 0.5 * gamma + beta) * h_bar
+    scale = ANNUAL / z.shape[1]
+    return np.sort(np.sqrt(ssq * scale) / GARCH_SCALE), np.sort(np.sqrt(ssq_static * scale) / GARCH_SCALE)
+
+
+def garch_predictive(frame: pd.DataFrame, key: str) -> dict[str, Any]:
+    """A GARCH-family model's own predictive distribution of the 5-session realized vol: its fitted recursion,
+    run forward from the parameters in force and the one-step variance at each row (the frame's `<key>__*` columns)
+    with Student-t shocks scaled to unit variance, on 2^14 scrambled Sobol points (_garch_rv5). The PIT is the Hazen
+    CDF of the simulated sample (continuous in its inputs), clamped half a draw from 0 and 1; the count PIT is
+    context, and so is the "static" reading."""
+    U = _sobol_shocks()
+    draws = U.shape[0]
+    taus = np.asarray(DIST_TAUS)
+    y = frame["actual"].to_numpy()
+    par = frame[[f"{key}__{name}" for name in GARCH_PARAMS]].to_numpy()
+    h1 = frame[f"{key}__h1"].to_numpy()
+    n = len(frame)
+    q, q_static = np.empty((n, taus.size)), np.empty((n, taus.size))
+    u, u_count, u_static = np.empty(n), np.empty(n), np.empty(n)
+    shocks: dict[float, np.ndarray] = {}
+    for i in range(n):
+        nu = float(par[i, -1])
+        if nu not in shocks:
+            shocks.clear()
+            shocks[nu] = stats.t.ppf(U, nu) * np.sqrt((nu - 2.0) / nu)
+        sim, static = _garch_rv5(shocks[nu], par[i, :5], float(h1[i]))
+        q[i], q_static[i] = np.quantile(sim, taus), np.quantile(static, taus)
+        u[i], u_static[i] = sample_pit(sim, y[i]), sample_pit(static, y[i])
+        u_count[i] = (np.searchsorted(sim, y[i], side="left") + 0.5) / (draws + 1)
+    return {"q": q, "z": stats.norm.ppf(u), "u": u, "z_count": stats.norm.ppf(u_count), "draws": draws,
+            "q_static": q_static, "z_static": stats.norm.ppf(u_static)}
+
+
+def ewma_predictive(frame: pd.DataFrame) -> dict[str, Any]:
+    """EWMA's predictive distribution under its own assumption, zero-mean normal returns at a flat daily variance:
+    5 (RV5 / sigma)^2 is chi-squared with 5 degrees of freedom. The normal score comes from the survival function
+    above the median, so a far-tail outcome keeps a finite score."""
+    sigma = frame["ewma"].to_numpy()
+    y = frame["actual"].to_numpy()
+    ratios = np.sqrt(stats.chi2.ppf(DIST_TAUS, vf.H) / vf.H)
+    x = vf.H * (y / sigma) ** 2
+    cdf, sf = stats.chi2.cdf(x, vf.H), stats.chi2.sf(x, vf.H)
+    with np.errstate(divide="ignore"):
+        z = np.where(cdf <= 0.5, stats.norm.ppf(cdf), stats.norm.isf(sf))
+    return {"q": sigma[:, None] * ratios[None, :], "z": z}
+
+
+def _interior_z(y: np.ndarray, q: np.ndarray) -> np.ndarray:
+    """Normal score from quantiles alone: inside [q_1, q_K], linear in (log q_k, Phi^-1(tau_k)), exact for a
+    log-normal truth; below q_1 -inf and above q_K +inf (the censored test counts them)."""
+    zt = stats.norm.ppf(DIST_TAUS)
+    ly, lq = np.log(y), np.log(q)
+    z = np.empty(ly.size)
+    for i in range(ly.size):
+        z[i] = -np.inf if ly[i] < lq[i, 0] else np.inf if ly[i] > lq[i, -1] else float(np.interp(ly[i], lq[i], zt))
+    return z
+
+
+def _randomized_tail_z(z: np.ndarray, draws: np.ndarray) -> np.ndarray:
+    """_interior_z with each censored tail replaced by a seeded uniform draw on its probability mass (context)."""
+    lo, hi = DIST_TAUS[0], DIST_TAUS[-1]
+    out = z.copy()
+    out[z == -np.inf] = stats.norm.ppf(lo * draws[z == -np.inf])
+    out[z == np.inf] = stats.norm.ppf(hi + (1 - hi) * draws[z == np.inf])
+    return out
+
+
+def _acf(x: np.ndarray, k: int) -> float:
+    x = np.asarray(x, dtype=float) - np.mean(x)
+    return float(x[k:] @ x[:-k] / (x @ x))
+
+
+def _score_dm(a: np.ndarray, b: np.ndarray, grid: np.ndarray, years: np.ndarray | None = None) -> dict[str, Any]:
+    """Model b's score against the model of record's (a) on the evaluation days, d = a - b (positive: b scores
+    lower). Registered: the batch-means test over DIST_DM_GROUPS consecutive periods. Context: other period counts,
+    the lab's dm_test (9 lags, as every published QLIKE DM), Newey-West (1994)'s data-dependent bandwidth, each
+    sampling grid on its own (lab dm_test, horizon 1) with their Bonferroni, the differential's autocorrelation and,
+    when `years` is given, the shares of the total difference from 2020 and from the 1% of days with the largest
+    differences."""
+    d = a - b
+    bm = batch_means_test(d, DIST_DM_GROUPS)
+    means = [float(v) for v in bm["period_means"]]
+    nw = nw94_bandwidth(d)
+    dm9 = dm_test(a, b, horizon=vf.H)
+    dmn = dm_test(a, b, horizon=vf.H, lags=nw)
+    by_grid = [dm_test(a[grid == g], b[grid == g]) for g in range(vf.STEP)]
+    out: dict[str, Any] = {
+        "stat": round(float(bm["stat"]), 3), "p_value": float(bm["p_value"]), "groups": DIST_DM_GROUPS,
+        "mean_diff": round(float(d.mean()), 4),
+        "periods_model_lower": int(sum(v > 0 for v in means)), "periods_har_iv_lower": int(sum(v < 0 for v in means)),
+        "period_means": [round(v, 4) for v in means],
+        **{f"groups_{q}": {"stat": round(float(r["stat"]), 3), "p_value": float(r["p_value"])}
+           for q, r in ((q, batch_means_test(d, q)) for q in DIST_DM_GROUPS_CONTEXT)},
+        "dm_test": {"stat": dm9["stat"], "p_value": dm9["p_value"], "lags": dm9["lags"]},
+        "nw94": {"lags": nw, "stat": dmn["stat"], "p_value": dmn["p_value"]},
+        "by_grid": [{"stat": r["stat"], "p_value": r["p_value"]} for r in by_grid],
+        "grid_bonferroni_p": bonferroni_min([r["p_value"] for r in by_grid]),
+        "acf": {str(k): round(_acf(d, k), 3) for k in DIST_ACF_LAGS},
+    }
+    if years is not None:
+        total = float(d.sum())
+        top = np.argsort(-np.abs(d), kind="stable")[: int(round(0.01 * d.size))]
+        out["concentration"] = {"share_2020_pct": round(float(d[years == 2020].sum()) / total * 100, 1),
+                                "share_largest_1pct_days_pct": round(float(d[top].sum()) / total * 100, 1)}
+    return out
+
+
+def _bonferroni_se(p_values: list[float], draws: int) -> float:
+    """Monte Carlo standard error of a Bonferroni p over grids whose p-values count `draws` simulated draws."""
+    p = min(p_values)
+    return float(min(1.0, len(p_values) * np.sqrt(p * (1 - p) / draws)))
+
+
+def distribution_scores(frame: pd.DataFrame, qhar: dict[str, Any], conf: dict[str, dict[str, Any]], challenger: str,
+                        *, null_draws: int = DIST_NULL_DRAWS) -> dict[str, Any]:
+    """Every distribution model's 19 predictive quantiles scored on the same evaluation days (the conformal band's:
+    every OOS row once WARMUP weeks of matured errors exist): the grid CRPS (equal weights over DIST_TAUS, vol
+    points), the pinball losses at 0.10 and 0.90, the log-scale grid CRPS, coverage of [q10, q90] and the PIT
+    histogram's decile shares with each bin's chance spread; the batch-means DM of each against the model of record on
+    each score; Berkowitz's LR3 on each sampling grid (non-overlapping weeks), Bonferroni over the grids, against a
+    simulated null for the trailing-rank PITs, chi2(3) for the parametric ones and a doubly censored chi2(2) form for
+    the quantile HAR. The GARCH models are scored when the frame has their parameter columns (the slow walk). Also
+    returns the per-day grid CRPS (`_crps`) for the context MCS."""
+    n = len(frame)
+    first = WARMUP * vf.STEP + vf.H - 1
+    ev = slice(first, n)
+    y = frame["actual"].to_numpy()
+    ys = y[ev]
+    grid = frame["grid"].to_numpy()
+    gs = grid[ev]
+    years = frame["date"].dt.year.to_numpy()[ev]
+    taus = np.asarray(DIST_TAUS)
+    i10, i90 = DIST_TAUS.index(DIST_PINBALL_TAUS[0]), DIST_TAUS.index(DIST_PINBALL_TAUS[1])
+    labels = {m.key: m.label for m in MODELS} | {QHAR_KEY: QHAR_LABEL}
+    trailing = tuple(dict.fromkeys((CHAMPION, challenger, "ovx_only")))
+    null = rank_pit_null(n, first, grid, window=CONFORMAL_WINDOW, delay=vf.H, warmup=WARMUP * vf.STEP,
+                         draws=null_draws, seed=[SEED, DIST_SEED_TAG, 1], bin_draws=min(DIST_NULL_BIN_DRAWS, null_draws))
+    null_lr = np.asarray(null["lr"])
+    preds: dict[str, dict[str, Any]] = {m: empirical_predictive(frame, m) for m in trailing}
+    parametric = tuple(m for m in ("garch", "gjr") if f"{m}__h1" in frame)
+    for m in parametric:
+        preds[m] = garch_predictive(frame, m)
+    preds["ewma"] = ewma_predictive(frame)
+    preds[QHAR_KEY] = {"q": qhar["q"], "z": _interior_z(y, qhar["q"])}
+    for m, pred in preds.items():
+        if not np.all(np.isfinite(pred["q"][ev])):
+            raise RuntimeError(f"{m}: predictive quantiles missing on an evaluation day")
+
+    def scores(q: np.ndarray) -> dict[str, np.ndarray]:
+        qs = q[ev]
+        return {"crps_grid": crps_from_quantiles(ys, qs, taus) * 100,
+                "pinball_10": pinball_loss(ys, qs[:, i10], DIST_PINBALL_TAUS[0]) * 100,
+                "pinball_90": pinball_loss(ys, qs[:, i90], DIST_PINBALL_TAUS[1]) * 100,
+                "crps_grid_log": crps_from_quantiles(np.log(ys), np.log(qs), taus)}
+
+    daily = {m: scores(pred["q"]) for m, pred in preds.items()}
+    share_sd = {"trailing_rank": np.asarray(null["share_sd_rank"], dtype=float),
+                "exact": np.asarray(null["share_sd_exact"], dtype=float)}
+    share_center = {"trailing_rank": np.asarray(null["share_mean_rank"], dtype=float),
+                    "exact": np.full(len(DIST_DECILES) + 1, 100.0 / (len(DIST_DECILES) + 1))}
+    rows: list[dict[str, Any]] = []
+    for m, pred in preds.items():
+        qs = pred["q"][ev]
+        z = pred["z"][ev]
+        construction = ("trailing_rank" if m in trailing else "estimated_quantiles" if m == QHAR_KEY else "exact")
+        bins = np.sum(qs[:, list(DIST_DECILES)] <= ys[:, None], axis=1)
+        shares = np.bincount(bins, minlength=len(DIST_DECILES) + 1) / ys.size * 100
+        sd_key = "trailing_rank" if construction == "trailing_rank" else "exact"
+        sc = daily[m]
+        row: dict[str, Any] = {
+            "key": m, "label": labels[m],
+            "method": {"trailing_rank": "trailing quantiles of its matured log residuals around its median forecast",
+                       "exact": ("simulated from its fitted recursion with Student-t shocks" if m in ("garch", "gjr")
+                                 else "normal returns at its variance: RV5 = sigma sqrt(chi2_5 / 5)"),
+                       "estimated_quantiles": "linear quantile regressions on HAR-IV's terms, refit quarterly, sorted"
+                       }[construction],
+            "pit_construction": construction,
+            "crps_grid_pct": round(float(sc["crps_grid"].mean()), 3),
+            "crps_grid_log": round(float(sc["crps_grid_log"].mean()), 4),
+            "pinball_10_pct": round(float(sc["pinball_10"].mean()), 3),
+            "pinball_90_pct": round(float(sc["pinball_90"].mean()), 3),
+            "coverage_10_90_pct": round(float(np.mean((ys >= qs[:, i10]) & (ys <= qs[:, i90]))) * 100, 1),
+            "mae_median_pct": round(float(np.mean(np.abs(ys - qs[:, DIST_MEDIAN]))) * 100, 3),
+            "pit_decile_share_pct": [round(float(v), 1) for v in shares],
+            "pit_chance_center_pct": [round(float(v), 1) for v in share_center[sd_key]],
+            "pit_chance_band_pct": [round(1.96 * float(v), 1) for v in share_sd[sd_key]],
+            "dm_vs_har_iv": None,
+        }
+        if m != CHAMPION:
+            base = daily[CHAMPION]
+            row["dm_vs_har_iv"] = {s: _score_dm(base[s], sc[s], gs, years if s == "crps_grid" else None)
+                                   for s in ("crps_grid", "pinball_10", "pinball_90")}
+            log_bm = batch_means_test(base["crps_grid_log"] - sc["crps_grid_log"], DIST_DM_GROUPS)
+            log_dm = dm_test(base["crps_grid_log"], sc["crps_grid_log"], horizon=vf.H)
+            row["dm_vs_har_iv"]["crps_grid_log"] = {"stat": round(float(log_bm["stat"]), 3),
+                                                    "p_value": float(log_bm["p_value"]),
+                                                    "dm_test": {"stat": log_dm["stat"], "p_value": log_dm["p_value"]}}
+        by_grid: list[dict[str, Any]] = []
+        if construction == "estimated_quantiles":
+            for g in range(vf.STEP):
+                b = berkowitz_censored(z[gs == g], DIST_TAUS[0], DIST_TAUS[-1])
+                by_grid.append({"grid": g, "n_weeks": int((gs == g).sum()), "lr": round(float(b["lr"]), 3),
+                                "p_value": float(b["p_value"]), "mu": round(float(b["mu"]), 3),
+                                "sigma": round(float(b["sigma"]), 3), "below": int(b["below"]),
+                                "above": int(b["above"])})
+        else:
+            for g in range(vf.STEP):
+                b = berkowitz_test(z[gs == g], null_lr=null_lr[:, g] if construction == "trailing_rank" else None)
+                entry = {"grid": g, "n_weeks": int((gs == g).sum()), "lr": round(float(b["lr"]), 3),
+                         "p_value": float(b["p_value"])}
+                if construction == "trailing_rank":
+                    entry["p_chi2"] = float(b["p_chi2"])
+                by_grid.append({**entry, "mu": round(float(b["mu"]), 3), "sigma": round(float(b["sigma"]), 3),
+                                "rho": round(float(b["rho"]), 3)})
+        ps = [e["p_value"] for e in by_grid]
+        berk: dict[str, Any] = {
+            "registered": "censored" if construction == "estimated_quantiles" else "lr3",
+            "reference": {"trailing_rank": "simulated null", "exact": "chi2(3)",
+                          "estimated_quantiles": "doubly censored, chi2(2)"}[construction],
+            "p_value": bonferroni_min(ps), "p_cauchy": cauchy_combination(ps),
+            "grids_below_5pct": int(sum(p < 0.05 for p in ps)), "by_grid": by_grid}
+        if construction == "trailing_rank":
+            rank, n_past = pred["rank"][ev], pred["n_past"][ev]
+            berk["mc_se"] = round(_bonferroni_se(ps, null_draws), 4)
+            berk["p_chi2"] = bonferroni_min([e["p_chi2"] for e in by_grid])
+            exceed = np.asarray(null["exceed"], dtype=float)
+            berk["window_exceedances"] = {"days": int(np.sum((rank == 0) | (rank == n_past))),
+                                          "null_mean": round(float(exceed.mean()), 1),
+                                          "null_q95": float(np.quantile(exceed, 0.95))}
+        if m in parametric:
+            zc = pred["z_count"][ev]
+            berk["p_count_pit"] = bonferroni_min([berkowitz_test(zc[gs == g])["p_value"] for g in range(vf.STEP)])
+            u = pred["u"][ev]
+            half = 0.5 / pred["draws"]
+            berk["clamp_days"] = int(np.sum((u <= half) | (u >= 1 - half)))
+            berk["extreme_days"] = int(np.sum((u < 1e-3) | (u > 1 - 1e-3)))
+            zs = pred["z_static"][ev]
+            static = scores(pred["q_static"])
+            row["alternatives"] = {"static_t": {
+                "crps_grid_pct": round(float(static["crps_grid"].mean()), 3),
+                "berkowitz_p": bonferroni_min([berkowitz_test(zs[gs == g])["p_value"] for g in range(vf.STEP)])}}
+        if m == QHAR_KEY:
+            zfull = pred["z"]
+            alt = []
+            for k in range(DIST_TAIL_SEEDS + 1):
+                seed = [SEED, DIST_SEED_TAG, n] if k == 0 else [SEED, DIST_SEED_TAG, n, k - 1]
+                zr = _randomized_tail_z(zfull, np.random.default_rng(seed).uniform(size=n))[ev]
+                alt.append(bonferroni_min([berkowitz_test(zr[gs == g])["p_value"] for g in range(vf.STEP)]))
+            spread = np.asarray(alt[1:])
+            berk["randomized_tail"] = {"p_value": alt[0], "seed": [SEED, DIST_SEED_TAG, n],
+                                       "seed_min": float(spread.min()), "seed_max": float(spread.max()),
+                                       "seeds": DIST_TAIL_SEEDS,
+                                       "share_below_5pct": round(float(np.mean(spread < 0.05)) * 100, 1)}
+            crossed = np.asarray(qhar["crossed"], dtype=bool)
+            row["quantile_har"] = {"refits": int(qhar["refits"]), "crossing_days_oos": int(crossed.sum()),
+                                   "crossing_days_evaluation": int(crossed[ev].sum()),
+                                   "tail_days": int(np.sum(~np.isfinite(z)))}
+        row["berkowitz"] = berk
+        if m in conf:
+            med = frame[f"{m}__med"].to_numpy()[ev]
+            lo, hi = med * np.exp(conf[m]["_lo"][ev]), med * np.exp(conf[m]["_hi"][ev])
+            a = CONFORMAL_ALPHA / 2
+            lower = float(np.mean(pinball_loss(ys, lo, a))) * 100
+            upper = float(np.mean(pinball_loss(ys, hi, 1 - a))) * 100
+            row["band_split"] = {"pinball_lower_pct": round(lower, 3), "pinball_upper_pct": round(upper, 3),
+                                 "interval_score_pct": round((lower + upper) / a, 2)}
+        rows.append(row)
+    # The registered rule's size on the null draws themselves (each draw against all draws), and chi2(3)'s.
+    sim_p = np.empty_like(null_lr)
+    for g in range(vf.STEP):
+        col = np.sort(null_lr[:, g])
+        sim_p[:, g] = (col.size - np.searchsorted(col, null_lr[:, g], side="left")) / col.size
+    chi2_p = stats.chi2.sf(null_lr, 3)
+    gauss = float(2.0 / len(DIST_TAUS) * np.sum(stats.norm.pdf(stats.norm.ppf(DIST_TAUS))) * np.sqrt(np.pi))
+    config = {
+        "taus": list(DIST_TAUS), "pinball_taus": list(DIST_PINBALL_TAUS),
+        "crps": "(1/19) sum of the quantile scores QS_tau = 2 pinball_tau over DIST_TAUS: equal weights (WIS)",
+        "scale": "vol points (annualized vol x 100); the log scale is context",
+        "gaussian_ratio_k19": round(gauss, 6),
+        "residual_window_days": CONFORMAL_WINDOW, "delay_sessions": vf.H, "warmup_days": WARMUP * vf.STEP,
+        "garch": {"method": "simulated recursion, Student-t shocks scaled to unit variance", "draws": 2 ** DIST_SIM_LOG2,
+                  "sequence": "scrambled Sobol", "seed": [SEED, DIST_SEED_TAG],
+                  "pit": "Hazen CDF of the simulated sample, clamped half a draw from 0 and 1"},
+        "ewma": "normal returns at the EWMA variance: RV5 = sigma sqrt(chi2_5 / 5)",
+        "quantile_har": {"design": CHAMPION, "estimator": "Koenker-Bassett, exact LP (scipy HiGHS interior point)",
+                         "refit_weeks": QHAR_RETRAIN_WEEKS, "rearranged": True,
+                         "point_forecast": "rearranged median x sqrt(Duan smear of the median fit)"},
+        "berkowitz": {"per": "sampling grid", "form": "LR3, conditional Gaussian AR(1)", "combine": "bonferroni",
+                      "reference": {"trailing_rank": "simulated null", "parametric": "chi2(3)",
+                                    "quantile_har": "doubly censored, chi2(2)"},
+                      "null": {"draws": null_draws, "seed": [SEED, DIST_SEED_TAG, 1],
+                               "returns": "i.i.d. normal, the real row layout, window and grids",
+                               "lr_mean_by_grid": [round(float(v), 3) for v in null_lr.mean(axis=0)],
+                               "lr_q95_by_grid": [round(float(v), 3) for v in np.quantile(null_lr, 0.95, axis=0)]},
+                      "null_size_pct": {name: round(float(np.mean(np.minimum(1.0, vf.STEP * p.min(axis=1)) < 0.05))
+                                                    * 100, 2)
+                                        for name, p in (("simulated", sim_p), ("chi2", chi2_p))}},
+        "dm": {"registered": "batch means", "groups": DIST_DM_GROUPS,
+               "context": ["groups_8", "groups_16", "dm_test (9 lags)", "nw94", "by_grid", "log scale"]},
+        "pit_bins": len(DIST_DECILES) + 1, "chance_band": "1.96 sd of each bin's share across the simulated null",
+    }
+    return {"config": config, "n_days": int(ys.size), "first": str(frame["date"].iloc[first].date()),
+            "last": str(frame["date"].iloc[-1].date()), "weeks_per_grid": [int((gs == g).sum()) for g in range(vf.STEP)],
+            "models": rows, "_crps": {m: daily[m]["crps_grid"] for m in preds}}
+
+
+def distribution_mcs(crps: dict[str, np.ndarray]) -> dict[str, Any] | None:
+    """Model Confidence Set on the grid CRPS at three block lengths (context: the set depends on the block). None
+    without the GARCH models (the fast walk)."""
+    if not {"garch", "gjr"} <= set(crps):
+        return None
+    losses = pd.DataFrame(crps)
+    return {**{f"block_{b}": _mcs(losses, b) for b in DIST_MCS_BLOCKS},
+            "note": "context; the set depends on the bootstrap block length"}
+
+
+def quantile_har_field(frame: pd.DataFrame, qhar: dict[str, Any]) -> dict[str, Any]:
+    """The QLIKE comparisons rerun with the quantile HAR's point forecast added to the feasible field, on every OOS
+    day, at the lab's own settings (context; nothing here selects, ranks or bands a model): its batch-means DM against
+    the model of record, the Model Confidence Sets of the headline and its robustness checks, and the SPA test. The
+    root mean square of its 19 quantiles is a second point forecast, published beside it."""
+    y = frame["actual"].to_numpy()
+    grid = frame["grid"].to_numpy()
+    LQ, _ = _losses(frame)
+    base = LQ[CHAMPION].to_numpy()
+
+    def field(forecast: np.ndarray) -> pd.DataFrame:
+        out = LQ[FEASIBLE].copy()
+        out[QHAR_KEY] = qlike(y, forecast)
+        return out
+
+    def member(res: dict[str, Any]) -> dict[str, Any]:
+        return {"included": res["included"], "p_quantile_har": res["p_values"][QHAR_KEY]}
+
+    point = field(np.asarray(qhar["forecast"]))
+    lq = point[QHAR_KEY].to_numpy()
+    d = base - lq
+    bm = batch_means_test(d, DIST_DM_GROUPS)
+    nw = nw94_bandwidth(d)
+    dm9 = dm_test(base, lq, horizon=vf.H)
+    head = _mcs(point, MCS_BLOCK)
+    out: dict[str, Any] = {
+        "n_days": int(len(frame)), "qlike": round(float(lq.mean()), 4),
+        "dm_qlike_vs_har_iv": {"batch_means": {"stat": round(float(bm["stat"]), 3), "p_value": float(bm["p_value"])},
+                               "dm_test": {"stat": dm9["stat"], "p_value": dm9["p_value"], "lags": dm9["lags"]},
+                               "nw94": {"lags": nw, "p_value": dm_test(base, lq, horizon=vf.H, lags=nw)["p_value"]},
+                               "by_grid_p": [dm_test(base[grid == g], lq[grid == g])["p_value"] for g in range(vf.STEP)]},
+        "mcs": head,
+        **{f"mcs_block_{b}": member(_mcs(point, b)) for b in (10, 40)},
+        "mcs_by_grid": {str(g): member(_mcs(point[grid == g].reset_index(drop=True), MCS_BLOCK_WEEKLY))
+                        for g in range(vf.STEP)},
+    }
+    for start, end in (("2008-01-01", "2016-12-31"), ("2017-01-01", "2099-12-31")):
+        mask = ((frame["date"] >= start) & (frame["date"] <= end)).to_numpy()
+        label = f"{start[:4]}_{min(int(end[:4]), int(frame['date'].max().year))}"
+        out[f"mcs_{label}"] = {"n_days": int(mask.sum()), **member(_mcs(point[mask].reset_index(drop=True), MCS_BLOCK))}
+    spa = spa_vs_champion(point)
+    out["spa"] = {"p_consistent": spa["p_consistent"], "best_model": spa["best_model"], "models": spa["models"]}
+    alt = field(np.sqrt(np.mean(np.asarray(qhar["q"]) ** 2, axis=1)))
+    la = alt[QHAR_KEY].to_numpy()
+    alt_mcs = _mcs(alt, MCS_BLOCK)
+    out["alt_point_forecast"] = {
+        "method": "sqrt(mean of the 19 squared quantiles)", "qlike": round(float(la.mean()), 4),
+        "batch_means_p": float(batch_means_test(base - la, DIST_DM_GROUPS)["p_value"]),
+        "dm_test_p": dm_test(base, la, horizon=vf.H)["p_value"],
+        "mcs_included": QHAR_KEY in alt_mcs["included"], "mcs_p": alt_mcs["p_values"][QHAR_KEY]}
+    out["note"] = ("context: the quantile HAR is a robustness competitor outside the benchmark field, never eligible "
+                   "for the live pair; this rerun selects nothing")
+    return out
+
+
+def distribution_report(frame: pd.DataFrame, qhar: dict[str, Any], conf: dict[str, dict[str, Any]],
+                        challenger: str) -> dict[str, Any]:
+    """ROADMAP 2.4's block: distribution_scores, the CRPS MCS (context) and the quantile HAR's field rerun
+    (context; it needs the slow walk's columns)."""
+    scores = distribution_scores(frame, qhar, conf, challenger)
+    crps = scores.pop("_crps")
+    return {**scores, "mcs_crps": distribution_mcs(crps), "quantile_har_field": quantile_har_field(frame, qhar)}
+
+
 def yearly(frame: pd.DataFrame, challenger: str) -> list[dict[str, Any]]:
     """Per calendar year, over every OOS day: direction hit rates and QLIKE."""
     out: list[dict[str, Any]] = []
@@ -1614,6 +2122,7 @@ def build_report(snapshot: market_data.MarketSnapshot, *, progress: Progress | N
     frame = walk_forward(design, progress=progress)
     challenger = choose_challenger(frame)
     conf = conformal_report(frame, challenger)
+    qhar = quantile_har(design)
     if len(frame) != len(design.ends):
         raise RuntimeError("the OOS frame and the design's OOS rows disagree")
     regimes = regime_labels(r, dates, ovx, design.pos[np.asarray(design.ends)])
@@ -1661,6 +2170,7 @@ def build_report(snapshot: market_data.MarketSnapshot, *, progress: Progress | N
         "qlike_floor": qlike_floor(design),
         "regimes": by_regime["regimes"],
         "stability": stability["stability"],
+        "distribution": distribution_report(frame, qhar, conf, challenger),
         "har_iv_coefficients": coefficient_report(design),
         "vol_cone": vol_cone(r, dates, float(ovx[-1]) if np.isfinite(ovx[-1]) else None),
         "series": chart_series(frame, conf, challenger, regimes, stability["series"]),
@@ -1699,15 +2209,30 @@ def compare_reports(committed: Any, rebuilt: Any) -> dict[str, Any]:
     flag, null or integer that differs, or a number off by more than REPRO_REL_TOL relative and more
     than one unit in the last decimal it is published with (a value rounded to 3 places may land on
     the other side of a rounding boundary). A fluctuation-test p-value counts simulated draws, so it may
-    also differ by up to SIMULATED_P_DRAWS draws; its flags stay exact. Empty means every conclusion
-    reproduces."""
+    also differ by up to SIMULATED_P_DRAWS draws, and so may a trailing-rank model's Berkowitz p-values (five
+    times that for the Bonferroni and Cauchy combinations over the grids); their flags stay exact. Empty means
+    every conclusion reproduces."""
     violations: list[str] = []
     numeric: list[tuple[float, str]] = []
     draw_step = SIMULATED_P_DRAWS / (FLUCT_NULL_DRAWS + 1)
+    dist_step = SIMULATED_P_DRAWS / (DIST_NULL_DRAWS + 1)
+    dist = committed.get("distribution") if isinstance(committed, dict) else None
+    ranked = [f"/distribution/models[{i}]/berkowitz/"
+              for i, m in enumerate(dist.get("models") or [] if isinstance(dist, dict) else [])
+              if isinstance(m, dict) and m.get("pit_construction") == "trailing_rank"]
 
-    def simulated_p(path: str) -> bool:
+    def simulated_p(path: str) -> float:
+        """The allowance for a p-value that counts simulated draws; 0 for every other number."""
         leaf = path.rsplit("/", 1)[-1].split("[", 1)[0]
-        return "/fluctuation_qlike_vs_har_iv/" in path and leaf in ("p_value", "min_p")
+        if "/fluctuation_qlike_vs_har_iv/" in path and leaf in ("p_value", "min_p"):
+            return draw_step
+        for prefix in ranked:
+            if path.startswith(prefix):
+                if path.startswith(f"{prefix}by_grid[") and leaf == "p_value":
+                    return dist_step
+                if path.count("/") == prefix.count("/") and leaf in ("p_value", "p_cauchy", "mc_se"):
+                    return vf.STEP * dist_step
+        return 0.0
 
     def walk(a: Any, b: Any, path: str) -> None:
         if isinstance(a, dict) and isinstance(b, dict):
@@ -1726,7 +2251,7 @@ def compare_reports(committed: Any, rebuilt: Any) -> dict[str, Any]:
                 rel = abs(a - b) / max(abs(a), abs(b))
                 numeric.append((rel, path))
                 if (rel > REPRO_REL_TOL and abs(a - b) > _last_place(a) * (1 + 1e-9)
-                        and not (simulated_p(path) and abs(a - b) <= draw_step * (1 + 1e-9))):
+                        and not abs(a - b) <= simulated_p(path) * (1 + 1e-9)):
                     violations.append(f"{path}: committed {a!r}, rebuilt {b!r}")
         elif type(a) is not type(b) or a != b:
             violations.append(f"{path}: committed {a!r}, rebuilt {b!r}")

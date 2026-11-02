@@ -48,7 +48,8 @@ class LedgerIsCurrentTest(unittest.TestCase):
         families = {r["family"] for r in _committed()["rows"]}
         self.assertEqual(families, {"direction model", "leak anatomy", "carry", "variance risk premium",
                                     "volatility forecast", "value at risk", "forecast interval",
-                                    "conditional predictive ability", "stability over time", "supply shock"})
+                                    "conditional predictive ability", "stability over time", "predictive distribution",
+                                    "distribution calibration", "supply shock"})
 
     def test_statuses_follow_the_rules(self):
         for row in _committed()["rows"]:
@@ -83,7 +84,8 @@ class MultiplicityTest(unittest.TestCase):
         # The challenger is the best of the field on the same sample: its pairwise p ignores the search.
         ledger = _committed()
         selected = [r for r in ledger["rows"] if r["selected_after_search"]]
-        expected = ["vol_challenger_qlike", "vol_gw_har_iv_range", "vol_fluct_har_iv_range"]
+        expected = ["vol_challenger_qlike", "vol_gw_har_iv_range", "vol_fluct_har_iv_range", "vol_crps_har_iv_range",
+                    "vol_pinball10_har_iv_range", "vol_pinball90_har_iv_range"]
         self.assertEqual([r["id"] for r in selected], expected)
         self.assertEqual(ledger["summary"]["selected_after_search"], expected)
         s = ledger["summary"]
@@ -91,7 +93,7 @@ class MultiplicityTest(unittest.TestCase):
             for key in ("q_value_bh", "p_holm", "survives_bh_5pct", "survives_holm_5pct", "clears_hlz_t3"):
                 self.assertIsNone(row[key], key)
             # Each names the search-adjusted test where one exists, or says none does.
-            if row["id"] == "vol_gw_har_iv_range":
+            if row["id"] not in ("vol_challenger_qlike", "vol_fluct_har_iv_range"):
                 self.assertIn("no search-adjusted version of this test exists", row["note"])
                 self.assertNotIn("vol_spa_beats_record", row["note"])
             else:
@@ -321,6 +323,68 @@ class ConditionalAndStabilityRowsTest(unittest.TestCase):
                 self.assertEqual(fl["context"]["p_mu_0_2"], block_fl["p_value"])
                 self.assertEqual(fl["context"]["critical_5pct"], lab["stability"]["fluctuation"]["critical_values"]["five_pct"])
                 self.assertGreaterEqual(fl["p_value"], 1 / (lab["stability"]["fluctuation"]["null"]["draws"] + 1))
+
+
+class DistributionRowsTest(unittest.TestCase):
+    """ROADMAP 2.4's rows: each model's predictive distribution against the model of record's on three scores, by a
+    batch-means test, and each model's calibration by Berkowitz on the sampling grids, Bonferroni over them."""
+
+    def test_the_rows_read_the_registered_forms(self):
+        ledger = _committed()
+        lab = rl.load_artifact(rl.LAB)
+        models = {m["key"]: m for m in lab["distribution"]["models"]}
+        self.assertEqual(list(models), ["har_iv", *rl.DISTRIBUTION_MODELS])
+        self.assertNotIn("quantile_har", rl.LAB_COMPARED)
+        rows = {r["id"]: r for r in ledger["rows"]}
+        score_rows = [r["id"] for r in ledger["rows"] if r["family"] == "predictive distribution"]
+        self.assertEqual(score_rows, [f"vol_{tag}_{m}" for m in rl.DISTRIBUTION_MODELS for tag, _, _ in rl._SCORES])
+        calibration = [r["id"] for r in ledger["rows"] if r["family"] == "distribution calibration"]
+        self.assertEqual(calibration, [f"vol_berkowitz_{m}" for m in ("har_iv", *rl.DISTRIBUTION_MODELS)])
+        for m in rl.DISTRIBUTION_MODELS:
+            for tag, score, _ in rl._SCORES:
+                row, dm = rows[f"vol_{tag}_{m}"], models[m]["dm_vs_har_iv"][score]
+                with self.subTest(row=row["id"]):
+                    self.assertEqual(row["p_value"], dm["p_value"])           # the batch-means p, not dm_test's
+                    self.assertEqual(row["statistic"]["value"], dm["stat"])
+                    self.assertEqual(row["context"]["p_dm_test_9"], dm["dm_test"]["p_value"])
+                    self.assertEqual(row["selected_after_search"], m == rl.CHALLENGER)
+                    self.assertFalse(row["pre_specified"])
+                    self.assertIn("Chosen after the scores were seen", row["note"])
+                    # The record's hypothesis expects a negative t (the model scores higher); the others a positive one.
+                    positive = m in (rl.CHALLENGER, "quantile_har")
+                    wrong_way = (dm["stat"] < 0) == positive
+                    self.assertEqual(row["p_two_sided"], 1.0 if wrong_way else row["p_value"])
+        for m in ("har_iv", *rl.DISTRIBUTION_MODELS):
+            row, berk = rows[f"vol_berkowitz_{m}"], models[m]["berkowitz"]
+            with self.subTest(row=row["id"]):
+                grid_p = [g["p_value"] for g in berk["by_grid"]]
+                self.assertEqual(row["p_value"], min(1.0, len(grid_p) * min(grid_p)))
+                self.assertAlmostEqual(row["p_value"], berk["p_value"], places=15)     # the lab's own Bonferroni
+                self.assertEqual(len(row["artifact"]["p_value_fields"]), len(grid_p))
+                self.assertEqual(row["p_two_sided"], row["p_value"])
+                self.assertFalse(row["selected_after_search"])
+                self.assertIn("censored" if m == "quantile_har" else "LR3", row["test"])
+
+    def test_bonferroni_over_runs(self):
+        doc = {"runs": [{"p": 0.04}, {"p": 0.3}, {"p": 0.012}]}
+        p, used = rl.BonferroniOverRuns("runs", "p")(doc)
+        self.assertAlmostEqual(p, 0.036)
+        self.assertEqual(list(used), ["runs[0].p", "runs[1].p", "runs[2].p"])
+        self.assertEqual(rl.BonferroniOverRuns("runs", "p")({"runs": [{"p": 0.5}, {"p": 0.6}]})[0], 1.0)
+        with self.assertRaises(rl.FieldError):
+            rl.BonferroniOverRuns("runs", "p")({"runs": []})
+
+    def test_adding_the_rows_changes_no_survival_flag(self):
+        # The rows join the family, so every q-value moves; whether a row survives must not.
+        ledger = _committed()
+        rows = [r for r in ledger["rows"] if r["q_value_bh"] is not None]
+        new = {"predictive distribution", "distribution calibration"}
+        old = [r for r in rows if r["family"] not in new]
+        q_old = rl.benjamini_hochberg(np.array([r["p_two_sided"] for r in old]))
+        h_old = rl.holm(np.array([r["p_two_sided"] for r in old]))
+        for r, q, h in zip(old, q_old, h_old):
+            self.assertEqual(r["survives_bh_5pct"], bool(q < rl.ALPHA), r["id"])
+            self.assertEqual(r["survives_holm_5pct"], bool(h < rl.ALPHA), r["id"])
 
 
 class ResolveTest(unittest.TestCase):

@@ -116,6 +116,34 @@ tests. The SPA test (section 7) is the search-adjusted counterpart of the first;
 none. The research ledger leaves all three out of its multiplicity family (section 17), and the
 challenger is promoted only on its forward record (section 12), whose test is pinned to it.
 
+**Predictive distributions** (`vol_lab.distribution_report`; ROADMAP 2.4). Section 7 scores the
+whole predictive distribution of seven models, each as its quantiles at τ = 0.05, 0.10, …, 0.95:
+
+- **The log models** (`har_iv`, the challenger, `ovx_only`): the median forecast times exp of the
+  trailing quantiles of the model's own matured log errors, over the band's window (780 days,
+  five-session delay, 260-day warm-up; section 9) without the band's adaptive step
+  (`vol_lab.empirical_predictive`).
+- **GARCH and GJR-GARCH**: the fitted model's own predictive distribution of the five-session
+  realized vol. Their recursion is run forward from the parameters in force and the one-step variance
+  at each decision, with Student-t shocks scaled to unit variance, on 2^14 scrambled Sobol paths with
+  a fixed seed (`vol_lab.garch_predictive`). A Student-t describes a return, not a week's realized
+  vol, so the reading "a t scaled to the five-session variance" is published only as context (the
+  same shocks on the expected variance path).
+- **EWMA**: normal returns at its flat variance, so five times (RV5/σ)² is χ²(5).
+- **The quantile HAR** (`vol_lab.quantile_har`), a robustness competitor: Koenker-Bassett linear
+  quantile regressions of log RV5 on HAR-IV's terms at the 19 levels. They are fitted on the purged
+  training rows of LightGBM's quarterly schedule, solved exactly as a linear program (scipy's HiGHS
+  interior point; statsmodels' iterative fit is the cross-check in the unit tests), and rearranged by
+  sorting each day (Chernozhukov, Fernández-Val and Galichon 2010). A unit test checks that last-bit
+  input noise leaves the fit on its test slice unchanged to 1e-12; on the full design a refit can
+  move between near-equal optima, which shifts a forecast by far less than the reproduction
+  tolerance. Like
+  the timing control, it is kept out of `MODELS`, `FEASIBLE`, every confidence set, the SPA test, the
+  selection, the choice of challenger and the live pair. Its QLIKE comparison with the field is a
+  separate context block (`distribution.quantile_har_field`): added in place, it would change the
+  published confidence-set p-values, the SPA field and the selection's candidates. Its point forecast follows the lab's rule for a log model, the
+  rearranged median times the square root of Duan's smearing factor of the median fit.
+
 ## 4. Walk-forward and purge
 
 Expanding window; the first forecast after 250 training rows, then a forecast on every
@@ -154,6 +182,15 @@ residuals understate its error.
 - **Realized utility** of a mean-variance investor sizing by the forecast,
   `(SR²/γ)(y/f − (y/f)²/2)` with SR = 0.4, γ = 2 (Bollerslev, Hood, Huss and Pedersen 2018);
   maximized when the forecast equals the outcome.
+- **Pinball loss and the grid CRPS** (ROADMAP 2.4), in vol points (annualized vol × 100):
+  `pinball_τ(y, q) = (y − q)(τ − 1{y < q})`, and the CRPS over the 19 quantiles is
+  `(2/19) Σ_k pinball_{τ_k}(y, q_k)`, the mean of the quantile scores with equal weights: the weighted
+  interval score of Bracher, Ray, Gneiting and Reich (2021). The weights sum to one and their
+  τ-weighted sum is ½, so a point forecast scores its absolute error exactly
+  (`forecast_eval.crps_from_quantiles` refuses other weights). A finite grid is not the CRPS of the
+  distribution: under a correct normal forecast the 19-level score reads 4.83% above the closed form
+  (`distribution.config.gaussian_ratio_k19`), and the same estimator converges to it as the grid
+  widens (a unit test checks both). The log-scale score is context.
 - **Second proxy.** QLIKE against the range-based realized vol of the target week (the full-bar
   range variance of the five target sessions, not rescaled), as a robustness check on the proxy
   itself. Its level differs from the close-to-close proxy's, so only rankings within one proxy
@@ -381,6 +418,58 @@ residuals understate its error.
   terms are zero, the two forecasts converge as the estimates do (Clark and McCracken 2001), and in
   finite samples the larger model's estimation noise favours the smaller one. Their p-values are
   therefore approximate.
+- **The whole predictive distribution** (`vol_lab.distribution_scores`; ROADMAP 2.4). Every model is
+  scored on the days the interval band is scored on (the warm-up of the trailing residuals excludes
+  the first 264), not on every out-of-sample day, so these figures are never set beside QLIKE's.
+  - **Score differences: a batch-means test.** For each model, each score's daily difference from
+    the model of record's is split into 12 consecutive periods of about 17 months, and the t-test on
+    the 12 period means (11 df) is the registered p-value (Ibragimov and Müller 2010). The daily
+    differences against the GARCH models and EWMA stay correlated for weeks, far beyond the
+    five-session overlap (their autocorrelation is published with each test). In a simulation matched
+    to that persistence, which a unit test runs on 1,000 seeded draws, the lab's Diebold-Mariano test
+    with 9 Bartlett lags rejects a true null in well over 15% of samples at the nominal 5% and the
+    batch-means test in 3.5% to 8.5%; in the design-stage simulations, which are not in the
+    repository, Newey-West's (1994) data-dependent bandwidth over-rejected too. The 9-lag test, Newey-West (1994), 8 and 16 periods, each sampling grid on
+    its own (with their Bonferroni) and the differences' autocorrelation at 5, 10, 20 and 40 sessions
+    are published as context.
+  - **Calibration: Berkowitz on each sampling grid.** Each week's PIT, as a normal score, is tested
+    for being i.i.d. N(0, 1) against a Gaussian AR(1) (Berkowitz 2001, LR3, by the conditional
+    likelihood in closed form) on each grid's non-overlapping weeks, and the ledger's p-value is the
+    Bonferroni bound over the five grids, valid however the grids depend on one another. The every-day
+    PITs overlap, and a test on them rejects nearly every correct forecast. The reference
+    distribution depends on how the PIT is built:
+    - **Parametric PITs** (GARCH, GJR, EWMA): χ²(3). The GARCH models' PIT reads the Hazen CDF of the
+      simulated sample, continuous in its inputs, so a last-bit change on another CPU cannot flip a
+      count; the count PIT's p is context, and the two can sit on either side of the t > 3 hurdle.
+    - **Trailing-rank PITs** (the three log models): the outcome's mid-rank among the trailing
+      residuals. Each week's overlapping neighbours enter the later windows, so this PIT re-centres
+      itself, and it cannot pass Φ⁻¹(0.5/781) ≈ −3.2. χ²(3) is then far too conservative
+      (`distribution.config.berkowitz.null_size_pct` gives its rejection rate on the null draws). The
+      reference is a simulated null instead, with the trailing PIT rebuilt exactly on i.i.d. normal
+      returns, on the real row layout, window and grids (10,000 draws, seed [SEED, 24, 1, k]; ranks
+      do not depend on the marginal, so one null serves all three). The p-value counts draws, and
+      its Monte Carlo standard error is published. A unit test checks the size on 300 fresh null
+      draws (between 1.5% and 8% at the nominal 5%).
+    - **The quantile HAR**: its quantiles say nothing beyond the 5% and 95% levels, so it gets a
+      doubly censored normal likelihood ratio adapted from Berkowitz's censored likelihood (which
+      observes the tail beyond a VaR; this form does the reverse). The normal score is observed
+      between the two levels and only counted outside them; i.i.d. N(μ, σ²) against N(0, 1), χ²(2).
+      It tests the distribution between and beyond those quantiles, not independence. A seeded
+      randomized-tail PIT, tried first, is context with its spread over 100 seeds.
+  - **Context, not registered**: the log-scale CRPS, the shares of outcomes between consecutive
+    predicted deciles with each bin's chance spread (1.96 standard deviations across the first 2,000
+    null draws, by PIT construction; no bin is tested), the days outside the trailing window's range
+    against the null's, the Cauchy combination over grids (Liu and Xie 2020), a Model Confidence Set
+    on CRPS at 20-, 40- and 80-day blocks, and the quantile HAR's QLIKE rerun of the field.
+  - **Choices made after the scores were seen** (none of these rows is pre-specified, and every row
+    note says so): the vol-point scale (the log scale moves GARCH-t's and GJR-t's CRPS rows), equal
+    weights, the batch-means rule and its 12 periods (the 8- and 16-period p-values are in each row's
+    context), registering all three scores, the simulated recursion for the GARCH models (the
+    static reading scores worse), the quantile HAR's design, schedule, solver and point forecast,
+    its censored test (registered after the randomized-tail p was seen), the GARCH PIT form, and the
+    reference distributions (the simulated null was adopted after the χ²(3) p-values were seen).
+    The designs were checked by simulation before the rebuild; the checks that bear on a stated size
+    are in the unit tests.
 - **Out-of-sample selection.** Each day, the feasible model (persistence excluded) with the lowest
   QLIKE over the previous 156 weeks of matured outcomes; the model of record for the first 52 weeks.
 - **Mincer-Zarnowitz**: regress realized variance on forecast variance; an unbiased forecast has
@@ -409,6 +498,12 @@ the interval at step *i* is the `[a_i/2, 1 − a_i/2]` quantile range of the pre
 distribution drifts. With daily forecasts an outcome is only observed five sessions later, so the
 lab uses the **delayed-feedback** version: the interval at *i* uses only errors and misses of rows
 `≤ i − 5`. Intervals are also scored with the interval score (Gneiting and Raftery 2007).
+
+The predictive quantiles of section 7 use the same window and delay but no adaptive step: at
+τ = 0.10 and 0.90 they equal the band's bounds with γ = 0 (a unit test checks it bit for bit), so
+they are fixed-level forecasts that never cross, and they are not the band. The band's interval
+score splits exactly into its two ends' pinball losses (`distribution.models[*].band_split`:
+interval score = 10 × (pinball_0.1 of the lower bound + pinball_0.9 of the upper)).
 
 - **By regime at the decision** (`vol_lab.regime_labels`, `regime_report`; ROADMAP 2.2). Each
   out-of-sample day is labelled from what was known at its 14:30 ET settlement: OVX of the session
@@ -695,23 +790,30 @@ pre-specified.
   capped at 1): Benjamini-Hochberg (1995) q-values, Holm (1979) adjusted p-values, and the
   Harvey, Liu and Zhu (2016) hurdle t > 3 on the normal quantile of that p. Rows marked
   `selected_after_search` test a model picked as the best of a field on the same sample: the
-  challenger's full-sample, conditional and over-time comparisons with the model of record. Their
-  p-values ignore the search, so they are left out of the family and their adjusted fields are
-  null. Each note names the search-adjusted test where one exists or says none does: the SPA row
-  adjusts the full-sample comparison, and the other two have none. Rows on the same loss
+  challenger's full-sample, conditional and over-time comparisons with the model of record, and its
+  three predictive-distribution score rows. Their p-values ignore the search, so they are left out
+  of the family and their adjusted fields are null. Each note names the search-adjusted test where
+  one exists or says none does: the SPA row adjusts the full-sample comparison, and the other five
+  have none. Rows on the same loss
   difference are dependent (a model's Giacomini-White and fluctuation rows, and its
   Diebold-Mariano row where there is one): Benjamini-Hochberg assumes positive dependence (PRDS;
   Benjamini and Yekutieli 2001), Holm holds under any dependence, and strongly significant
-  near-duplicate rows lower other rows' q-values.
+  near-duplicate rows lower other rows' q-values. The predictive-distribution rows partly restate
+  one another and the QLIKE comparison, and the calibration rows of the three log models share most
+  of their data.
 - `pre_specified` is true only where the code documents the test as fixed before the data were
   seen; most of the project was exploratory.
 - **Families** name the kind of claim (direction model, leak anatomy, carry, variance risk premium,
   volatility forecast, value at risk, forecast interval, conditional predictive ability, stability
-  over time, supply shock); the label does not split the adjustment: every row with a p-value,
-  except those selected after a search (the challenger's full-sample, conditional and over-time
-  rows; above), shares one multiplicity family. Robustness variants and the χ²(4) Giacomini-White
-  form, which includes the full-sample mean the DM test asks about, are published as context and
-  not registered.
+  over time, predictive distribution, distribution calibration, supply shock); the label does not
+  split the adjustment: every row with a p-value, except those selected after a search (the
+  challenger's six rows; above), shares one multiplicity family. Robustness variants are published
+  as context and not registered: the χ²(4) Giacomini-White form, which includes the full-sample mean
+  the DM test asks about, and section 7's distribution context (the log scale, the CRPS confidence
+  set, the quantile HAR's field rerun).
+- **A Bonferroni bound over runs** (`BonferroniOverRuns`): min(1, k × the smallest of k stored
+  p-values), the test that at least one of k runs rejects, valid however they depend on one another;
+  the calibration rows use it over the five sampling grids.
 
 ## References
 
@@ -720,7 +822,10 @@ pre-specified.
 - Benjamini, Y., Hochberg, Y. (1995). Controlling the false discovery rate: a practical and powerful approach to multiple testing. *Journal of the Royal Statistical Society B* 57(1).
 - Benjamini, Y., Yekutieli, D. (2001). The control of the false discovery rate in multiple testing under dependency. *Annals of Statistics* 29(4).
 - Berger, R. L. (1982). Multiparameter hypothesis testing and acceptance sampling. *Technometrics* 24(4).
+- Berkowitz, J. (2001). Testing density forecasts, with applications to risk management. *Journal of Business & Economic Statistics* 19(4).
 - Bollerslev, T., Hood, B., Huss, J., Pedersen, L. H. (2018). Risk everywhere: modeling and managing volatility. *Review of Financial Studies* 31(7).
+- Bracher, J., Ray, E. L., Gneiting, T., Reich, N. G. (2021). Evaluating epidemic forecasts in an interval format. *PLOS Computational Biology* 17(2).
+- Chernozhukov, V., Fernández-Val, I., Galichon, A. (2010). Quantile and probability curves without crossing. *Econometrica* 78(3).
 - Christoffersen, P. (1998). Evaluating interval forecasts. *International Economic Review* 39(4).
 - Clark, T. E., McCracken, M. W. (2001). Tests of equal forecast accuracy and encompassing for nested models. *Journal of Econometrics* 105(1).
 - Corsi, F. (2009). A simple approximate long-memory model of realized volatility. *Journal of Financial Econometrics* 7(2).
@@ -733,6 +838,7 @@ pre-specified.
 - Gibbs, I., Candès, E. (2021). Adaptive conformal inference under distribution shift. *NeurIPS*.
 - Glosten, L., Jagannathan, R., Runkle, D. (1993). On the relation between the expected value and the volatility of the nominal excess return on stocks. *Journal of Finance* 48(5).
 - Gneiting, T., Raftery, A. (2007). Strictly proper scoring rules, prediction, and estimation. *JASA* 102(477).
+- Gneiting, T., Ranjan, R. (2011). Comparing density forecasts using threshold- and quantile-weighted scoring rules. *Journal of Business & Economic Statistics* 29(3).
 - Hansen, P. R. (2005). A test for superior predictive ability. *JBES* 23(4).
 - Hansen, P. R., Lunde, A. (2006). Consistent ranking of volatility models. *Journal of Econometrics* 131(1-2).
 - Hansen, P. R., Lunde, A., Nason, J. (2011). The model confidence set. *Econometrica* 79(2).
@@ -740,8 +846,11 @@ pre-specified.
 - Harvey, C., Liu, Y., Zhu, H. (2016). … and the cross-section of expected returns. *Review of Financial Studies* 29(1).
 - Harvey, D., Leybourne, S., Newbold, P. (1997). Testing the equality of prediction mean squared errors. *International Journal of Forecasting* 13(2).
 - Holm, S. (1979). A simple sequentially rejective multiple test procedure. *Scandinavian Journal of Statistics* 6(2).
+- Ibragimov, R., Müller, U. K. (2010). t-statistic based correlation and heterogeneity robust inference. *Journal of Business & Economic Statistics* 28(4).
+- Koenker, R., Bassett, G. (1978). Regression quantiles. *Econometrica* 46(1).
 - Kupiec, P. (1995). Techniques for verifying the accuracy of risk measurement models. *Journal of Derivatives* 3(2).
 - Ledoit, O., Wolf, M. (2008). Robust performance hypothesis testing with the Sharpe ratio. *Journal of Empirical Finance* 15(5).
+- Liu, Y., Xie, J. (2020). Cauchy combination test: a powerful test with analytic p-value calculation under arbitrary dependency structures. *Journal of the American Statistical Association* 115(529).
 - Lo, A. (2002). The statistics of Sharpe ratios. *Financial Analysts Journal* 58(4).
 - López de Prado, M. (2018). *Advances in Financial Machine Learning*. Wiley.
 - Lyócsa, Š., Molnár, P., Výrost, T. (2021). Stock market volatility forecasting: do we need high-frequency data? *International Journal of Forecasting* 37(3).
@@ -749,6 +858,7 @@ pre-specified.
 - Mincer, J., Zarnowitz, V. (1969). The evaluation of economic forecasts. NBER.
 - Mitchell, M. et al. (2019). Model cards for model reporting. *FAT\**.
 - Newey, W., West, K. (1987). A simple, positive semi-definite, heteroskedasticity and autocorrelation consistent covariance matrix. *Econometrica* 55(3).
+- Newey, W., West, K. (1994). Automatic lag selection in covariance matrix estimation. *Review of Economic Studies* 61(4).
 - Opdyke, J. D. (2007). Comparing Sharpe ratios: so where are the p-values? *Journal of Asset Management* 8(5).
 - Patton, A. (2011). Volatility forecast comparison using imperfect volatility proxies. *Journal of Econometrics* 160(1).
 - Patton, A., Sheppard, K. (2015). Good volatility, bad volatility: signed jumps and the persistence of volatility. *Review of Economics and Statistics* 97(3).

@@ -3,20 +3,23 @@
   "alpha": 0.05,
   "hlz_t": 3.0,
   "summary": {
-    "rows": 110,
-    "rows_with_p_value": 110,
-    "rows_in_multiplicity_family": 107,
+    "rows": 135,
+    "rows_with_p_value": 135,
+    "rows_in_multiplicity_family": 129,
     "by_status": {
-      "supported": 33,
-      "not_supported": 61,
+      "supported": 41,
+      "not_supported": 74,
       "retracted": 9,
-      "inconclusive": 7
+      "inconclusive": 11
     },
     "pre_specified_rows": 3,
     "selected_after_search": [
       "vol_challenger_qlike",
       "vol_gw_har_iv_range",
-      "vol_fluct_har_iv_range"
+      "vol_fluct_har_iv_range",
+      "vol_crps_har_iv_range",
+      "vol_pinball10_har_iv_range",
+      "vol_pinball90_har_iv_range"
     ],
     "underpowered": [
       "carry_spread_post2007"
@@ -53,6 +56,14 @@
       "vol_fluct_har_iv_sameday",
       "vol_gw_lgbm",
       "vol_fluct_lgbm",
+      "vol_pinball90_har_iv_range",
+      "vol_pinball90_garch",
+      "vol_pinball90_ewma",
+      "vol_berkowitz_ovx_only",
+      "vol_berkowitz_garch",
+      "vol_berkowitz_gjr",
+      "vol_berkowitz_ewma",
+      "vol_berkowitz_quantile_har",
       "shock_supply_lost_peak",
       "shock_removal_vs_threat_peak"
     ],
@@ -73,6 +84,10 @@
       "vol_fluct_har_rs",
       "vol_fluct_har_iv_sameday",
       "vol_fluct_lgbm",
+      "vol_berkowitz_ovx_only",
+      "vol_berkowitz_garch",
+      "vol_berkowitz_gjr",
+      "vol_berkowitz_ewma",
       "shock_supply_lost_peak"
     ],
     "supported_surviving_holm_5pct": [
@@ -88,7 +103,8 @@
       "vol_fluct_garch",
       "vol_fluct_har_rv",
       "vol_fluct_har_rs",
-      "vol_fluct_lgbm"
+      "vol_fluct_lgbm",
+      "vol_berkowitz_ewma"
     ],
     "supported_clearing_hlz_t3": [
       "leak_forest_noise_unpurged",
@@ -105,6 +121,10 @@
       "vol_fluct_har_rs",
       "vol_fluct_har_iv_sameday",
       "vol_fluct_lgbm",
+      "vol_berkowitz_ovx_only",
+      "vol_berkowitz_garch",
+      "vol_berkowitz_gjr",
+      "vol_berkowitz_ewma",
       "shock_supply_lost_peak"
     ],
     "supported_failing_bh_5pct": [
@@ -122,10 +142,14 @@
       "vol_gw_har_rs",
       "vol_fluct_har_range",
       "vol_gw_lgbm",
+      "vol_pinball90_garch",
+      "vol_pinball90_ewma",
+      "vol_berkowitz_quantile_har",
       "shock_removal_vs_threat_peak"
     ],
     "supported_selected_after_search": [
-      "vol_challenger_qlike"
+      "vol_challenger_qlike",
+      "vol_pinball90_har_iv_range"
     ],
     "by_family": {
       "direction model": {
@@ -227,6 +251,28 @@
         "supported_surviving_bh_5pct": 8,
         "supported_clearing_hlz_t3": 7
       },
+      "predictive distribution": {
+        "rows": 18,
+        "by_status": {
+          "supported": 3,
+          "not_supported": 12,
+          "retracted": 0,
+          "inconclusive": 3
+        },
+        "supported_surviving_bh_5pct": 0,
+        "supported_clearing_hlz_t3": 0
+      },
+      "distribution calibration": {
+        "rows": 7,
+        "by_status": {
+          "supported": 5,
+          "not_supported": 1,
+          "retracted": 0,
+          "inconclusive": 1
+        },
+        "supported_surviving_bh_5pct": 4,
+        "supported_clearing_hlz_t3": 4
+      },
       "supply shock": {
         "rows": 19,
         "by_status": {
@@ -277,8 +323,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 2.3440414196567817e-05,
-      "p_holm": 0.00015488198913059297,
+      "q_value_bh": 2.4727446284463478e-05,
+      "p_holm": 0.00018708517498942912,
       "t_equivalent": 4.81,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -320,8 +366,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 4.798401994368509e-09,
-      "p_holm": 2.744506561264979e-08,
+      "q_value_bh": 4.958562274554374e-09,
+      "p_holm": 3.30955202976071e-08,
       "t_equivalent": 6.32,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -406,7 +452,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.9143827194087987,
+      "q_value_bh": 0.9066357437967231,
       "p_holm": 1.0,
       "t_equivalent": 0.33,
       "survives_bh_5pct": false,
@@ -492,7 +538,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.8694088607594938,
+      "q_value_bh": 0.8447505154639174,
       "p_holm": 1.0,
       "t_equivalent": 0.48,
       "survives_bh_5pct": false,
@@ -535,7 +581,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.302725467733851,
+      "q_value_bh": 0.2845513900732888,
       "p_holm": 1.0,
       "t_equivalent": 1.51,
       "survives_bh_5pct": false,
@@ -578,7 +624,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.9143827194087987,
+      "q_value_bh": 0.9066357437967231,
       "p_holm": 1.0,
       "t_equivalent": 0.32,
       "survives_bh_5pct": false,
@@ -620,8 +666,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.00033288888888888886,
-      "p_holm": 0.002772,
+      "q_value_bh": 0.0003612,
+      "p_holm": 0.00336,
       "t_equivalent": 4.19,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -666,8 +712,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 5.421907776317658e-16,
-      "p_holm": 1.5961691117196843e-15,
+      "q_value_bh": 4.902519414567601e-16,
+      "p_holm": 1.915402934063621e-15,
       "t_equivalent": 8.53,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -712,7 +758,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.9143827194087987,
+      "q_value_bh": 0.906385944281576,
       "p_holm": 1.0,
       "t_equivalent": 0.35,
       "survives_bh_5pct": false,
@@ -767,8 +813,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.00035666666666666664,
-      "p_holm": 0.0037739640575670218,
+      "q_value_bh": 0.00039692307692307694,
+      "p_holm": 0.0045910078226073054,
       "t_equivalent": 4.11,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -864,7 +910,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.11413333333333335,
+      "q_value_bh": 0.11352,
       "p_holm": 1.0,
       "t_equivalent": 2.11,
       "survives_bh_5pct": false,
@@ -900,7 +946,7 @@
         "context_fields": {},
         "name_fields": {}
       },
-      "q_value_bh": 0.11556,
+      "q_value_bh": 0.1161,
       "p_holm": 1.0,
       "t_equivalent": 2.08,
       "survives_bh_5pct": false,
@@ -980,7 +1026,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.2726068181818182,
+      "q_value_bh": 0.25823035714285714,
       "p_holm": 1.0,
       "t_equivalent": 1.59,
       "survives_bh_5pct": false,
@@ -1022,7 +1068,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.05843846153846154,
+      "q_value_bh": 0.06106,
       "p_holm": 1.0,
       "t_equivalent": 2.45,
       "survives_bh_5pct": false,
@@ -1058,8 +1104,8 @@
         "context_fields": {},
         "name_fields": {}
       },
-      "q_value_bh": 0.017509090909090908,
-      "p_holm": 0.3096,
+      "q_value_bh": 0.01786153846153846,
+      "p_holm": 0.3744,
       "t_equivalent": 2.91,
       "survives_bh_5pct": true,
       "survives_holm_5pct": false,
@@ -1098,7 +1144,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.3098541666666667,
+      "q_value_bh": 0.29395081967213116,
       "p_holm": 1.0,
       "t_equivalent": 1.48,
       "survives_bh_5pct": false,
@@ -1138,7 +1184,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.3937982142857143,
+      "q_value_bh": 0.3798128571428571,
       "p_holm": 1.0,
       "t_equivalent": 1.26,
       "survives_bh_5pct": false,
@@ -1184,7 +1230,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.7991287671232877,
+      "q_value_bh": 0.7728659340659341,
       "p_holm": 1.0,
       "t_equivalent": 0.6,
       "survives_bh_5pct": false,
@@ -1306,7 +1352,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.826791891891892,
+      "q_value_bh": 0.7931419354838709,
       "p_holm": 1.0,
       "t_equivalent": 0.57,
       "survives_bh_5pct": false,
@@ -1346,7 +1392,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.1000967741935484,
+      "q_value_bh": 0.10110810810810811,
       "p_holm": 1.0,
       "t_equivalent": 2.18,
       "survives_bh_5pct": false,
@@ -1386,7 +1432,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.5722774193548388,
+      "q_value_bh": 0.541473417721519,
       "p_holm": 1.0,
       "t_equivalent": 0.97,
       "survives_bh_5pct": false,
@@ -1426,7 +1472,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.4730137931034483,
+      "q_value_bh": 0.4530904109589041,
       "p_holm": 1.0,
       "t_equivalent": 1.13,
       "survives_bh_5pct": false,
@@ -1462,7 +1508,7 @@
         "context_fields": {},
         "name_fields": {}
       },
-      "q_value_bh": 0.08025000000000002,
+      "q_value_bh": 0.08209090909090909,
       "p_holm": 1.0,
       "t_equivalent": 2.31,
       "survives_bh_5pct": false,
@@ -1502,7 +1548,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.7926916666666667,
+      "q_value_bh": 0.76454,
       "p_holm": 1.0,
       "t_equivalent": 0.62,
       "survives_bh_5pct": false,
@@ -1545,8 +1591,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 4.398722275526713e-10,
-      "p_holm": 2.117142029809586e-09,
+      "q_value_bh": 4.4192770525151554e-10,
+      "p_holm": 2.54879234656688e-09,
       "t_equivalent": 6.7,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -1591,7 +1637,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.8694088607594938,
+      "q_value_bh": 0.8447505154639174,
       "p_holm": 1.0,
       "t_equivalent": 0.47,
       "survives_bh_5pct": false,
@@ -1639,7 +1685,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.3098541666666667,
+      "q_value_bh": 0.29395081967213116,
       "p_holm": 1.0,
       "t_equivalent": 1.48,
       "survives_bh_5pct": false,
@@ -1723,7 +1769,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.7184285714285714,
+      "q_value_bh": 0.6968965517241379,
       "p_holm": 1.0,
       "t_equivalent": 0.72,
       "survives_bh_5pct": false,
@@ -1765,8 +1811,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 3.6847793570883713e-45,
-      "p_holm": 3.6847793570883713e-45,
+      "q_value_bh": 2.2211987713289714e-45,
+      "p_holm": 4.407960352404781e-45,
       "t_equivalent": 14.43,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -1853,8 +1899,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.00031778946442178035,
-      "p_holm": 0.0023759959956768622,
+      "q_value_bh": 0.00034055942604701694,
+      "p_holm": 0.0028749551547690034,
       "t_equivalent": 4.23,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -1895,8 +1941,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 4.7709129027173656e-11,
-      "p_holm": 1.8548595958228262e-10,
+      "q_value_bh": 4.601478612714319e-11,
+      "p_holm": 2.229398552671666e-10,
       "t_equivalent": 7.05,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -1937,8 +1983,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.00035666666666666664,
-      "p_holm": 0.003757031551094119,
+      "q_value_bh": 0.00039692307692307694,
+      "p_holm": 0.004562109740614288,
       "t_equivalent": 4.12,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -1979,7 +2025,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.29379906258506094,
+      "q_value_bh": 0.27481526882150803,
       "p_holm": 1.0,
       "t_equivalent": 1.54,
       "survives_bh_5pct": false,
@@ -2105,7 +2151,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.8694088607594938,
+      "q_value_bh": 0.8447505154639174,
       "p_holm": 1.0,
       "t_equivalent": 0.5,
       "survives_bh_5pct": false,
@@ -2147,8 +2193,8 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.0005470381616944658,
-      "p_holm": 0.006313945137314629,
+      "q_value_bh": 0.0006124052050478099,
+      "p_holm": 0.007709659325563126,
       "t_equivalent": 3.99,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -2231,7 +2277,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.9143827194087987,
+      "q_value_bh": 0.9036620577579395,
       "p_holm": 1.0,
       "t_equivalent": 0.38,
       "survives_bh_5pct": false,
@@ -2273,7 +2319,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.08412413793103449,
+      "q_value_bh": 0.08403428571428573,
       "p_holm": 1.0,
       "t_equivalent": 2.28,
       "survives_bh_5pct": false,
@@ -2320,7 +2366,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.2019282051282051,
+      "q_value_bh": 0.2020085106382979,
       "p_holm": 1.0,
       "t_equivalent": 1.79,
       "survives_bh_5pct": false,
@@ -2356,7 +2402,7 @@
         "context_fields": {},
         "name_fields": {}
       },
-      "q_value_bh": 0.6314621212121213,
+      "q_value_bh": 0.6053674698795181,
       "p_holm": 1.0,
       "t_equivalent": 0.88,
       "survives_bh_5pct": false,
@@ -2396,7 +2442,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.33108269230769233,
+      "q_value_bh": 0.3193246153846154,
       "p_holm": 1.0,
       "t_equivalent": 1.4,
       "survives_bh_5pct": false,
@@ -2432,8 +2478,8 @@
         "context_fields": {},
         "name_fields": {}
       },
-      "q_value_bh": 7.976094079534675e-38,
-      "p_holm": 1.5803102288423842e-37,
+      "q_value_bh": 6.410692437756842e-38,
+      "p_holm": 1.893390557197951e-37,
       "t_equivalent": 13.16,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -2521,7 +2567,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.05591937504756895,
+      "q_value_bh": 0.058117945384598725,
       "p_holm": 1.0,
       "t_equivalent": 2.48,
       "survives_bh_5pct": false,
@@ -2561,7 +2607,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.25555581395348836,
+      "q_value_bh": 0.24533888888888888,
       "p_holm": 1.0,
       "t_equivalent": 1.64,
       "survives_bh_5pct": false,
@@ -2601,7 +2647,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.6390208496854599,
+      "q_value_bh": 0.6163266512854155,
       "p_holm": 1.0,
       "t_equivalent": 0.83,
       "survives_bh_5pct": false,
@@ -2641,7 +2687,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.07891096587966669,
+      "q_value_bh": 0.08027070506976608,
       "p_holm": 1.0,
       "t_equivalent": 2.33,
       "survives_bh_5pct": false,
@@ -2697,7 +2743,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.2228275,
+      "q_value_bh": 0.21971238256435122,
       "p_holm": 1.0,
       "t_equivalent": 1.73,
       "survives_bh_5pct": false,
@@ -2809,7 +2855,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.5102258600801916,
+      "q_value_bh": 0.4856306144885247,
       "p_holm": 1.0,
       "t_equivalent": 1.07,
       "survives_bh_5pct": false,
@@ -2919,7 +2965,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.4024701754385965,
+      "q_value_bh": 0.389543661971831,
       "p_holm": 1.0,
       "t_equivalent": 1.24,
       "survives_bh_5pct": false,
@@ -3031,7 +3077,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.6630898550724638,
+      "q_value_bh": 0.6414,
       "p_holm": 1.0,
       "t_equivalent": 0.79,
       "survives_bh_5pct": false,
@@ -3085,7 +3131,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.6314621212121213,
+      "q_value_bh": 0.6053674698795181,
       "p_holm": 1.0,
       "t_equivalent": 0.86,
       "survives_bh_5pct": false,
@@ -3137,8 +3183,8 @@
           "model": "leaderboard.models[key=persistence].label"
         }
       },
-      "q_value_bh": 0.0007501454566625783,
-      "p_holm": 0.009779933757423333,
+      "q_value_bh": 0.0008478571604217809,
+      "p_holm": 0.011988305896196346,
       "t_equivalent": 3.88,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -3205,8 +3251,8 @@
           "model": "leaderboard.models[key=persistence].label"
         }
       },
-      "q_value_bh": 0.00035666666666666664,
-      "p_holm": 0.0038400000000000005,
+      "q_value_bh": 0.00039692307692307694,
+      "p_holm": 0.00468,
       "t_equivalent": 4.11,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -3257,7 +3303,7 @@
           "model": "leaderboard.models[key=raw_ovx].label"
         }
       },
-      "q_value_bh": 0.9143827194087987,
+      "q_value_bh": 0.9036620577579395,
       "p_holm": 1.0,
       "t_equivalent": 0.38,
       "survives_bh_5pct": false,
@@ -3325,7 +3371,7 @@
           "model": "leaderboard.models[key=raw_ovx].label"
         }
       },
-      "q_value_bh": 0.6390208496854599,
+      "q_value_bh": 0.6163266512854155,
       "p_holm": 1.0,
       "t_equivalent": 0.83,
       "survives_bh_5pct": false,
@@ -3377,7 +3423,7 @@
           "model": "leaderboard.models[key=ewma].label"
         }
       },
-      "q_value_bh": 0.12230012707414697,
+      "q_value_bh": 0.12398863774955471,
       "p_holm": 1.0,
       "t_equivalent": 2.03,
       "survives_bh_5pct": false,
@@ -3445,8 +3491,8 @@
           "model": "leaderboard.models[key=ewma].label"
         }
       },
-      "q_value_bh": 0.001351578947368421,
-      "p_holm": 0.02208,
+      "q_value_bh": 0.0015480000000000001,
+      "p_holm": 0.027120000000000002,
       "t_equivalent": 3.67,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -3497,7 +3543,7 @@
           "model": "leaderboard.models[key=garch].label"
         }
       },
-      "q_value_bh": 0.3742232800753599,
+      "q_value_bh": 0.36362663816501,
       "p_holm": 1.0,
       "t_equivalent": 1.31,
       "survives_bh_5pct": false,
@@ -3565,8 +3611,8 @@
           "model": "leaderboard.models[key=garch].label"
         }
       },
-      "q_value_bh": 0.001351578947368421,
-      "p_holm": 0.02208,
+      "q_value_bh": 0.0015480000000000001,
+      "p_holm": 0.027120000000000002,
       "t_equivalent": 3.67,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -3617,7 +3663,7 @@
           "model": "leaderboard.models[key=gjr].label"
         }
       },
-      "q_value_bh": 0.5102258600801916,
+      "q_value_bh": 0.4856306144885247,
       "p_holm": 1.0,
       "t_equivalent": 1.07,
       "survives_bh_5pct": false,
@@ -3685,8 +3731,8 @@
           "model": "leaderboard.models[key=gjr].label"
         }
       },
-      "q_value_bh": 0.032472173913043474,
-      "p_holm": 0.5933,
+      "q_value_bh": 0.033348888888888886,
+      "p_holm": 0.71894,
       "t_equivalent": 2.7,
       "survives_bh_5pct": true,
       "survives_holm_5pct": false,
@@ -3737,7 +3783,7 @@
           "model": "leaderboard.models[key=har_rv].label"
         }
       },
-      "q_value_bh": 0.12230012707414697,
+      "q_value_bh": 0.12398863774955471,
       "p_holm": 1.0,
       "t_equivalent": 2.03,
       "survives_bh_5pct": false,
@@ -3805,8 +3851,8 @@
           "model": "leaderboard.models[key=har_rv].label"
         }
       },
-      "q_value_bh": 0.001351578947368421,
-      "p_holm": 0.02208,
+      "q_value_bh": 0.0015480000000000001,
+      "p_holm": 0.027120000000000002,
       "t_equivalent": 3.67,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -3857,7 +3903,7 @@
           "model": "leaderboard.models[key=har_rs].label"
         }
       },
-      "q_value_bh": 0.11535733394751893,
+      "q_value_bh": 0.11533103868106179,
       "p_holm": 1.0,
       "t_equivalent": 2.09,
       "survives_bh_5pct": false,
@@ -3925,8 +3971,8 @@
           "model": "leaderboard.models[key=har_rs].label"
         }
       },
-      "q_value_bh": 0.001351578947368421,
-      "p_holm": 0.02208,
+      "q_value_bh": 0.0015480000000000001,
+      "p_holm": 0.027120000000000002,
       "t_equivalent": 3.67,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -3977,7 +4023,7 @@
           "model": "leaderboard.models[key=har_range].label"
         }
       },
-      "q_value_bh": 0.6188835309090287,
+      "q_value_bh": 0.5875778569740275,
       "p_holm": 1.0,
       "t_equivalent": 0.91,
       "survives_bh_5pct": false,
@@ -4045,7 +4091,7 @@
           "model": "leaderboard.models[key=har_range].label"
         }
       },
-      "q_value_bh": 0.054213333333333336,
+      "q_value_bh": 0.056022857142857145,
       "p_holm": 1.0,
       "t_equivalent": 2.51,
       "survives_bh_5pct": false,
@@ -4097,7 +4143,7 @@
           "model": "leaderboard.models[key=ovx_only].label"
         }
       },
-      "q_value_bh": 0.9143827194087987,
+      "q_value_bh": 0.9066357437967231,
       "p_holm": 1.0,
       "t_equivalent": 0.32,
       "survives_bh_5pct": false,
@@ -4165,7 +4211,7 @@
           "model": "leaderboard.models[key=ovx_only].label"
         }
       },
-      "q_value_bh": 0.15633263157894736,
+      "q_value_bh": 0.15915733333333332,
       "p_holm": 1.0,
       "t_equivalent": 1.91,
       "survives_bh_5pct": false,
@@ -4217,7 +4263,7 @@
           "model": "leaderboard.models[key=har_iv_sameday].label"
         }
       },
-      "q_value_bh": 0.5373351825644453,
+      "q_value_bh": 0.5089673799720432,
       "p_holm": 1.0,
       "t_equivalent": 1.02,
       "survives_bh_5pct": false,
@@ -4285,8 +4331,8 @@
           "model": "leaderboard.models[key=har_iv_sameday].label"
         }
       },
-      "q_value_bh": 0.009069523809523809,
-      "p_holm": 0.15486,
+      "q_value_bh": 0.009983478260869564,
+      "p_holm": 0.19046,
       "t_equivalent": 3.12,
       "survives_bh_5pct": true,
       "survives_holm_5pct": false,
@@ -4457,7 +4503,7 @@
           "model": "leaderboard.models[key=lgbm].label"
         }
       },
-      "q_value_bh": 0.08528346488609852,
+      "q_value_bh": 0.08568198575005226,
       "p_holm": 1.0,
       "t_equivalent": 2.26,
       "survives_bh_5pct": false,
@@ -4525,8 +4571,8 @@
           "model": "leaderboard.models[key=lgbm].label"
         }
       },
-      "q_value_bh": 0.0006114285714285715,
-      "p_holm": 0.007520000000000001,
+      "q_value_bh": 0.000688,
+      "p_holm": 0.009200000000000002,
       "t_equivalent": 3.94,
       "survives_bh_5pct": true,
       "survives_holm_5pct": true,
@@ -4577,7 +4623,7 @@
           "model": "leaderboard.models[key=combo].label"
         }
       },
-      "q_value_bh": 0.31260784313725487,
+      "q_value_bh": 0.29870788666738496,
       "p_holm": 1.0,
       "t_equivalent": 1.46,
       "survives_bh_5pct": false,
@@ -4645,9 +4691,1667 @@
           "model": "leaderboard.models[key=combo].label"
         }
       },
-      "q_value_bh": 0.3673532075471699,
+      "q_value_bh": 0.3556490909090909,
       "p_holm": 1.0,
       "t_equivalent": 1.33,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_crps_har_iv_range",
+      "date": "2026-10-20",
+      "family": "predictive distribution",
+      "hypothesis": "The challenger HAR-IV-range's predictive distribution beats the model of record's on CRPS over 19 quantiles.",
+      "test": "Batch-means Diebold-Mariano (Ibragimov and Mueller 2010) on the daily score difference: its mean in 12 consecutive periods of about 17 months, t-test with 11 df, two-sided; a positive statistic means the named model scores lower than HAR-IV. Scores in vol points on the conformal band's days.",
+      "statistic": {
+        "name": "batch-means t",
+        "value": 0.286
+      },
+      "context": {
+        "score_model": 8.214,
+        "score_har_iv": 8.234,
+        "periods_model_lower": 8,
+        "p_groups_8": 0.7341260026933111,
+        "p_groups_16": 0.7658595604884233,
+        "p_dm_test_9": 0.7798200314323271,
+        "p_nw94": 0.7897034804583524,
+        "p_grid_bonferroni": 1.0,
+        "n_days": 4370,
+        "method": "trailing quantiles of its matured log residuals around its median forecast",
+        "p_log_scale": 0.2411083823815087,
+        "share_2020_pct": -123.7,
+        "dm_qlike_p": 0.0019392254394052656
+      },
+      "p_value": 0.7799608370112812,
+      "sided": "two",
+      "p_two_sided": 0.7799608370112812,
+      "pre_specified": false,
+      "selected_after_search": true,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Selected after a search: the challenger is the lowest-QLIKE model of the field on this same sample, so this pairwise p-value ignores the search. The row is left out of the multiplicity family; no search-adjusted version of this test exists (the SPA test searches the field on QLIKE). Chosen after the scores were seen, and published beside the registered choices: the vol-point scale (the log scale is context), equal weights on the 19 quantiles, the batch-means variance and its 12 periods (8 and 16, dm_test's 9 lags, Newey-West (1994) and each sampling grid on its own are context), and registering all three scores (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=har_iv_range].dm_vs_har_iv.crps_grid.stat",
+        "p_value_fields": {
+          "distribution.models[key=har_iv_range].dm_vs_har_iv.crps_grid.p_value": 0.7799608370112812
+        },
+        "context_fields": {
+          "score_model": "distribution.models[key=har_iv_range].crps_grid_pct",
+          "score_har_iv": "distribution.models[key=har_iv].crps_grid_pct",
+          "periods_model_lower": "distribution.models[key=har_iv_range].dm_vs_har_iv.crps_grid.periods_model_lower",
+          "p_groups_8": "distribution.models[key=har_iv_range].dm_vs_har_iv.crps_grid.groups_8.p_value",
+          "p_groups_16": "distribution.models[key=har_iv_range].dm_vs_har_iv.crps_grid.groups_16.p_value",
+          "p_dm_test_9": "distribution.models[key=har_iv_range].dm_vs_har_iv.crps_grid.dm_test.p_value",
+          "p_nw94": "distribution.models[key=har_iv_range].dm_vs_har_iv.crps_grid.nw94.p_value",
+          "p_grid_bonferroni": "distribution.models[key=har_iv_range].dm_vs_har_iv.crps_grid.grid_bonferroni_p",
+          "n_days": "distribution.n_days",
+          "method": "distribution.models[key=har_iv_range].method",
+          "p_log_scale": "distribution.models[key=har_iv_range].dm_vs_har_iv.crps_grid_log.p_value",
+          "share_2020_pct": "distribution.models[key=har_iv_range].dm_vs_har_iv.crps_grid.concentration.share_2020_pct",
+          "dm_qlike_p": "leaderboard.models[key=har_iv_range].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=har_iv_range].label"
+        }
+      },
+      "q_value_bh": null,
+      "p_holm": null,
+      "t_equivalent": 0.28,
+      "survives_bh_5pct": null,
+      "survives_holm_5pct": null,
+      "clears_hlz_t3": null
+    },
+    {
+      "id": "vol_pinball10_har_iv_range",
+      "date": "2026-10-20",
+      "family": "predictive distribution",
+      "hypothesis": "The challenger HAR-IV-range's predictive distribution beats the model of record's on the 10% pinball loss.",
+      "test": "Batch-means Diebold-Mariano (Ibragimov and Mueller 2010) on the daily score difference: its mean in 12 consecutive periods of about 17 months, t-test with 11 df, two-sided; a positive statistic means the named model scores lower than HAR-IV. Scores in vol points on the conformal band's days.",
+      "statistic": {
+        "name": "batch-means t",
+        "value": -0.156
+      },
+      "context": {
+        "score_model": 1.884,
+        "score_har_iv": 1.88,
+        "periods_model_lower": 8,
+        "p_groups_8": 0.8556274650279122,
+        "p_groups_16": 0.8568744246859624,
+        "p_dm_test_9": 0.839529673759473,
+        "p_nw94": 0.8588042415374992,
+        "p_grid_bonferroni": 1.0,
+        "n_days": 4370,
+        "method": "trailing quantiles of its matured log residuals around its median forecast",
+        "dm_qlike_p": 0.0019392254394052656
+      },
+      "p_value": 0.8791023618251338,
+      "sided": "two",
+      "p_two_sided": 1.0,
+      "pre_specified": false,
+      "selected_after_search": true,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Selected after a search: the challenger is the lowest-QLIKE model of the field on this same sample, so this pairwise p-value ignores the search. The row is left out of the multiplicity family; no search-adjusted version of this test exists (the SPA test searches the field on QLIKE). Chosen after the scores were seen, and published beside the registered choices: the vol-point scale (the log scale is context), equal weights on the 19 quantiles, the batch-means variance and its 12 periods (8 and 16, dm_test's 9 lags, Newey-West (1994) and each sampling grid on its own are context), and registering all three scores (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=har_iv_range].dm_vs_har_iv.pinball_10.stat",
+        "p_value_fields": {
+          "distribution.models[key=har_iv_range].dm_vs_har_iv.pinball_10.p_value": 0.8791023618251338
+        },
+        "context_fields": {
+          "score_model": "distribution.models[key=har_iv_range].pinball_10_pct",
+          "score_har_iv": "distribution.models[key=har_iv].pinball_10_pct",
+          "periods_model_lower": "distribution.models[key=har_iv_range].dm_vs_har_iv.pinball_10.periods_model_lower",
+          "p_groups_8": "distribution.models[key=har_iv_range].dm_vs_har_iv.pinball_10.groups_8.p_value",
+          "p_groups_16": "distribution.models[key=har_iv_range].dm_vs_har_iv.pinball_10.groups_16.p_value",
+          "p_dm_test_9": "distribution.models[key=har_iv_range].dm_vs_har_iv.pinball_10.dm_test.p_value",
+          "p_nw94": "distribution.models[key=har_iv_range].dm_vs_har_iv.pinball_10.nw94.p_value",
+          "p_grid_bonferroni": "distribution.models[key=har_iv_range].dm_vs_har_iv.pinball_10.grid_bonferroni_p",
+          "n_days": "distribution.n_days",
+          "method": "distribution.models[key=har_iv_range].method",
+          "dm_qlike_p": "leaderboard.models[key=har_iv_range].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=har_iv_range].label"
+        }
+      },
+      "q_value_bh": null,
+      "p_holm": null,
+      "t_equivalent": 0.0,
+      "survives_bh_5pct": null,
+      "survives_holm_5pct": null,
+      "clears_hlz_t3": null
+    },
+    {
+      "id": "vol_pinball90_har_iv_range",
+      "date": "2026-10-20",
+      "family": "predictive distribution",
+      "hypothesis": "The challenger HAR-IV-range's predictive distribution beats the model of record's on the 90% pinball loss.",
+      "test": "Batch-means Diebold-Mariano (Ibragimov and Mueller 2010) on the daily score difference: its mean in 12 consecutive periods of about 17 months, t-test with 11 df, two-sided; a positive statistic means the named model scores lower than HAR-IV. Scores in vol points on the conformal band's days.",
+      "statistic": {
+        "name": "batch-means t",
+        "value": 2.894
+      },
+      "context": {
+        "score_model": 3.434,
+        "score_har_iv": 3.546,
+        "periods_model_lower": 10,
+        "p_groups_8": 0.04095835514426084,
+        "p_groups_16": 0.004171210636834146,
+        "p_dm_test_9": 0.00406902660892134,
+        "p_nw94": 0.004163124458004966,
+        "p_grid_bonferroni": 0.011299642833882434,
+        "n_days": 4370,
+        "method": "trailing quantiles of its matured log residuals around its median forecast",
+        "dm_qlike_p": 0.0019392254394052656
+      },
+      "p_value": 0.014604426997870698,
+      "sided": "two",
+      "p_two_sided": 0.014604426997870698,
+      "pre_specified": false,
+      "selected_after_search": true,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Selected after a search: the challenger is the lowest-QLIKE model of the field on this same sample, so this pairwise p-value ignores the search. The row is left out of the multiplicity family; no search-adjusted version of this test exists (the SPA test searches the field on QLIKE). Chosen after the scores were seen, and published beside the registered choices: the vol-point scale (the log scale is context), equal weights on the 19 quantiles, the batch-means variance and its 12 periods (8 and 16, dm_test's 9 lags, Newey-West (1994) and each sampling grid on its own are context), and registering all three scores (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=har_iv_range].dm_vs_har_iv.pinball_90.stat",
+        "p_value_fields": {
+          "distribution.models[key=har_iv_range].dm_vs_har_iv.pinball_90.p_value": 0.014604426997870698
+        },
+        "context_fields": {
+          "score_model": "distribution.models[key=har_iv_range].pinball_90_pct",
+          "score_har_iv": "distribution.models[key=har_iv].pinball_90_pct",
+          "periods_model_lower": "distribution.models[key=har_iv_range].dm_vs_har_iv.pinball_90.periods_model_lower",
+          "p_groups_8": "distribution.models[key=har_iv_range].dm_vs_har_iv.pinball_90.groups_8.p_value",
+          "p_groups_16": "distribution.models[key=har_iv_range].dm_vs_har_iv.pinball_90.groups_16.p_value",
+          "p_dm_test_9": "distribution.models[key=har_iv_range].dm_vs_har_iv.pinball_90.dm_test.p_value",
+          "p_nw94": "distribution.models[key=har_iv_range].dm_vs_har_iv.pinball_90.nw94.p_value",
+          "p_grid_bonferroni": "distribution.models[key=har_iv_range].dm_vs_har_iv.pinball_90.grid_bonferroni_p",
+          "n_days": "distribution.n_days",
+          "method": "distribution.models[key=har_iv_range].method",
+          "dm_qlike_p": "leaderboard.models[key=har_iv_range].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=har_iv_range].label"
+        }
+      },
+      "q_value_bh": null,
+      "p_holm": null,
+      "t_equivalent": 2.44,
+      "survives_bh_5pct": null,
+      "survives_holm_5pct": null,
+      "clears_hlz_t3": null
+    },
+    {
+      "id": "vol_crps_ovx_only",
+      "date": "2026-10-20",
+      "family": "predictive distribution",
+      "hypothesis": "The model of record's predictive distribution beats OVX-only regression's on CRPS over 19 quantiles.",
+      "test": "Batch-means Diebold-Mariano (Ibragimov and Mueller 2010) on the daily score difference: its mean in 12 consecutive periods of about 17 months, t-test with 11 df, two-sided; a positive statistic means the named model scores lower than HAR-IV. Scores in vol points on the conformal band's days.",
+      "statistic": {
+        "name": "batch-means t",
+        "value": -0.052
+      },
+      "context": {
+        "score_model": 8.237,
+        "score_har_iv": 8.234,
+        "periods_model_lower": 5,
+        "p_groups_8": 0.9618054637398625,
+        "p_groups_16": 0.9602009516109984,
+        "p_dm_test_9": 0.9385572948652708,
+        "p_nw94": 0.9465755310788887,
+        "p_grid_bonferroni": 1.0,
+        "n_days": 4370,
+        "method": "trailing quantiles of its matured log residuals around its median forecast",
+        "p_log_scale": 0.5017083643192215,
+        "share_2020_pct": 800.7,
+        "dm_qlike_p": 0.6412362939345346
+      },
+      "p_value": 0.9591826390981372,
+      "sided": "two",
+      "p_two_sided": 0.9591826390981372,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Chosen after the scores were seen, and published beside the registered choices: the vol-point scale (the log scale is context), equal weights on the 19 quantiles, the batch-means variance and its 12 periods (8 and 16, dm_test's 9 lags, Newey-West (1994) and each sampling grid on its own are context), and registering all three scores (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=ovx_only].dm_vs_har_iv.crps_grid.stat",
+        "p_value_fields": {
+          "distribution.models[key=ovx_only].dm_vs_har_iv.crps_grid.p_value": 0.9591826390981372
+        },
+        "context_fields": {
+          "score_model": "distribution.models[key=ovx_only].crps_grid_pct",
+          "score_har_iv": "distribution.models[key=har_iv].crps_grid_pct",
+          "periods_model_lower": "distribution.models[key=ovx_only].dm_vs_har_iv.crps_grid.periods_model_lower",
+          "p_groups_8": "distribution.models[key=ovx_only].dm_vs_har_iv.crps_grid.groups_8.p_value",
+          "p_groups_16": "distribution.models[key=ovx_only].dm_vs_har_iv.crps_grid.groups_16.p_value",
+          "p_dm_test_9": "distribution.models[key=ovx_only].dm_vs_har_iv.crps_grid.dm_test.p_value",
+          "p_nw94": "distribution.models[key=ovx_only].dm_vs_har_iv.crps_grid.nw94.p_value",
+          "p_grid_bonferroni": "distribution.models[key=ovx_only].dm_vs_har_iv.crps_grid.grid_bonferroni_p",
+          "n_days": "distribution.n_days",
+          "method": "distribution.models[key=ovx_only].method",
+          "p_log_scale": "distribution.models[key=ovx_only].dm_vs_har_iv.crps_grid_log.p_value",
+          "share_2020_pct": "distribution.models[key=ovx_only].dm_vs_har_iv.crps_grid.concentration.share_2020_pct",
+          "dm_qlike_p": "leaderboard.models[key=ovx_only].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=ovx_only].label"
+        }
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.05,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_pinball10_ovx_only",
+      "date": "2026-10-20",
+      "family": "predictive distribution",
+      "hypothesis": "The model of record's predictive distribution beats OVX-only regression's on the 10% pinball loss.",
+      "test": "Batch-means Diebold-Mariano (Ibragimov and Mueller 2010) on the daily score difference: its mean in 12 consecutive periods of about 17 months, t-test with 11 df, two-sided; a positive statistic means the named model scores lower than HAR-IV. Scores in vol points on the conformal band's days.",
+      "statistic": {
+        "name": "batch-means t",
+        "value": -0.608
+      },
+      "context": {
+        "score_model": 1.887,
+        "score_har_iv": 1.88,
+        "periods_model_lower": 4,
+        "p_groups_8": 0.6241044068930476,
+        "p_groups_16": 0.5786482942176532,
+        "p_dm_test_9": 0.5300568467161868,
+        "p_nw94": 0.5884205378119003,
+        "p_grid_bonferroni": 1.0,
+        "n_days": 4370,
+        "method": "trailing quantiles of its matured log residuals around its median forecast",
+        "dm_qlike_p": 0.6412362939345346
+      },
+      "p_value": 0.5556954624631356,
+      "sided": "two",
+      "p_two_sided": 0.5556954624631356,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Chosen after the scores were seen, and published beside the registered choices: the vol-point scale (the log scale is context), equal weights on the 19 quantiles, the batch-means variance and its 12 periods (8 and 16, dm_test's 9 lags, Newey-West (1994) and each sampling grid on its own are context), and registering all three scores (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=ovx_only].dm_vs_har_iv.pinball_10.stat",
+        "p_value_fields": {
+          "distribution.models[key=ovx_only].dm_vs_har_iv.pinball_10.p_value": 0.5556954624631356
+        },
+        "context_fields": {
+          "score_model": "distribution.models[key=ovx_only].pinball_10_pct",
+          "score_har_iv": "distribution.models[key=har_iv].pinball_10_pct",
+          "periods_model_lower": "distribution.models[key=ovx_only].dm_vs_har_iv.pinball_10.periods_model_lower",
+          "p_groups_8": "distribution.models[key=ovx_only].dm_vs_har_iv.pinball_10.groups_8.p_value",
+          "p_groups_16": "distribution.models[key=ovx_only].dm_vs_har_iv.pinball_10.groups_16.p_value",
+          "p_dm_test_9": "distribution.models[key=ovx_only].dm_vs_har_iv.pinball_10.dm_test.p_value",
+          "p_nw94": "distribution.models[key=ovx_only].dm_vs_har_iv.pinball_10.nw94.p_value",
+          "p_grid_bonferroni": "distribution.models[key=ovx_only].dm_vs_har_iv.pinball_10.grid_bonferroni_p",
+          "n_days": "distribution.n_days",
+          "method": "distribution.models[key=ovx_only].method",
+          "dm_qlike_p": "leaderboard.models[key=ovx_only].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=ovx_only].label"
+        }
+      },
+      "q_value_bh": 0.7791816810624401,
+      "p_holm": 1.0,
+      "t_equivalent": 0.59,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_pinball90_ovx_only",
+      "date": "2026-10-20",
+      "family": "predictive distribution",
+      "hypothesis": "The model of record's predictive distribution beats OVX-only regression's on the 90% pinball loss.",
+      "test": "Batch-means Diebold-Mariano (Ibragimov and Mueller 2010) on the daily score difference: its mean in 12 consecutive periods of about 17 months, t-test with 11 df, two-sided; a positive statistic means the named model scores lower than HAR-IV. Scores in vol points on the conformal band's days.",
+      "statistic": {
+        "name": "batch-means t",
+        "value": 0.679
+      },
+      "context": {
+        "score_model": 3.526,
+        "score_har_iv": 3.546,
+        "periods_model_lower": 7,
+        "p_groups_8": 0.5399475023238864,
+        "p_groups_16": 0.5167112777503255,
+        "p_dm_test_9": 0.46014683703675135,
+        "p_nw94": 0.4681427291383072,
+        "p_grid_bonferroni": 1.0,
+        "n_days": 4370,
+        "method": "trailing quantiles of its matured log residuals around its median forecast",
+        "dm_qlike_p": 0.6412362939345346
+      },
+      "p_value": 0.5109591289341916,
+      "sided": "two",
+      "p_two_sided": 1.0,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Chosen after the scores were seen, and published beside the registered choices: the vol-point scale (the log scale is context), equal weights on the 19 quantiles, the batch-means variance and its 12 periods (8 and 16, dm_test's 9 lags, Newey-West (1994) and each sampling grid on its own are context), and registering all three scores (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=ovx_only].dm_vs_har_iv.pinball_90.stat",
+        "p_value_fields": {
+          "distribution.models[key=ovx_only].dm_vs_har_iv.pinball_90.p_value": 0.5109591289341916
+        },
+        "context_fields": {
+          "score_model": "distribution.models[key=ovx_only].pinball_90_pct",
+          "score_har_iv": "distribution.models[key=har_iv].pinball_90_pct",
+          "periods_model_lower": "distribution.models[key=ovx_only].dm_vs_har_iv.pinball_90.periods_model_lower",
+          "p_groups_8": "distribution.models[key=ovx_only].dm_vs_har_iv.pinball_90.groups_8.p_value",
+          "p_groups_16": "distribution.models[key=ovx_only].dm_vs_har_iv.pinball_90.groups_16.p_value",
+          "p_dm_test_9": "distribution.models[key=ovx_only].dm_vs_har_iv.pinball_90.dm_test.p_value",
+          "p_nw94": "distribution.models[key=ovx_only].dm_vs_har_iv.pinball_90.nw94.p_value",
+          "p_grid_bonferroni": "distribution.models[key=ovx_only].dm_vs_har_iv.pinball_90.grid_bonferroni_p",
+          "n_days": "distribution.n_days",
+          "method": "distribution.models[key=ovx_only].method",
+          "dm_qlike_p": "leaderboard.models[key=ovx_only].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=ovx_only].label"
+        }
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.0,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_crps_garch",
+      "date": "2026-10-20",
+      "family": "predictive distribution",
+      "hypothesis": "The model of record's predictive distribution beats GARCH(1,1)-t's on CRPS over 19 quantiles.",
+      "test": "Batch-means Diebold-Mariano (Ibragimov and Mueller 2010) on the daily score difference: its mean in 12 consecutive periods of about 17 months, t-test with 11 df, two-sided; a positive statistic means the named model scores lower than HAR-IV. Scores in vol points on the conformal band's days.",
+      "statistic": {
+        "name": "batch-means t",
+        "value": -1.874
+      },
+      "context": {
+        "score_model": 9.034,
+        "score_har_iv": 8.234,
+        "periods_model_lower": 2,
+        "p_groups_8": 0.09527859290927426,
+        "p_groups_16": 0.06995020224447322,
+        "p_dm_test_9": 0.0006111970983252481,
+        "p_nw94": 0.021630612656230296,
+        "p_grid_bonferroni": 0.05498663889168049,
+        "n_days": 4370,
+        "method": "simulated from its fitted recursion with Student-t shocks",
+        "p_log_scale": 0.021314211153329325,
+        "share_2020_pct": 52.6,
+        "dm_qlike_p": 0.0002036148288102483
+      },
+      "p_value": 0.08771468440774918,
+      "sided": "two",
+      "p_two_sided": 0.08771468440774918,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "inconclusive",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Chosen after the scores were seen, and published beside the registered choices: the vol-point scale (the log scale is context), equal weights on the 19 quantiles, the batch-means variance and its 12 periods (8 and 16, dm_test's 9 lags, Newey-West (1994) and each sampling grid on its own are context), and registering all three scores (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=garch].dm_vs_har_iv.crps_grid.stat",
+        "p_value_fields": {
+          "distribution.models[key=garch].dm_vs_har_iv.crps_grid.p_value": 0.08771468440774918
+        },
+        "context_fields": {
+          "score_model": "distribution.models[key=garch].crps_grid_pct",
+          "score_har_iv": "distribution.models[key=har_iv].crps_grid_pct",
+          "periods_model_lower": "distribution.models[key=garch].dm_vs_har_iv.crps_grid.periods_model_lower",
+          "p_groups_8": "distribution.models[key=garch].dm_vs_har_iv.crps_grid.groups_8.p_value",
+          "p_groups_16": "distribution.models[key=garch].dm_vs_har_iv.crps_grid.groups_16.p_value",
+          "p_dm_test_9": "distribution.models[key=garch].dm_vs_har_iv.crps_grid.dm_test.p_value",
+          "p_nw94": "distribution.models[key=garch].dm_vs_har_iv.crps_grid.nw94.p_value",
+          "p_grid_bonferroni": "distribution.models[key=garch].dm_vs_har_iv.crps_grid.grid_bonferroni_p",
+          "n_days": "distribution.n_days",
+          "method": "distribution.models[key=garch].method",
+          "p_log_scale": "distribution.models[key=garch].dm_vs_har_iv.crps_grid_log.p_value",
+          "share_2020_pct": "distribution.models[key=garch].dm_vs_har_iv.crps_grid.concentration.share_2020_pct",
+          "dm_qlike_p": "leaderboard.models[key=garch].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=garch].label"
+        }
+      },
+      "q_value_bh": 0.22630388577199287,
+      "p_holm": 1.0,
+      "t_equivalent": 1.71,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_pinball10_garch",
+      "date": "2026-10-20",
+      "family": "predictive distribution",
+      "hypothesis": "The model of record's predictive distribution beats GARCH(1,1)-t's on the 10% pinball loss.",
+      "test": "Batch-means Diebold-Mariano (Ibragimov and Mueller 2010) on the daily score difference: its mean in 12 consecutive periods of about 17 months, t-test with 11 df, two-sided; a positive statistic means the named model scores lower than HAR-IV. Scores in vol points on the conformal band's days.",
+      "statistic": {
+        "name": "batch-means t",
+        "value": -1.209
+      },
+      "context": {
+        "score_model": 2.063,
+        "score_har_iv": 1.88,
+        "periods_model_lower": 2,
+        "p_groups_8": 0.29266831011964467,
+        "p_groups_16": 0.28273197694229224,
+        "p_dm_test_9": 0.047017646941675754,
+        "p_nw94": 0.18189459641468825,
+        "p_grid_bonferroni": 0.37854697346593025,
+        "n_days": 4370,
+        "method": "simulated from its fitted recursion with Student-t shocks",
+        "dm_qlike_p": 0.0002036148288102483
+      },
+      "p_value": 0.2518830669735363,
+      "sided": "two",
+      "p_two_sided": 0.2518830669735363,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Chosen after the scores were seen, and published beside the registered choices: the vol-point scale (the log scale is context), equal weights on the 19 quantiles, the batch-means variance and its 12 periods (8 and 16, dm_test's 9 lags, Newey-West (1994) and each sampling grid on its own are context), and registering all three scores (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=garch].dm_vs_har_iv.pinball_10.stat",
+        "p_value_fields": {
+          "distribution.models[key=garch].dm_vs_har_iv.pinball_10.p_value": 0.2518830669735363
+        },
+        "context_fields": {
+          "score_model": "distribution.models[key=garch].pinball_10_pct",
+          "score_har_iv": "distribution.models[key=har_iv].pinball_10_pct",
+          "periods_model_lower": "distribution.models[key=garch].dm_vs_har_iv.pinball_10.periods_model_lower",
+          "p_groups_8": "distribution.models[key=garch].dm_vs_har_iv.pinball_10.groups_8.p_value",
+          "p_groups_16": "distribution.models[key=garch].dm_vs_har_iv.pinball_10.groups_16.p_value",
+          "p_dm_test_9": "distribution.models[key=garch].dm_vs_har_iv.pinball_10.dm_test.p_value",
+          "p_nw94": "distribution.models[key=garch].dm_vs_har_iv.pinball_10.nw94.p_value",
+          "p_grid_bonferroni": "distribution.models[key=garch].dm_vs_har_iv.pinball_10.grid_bonferroni_p",
+          "n_days": "distribution.n_days",
+          "method": "distribution.models[key=garch].method",
+          "dm_qlike_p": "leaderboard.models[key=garch].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=garch].label"
+        }
+      },
+      "q_value_bh": 0.4512904949942525,
+      "p_holm": 1.0,
+      "t_equivalent": 1.15,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_pinball90_garch",
+      "date": "2026-10-20",
+      "family": "predictive distribution",
+      "hypothesis": "The model of record's predictive distribution beats GARCH(1,1)-t's on the 90% pinball loss.",
+      "test": "Batch-means Diebold-Mariano (Ibragimov and Mueller 2010) on the daily score difference: its mean in 12 consecutive periods of about 17 months, t-test with 11 df, two-sided; a positive statistic means the named model scores lower than HAR-IV. Scores in vol points on the conformal band's days.",
+      "statistic": {
+        "name": "batch-means t",
+        "value": -2.655
+      },
+      "context": {
+        "score_model": 3.854,
+        "score_har_iv": 3.546,
+        "periods_model_lower": 2,
+        "p_groups_8": 0.030185238269760776,
+        "p_groups_16": 0.004748096512829734,
+        "p_dm_test_9": 0.0010136230713391396,
+        "p_nw94": 0.002915665241381451,
+        "p_grid_bonferroni": 0.013372326550723452,
+        "n_days": 4370,
+        "method": "simulated from its fitted recursion with Student-t shocks",
+        "dm_qlike_p": 0.0002036148288102483
+      },
+      "p_value": 0.022380662768976312,
+      "sided": "two",
+      "p_two_sided": 0.022380662768976312,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Chosen after the scores were seen, and published beside the registered choices: the vol-point scale (the log scale is context), equal weights on the 19 quantiles, the batch-means variance and its 12 periods (8 and 16, dm_test's 9 lags, Newey-West (1994) and each sampling grid on its own are context), and registering all three scores (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=garch].dm_vs_har_iv.pinball_90.stat",
+        "p_value_fields": {
+          "distribution.models[key=garch].dm_vs_har_iv.pinball_90.p_value": 0.022380662768976312
+        },
+        "context_fields": {
+          "score_model": "distribution.models[key=garch].pinball_90_pct",
+          "score_har_iv": "distribution.models[key=har_iv].pinball_90_pct",
+          "periods_model_lower": "distribution.models[key=garch].dm_vs_har_iv.pinball_90.periods_model_lower",
+          "p_groups_8": "distribution.models[key=garch].dm_vs_har_iv.pinball_90.groups_8.p_value",
+          "p_groups_16": "distribution.models[key=garch].dm_vs_har_iv.pinball_90.groups_16.p_value",
+          "p_dm_test_9": "distribution.models[key=garch].dm_vs_har_iv.pinball_90.dm_test.p_value",
+          "p_nw94": "distribution.models[key=garch].dm_vs_har_iv.pinball_90.nw94.p_value",
+          "p_grid_bonferroni": "distribution.models[key=garch].dm_vs_har_iv.pinball_90.grid_bonferroni_p",
+          "n_days": "distribution.n_days",
+          "method": "distribution.models[key=garch].method",
+          "dm_qlike_p": "leaderboard.models[key=garch].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=garch].label"
+        }
+      },
+      "q_value_bh": 0.08403428571428573,
+      "p_holm": 1.0,
+      "t_equivalent": 2.28,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_crps_gjr",
+      "date": "2026-10-20",
+      "family": "predictive distribution",
+      "hypothesis": "The model of record's predictive distribution beats GJR-GARCH(1,1)-t's on CRPS over 19 quantiles.",
+      "test": "Batch-means Diebold-Mariano (Ibragimov and Mueller 2010) on the daily score difference: its mean in 12 consecutive periods of about 17 months, t-test with 11 df, two-sided; a positive statistic means the named model scores lower than HAR-IV. Scores in vol points on the conformal band's days.",
+      "statistic": {
+        "name": "batch-means t",
+        "value": -1.761
+      },
+      "context": {
+        "score_model": 9.051,
+        "score_har_iv": 8.234,
+        "periods_model_lower": 2,
+        "p_groups_8": 0.16279382760580038,
+        "p_groups_16": 0.11601830310055815,
+        "p_dm_test_9": 0.0023702752524343367,
+        "p_nw94": 0.05068957253866268,
+        "p_grid_bonferroni": 0.13142040838154717,
+        "n_days": 4370,
+        "method": "simulated from its fitted recursion with Student-t shocks",
+        "p_log_scale": 0.03522915200886128,
+        "share_2020_pct": 57.3,
+        "dm_qlike_p": 0.0015185983014437054
+      },
+      "p_value": 0.10603363277379309,
+      "sided": "two",
+      "p_two_sided": 0.10603363277379309,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Chosen after the scores were seen, and published beside the registered choices: the vol-point scale (the log scale is context), equal weights on the 19 quantiles, the batch-means variance and its 12 periods (8 and 16, dm_test's 9 lags, Newey-West (1994) and each sampling grid on its own are context), and registering all three scores (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=gjr].dm_vs_har_iv.crps_grid.stat",
+        "p_value_fields": {
+          "distribution.models[key=gjr].dm_vs_har_iv.crps_grid.p_value": 0.10603363277379309
+        },
+        "context_fields": {
+          "score_model": "distribution.models[key=gjr].crps_grid_pct",
+          "score_har_iv": "distribution.models[key=har_iv].crps_grid_pct",
+          "periods_model_lower": "distribution.models[key=gjr].dm_vs_har_iv.crps_grid.periods_model_lower",
+          "p_groups_8": "distribution.models[key=gjr].dm_vs_har_iv.crps_grid.groups_8.p_value",
+          "p_groups_16": "distribution.models[key=gjr].dm_vs_har_iv.crps_grid.groups_16.p_value",
+          "p_dm_test_9": "distribution.models[key=gjr].dm_vs_har_iv.crps_grid.dm_test.p_value",
+          "p_nw94": "distribution.models[key=gjr].dm_vs_har_iv.crps_grid.nw94.p_value",
+          "p_grid_bonferroni": "distribution.models[key=gjr].dm_vs_har_iv.crps_grid.grid_bonferroni_p",
+          "n_days": "distribution.n_days",
+          "method": "distribution.models[key=gjr].method",
+          "p_log_scale": "distribution.models[key=gjr].dm_vs_har_iv.crps_grid_log.p_value",
+          "share_2020_pct": "distribution.models[key=gjr].dm_vs_har_iv.crps_grid.concentration.share_2020_pct",
+          "dm_qlike_p": "leaderboard.models[key=gjr].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=gjr].label"
+        }
+      },
+      "q_value_bh": 0.24869706596035104,
+      "p_holm": 1.0,
+      "t_equivalent": 1.62,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_pinball10_gjr",
+      "date": "2026-10-20",
+      "family": "predictive distribution",
+      "hypothesis": "The model of record's predictive distribution beats GJR-GARCH(1,1)-t's on the 10% pinball loss.",
+      "test": "Batch-means Diebold-Mariano (Ibragimov and Mueller 2010) on the daily score difference: its mean in 12 consecutive periods of about 17 months, t-test with 11 df, two-sided; a positive statistic means the named model scores lower than HAR-IV. Scores in vol points on the conformal band's days.",
+      "statistic": {
+        "name": "batch-means t",
+        "value": -1.07
+      },
+      "context": {
+        "score_model": 2.084,
+        "score_har_iv": 1.88,
+        "periods_model_lower": 4,
+        "p_groups_8": 0.3713502459800387,
+        "p_groups_16": 0.35271905008012916,
+        "p_dm_test_9": 0.06054629357055182,
+        "p_nw94": 0.23930774067353527,
+        "p_grid_bonferroni": 0.6138314901541211,
+        "n_days": 4370,
+        "method": "simulated from its fitted recursion with Student-t shocks",
+        "dm_qlike_p": 0.0015185983014437054
+      },
+      "p_value": 0.30774771812263074,
+      "sided": "two",
+      "p_two_sided": 0.30774771812263074,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Chosen after the scores were seen, and published beside the registered choices: the vol-point scale (the log scale is context), equal weights on the 19 quantiles, the batch-means variance and its 12 periods (8 and 16, dm_test's 9 lags, Newey-West (1994) and each sampling grid on its own are context), and registering all three scores (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=gjr].dm_vs_har_iv.pinball_10.stat",
+        "p_value_fields": {
+          "distribution.models[key=gjr].dm_vs_har_iv.pinball_10.p_value": 0.30774771812263074
+        },
+        "context_fields": {
+          "score_model": "distribution.models[key=gjr].pinball_10_pct",
+          "score_har_iv": "distribution.models[key=har_iv].pinball_10_pct",
+          "periods_model_lower": "distribution.models[key=gjr].dm_vs_har_iv.pinball_10.periods_model_lower",
+          "p_groups_8": "distribution.models[key=gjr].dm_vs_har_iv.pinball_10.groups_8.p_value",
+          "p_groups_16": "distribution.models[key=gjr].dm_vs_har_iv.pinball_10.groups_16.p_value",
+          "p_dm_test_9": "distribution.models[key=gjr].dm_vs_har_iv.pinball_10.dm_test.p_value",
+          "p_nw94": "distribution.models[key=gjr].dm_vs_har_iv.pinball_10.nw94.p_value",
+          "p_grid_bonferroni": "distribution.models[key=gjr].dm_vs_har_iv.pinball_10.grid_bonferroni_p",
+          "n_days": "distribution.n_days",
+          "method": "distribution.models[key=gjr].method",
+          "dm_qlike_p": "leaderboard.models[key=gjr].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=gjr].label"
+        }
+      },
+      "q_value_bh": 0.5089673799720432,
+      "p_holm": 1.0,
+      "t_equivalent": 1.02,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_pinball90_gjr",
+      "date": "2026-10-20",
+      "family": "predictive distribution",
+      "hypothesis": "The model of record's predictive distribution beats GJR-GARCH(1,1)-t's on the 90% pinball loss.",
+      "test": "Batch-means Diebold-Mariano (Ibragimov and Mueller 2010) on the daily score difference: its mean in 12 consecutive periods of about 17 months, t-test with 11 df, two-sided; a positive statistic means the named model scores lower than HAR-IV. Scores in vol points on the conformal band's days.",
+      "statistic": {
+        "name": "batch-means t",
+        "value": -2.081
+      },
+      "context": {
+        "score_model": 3.854,
+        "score_har_iv": 3.546,
+        "periods_model_lower": 3,
+        "p_groups_8": 0.11365346048259774,
+        "p_groups_16": 0.02919915795289606,
+        "p_dm_test_9": 0.0051437581152492294,
+        "p_nw94": 0.017689761276933093,
+        "p_grid_bonferroni": 0.06343018890001104,
+        "n_days": 4370,
+        "method": "simulated from its fitted recursion with Student-t shocks",
+        "dm_qlike_p": 0.0015185983014437054
+      },
+      "p_value": 0.06155111354168642,
+      "sided": "two",
+      "p_two_sided": 0.06155111354168642,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "inconclusive",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Chosen after the scores were seen, and published beside the registered choices: the vol-point scale (the log scale is context), equal weights on the 19 quantiles, the batch-means variance and its 12 periods (8 and 16, dm_test's 9 lags, Newey-West (1994) and each sampling grid on its own are context), and registering all three scores (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=gjr].dm_vs_har_iv.pinball_90.stat",
+        "p_value_fields": {
+          "distribution.models[key=gjr].dm_vs_har_iv.pinball_90.p_value": 0.06155111354168642
+        },
+        "context_fields": {
+          "score_model": "distribution.models[key=gjr].pinball_90_pct",
+          "score_har_iv": "distribution.models[key=har_iv].pinball_90_pct",
+          "periods_model_lower": "distribution.models[key=gjr].dm_vs_har_iv.pinball_90.periods_model_lower",
+          "p_groups_8": "distribution.models[key=gjr].dm_vs_har_iv.pinball_90.groups_8.p_value",
+          "p_groups_16": "distribution.models[key=gjr].dm_vs_har_iv.pinball_90.groups_16.p_value",
+          "p_dm_test_9": "distribution.models[key=gjr].dm_vs_har_iv.pinball_90.dm_test.p_value",
+          "p_nw94": "distribution.models[key=gjr].dm_vs_har_iv.pinball_90.nw94.p_value",
+          "p_grid_bonferroni": "distribution.models[key=gjr].dm_vs_har_iv.pinball_90.grid_bonferroni_p",
+          "n_days": "distribution.n_days",
+          "method": "distribution.models[key=gjr].method",
+          "dm_qlike_p": "leaderboard.models[key=gjr].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=gjr].label"
+        }
+      },
+      "q_value_bh": 0.17261073145385977,
+      "p_holm": 1.0,
+      "t_equivalent": 1.87,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_crps_ewma",
+      "date": "2026-10-20",
+      "family": "predictive distribution",
+      "hypothesis": "The model of record's predictive distribution beats EWMA (RiskMetrics)'s on CRPS over 19 quantiles.",
+      "test": "Batch-means Diebold-Mariano (Ibragimov and Mueller 2010) on the daily score difference: its mean in 12 consecutive periods of about 17 months, t-test with 11 df, two-sided; a positive statistic means the named model scores lower than HAR-IV. Scores in vol points on the conformal band's days.",
+      "statistic": {
+        "name": "batch-means t",
+        "value": -1.675
+      },
+      "context": {
+        "score_model": 9.597,
+        "score_har_iv": 8.234,
+        "periods_model_lower": 2,
+        "p_groups_8": 0.15161109639860593,
+        "p_groups_16": 0.1054570432398315,
+        "p_dm_test_9": 5.84579560546897e-05,
+        "p_nw94": 0.019628166767374004,
+        "p_grid_bonferroni": 0.03781058439890925,
+        "n_days": 4370,
+        "method": "normal returns at its variance: RV5 = sigma sqrt(chi2_5 / 5)",
+        "p_log_scale": 0.060976149330601255,
+        "share_2020_pct": 57.9,
+        "dm_qlike_p": 1.7595275290353193e-05
+      },
+      "p_value": 0.12213367496467117,
+      "sided": "two",
+      "p_two_sided": 0.12213367496467117,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Chosen after the scores were seen, and published beside the registered choices: the vol-point scale (the log scale is context), equal weights on the 19 quantiles, the batch-means variance and its 12 periods (8 and 16, dm_test's 9 lags, Newey-West (1994) and each sampling grid on its own are context), and registering all three scores (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=ewma].dm_vs_har_iv.crps_grid.stat",
+        "p_value_fields": {
+          "distribution.models[key=ewma].dm_vs_har_iv.crps_grid.p_value": 0.12213367496467117
+        },
+        "context_fields": {
+          "score_model": "distribution.models[key=ewma].crps_grid_pct",
+          "score_har_iv": "distribution.models[key=har_iv].crps_grid_pct",
+          "periods_model_lower": "distribution.models[key=ewma].dm_vs_har_iv.crps_grid.periods_model_lower",
+          "p_groups_8": "distribution.models[key=ewma].dm_vs_har_iv.crps_grid.groups_8.p_value",
+          "p_groups_16": "distribution.models[key=ewma].dm_vs_har_iv.crps_grid.groups_16.p_value",
+          "p_dm_test_9": "distribution.models[key=ewma].dm_vs_har_iv.crps_grid.dm_test.p_value",
+          "p_nw94": "distribution.models[key=ewma].dm_vs_har_iv.crps_grid.nw94.p_value",
+          "p_grid_bonferroni": "distribution.models[key=ewma].dm_vs_har_iv.crps_grid.grid_bonferroni_p",
+          "n_days": "distribution.n_days",
+          "method": "distribution.models[key=ewma].method",
+          "p_log_scale": "distribution.models[key=ewma].dm_vs_har_iv.crps_grid_log.p_value",
+          "share_2020_pct": "distribution.models[key=ewma].dm_vs_har_iv.crps_grid.concentration.share_2020_pct",
+          "dm_qlike_p": "leaderboard.models[key=ewma].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=ewma].label"
+        }
+      },
+      "q_value_bh": 0.27481526882150803,
+      "p_holm": 1.0,
+      "t_equivalent": 1.55,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_pinball10_ewma",
+      "date": "2026-10-20",
+      "family": "predictive distribution",
+      "hypothesis": "The model of record's predictive distribution beats EWMA (RiskMetrics)'s on the 10% pinball loss.",
+      "test": "Batch-means Diebold-Mariano (Ibragimov and Mueller 2010) on the daily score difference: its mean in 12 consecutive periods of about 17 months, t-test with 11 df, two-sided; a positive statistic means the named model scores lower than HAR-IV. Scores in vol points on the conformal band's days.",
+      "statistic": {
+        "name": "batch-means t",
+        "value": -1.148
+      },
+      "context": {
+        "score_model": 2.37,
+        "score_har_iv": 1.88,
+        "periods_model_lower": 4,
+        "p_groups_8": 0.2927327739364386,
+        "p_groups_16": 0.2648578231730588,
+        "p_dm_test_9": 0.004814830487261887,
+        "p_nw94": 0.11612820906206417,
+        "p_grid_bonferroni": 0.29553039973211837,
+        "n_days": 4370,
+        "method": "normal returns at its variance: RV5 = sigma sqrt(chi2_5 / 5)",
+        "dm_qlike_p": 1.7595275290353193e-05
+      },
+      "p_value": 0.2751786811480582,
+      "sided": "two",
+      "p_two_sided": 0.2751786811480582,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Chosen after the scores were seen, and published beside the registered choices: the vol-point scale (the log scale is context), equal weights on the 19 quantiles, the batch-means variance and its 12 periods (8 and 16, dm_test's 9 lags, Newey-West (1994) and each sampling grid on its own are context), and registering all three scores (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=ewma].dm_vs_har_iv.pinball_10.stat",
+        "p_value_fields": {
+          "distribution.models[key=ewma].dm_vs_har_iv.pinball_10.p_value": 0.2751786811480582
+        },
+        "context_fields": {
+          "score_model": "distribution.models[key=ewma].pinball_10_pct",
+          "score_har_iv": "distribution.models[key=har_iv].pinball_10_pct",
+          "periods_model_lower": "distribution.models[key=ewma].dm_vs_har_iv.pinball_10.periods_model_lower",
+          "p_groups_8": "distribution.models[key=ewma].dm_vs_har_iv.pinball_10.groups_8.p_value",
+          "p_groups_16": "distribution.models[key=ewma].dm_vs_har_iv.pinball_10.groups_16.p_value",
+          "p_dm_test_9": "distribution.models[key=ewma].dm_vs_har_iv.pinball_10.dm_test.p_value",
+          "p_nw94": "distribution.models[key=ewma].dm_vs_har_iv.pinball_10.nw94.p_value",
+          "p_grid_bonferroni": "distribution.models[key=ewma].dm_vs_har_iv.pinball_10.grid_bonferroni_p",
+          "n_days": "distribution.n_days",
+          "method": "distribution.models[key=ewma].method",
+          "dm_qlike_p": "leaderboard.models[key=ewma].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=ewma].label"
+        }
+      },
+      "q_value_bh": 0.47970337659593926,
+      "p_holm": 1.0,
+      "t_equivalent": 1.09,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_pinball90_ewma",
+      "date": "2026-10-20",
+      "family": "predictive distribution",
+      "hypothesis": "The model of record's predictive distribution beats EWMA (RiskMetrics)'s on the 90% pinball loss.",
+      "test": "Batch-means Diebold-Mariano (Ibragimov and Mueller 2010) on the daily score difference: its mean in 12 consecutive periods of about 17 months, t-test with 11 df, two-sided; a positive statistic means the named model scores lower than HAR-IV. Scores in vol points on the conformal band's days.",
+      "statistic": {
+        "name": "batch-means t",
+        "value": -2.741
+      },
+      "context": {
+        "score_model": 3.979,
+        "score_har_iv": 3.546,
+        "periods_model_lower": 1,
+        "p_groups_8": 0.03183396423679901,
+        "p_groups_16": 0.004929899497086978,
+        "p_dm_test_9": 6.92540148900245e-05,
+        "p_nw94": 0.00042897807739176503,
+        "p_grid_bonferroni": 0.0019083359055550937,
+        "n_days": 4370,
+        "method": "normal returns at its variance: RV5 = sigma sqrt(chi2_5 / 5)",
+        "dm_qlike_p": 1.7595275290353193e-05
+      },
+      "p_value": 0.019202642781304447,
+      "sided": "two",
+      "p_two_sided": 0.019202642781304447,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Chosen after the scores were seen, and published beside the registered choices: the vol-point scale (the log scale is context), equal weights on the 19 quantiles, the batch-means variance and its 12 periods (8 and 16, dm_test's 9 lags, Newey-West (1994) and each sampling grid on its own are context), and registering all three scores (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=ewma].dm_vs_har_iv.pinball_90.stat",
+        "p_value_fields": {
+          "distribution.models[key=ewma].dm_vs_har_iv.pinball_90.p_value": 0.019202642781304447
+        },
+        "context_fields": {
+          "score_model": "distribution.models[key=ewma].pinball_90_pct",
+          "score_har_iv": "distribution.models[key=har_iv].pinball_90_pct",
+          "periods_model_lower": "distribution.models[key=ewma].dm_vs_har_iv.pinball_90.periods_model_lower",
+          "p_groups_8": "distribution.models[key=ewma].dm_vs_har_iv.pinball_90.groups_8.p_value",
+          "p_groups_16": "distribution.models[key=ewma].dm_vs_har_iv.pinball_90.groups_16.p_value",
+          "p_dm_test_9": "distribution.models[key=ewma].dm_vs_har_iv.pinball_90.dm_test.p_value",
+          "p_nw94": "distribution.models[key=ewma].dm_vs_har_iv.pinball_90.nw94.p_value",
+          "p_grid_bonferroni": "distribution.models[key=ewma].dm_vs_har_iv.pinball_90.grid_bonferroni_p",
+          "n_days": "distribution.n_days",
+          "method": "distribution.models[key=ewma].method",
+          "dm_qlike_p": "leaderboard.models[key=ewma].dm_qlike_vs_har_iv.p_value"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=ewma].label"
+        }
+      },
+      "q_value_bh": 0.07990777157381529,
+      "p_holm": 1.0,
+      "t_equivalent": 2.34,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_crps_quantile_har",
+      "date": "2026-10-20",
+      "family": "predictive distribution",
+      "hypothesis": "A quantile HAR-IV regression's predictive distribution beats the model of record's on CRPS over 19 quantiles.",
+      "test": "Batch-means Diebold-Mariano (Ibragimov and Mueller 2010) on the daily score difference: its mean in 12 consecutive periods of about 17 months, t-test with 11 df, two-sided; a positive statistic means the named model scores lower than HAR-IV. Scores in vol points on the conformal band's days.",
+      "statistic": {
+        "name": "batch-means t",
+        "value": 0.673
+      },
+      "context": {
+        "score_model": 8.209,
+        "score_har_iv": 8.234,
+        "periods_model_lower": 9,
+        "p_groups_8": 0.5094919462648873,
+        "p_groups_16": 0.43393545001031714,
+        "p_dm_test_9": 0.5127747719853253,
+        "p_nw94": 0.521299133369913,
+        "p_grid_bonferroni": 1.0,
+        "n_days": 4370,
+        "method": "linear quantile regressions on HAR-IV's terms, refit quarterly, sorted",
+        "p_log_scale": 0.7749071323268092,
+        "share_2020_pct": 25.2,
+        "qlike_batch_means_p": 0.3166529118343258,
+        "qlike_mcs_p": 0.079,
+        "spa_p_with_it": 0.0114
+      },
+      "p_value": 0.5146006657527619,
+      "sided": "two",
+      "p_two_sided": 0.5146006657527619,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "A robustness competitor outside the benchmark field: never ranked, banded, selected or eligible for the live pair. Its design (HAR-IV's terms), its quarterly refits, the exact linear-program solver and its point forecast were chosen after prototype runs on this sample. Chosen after the scores were seen, and published beside the registered choices: the vol-point scale (the log scale is context), equal weights on the 19 quantiles, the batch-means variance and its 12 periods (8 and 16, dm_test's 9 lags, Newey-West (1994) and each sampling grid on its own are context), and registering all three scores (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=quantile_har].dm_vs_har_iv.crps_grid.stat",
+        "p_value_fields": {
+          "distribution.models[key=quantile_har].dm_vs_har_iv.crps_grid.p_value": 0.5146006657527619
+        },
+        "context_fields": {
+          "score_model": "distribution.models[key=quantile_har].crps_grid_pct",
+          "score_har_iv": "distribution.models[key=har_iv].crps_grid_pct",
+          "periods_model_lower": "distribution.models[key=quantile_har].dm_vs_har_iv.crps_grid.periods_model_lower",
+          "p_groups_8": "distribution.models[key=quantile_har].dm_vs_har_iv.crps_grid.groups_8.p_value",
+          "p_groups_16": "distribution.models[key=quantile_har].dm_vs_har_iv.crps_grid.groups_16.p_value",
+          "p_dm_test_9": "distribution.models[key=quantile_har].dm_vs_har_iv.crps_grid.dm_test.p_value",
+          "p_nw94": "distribution.models[key=quantile_har].dm_vs_har_iv.crps_grid.nw94.p_value",
+          "p_grid_bonferroni": "distribution.models[key=quantile_har].dm_vs_har_iv.crps_grid.grid_bonferroni_p",
+          "n_days": "distribution.n_days",
+          "method": "distribution.models[key=quantile_har].method",
+          "p_log_scale": "distribution.models[key=quantile_har].dm_vs_har_iv.crps_grid_log.p_value",
+          "share_2020_pct": "distribution.models[key=quantile_har].dm_vs_har_iv.crps_grid.concentration.share_2020_pct",
+          "qlike_batch_means_p": "distribution.quantile_har_field.dm_qlike_vs_har_iv.batch_means.p_value",
+          "qlike_mcs_p": "distribution.quantile_har_field.mcs.p_values.quantile_har",
+          "spa_p_with_it": "distribution.quantile_har_field.spa.p_consistent"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.7458818638438909,
+      "p_holm": 1.0,
+      "t_equivalent": 0.65,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_pinball10_quantile_har",
+      "date": "2026-10-20",
+      "family": "predictive distribution",
+      "hypothesis": "A quantile HAR-IV regression's predictive distribution beats the model of record's on the 10% pinball loss.",
+      "test": "Batch-means Diebold-Mariano (Ibragimov and Mueller 2010) on the daily score difference: its mean in 12 consecutive periods of about 17 months, t-test with 11 df, two-sided; a positive statistic means the named model scores lower than HAR-IV. Scores in vol points on the conformal band's days.",
+      "statistic": {
+        "name": "batch-means t",
+        "value": -0.815
+      },
+      "context": {
+        "score_model": 1.899,
+        "score_har_iv": 1.88,
+        "periods_model_lower": 5,
+        "p_groups_8": 0.5563664277051962,
+        "p_groups_16": 0.4850655487332553,
+        "p_dm_test_9": 0.2515200229625293,
+        "p_nw94": 0.3245611428987172,
+        "p_grid_bonferroni": 0.39353931929953956,
+        "n_days": 4370,
+        "method": "linear quantile regressions on HAR-IV's terms, refit quarterly, sorted"
+      },
+      "p_value": 0.43229451012709674,
+      "sided": "two",
+      "p_two_sided": 1.0,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "A robustness competitor outside the benchmark field: never ranked, banded, selected or eligible for the live pair. Its design (HAR-IV's terms), its quarterly refits, the exact linear-program solver and its point forecast were chosen after prototype runs on this sample. Chosen after the scores were seen, and published beside the registered choices: the vol-point scale (the log scale is context), equal weights on the 19 quantiles, the batch-means variance and its 12 periods (8 and 16, dm_test's 9 lags, Newey-West (1994) and each sampling grid on its own are context), and registering all three scores (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=quantile_har].dm_vs_har_iv.pinball_10.stat",
+        "p_value_fields": {
+          "distribution.models[key=quantile_har].dm_vs_har_iv.pinball_10.p_value": 0.43229451012709674
+        },
+        "context_fields": {
+          "score_model": "distribution.models[key=quantile_har].pinball_10_pct",
+          "score_har_iv": "distribution.models[key=har_iv].pinball_10_pct",
+          "periods_model_lower": "distribution.models[key=quantile_har].dm_vs_har_iv.pinball_10.periods_model_lower",
+          "p_groups_8": "distribution.models[key=quantile_har].dm_vs_har_iv.pinball_10.groups_8.p_value",
+          "p_groups_16": "distribution.models[key=quantile_har].dm_vs_har_iv.pinball_10.groups_16.p_value",
+          "p_dm_test_9": "distribution.models[key=quantile_har].dm_vs_har_iv.pinball_10.dm_test.p_value",
+          "p_nw94": "distribution.models[key=quantile_har].dm_vs_har_iv.pinball_10.nw94.p_value",
+          "p_grid_bonferroni": "distribution.models[key=quantile_har].dm_vs_har_iv.pinball_10.grid_bonferroni_p",
+          "n_days": "distribution.n_days",
+          "method": "distribution.models[key=quantile_har].method"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 1.0,
+      "p_holm": 1.0,
+      "t_equivalent": 0.0,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_pinball90_quantile_har",
+      "date": "2026-10-20",
+      "family": "predictive distribution",
+      "hypothesis": "A quantile HAR-IV regression's predictive distribution beats the model of record's on the 90% pinball loss.",
+      "test": "Batch-means Diebold-Mariano (Ibragimov and Mueller 2010) on the daily score difference: its mean in 12 consecutive periods of about 17 months, t-test with 11 df, two-sided; a positive statistic means the named model scores lower than HAR-IV. Scores in vol points on the conformal band's days.",
+      "statistic": {
+        "name": "batch-means t",
+        "value": 1.903
+      },
+      "context": {
+        "score_model": 3.45,
+        "score_har_iv": 3.546,
+        "periods_model_lower": 7,
+        "p_groups_8": 0.12267384560443322,
+        "p_groups_16": 0.03648211009654723,
+        "p_dm_test_9": 0.024913177793763955,
+        "p_nw94": 0.027487809097053305,
+        "p_grid_bonferroni": 0.04715124704299478,
+        "n_days": 4370,
+        "method": "linear quantile regressions on HAR-IV's terms, refit quarterly, sorted"
+      },
+      "p_value": 0.08345664143917217,
+      "sided": "two",
+      "p_two_sided": 0.08345664143917217,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "inconclusive",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "A robustness competitor outside the benchmark field: never ranked, banded, selected or eligible for the live pair. Its design (HAR-IV's terms), its quarterly refits, the exact linear-program solver and its point forecast were chosen after prototype runs on this sample. Chosen after the scores were seen, and published beside the registered choices: the vol-point scale (the log scale is context), equal weights on the 19 quantiles, the batch-means variance and its 12 periods (8 and 16, dm_test's 9 lags, Newey-West (1994) and each sampling grid on its own are context), and registering all three scores (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=quantile_har].dm_vs_har_iv.pinball_90.stat",
+        "p_value_fields": {
+          "distribution.models[key=quantile_har].dm_vs_har_iv.pinball_90.p_value": 0.08345664143917217
+        },
+        "context_fields": {
+          "score_model": "distribution.models[key=quantile_har].pinball_90_pct",
+          "score_har_iv": "distribution.models[key=har_iv].pinball_90_pct",
+          "periods_model_lower": "distribution.models[key=quantile_har].dm_vs_har_iv.pinball_90.periods_model_lower",
+          "p_groups_8": "distribution.models[key=quantile_har].dm_vs_har_iv.pinball_90.groups_8.p_value",
+          "p_groups_16": "distribution.models[key=quantile_har].dm_vs_har_iv.pinball_90.groups_16.p_value",
+          "p_dm_test_9": "distribution.models[key=quantile_har].dm_vs_har_iv.pinball_90.dm_test.p_value",
+          "p_nw94": "distribution.models[key=quantile_har].dm_vs_har_iv.pinball_90.nw94.p_value",
+          "p_grid_bonferroni": "distribution.models[key=quantile_har].dm_vs_har_iv.pinball_90.grid_bonferroni_p",
+          "n_days": "distribution.n_days",
+          "method": "distribution.models[key=quantile_har].method"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.21971238256435122,
+      "p_holm": 1.0,
+      "t_equivalent": 1.73,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_berkowitz_har_iv",
+      "date": "2026-10-20",
+      "family": "distribution calibration",
+      "hypothesis": "HAR-IV (model of record)'s log forecast errors are not distributed like its own matured past errors: on non-overlapping weeks its trailing-rank PITs depart from what i.i.d. errors would give under this construction (a simulated null).",
+      "test": "Berkowitz (2001) LR3 on the normal scores of each sampling grid's weeks (non-overlapping), against a seeded simulated null of this PIT construction (trailing ranks under the 5-session overlap; chi-squared with 3 df is far too conservative for it); Bonferroni over the five grids; two-sided.",
+      "statistic": {
+        "name": "grids below 5%",
+        "value": 1
+      },
+      "context": {
+        "p_grid_0": 0.13838616138386162,
+        "p_grid_1": 0.0184981501849815,
+        "p_grid_2": 0.37836216378362164,
+        "p_grid_3": 0.36696330366963303,
+        "p_grid_4": 0.7826217378262174,
+        "grids_below_5pct": 1,
+        "p_cauchy": 0.08208055378611395,
+        "reference": "simulated null",
+        "mu_grid_0": -0.021,
+        "sigma_grid_0": 1.041,
+        "pit_construction": "trailing_rank",
+        "rho_grid_0": -0.013,
+        "p_chi2": 0.3557474740478118,
+        "mc_se": 0.0067,
+        "window_exceedance_days": 35,
+        "exceedance_null_mean": 22.3,
+        "exceedance_null_q95": 31.0
+      },
+      "p_value": 0.0924907509249075,
+      "sided": "two",
+      "p_two_sided": 0.0924907509249075,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "inconclusive",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The PIT is the outcome's mid-rank among the trailing residuals, which re-centres itself across overlapping weeks and caps |z| near 3.2, so its LR is referred to a simulated null; the null was adopted after the chi-squared p-values (context p_chi2) were seen. The p-value counts simulated draws (Monte Carlo standard error in context mc_se): near a threshold a few draws can move it across, and the ledger reading names any row whose t > 3 flag would move. The reference per PIT construction and the Bonferroni combination were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=har_iv].berkowitz.grids_below_5pct",
+        "p_value_fields": {
+          "distribution.models[key=har_iv].berkowitz.by_grid[0].p_value": 0.13838616138386162,
+          "distribution.models[key=har_iv].berkowitz.by_grid[1].p_value": 0.0184981501849815,
+          "distribution.models[key=har_iv].berkowitz.by_grid[2].p_value": 0.37836216378362164,
+          "distribution.models[key=har_iv].berkowitz.by_grid[3].p_value": 0.36696330366963303,
+          "distribution.models[key=har_iv].berkowitz.by_grid[4].p_value": 0.7826217378262174
+        },
+        "context_fields": {
+          "p_grid_0": "distribution.models[key=har_iv].berkowitz.by_grid[0].p_value",
+          "p_grid_1": "distribution.models[key=har_iv].berkowitz.by_grid[1].p_value",
+          "p_grid_2": "distribution.models[key=har_iv].berkowitz.by_grid[2].p_value",
+          "p_grid_3": "distribution.models[key=har_iv].berkowitz.by_grid[3].p_value",
+          "p_grid_4": "distribution.models[key=har_iv].berkowitz.by_grid[4].p_value",
+          "grids_below_5pct": "distribution.models[key=har_iv].berkowitz.grids_below_5pct",
+          "p_cauchy": "distribution.models[key=har_iv].berkowitz.p_cauchy",
+          "reference": "distribution.models[key=har_iv].berkowitz.reference",
+          "mu_grid_0": "distribution.models[key=har_iv].berkowitz.by_grid[0].mu",
+          "sigma_grid_0": "distribution.models[key=har_iv].berkowitz.by_grid[0].sigma",
+          "pit_construction": "distribution.models[key=har_iv].pit_construction",
+          "rho_grid_0": "distribution.models[key=har_iv].berkowitz.by_grid[0].rho",
+          "p_chi2": "distribution.models[key=har_iv].berkowitz.p_chi2",
+          "mc_se": "distribution.models[key=har_iv].berkowitz.mc_se",
+          "window_exceedance_days": "distribution.models[key=har_iv].berkowitz.window_exceedances.days",
+          "exceedance_null_mean": "distribution.models[key=har_iv].berkowitz.window_exceedances.null_mean",
+          "exceedance_null_q95": "distribution.models[key=har_iv].berkowitz.window_exceedances.null_q95"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=har_iv].label"
+        }
+      },
+      "q_value_bh": 0.2294482090252513,
+      "p_holm": 1.0,
+      "t_equivalent": 1.68,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_berkowitz_har_iv_range",
+      "date": "2026-10-20",
+      "family": "distribution calibration",
+      "hypothesis": "HAR-IV-range's log forecast errors are not distributed like its own matured past errors: on non-overlapping weeks its trailing-rank PITs depart from what i.i.d. errors would give under this construction (a simulated null).",
+      "test": "Berkowitz (2001) LR3 on the normal scores of each sampling grid's weeks (non-overlapping), against a seeded simulated null of this PIT construction (trailing ranks under the 5-session overlap; chi-squared with 3 df is far too conservative for it); Bonferroni over the five grids; two-sided.",
+      "statistic": {
+        "name": "grids below 5%",
+        "value": 1
+      },
+      "context": {
+        "p_grid_0": 0.1326867313268673,
+        "p_grid_1": 0.0405959404059594,
+        "p_grid_2": 0.537046295370463,
+        "p_grid_3": 0.5741425857414258,
+        "p_grid_4": 0.8666133386661334,
+        "grids_below_5pct": 1,
+        "p_cauchy": 0.18800136097340572,
+        "reference": "simulated null",
+        "mu_grid_0": -0.006,
+        "sigma_grid_0": 1.044,
+        "pit_construction": "trailing_rank",
+        "rho_grid_0": -0.012,
+        "p_chi2": 0.6484845580272196,
+        "mc_se": 0.0099,
+        "window_exceedance_days": 30,
+        "exceedance_null_mean": 22.3,
+        "exceedance_null_q95": 31.0
+      },
+      "p_value": 0.202979702029797,
+      "sided": "two",
+      "p_two_sided": 0.202979702029797,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "not_supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The PIT is the outcome's mid-rank among the trailing residuals, which re-centres itself across overlapping weeks and caps |z| near 3.2, so its LR is referred to a simulated null; the null was adopted after the chi-squared p-values (context p_chi2) were seen. The p-value counts simulated draws (Monte Carlo standard error in context mc_se): near a threshold a few draws can move it across, and the ledger reading names any row whose t > 3 flag would move. The reference per PIT construction and the Bonferroni combination were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=har_iv_range].berkowitz.grids_below_5pct",
+        "p_value_fields": {
+          "distribution.models[key=har_iv_range].berkowitz.by_grid[0].p_value": 0.1326867313268673,
+          "distribution.models[key=har_iv_range].berkowitz.by_grid[1].p_value": 0.0405959404059594,
+          "distribution.models[key=har_iv_range].berkowitz.by_grid[2].p_value": 0.537046295370463,
+          "distribution.models[key=har_iv_range].berkowitz.by_grid[3].p_value": 0.5741425857414258,
+          "distribution.models[key=har_iv_range].berkowitz.by_grid[4].p_value": 0.8666133386661334
+        },
+        "context_fields": {
+          "p_grid_0": "distribution.models[key=har_iv_range].berkowitz.by_grid[0].p_value",
+          "p_grid_1": "distribution.models[key=har_iv_range].berkowitz.by_grid[1].p_value",
+          "p_grid_2": "distribution.models[key=har_iv_range].berkowitz.by_grid[2].p_value",
+          "p_grid_3": "distribution.models[key=har_iv_range].berkowitz.by_grid[3].p_value",
+          "p_grid_4": "distribution.models[key=har_iv_range].berkowitz.by_grid[4].p_value",
+          "grids_below_5pct": "distribution.models[key=har_iv_range].berkowitz.grids_below_5pct",
+          "p_cauchy": "distribution.models[key=har_iv_range].berkowitz.p_cauchy",
+          "reference": "distribution.models[key=har_iv_range].berkowitz.reference",
+          "mu_grid_0": "distribution.models[key=har_iv_range].berkowitz.by_grid[0].mu",
+          "sigma_grid_0": "distribution.models[key=har_iv_range].berkowitz.by_grid[0].sigma",
+          "pit_construction": "distribution.models[key=har_iv_range].pit_construction",
+          "rho_grid_0": "distribution.models[key=har_iv_range].berkowitz.by_grid[0].rho",
+          "p_chi2": "distribution.models[key=har_iv_range].berkowitz.p_chi2",
+          "mc_se": "distribution.models[key=har_iv_range].berkowitz.mc_se",
+          "window_exceedance_days": "distribution.models[key=har_iv_range].berkowitz.window_exceedances.days",
+          "exceedance_null_mean": "distribution.models[key=har_iv_range].berkowitz.window_exceedances.null_mean",
+          "exceedance_null_q95": "distribution.models[key=har_iv_range].berkowitz.window_exceedances.null_q95"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=har_iv_range].label"
+        }
+      },
+      "q_value_bh": 0.37948379075135963,
+      "p_holm": 1.0,
+      "t_equivalent": 1.27,
+      "survives_bh_5pct": false,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": false
+    },
+    {
+      "id": "vol_berkowitz_ovx_only",
+      "date": "2026-10-20",
+      "family": "distribution calibration",
+      "hypothesis": "OVX-only regression's log forecast errors are not distributed like its own matured past errors: on non-overlapping weeks its trailing-rank PITs depart from what i.i.d. errors would give under this construction (a simulated null).",
+      "test": "Berkowitz (2001) LR3 on the normal scores of each sampling grid's weeks (non-overlapping), against a seeded simulated null of this PIT construction (trailing ranks under the 5-session overlap; chi-squared with 3 df is far too conservative for it); Bonferroni over the five grids; two-sided.",
+      "statistic": {
+        "name": "grids below 5%",
+        "value": 4
+      },
+      "context": {
+        "p_grid_0": 0.0342965703429657,
+        "p_grid_1": 0.00039996000399960006,
+        "p_grid_2": 0.027797220277972202,
+        "p_grid_3": 0.012698730126987301,
+        "p_grid_4": 0.0720927907209279,
+        "grids_below_5pct": 4,
+        "p_cauchy": 0.0018814344509864057,
+        "reference": "simulated null",
+        "mu_grid_0": -0.037,
+        "sigma_grid_0": 1.047,
+        "pit_construction": "trailing_rank",
+        "rho_grid_0": 0.03,
+        "p_chi2": 0.010999231116997294,
+        "mc_se": 0.001,
+        "window_exceedance_days": 35,
+        "exceedance_null_mean": 22.3,
+        "exceedance_null_q95": 31.0
+      },
+      "p_value": 0.001999800019998,
+      "sided": "two",
+      "p_two_sided": 0.001999800019998,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The PIT is the outcome's mid-rank among the trailing residuals, which re-centres itself across overlapping weeks and caps |z| near 3.2, so its LR is referred to a simulated null; the null was adopted after the chi-squared p-values (context p_chi2) were seen. The p-value counts simulated draws (Monte Carlo standard error in context mc_se): near a threshold a few draws can move it across, and the ledger reading names any row whose t > 3 flag would move. The reference per PIT construction and the Bonferroni combination were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=ovx_only].berkowitz.grids_below_5pct",
+        "p_value_fields": {
+          "distribution.models[key=ovx_only].berkowitz.by_grid[0].p_value": 0.0342965703429657,
+          "distribution.models[key=ovx_only].berkowitz.by_grid[1].p_value": 0.00039996000399960006,
+          "distribution.models[key=ovx_only].berkowitz.by_grid[2].p_value": 0.027797220277972202,
+          "distribution.models[key=ovx_only].berkowitz.by_grid[3].p_value": 0.012698730126987301,
+          "distribution.models[key=ovx_only].berkowitz.by_grid[4].p_value": 0.0720927907209279
+        },
+        "context_fields": {
+          "p_grid_0": "distribution.models[key=ovx_only].berkowitz.by_grid[0].p_value",
+          "p_grid_1": "distribution.models[key=ovx_only].berkowitz.by_grid[1].p_value",
+          "p_grid_2": "distribution.models[key=ovx_only].berkowitz.by_grid[2].p_value",
+          "p_grid_3": "distribution.models[key=ovx_only].berkowitz.by_grid[3].p_value",
+          "p_grid_4": "distribution.models[key=ovx_only].berkowitz.by_grid[4].p_value",
+          "grids_below_5pct": "distribution.models[key=ovx_only].berkowitz.grids_below_5pct",
+          "p_cauchy": "distribution.models[key=ovx_only].berkowitz.p_cauchy",
+          "reference": "distribution.models[key=ovx_only].berkowitz.reference",
+          "mu_grid_0": "distribution.models[key=ovx_only].berkowitz.by_grid[0].mu",
+          "sigma_grid_0": "distribution.models[key=ovx_only].berkowitz.by_grid[0].sigma",
+          "pit_construction": "distribution.models[key=ovx_only].pit_construction",
+          "rho_grid_0": "distribution.models[key=ovx_only].berkowitz.by_grid[0].rho",
+          "p_chi2": "distribution.models[key=ovx_only].berkowitz.p_chi2",
+          "mc_se": "distribution.models[key=ovx_only].berkowitz.mc_se",
+          "window_exceedance_days": "distribution.models[key=ovx_only].berkowitz.window_exceedances.days",
+          "exceedance_null_mean": "distribution.models[key=ovx_only].berkowitz.window_exceedances.null_mean",
+          "exceedance_null_q95": "distribution.models[key=ovx_only].berkowitz.window_exceedances.null_q95"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=ovx_only].label"
+        }
+      },
+      "q_value_bh": 0.010748925107489251,
+      "p_holm": 0.211978802119788,
+      "t_equivalent": 3.09,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "vol_berkowitz_garch",
+      "date": "2026-10-20",
+      "family": "distribution calibration",
+      "hypothesis": "GARCH(1,1)-t's predictive distribution is miscalibrated: on non-overlapping weeks its PITs are not independent standard uniforms.",
+      "test": "Berkowitz (2001) LR3 on the normal scores of each sampling grid's weeks (non-overlapping), chi-squared with 3 df; Bonferroni over the five grids; two-sided.",
+      "statistic": {
+        "name": "grids below 5%",
+        "value": 5
+      },
+      "context": {
+        "p_grid_0": 0.0014985887751185942,
+        "p_grid_1": 0.0004675032418766569,
+        "p_grid_2": 0.006686013482640317,
+        "p_grid_3": 0.003919092446292886,
+        "p_grid_4": 0.0027269709854012905,
+        "grids_below_5pct": 5,
+        "p_cauchy": 0.001397536519708134,
+        "reference": "chi2(3)",
+        "mu_grid_0": -0.083,
+        "sigma_grid_0": 1.064,
+        "pit_construction": "exact",
+        "rho_grid_0": 0.053,
+        "p_count_pit": 0.002733834342754991,
+        "clamp_days": 1,
+        "extreme_days": 35,
+        "p_static_t": 2.6836207354125555e-09
+      },
+      "p_value": 0.0023375162093832846,
+      "sided": "two",
+      "p_two_sided": 0.0023375162093832846,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The PIT reads the simulated sample's Hazen CDF, continuous in its inputs, chosen for reproduction stability after the count PIT's p (context p_count_pit) was seen; where the two forms' p-values sit on either side of the t > 3 hurdle, the flag depends on that choice, and the ledger reading names such rows. The literal reading, a Student-t on the expected variance path, is context (p_static_t). The reference per PIT construction and the Bonferroni combination were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=garch].berkowitz.grids_below_5pct",
+        "p_value_fields": {
+          "distribution.models[key=garch].berkowitz.by_grid[0].p_value": 0.0014985887751185942,
+          "distribution.models[key=garch].berkowitz.by_grid[1].p_value": 0.0004675032418766569,
+          "distribution.models[key=garch].berkowitz.by_grid[2].p_value": 0.006686013482640317,
+          "distribution.models[key=garch].berkowitz.by_grid[3].p_value": 0.003919092446292886,
+          "distribution.models[key=garch].berkowitz.by_grid[4].p_value": 0.0027269709854012905
+        },
+        "context_fields": {
+          "p_grid_0": "distribution.models[key=garch].berkowitz.by_grid[0].p_value",
+          "p_grid_1": "distribution.models[key=garch].berkowitz.by_grid[1].p_value",
+          "p_grid_2": "distribution.models[key=garch].berkowitz.by_grid[2].p_value",
+          "p_grid_3": "distribution.models[key=garch].berkowitz.by_grid[3].p_value",
+          "p_grid_4": "distribution.models[key=garch].berkowitz.by_grid[4].p_value",
+          "grids_below_5pct": "distribution.models[key=garch].berkowitz.grids_below_5pct",
+          "p_cauchy": "distribution.models[key=garch].berkowitz.p_cauchy",
+          "reference": "distribution.models[key=garch].berkowitz.reference",
+          "mu_grid_0": "distribution.models[key=garch].berkowitz.by_grid[0].mu",
+          "sigma_grid_0": "distribution.models[key=garch].berkowitz.by_grid[0].sigma",
+          "pit_construction": "distribution.models[key=garch].pit_construction",
+          "rho_grid_0": "distribution.models[key=garch].berkowitz.by_grid[0].rho",
+          "p_count_pit": "distribution.models[key=garch].berkowitz.p_count_pit",
+          "clamp_days": "distribution.models[key=garch].berkowitz.clamp_days",
+          "extreme_days": "distribution.models[key=garch].berkowitz.extreme_days",
+          "p_static_t": "distribution.models[key=garch].alternatives.static_t.berkowitz_p"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=garch].label"
+        }
+      },
+      "q_value_bh": 0.012061583640417747,
+      "p_holm": 0.24543920198524488,
+      "t_equivalent": 3.04,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "vol_berkowitz_gjr",
+      "date": "2026-10-20",
+      "family": "distribution calibration",
+      "hypothesis": "GJR-GARCH(1,1)-t's predictive distribution is miscalibrated: on non-overlapping weeks its PITs are not independent standard uniforms.",
+      "test": "Berkowitz (2001) LR3 on the normal scores of each sampling grid's weeks (non-overlapping), chi-squared with 3 df; Bonferroni over the five grids; two-sided.",
+      "statistic": {
+        "name": "grids below 5%",
+        "value": 5
+      },
+      "context": {
+        "p_grid_0": 0.0002604800747629243,
+        "p_grid_1": 0.0001556683018358198,
+        "p_grid_2": 0.002092840469414122,
+        "p_grid_3": 0.0016874591546138752,
+        "p_grid_4": 0.0006512361724103033,
+        "grids_below_5pct": 5,
+        "p_cauchy": 0.0003885324264581564,
+        "reference": "chi2(3)",
+        "mu_grid_0": -0.105,
+        "sigma_grid_0": 1.067,
+        "pit_construction": "exact",
+        "rho_grid_0": 0.046,
+        "p_count_pit": 0.000894090910509162,
+        "clamp_days": 1,
+        "extreme_days": 37,
+        "p_static_t": 1.0799011522983924e-09
+      },
+      "p_value": 0.0007783415091790989,
+      "sided": "two",
+      "p_two_sided": 0.0007783415091790989,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The PIT reads the simulated sample's Hazen CDF, continuous in its inputs, chosen for reproduction stability after the count PIT's p (context p_count_pit) was seen; where the two forms' p-values sit on either side of the t > 3 hurdle, the flag depends on that choice, and the ledger reading names such rows. The literal reading, a Student-t on the expected variance path, is context (p_static_t). The reference per PIT construction and the Bonferroni combination were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=gjr].berkowitz.grids_below_5pct",
+        "p_value_fields": {
+          "distribution.models[key=gjr].berkowitz.by_grid[0].p_value": 0.0002604800747629243,
+          "distribution.models[key=gjr].berkowitz.by_grid[1].p_value": 0.0001556683018358198,
+          "distribution.models[key=gjr].berkowitz.by_grid[2].p_value": 0.002092840469414122,
+          "distribution.models[key=gjr].berkowitz.by_grid[3].p_value": 0.0016874591546138752,
+          "distribution.models[key=gjr].berkowitz.by_grid[4].p_value": 0.0006512361724103033
+        },
+        "context_fields": {
+          "p_grid_0": "distribution.models[key=gjr].berkowitz.by_grid[0].p_value",
+          "p_grid_1": "distribution.models[key=gjr].berkowitz.by_grid[1].p_value",
+          "p_grid_2": "distribution.models[key=gjr].berkowitz.by_grid[2].p_value",
+          "p_grid_3": "distribution.models[key=gjr].berkowitz.by_grid[3].p_value",
+          "p_grid_4": "distribution.models[key=gjr].berkowitz.by_grid[4].p_value",
+          "grids_below_5pct": "distribution.models[key=gjr].berkowitz.grids_below_5pct",
+          "p_cauchy": "distribution.models[key=gjr].berkowitz.p_cauchy",
+          "reference": "distribution.models[key=gjr].berkowitz.reference",
+          "mu_grid_0": "distribution.models[key=gjr].berkowitz.by_grid[0].mu",
+          "sigma_grid_0": "distribution.models[key=gjr].berkowitz.by_grid[0].sigma",
+          "pit_construction": "distribution.models[key=gjr].pit_construction",
+          "rho_grid_0": "distribution.models[key=gjr].berkowitz.by_grid[0].rho",
+          "p_count_pit": "distribution.models[key=gjr].berkowitz.p_count_pit",
+          "clamp_days": "distribution.models[key=gjr].berkowitz.clamp_days",
+          "extreme_days": "distribution.models[key=gjr].berkowitz.extreme_days",
+          "p_static_t": "distribution.models[key=gjr].alternatives.static_t.berkowitz_p"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=gjr].label"
+        }
+      },
+      "q_value_bh": 0.004781240699243037,
+      "p_holm": 0.08483922450052178,
+      "t_equivalent": 3.36,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": false,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "vol_berkowitz_ewma",
+      "date": "2026-10-20",
+      "family": "distribution calibration",
+      "hypothesis": "EWMA (RiskMetrics)'s predictive distribution is miscalibrated: on non-overlapping weeks its PITs are not independent standard uniforms.",
+      "test": "Berkowitz (2001) LR3 on the normal scores of each sampling grid's weeks (non-overlapping), chi-squared with 3 df; Bonferroni over the five grids; two-sided.",
+      "statistic": {
+        "name": "grids below 5%",
+        "value": 5
+      },
+      "context": {
+        "p_grid_0": 8.095841842394965e-71,
+        "p_grid_1": 7.716619850713657e-74,
+        "p_grid_2": 4.2836842367514365e-78,
+        "p_grid_3": 3.873879740545801e-70,
+        "p_grid_4": 8.194471474920521e-73,
+        "grids_below_5pct": 5,
+        "p_cauchy": 2.1417118938474456e-77,
+        "reference": "chi2(3)",
+        "mu_grid_0": -0.026,
+        "sigma_grid_0": 1.457,
+        "pit_construction": "exact",
+        "rho_grid_0": 0.068
+      },
+      "p_value": 2.1418421183757184e-77,
+      "sided": "two",
+      "p_two_sided": 2.1418421183757184e-77,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "The normal score of a far-tail week comes from the survival function, so it stays finite. The reference per PIT construction and the Bonferroni combination were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=ewma].berkowitz.grids_below_5pct",
+        "p_value_fields": {
+          "distribution.models[key=ewma].berkowitz.by_grid[0].p_value": 8.095841842394965e-71,
+          "distribution.models[key=ewma].berkowitz.by_grid[1].p_value": 7.716619850713657e-74,
+          "distribution.models[key=ewma].berkowitz.by_grid[2].p_value": 4.2836842367514365e-78,
+          "distribution.models[key=ewma].berkowitz.by_grid[3].p_value": 3.873879740545801e-70,
+          "distribution.models[key=ewma].berkowitz.by_grid[4].p_value": 8.194471474920521e-73
+        },
+        "context_fields": {
+          "p_grid_0": "distribution.models[key=ewma].berkowitz.by_grid[0].p_value",
+          "p_grid_1": "distribution.models[key=ewma].berkowitz.by_grid[1].p_value",
+          "p_grid_2": "distribution.models[key=ewma].berkowitz.by_grid[2].p_value",
+          "p_grid_3": "distribution.models[key=ewma].berkowitz.by_grid[3].p_value",
+          "p_grid_4": "distribution.models[key=ewma].berkowitz.by_grid[4].p_value",
+          "grids_below_5pct": "distribution.models[key=ewma].berkowitz.grids_below_5pct",
+          "p_cauchy": "distribution.models[key=ewma].berkowitz.p_cauchy",
+          "reference": "distribution.models[key=ewma].berkowitz.reference",
+          "mu_grid_0": "distribution.models[key=ewma].berkowitz.by_grid[0].mu",
+          "sigma_grid_0": "distribution.models[key=ewma].berkowitz.by_grid[0].sigma",
+          "pit_construction": "distribution.models[key=ewma].pit_construction",
+          "rho_grid_0": "distribution.models[key=ewma].berkowitz.by_grid[0].rho"
+        },
+        "name_fields": {
+          "model": "distribution.models[key=ewma].label"
+        }
+      },
+      "q_value_bh": 2.7629763327046767e-75,
+      "p_holm": 2.7629763327046767e-75,
+      "t_equivalent": 18.62,
+      "survives_bh_5pct": true,
+      "survives_holm_5pct": true,
+      "clears_hlz_t3": true
+    },
+    {
+      "id": "vol_berkowitz_quantile_har",
+      "date": "2026-10-20",
+      "family": "distribution calibration",
+      "hypothesis": "A quantile HAR-IV regression's predictive distribution is miscalibrated between and beyond its 5% and 95% quantiles (a doubly censored normal test; it does not test independence).",
+      "test": "Doubly censored normal likelihood ratio adapted from Berkowitz's (2001) censored likelihood: the normal score is observed between the 5% and 95% quantiles and only counted beyond them; i.i.d. N(mu, sigma^2) against N(0, 1), chi-squared with 2 df, on each sampling grid; Bonferroni over the five grids; two-sided.",
+      "statistic": {
+        "name": "grids below 5%",
+        "value": 1
+      },
+      "context": {
+        "p_grid_0": 0.0062757743733995435,
+        "p_grid_1": 0.10643124940697675,
+        "p_grid_2": 0.1872676271593294,
+        "p_grid_3": 0.4976946981895981,
+        "p_grid_4": 0.5054383692948058,
+        "grids_below_5pct": 1,
+        "p_cauchy": 0.028815506541926588,
+        "reference": "doubly censored, chi2(2)",
+        "mu_grid_0": -0.059,
+        "sigma_grid_0": 1.073,
+        "pit_construction": "estimated_quantiles",
+        "p_randomized_tail": 0.15650804878851676,
+        "randomized_tail_seed_min": 0.01080779334598606,
+        "randomized_tail_seed_max": 0.7314106583484268
+      },
+      "p_value": 0.03137887186699772,
+      "sided": "two",
+      "p_two_sided": 0.03137887186699772,
+      "pre_specified": false,
+      "selected_after_search": false,
+      "status": "supported",
+      "underpowered": null,
+      "retraction_reason": null,
+      "note": "Its quantiles say nothing beyond the 5% and 95% levels, so the tails are censored. A seeded randomized-tail PIT was tried first (context, with its spread over 100 seeds); the censored form was registered after it because its p-value does not depend on a seed. Context grids_below_5pct says on how many grids the test rejects. The reference per PIT construction and the Bonferroni combination were fixed after prototype runs on this sample (docs/METHODOLOGY.md section 7).",
+      "artifact": {
+        "path": "data/vol_lab.json",
+        "statistic_field": "distribution.models[key=quantile_har].berkowitz.grids_below_5pct",
+        "p_value_fields": {
+          "distribution.models[key=quantile_har].berkowitz.by_grid[0].p_value": 0.0062757743733995435,
+          "distribution.models[key=quantile_har].berkowitz.by_grid[1].p_value": 0.10643124940697675,
+          "distribution.models[key=quantile_har].berkowitz.by_grid[2].p_value": 0.1872676271593294,
+          "distribution.models[key=quantile_har].berkowitz.by_grid[3].p_value": 0.4976946981895981,
+          "distribution.models[key=quantile_har].berkowitz.by_grid[4].p_value": 0.5054383692948058
+        },
+        "context_fields": {
+          "p_grid_0": "distribution.models[key=quantile_har].berkowitz.by_grid[0].p_value",
+          "p_grid_1": "distribution.models[key=quantile_har].berkowitz.by_grid[1].p_value",
+          "p_grid_2": "distribution.models[key=quantile_har].berkowitz.by_grid[2].p_value",
+          "p_grid_3": "distribution.models[key=quantile_har].berkowitz.by_grid[3].p_value",
+          "p_grid_4": "distribution.models[key=quantile_har].berkowitz.by_grid[4].p_value",
+          "grids_below_5pct": "distribution.models[key=quantile_har].berkowitz.grids_below_5pct",
+          "p_cauchy": "distribution.models[key=quantile_har].berkowitz.p_cauchy",
+          "reference": "distribution.models[key=quantile_har].berkowitz.reference",
+          "mu_grid_0": "distribution.models[key=quantile_har].berkowitz.by_grid[0].mu",
+          "sigma_grid_0": "distribution.models[key=quantile_har].berkowitz.by_grid[0].sigma",
+          "pit_construction": "distribution.models[key=quantile_har].pit_construction",
+          "p_randomized_tail": "distribution.models[key=quantile_har].berkowitz.randomized_tail.p_value",
+          "randomized_tail_seed_min": "distribution.models[key=quantile_har].berkowitz.randomized_tail.seed_min",
+          "randomized_tail_seed_max": "distribution.models[key=quantile_har].berkowitz.randomized_tail.seed_max"
+        },
+        "name_fields": {}
+      },
+      "q_value_bh": 0.1037916530985309,
+      "p_holm": 1.0,
+      "t_equivalent": 2.15,
       "survives_bh_5pct": false,
       "survives_holm_5pct": false,
       "clears_hlz_t3": false
@@ -4690,8 +6394,8 @@
           "group": "groups[key=supply_lost].name"
         }
       },
-      "q_value_bh": 0.008025000000000001,
-      "p_holm": 0.132,
+      "q_value_bh": 0.008795454545454546,
+      "p_holm": 0.162,
       "t_equivalent": 3.17,
       "survives_bh_5pct": true,
       "survives_holm_5pct": false,
@@ -4735,7 +6439,7 @@
           "group": "groups[key=supply_lost].name"
         }
       },
-      "q_value_bh": 0.25555581395348836,
+      "q_value_bh": 0.24533888888888888,
       "p_holm": 1.0,
       "t_equivalent": 1.63,
       "survives_bh_5pct": false,
@@ -4780,7 +6484,7 @@
           "group": "groups[key=threat_only].name"
         }
       },
-      "q_value_bh": 0.8694088607594938,
+      "q_value_bh": 0.8449500000000001,
       "p_holm": 1.0,
       "t_equivalent": 0.47,
       "survives_bh_5pct": false,
@@ -4870,7 +6574,7 @@
           "group": "groups[key=opec_cut].name"
         }
       },
-      "q_value_bh": 0.23435609756097564,
+      "q_value_bh": 0.22714117647058826,
       "p_holm": 1.0,
       "t_equivalent": 1.7,
       "survives_bh_5pct": false,
@@ -4915,7 +6619,7 @@
           "group": "groups[key=opec_cut].name"
         }
       },
-      "q_value_bh": 0.31260784313725487,
+      "q_value_bh": 0.300328125,
       "p_holm": 1.0,
       "t_equivalent": 1.44,
       "survives_bh_5pct": false,
@@ -5005,7 +6709,7 @@
           "group": "groups[key=weather].name"
         }
       },
-      "q_value_bh": 0.31260784313725487,
+      "q_value_bh": 0.2997714285714286,
       "p_holm": 1.0,
       "t_equivalent": 1.45,
       "survives_bh_5pct": false,
@@ -5050,7 +6754,7 @@
           "group": "groups[key=conflict].name"
         }
       },
-      "q_value_bh": 0.39220363636363637,
+      "q_value_bh": 0.37948379075135963,
       "p_holm": 1.0,
       "t_equivalent": 1.28,
       "survives_bh_5pct": false,
@@ -5095,7 +6799,7 @@
           "group": "groups[key=conflict].name"
         }
       },
-      "q_value_bh": 0.747643661971831,
+      "q_value_bh": 0.7272375,
       "p_holm": 1.0,
       "t_equivalent": 0.68,
       "survives_bh_5pct": false,
@@ -5140,7 +6844,7 @@
           "group": "groups[key=sanctions].name"
         }
       },
-      "q_value_bh": 0.9143827194087987,
+      "q_value_bh": 0.906385944281576,
       "p_holm": 1.0,
       "t_equivalent": 0.36,
       "survives_bh_5pct": false,
@@ -5185,7 +6889,7 @@
           "group": "groups[key=sanctions].name"
         }
       },
-      "q_value_bh": 0.8694088607594938,
+      "q_value_bh": 0.8447505154639174,
       "p_holm": 1.0,
       "t_equivalent": 0.49,
       "survives_bh_5pct": false,
@@ -5230,7 +6934,7 @@
           "group": "groups[key=iran_driven].name"
         }
       },
-      "q_value_bh": 0.9143827194087987,
+      "q_value_bh": 0.8959636363636364,
       "p_holm": 1.0,
       "t_equivalent": 0.4,
       "survives_bh_5pct": false,
@@ -5365,7 +7069,7 @@
           "group": "groups[key=strait_risk].name"
         }
       },
-      "q_value_bh": 0.9470101123595505,
+      "q_value_bh": 0.9408638888888888,
       "p_holm": 1.0,
       "t_equivalent": 0.27,
       "survives_bh_5pct": false,
@@ -5404,7 +7108,7 @@
           "threat": "groups[key=threat_only].name"
         }
       },
-      "q_value_bh": 0.10332187500000001,
+      "q_value_bh": 0.1037916530985309,
       "p_holm": 1.0,
       "t_equivalent": 2.16,
       "survives_bh_5pct": false,
@@ -5443,7 +7147,7 @@
           "threat": "groups[key=threat_only].name"
         }
       },
-      "q_value_bh": 0.6314621212121213,
+      "q_value_bh": 0.6053674698795181,
       "p_holm": 1.0,
       "t_equivalent": 0.86,
       "survives_bh_5pct": false,
@@ -5487,7 +7191,7 @@
         },
         "name_fields": {}
       },
-      "q_value_bh": 0.9143827194087987,
+      "q_value_bh": 0.9066357437967231,
       "p_holm": 1.0,
       "t_equivalent": 0.33,
       "survives_bh_5pct": false,
