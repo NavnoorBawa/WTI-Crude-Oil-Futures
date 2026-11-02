@@ -9361,6 +9361,2479 @@
    ]
   }
  },
+ "distribution": {
+  "config": {
+   "taus": [
+    0.05,
+    0.1,
+    0.15,
+    0.2,
+    0.25,
+    0.3,
+    0.35,
+    0.4,
+    0.45,
+    0.5,
+    0.55,
+    0.6,
+    0.65,
+    0.7,
+    0.75,
+    0.8,
+    0.85,
+    0.9,
+    0.95
+   ],
+   "pinball_taus": [
+    0.1,
+    0.9
+   ],
+   "crps": "(1/19) sum of the quantile scores QS_tau = 2 pinball_tau over DIST_TAUS: equal weights (WIS)",
+   "scale": "vol points (annualized vol x 100); the log scale is context",
+   "gaussian_ratio_k19": 1.048263,
+   "residual_window_days": 780,
+   "delay_sessions": 5,
+   "warmup_days": 260,
+   "garch": {
+    "method": "simulated recursion, Student-t shocks scaled to unit variance",
+    "draws": 16384,
+    "sequence": "scrambled Sobol",
+    "seed": [
+     20261020,
+     24
+    ],
+    "pit": "Hazen CDF of the simulated sample, clamped half a draw from 0 and 1"
+   },
+   "ewma": "normal returns at the EWMA variance: RV5 = sigma sqrt(chi2_5 / 5)",
+   "quantile_har": {
+    "design": "har_iv",
+    "estimator": "Koenker-Bassett, exact LP (scipy HiGHS interior point)",
+    "refit_weeks": 13,
+    "rearranged": true,
+    "point_forecast": "rearranged median x sqrt(Duan smear of the median fit)"
+   },
+   "berkowitz": {
+    "per": "sampling grid",
+    "form": "LR3, conditional Gaussian AR(1)",
+    "combine": "bonferroni",
+    "reference": {
+     "trailing_rank": "simulated null",
+     "parametric": "chi2(3)",
+     "quantile_har": "doubly censored, chi2(2)"
+    },
+    "null": {
+     "draws": 10000,
+     "seed": [
+      20261020,
+      24,
+      1
+     ],
+     "returns": "i.i.d. normal, the real row layout, window and grids",
+     "lr_mean_by_grid": [
+      1.876,
+      1.892,
+      1.865,
+      1.879,
+      1.865
+     ],
+     "lr_q95_by_grid": [
+      5.185,
+      5.265,
+      5.261,
+      5.237,
+      5.213
+     ]
+    },
+    "null_size_pct": {
+     "simulated": 4.1,
+     "chi2": 0.87
+    }
+   },
+   "dm": {
+    "registered": "batch means",
+    "groups": 12,
+    "context": [
+     "groups_8",
+     "groups_16",
+     "dm_test (9 lags)",
+     "nw94",
+     "by_grid",
+     "log scale"
+    ]
+   },
+   "pit_bins": 10,
+   "chance_band": "1.96 sd of each bin's share across the simulated null"
+  },
+  "n_days": 4370,
+  "first": "2009-05-27",
+  "last": "2026-10-12",
+  "weeks_per_grid": [
+   874,
+   874,
+   874,
+   874,
+   874
+  ],
+  "models": [
+   {
+    "key": "har_iv",
+    "label": "HAR-IV (model of record)",
+    "method": "trailing quantiles of its matured log residuals around its median forecast",
+    "pit_construction": "trailing_rank",
+    "crps_grid_pct": 8.234,
+    "crps_grid_log": 0.2418,
+    "pinball_10_pct": 1.88,
+    "pinball_90_pct": 3.546,
+    "coverage_10_90_pct": 79.1,
+    "mae_median_pct": 10.659,
+    "pit_decile_share_pct": [
+     10.6,
+     10.3,
+     10.0,
+     9.9,
+     9.5,
+     10.0,
+     10.2,
+     9.6,
+     9.8,
+     10.3
+    ],
+    "pit_chance_center_pct": [
+     10.3,
+     10.0,
+     9.9,
+     9.9,
+     9.9,
+     9.9,
+     9.9,
+     9.9,
+     9.9,
+     10.3
+    ],
+    "pit_chance_band_pct": [
+     0.7,
+     0.7,
+     0.7,
+     0.7,
+     0.7,
+     0.7,
+     0.7,
+     0.7,
+     0.7,
+     0.8
+    ],
+    "dm_vs_har_iv": null,
+    "berkowitz": {
+     "registered": "lr3",
+     "reference": "simulated null",
+     "p_value": 0.0924907509249075,
+     "p_cauchy": 0.08208055378611395,
+     "grids_below_5pct": 1,
+     "by_grid": [
+      {
+       "grid": 0,
+       "n_weeks": 874,
+       "lr": 3.484,
+       "p_value": 0.13838616138386162,
+       "p_chi2": 0.32282402514825725,
+       "mu": -0.021,
+       "sigma": 1.041,
+       "rho": -0.013
+      },
+      {
+       "grid": 1,
+       "n_weeks": 874,
+       "lr": 7.024,
+       "p_value": 0.0184981501849815,
+       "p_chi2": 0.07114949480956237,
+       "mu": -0.017,
+       "sigma": 1.058,
+       "rho": 0.035
+      },
+      {
+       "grid": 2,
+       "n_weeks": 874,
+       "lr": 1.824,
+       "p_value": 0.37836216378362164,
+       "p_chi2": 0.6096242637655587,
+       "mu": -0.016,
+       "sigma": 1.028,
+       "rho": 0.016
+      },
+      {
+       "grid": 3,
+       "n_weeks": 874,
+       "lr": 1.882,
+       "p_value": 0.36696330366963303,
+       "p_chi2": 0.5972785554305742,
+       "mu": 0.002,
+       "sigma": 1.003,
+       "rho": 0.046
+      },
+      {
+       "grid": 4,
+       "n_weeks": 874,
+       "lr": 0.601,
+       "p_value": 0.7826217378262174,
+       "p_chi2": 0.8961383564306371,
+       "mu": -0.0,
+       "sigma": 1.015,
+       "rho": 0.016
+      }
+     ],
+     "mc_se": 0.0067,
+     "p_chi2": 0.3557474740478118,
+     "window_exceedances": {
+      "days": 35,
+      "null_mean": 22.3,
+      "null_q95": 31.0
+     }
+    },
+    "band_split": {
+     "pinball_lower_pct": 1.872,
+     "pinball_upper_pct": 3.573,
+     "interval_score_pct": 54.45
+    }
+   },
+   {
+    "key": "har_iv_range",
+    "label": "HAR-IV-range",
+    "method": "trailing quantiles of its matured log residuals around its median forecast",
+    "pit_construction": "trailing_rank",
+    "crps_grid_pct": 8.214,
+    "crps_grid_log": 0.2395,
+    "pinball_10_pct": 1.884,
+    "pinball_90_pct": 3.434,
+    "coverage_10_90_pct": 79.0,
+    "mae_median_pct": 10.734,
+    "pit_decile_share_pct": [
+     10.6,
+     10.1,
+     9.7,
+     9.9,
+     9.4,
+     10.1,
+     9.6,
+     10.1,
+     10.1,
+     10.4
+    ],
+    "pit_chance_center_pct": [
+     10.3,
+     10.0,
+     9.9,
+     9.9,
+     9.9,
+     9.9,
+     9.9,
+     9.9,
+     9.9,
+     10.3
+    ],
+    "pit_chance_band_pct": [
+     0.7,
+     0.7,
+     0.7,
+     0.7,
+     0.7,
+     0.7,
+     0.7,
+     0.7,
+     0.7,
+     0.8
+    ],
+    "dm_vs_har_iv": {
+     "crps_grid": {
+      "stat": 0.286,
+      "p_value": 0.7799608370112812,
+      "groups": 12,
+      "mean_diff": 0.0195,
+      "periods_model_lower": 8,
+      "periods_har_iv_lower": 4,
+      "period_means": [
+       0.2101,
+       0.0695,
+       0.3227,
+       0.0442,
+       -0.2496,
+       0.0269,
+       0.1173,
+       -0.4519,
+       0.3355,
+       -0.0254,
+       0.0767,
+       -0.2425
+      ],
+      "groups_8": {
+       "stat": 0.353,
+       "p_value": 0.7341260026933111
+      },
+      "groups_16": {
+       "stat": 0.303,
+       "p_value": 0.7658595604884233
+      },
+      "dm_test": {
+       "stat": 0.28,
+       "p_value": 0.7798200314323271,
+       "lags": 9
+      },
+      "nw94": {
+       "lags": 37,
+       "stat": 0.267,
+       "p_value": 0.7897034804583524
+      },
+      "by_grid": [
+       {
+        "stat": 0.5,
+        "p_value": 0.6173683238893654
+       },
+       {
+        "stat": 0.055,
+        "p_value": 0.956371863980843
+       },
+       {
+        "stat": -0.316,
+        "p_value": 0.7519716915588378
+       },
+       {
+        "stat": 0.658,
+        "p_value": 0.5107089392601509
+       },
+       {
+        "stat": 0.257,
+        "p_value": 0.7974500040629475
+       }
+      ],
+      "grid_bonferroni_p": 1.0,
+      "acf": {
+       "5": 0.255,
+       "10": 0.024,
+       "20": -0.015,
+       "40": -0.094
+      },
+      "concentration": {
+       "share_2020_pct": -123.7,
+       "share_largest_1pct_days_pct": -149.1
+      }
+     },
+     "pinball_10": {
+      "stat": -0.156,
+      "p_value": 0.8791023618251338,
+      "groups": 12,
+      "mean_diff": -0.0036,
+      "periods_model_lower": 8,
+      "periods_har_iv_lower": 4,
+      "period_means": [
+       0.0353,
+       0.0604,
+       0.0573,
+       0.0433,
+       -0.0119,
+       0.004,
+       0.0102,
+       -0.2457,
+       0.0259,
+       -0.0138,
+       0.0171,
+       -0.0259
+      ],
+      "groups_8": {
+       "stat": -0.189,
+       "p_value": 0.8556274650279122
+      },
+      "groups_16": {
+       "stat": -0.183,
+       "p_value": 0.8568744246859624
+      },
+      "dm_test": {
+       "stat": -0.203,
+       "p_value": 0.839529673759473,
+       "lags": 9
+      },
+      "nw94": {
+       "lags": 36,
+       "stat": -0.178,
+       "p_value": 0.8588042415374992
+      },
+      "by_grid": [
+       {
+        "stat": -0.566,
+        "p_value": 0.5712769916120585
+       },
+       {
+        "stat": -0.284,
+        "p_value": 0.7761035819732712
+       },
+       {
+        "stat": -0.399,
+        "p_value": 0.690321097636394
+       },
+       {
+        "stat": 0.352,
+        "p_value": 0.7246042689147192
+       },
+       {
+        "stat": 1.085,
+        "p_value": 0.2782652114939
+       }
+      ],
+      "grid_bonferroni_p": 1.0,
+      "acf": {
+       "5": -0.055,
+       "10": 0.174,
+       "20": -0.004,
+       "40": -0.032
+      }
+     },
+     "pinball_90": {
+      "stat": 2.894,
+      "p_value": 0.014604426997870698,
+      "groups": 12,
+      "mean_diff": 0.1122,
+      "periods_model_lower": 10,
+      "periods_har_iv_lower": 2,
+      "period_means": [
+       0.1245,
+       0.0036,
+       0.2076,
+       0.0777,
+       -0.0628,
+       -0.0311,
+       0.1846,
+       0.3783,
+       0.298,
+       0.0624,
+       0.0022,
+       0.102
+      ],
+      "groups_8": {
+       "stat": 2.501,
+       "p_value": 0.04095835514426084
+      },
+      "groups_16": {
+       "stat": 3.374,
+       "p_value": 0.004171210636834146
+      },
+      "dm_test": {
+       "stat": 2.874,
+       "p_value": 0.00406902660892134,
+       "lags": 9
+      },
+      "nw94": {
+       "lags": 23,
+       "stat": 2.867,
+       "p_value": 0.004163124458004966
+      },
+      "by_grid": [
+       {
+        "stat": 2.036,
+        "p_value": 0.04200397343470754
+       },
+       {
+        "stat": 3.063,
+        "p_value": 0.002259928566776487
+       },
+       {
+        "stat": 1.781,
+        "p_value": 0.07529404460785974
+       },
+       {
+        "stat": 2.904,
+        "p_value": 0.003774161061223561
+       },
+       {
+        "stat": 1.647,
+        "p_value": 0.09997331152846316
+       }
+      ],
+      "grid_bonferroni_p": 0.011299642833882434,
+      "acf": {
+       "5": 0.093,
+       "10": -0.028,
+       "20": -0.018,
+       "40": -0.011
+      }
+     },
+     "crps_grid_log": {
+      "stat": 1.239,
+      "p_value": 0.2411083823815087,
+      "dm_test": {
+       "stat": 1.877,
+       "p_value": 0.06061726045634407
+      }
+     }
+    },
+    "berkowitz": {
+     "registered": "lr3",
+     "reference": "simulated null",
+     "p_value": 0.202979702029797,
+     "p_cauchy": 0.18800136097340572,
+     "grids_below_5pct": 1,
+     "by_grid": [
+      {
+       "grid": 0,
+       "n_weeks": 874,
+       "lr": 3.558,
+       "p_value": 0.1326867313268673,
+       "p_chi2": 0.31329647373837144,
+       "mu": -0.006,
+       "sigma": 1.044,
+       "rho": -0.012
+      },
+      {
+       "grid": 1,
+       "n_weeks": 874,
+       "lr": 5.654,
+       "p_value": 0.0405959404059594,
+       "p_chi2": 0.12969691160544392,
+       "mu": 0.001,
+       "sigma": 1.054,
+       "rho": 0.028
+      },
+      {
+       "grid": 2,
+       "n_weeks": 874,
+       "lr": 1.249,
+       "p_value": 0.537046295370463,
+       "p_chi2": 0.7412569776003944,
+       "mu": -0.003,
+       "sigma": 1.027,
+       "rho": 0.003
+      },
+      {
+       "grid": 3,
+       "n_weeks": 874,
+       "lr": 1.149,
+       "p_value": 0.5741425857414258,
+       "p_chi2": 0.7652028033132254,
+       "mu": 0.013,
+       "sigma": 0.994,
+       "rho": 0.032
+      },
+      {
+       "grid": 4,
+       "n_weeks": 874,
+       "lr": 0.401,
+       "p_value": 0.8666133386661334,
+       "p_chi2": 0.9399390621212022,
+       "mu": 0.01,
+       "sigma": 1.013,
+       "rho": 0.004
+      }
+     ],
+     "mc_se": 0.0099,
+     "p_chi2": 0.6484845580272196,
+     "window_exceedances": {
+      "days": 30,
+      "null_mean": 22.3,
+      "null_q95": 31.0
+     }
+    },
+    "band_split": {
+     "pinball_lower_pct": 1.854,
+     "pinball_upper_pct": 3.458,
+     "interval_score_pct": 53.12
+    }
+   },
+   {
+    "key": "ovx_only",
+    "label": "OVX-only regression",
+    "method": "trailing quantiles of its matured log residuals around its median forecast",
+    "pit_construction": "trailing_rank",
+    "crps_grid_pct": 8.237,
+    "crps_grid_log": 0.243,
+    "pinball_10_pct": 1.887,
+    "pinball_90_pct": 3.526,
+    "coverage_10_90_pct": 78.4,
+    "mae_median_pct": 10.696,
+    "pit_decile_share_pct": [
+     11.4,
+     9.9,
+     10.2,
+     9.9,
+     9.9,
+     9.5,
+     9.9,
+     9.5,
+     9.5,
+     10.3
+    ],
+    "pit_chance_center_pct": [
+     10.3,
+     10.0,
+     9.9,
+     9.9,
+     9.9,
+     9.9,
+     9.9,
+     9.9,
+     9.9,
+     10.3
+    ],
+    "pit_chance_band_pct": [
+     0.7,
+     0.7,
+     0.7,
+     0.7,
+     0.7,
+     0.7,
+     0.7,
+     0.7,
+     0.7,
+     0.8
+    ],
+    "dm_vs_har_iv": {
+     "crps_grid": {
+      "stat": -0.052,
+      "p_value": 0.9591826390981372,
+      "groups": 12,
+      "mean_diff": -0.0035,
+      "periods_model_lower": 5,
+      "periods_har_iv_lower": 7,
+      "period_means": [
+       -0.2691,
+       -0.1451,
+       0.0285,
+       -0.0473,
+       0.5352,
+       0.1544,
+       -0.0025,
+       -0.2687,
+       -0.1841,
+       0.0092,
+       -0.0643,
+       0.2128
+      ],
+      "groups_8": {
+       "stat": -0.05,
+       "p_value": 0.9618054637398625
+      },
+      "groups_16": {
+       "stat": -0.051,
+       "p_value": 0.9602009516109984
+      },
+      "dm_test": {
+       "stat": -0.077,
+       "p_value": 0.9385572948652708,
+       "lags": 9
+      },
+      "nw94": {
+       "lags": 37,
+       "stat": -0.067,
+       "p_value": 0.9465755310788887
+      },
+      "by_grid": [
+       {
+        "stat": 0.071,
+        "p_value": 0.943519525699019
+       },
+       {
+        "stat": -0.666,
+        "p_value": 0.5055811121466695
+       },
+       {
+        "stat": -0.071,
+        "p_value": 0.9437081530668547
+       },
+       {
+        "stat": -0.002,
+        "p_value": 0.998414095318459
+       },
+       {
+        "stat": 0.409,
+        "p_value": 0.6828087842246534
+       }
+      ],
+      "grid_bonferroni_p": 1.0,
+      "acf": {
+       "5": 0.148,
+       "10": 0.054,
+       "20": -0.035,
+       "40": -0.074
+      },
+      "concentration": {
+       "share_2020_pct": 800.7,
+       "share_largest_1pct_days_pct": 52.8
+      }
+     },
+     "pinball_10": {
+      "stat": -0.608,
+      "p_value": 0.5556954624631356,
+      "groups": 12,
+      "mean_diff": -0.007,
+      "periods_model_lower": 4,
+      "periods_har_iv_lower": 8,
+      "period_means": [
+       -0.021,
+       -0.0668,
+       0.0079,
+       -0.0198,
+       0.0409,
+       0.0394,
+       -0.0168,
+       -0.0406,
+       -0.0194,
+       -0.0351,
+       -0.0257,
+       0.073
+      ],
+      "groups_8": {
+       "stat": -0.512,
+       "p_value": 0.6241044068930476
+      },
+      "groups_16": {
+       "stat": -0.568,
+       "p_value": 0.5786482942176532
+      },
+      "dm_test": {
+       "stat": -0.628,
+       "p_value": 0.5300568467161868,
+       "lags": 9
+      },
+      "nw94": {
+       "lags": 33,
+       "stat": -0.541,
+       "p_value": 0.5884205378119003
+      },
+      "by_grid": [
+       {
+        "stat": 0.532,
+        "p_value": 0.5947562090630193
+       },
+       {
+        "stat": -0.338,
+        "p_value": 0.7353044813874615
+       },
+       {
+        "stat": -0.887,
+        "p_value": 0.37539404363035594
+       },
+       {
+        "stat": -0.996,
+        "p_value": 0.31963029019755185
+       },
+       {
+        "stat": -0.452,
+        "p_value": 0.6513449597379182
+       }
+      ],
+      "grid_bonferroni_p": 1.0,
+      "acf": {
+       "5": -0.021,
+       "10": 0.11,
+       "20": 0.014,
+       "40": -0.031
+      }
+     },
+     "pinball_90": {
+      "stat": 0.679,
+      "p_value": 0.5109591289341916,
+      "groups": 12,
+      "mean_diff": 0.0207,
+      "periods_model_lower": 7,
+      "periods_har_iv_lower": 5,
+      "period_means": [
+       -0.0882,
+       -0.0864,
+       0.044,
+       0.0317,
+       0.2767,
+       0.0972,
+       0.0498,
+       -0.0848,
+       -0.0899,
+       0.0493,
+       -0.0096,
+       0.0587
+      ],
+      "groups_8": {
+       "stat": 0.644,
+       "p_value": 0.5399475023238864
+      },
+      "groups_16": {
+       "stat": 0.664,
+       "p_value": 0.5167112777503255
+      },
+      "dm_test": {
+       "stat": 0.739,
+       "p_value": 0.46014683703675135,
+       "lags": 9
+      },
+      "nw94": {
+       "lags": 23,
+       "stat": 0.726,
+       "p_value": 0.4681427291383072
+      },
+      "by_grid": [
+       {
+        "stat": 0.807,
+        "p_value": 0.41976906465931924
+       },
+       {
+        "stat": 1.044,
+        "p_value": 0.29663329378391584
+       },
+       {
+        "stat": 0.644,
+        "p_value": 0.5199055046310228
+       },
+       {
+        "stat": 0.067,
+        "p_value": 0.9463103336734469
+       },
+       {
+        "stat": 0.33,
+        "p_value": 0.7414601833446489
+       }
+      ],
+      "grid_bonferroni_p": 1.0,
+      "acf": {
+       "5": 0.042,
+       "10": -0.005,
+       "20": -0.051,
+       "40": -0.03
+      }
+     },
+     "crps_grid_log": {
+      "stat": -0.695,
+      "p_value": 0.5017083643192215,
+      "dm_test": {
+       "stat": -1.052,
+       "p_value": 0.2928268356494257
+      }
+     }
+    },
+    "berkowitz": {
+     "registered": "lr3",
+     "reference": "simulated null",
+     "p_value": 0.001999800019998,
+     "p_cauchy": 0.0018814344509864057,
+     "grids_below_5pct": 4,
+     "by_grid": [
+      {
+       "grid": 0,
+       "n_weeks": 874,
+       "lr": 5.78,
+       "p_value": 0.0342965703429657,
+       "p_chi2": 0.12280011315567803,
+       "mu": -0.037,
+       "sigma": 1.047,
+       "rho": 0.03
+      },
+      {
+       "grid": 1,
+       "n_weeks": 874,
+       "lr": 14.593,
+       "p_value": 0.00039996000399960006,
+       "p_chi2": 0.0021998462233994587,
+       "mu": -0.033,
+       "sigma": 1.069,
+       "rho": 0.08
+      },
+      {
+       "grid": 2,
+       "n_weeks": 874,
+       "lr": 6.265,
+       "p_value": 0.027797220277972202,
+       "p_chi2": 0.09938651326290901,
+       "mu": -0.032,
+       "sigma": 1.037,
+       "rho": 0.058
+      },
+      {
+       "grid": 3,
+       "n_weeks": 874,
+       "lr": 7.72,
+       "p_value": 0.012698730126987301,
+       "p_chi2": 0.052160111511521924,
+       "mu": -0.013,
+       "sigma": 1.01,
+       "rho": 0.092
+      },
+      {
+       "grid": 4,
+       "n_weeks": 874,
+       "lr": 4.595,
+       "p_value": 0.0720927907209279,
+       "p_chi2": 0.2039719872521675,
+       "mu": -0.015,
+       "sigma": 1.021,
+       "rho": 0.065
+      }
+     ],
+     "mc_se": 0.001,
+     "p_chi2": 0.010999231116997294,
+     "window_exceedances": {
+      "days": 35,
+      "null_mean": 22.3,
+      "null_q95": 31.0
+     }
+    }
+   },
+   {
+    "key": "garch",
+    "label": "GARCH(1,1)-t",
+    "method": "simulated from its fitted recursion with Student-t shocks",
+    "pit_construction": "exact",
+    "crps_grid_pct": 9.034,
+    "crps_grid_log": 0.2567,
+    "pinball_10_pct": 2.063,
+    "pinball_90_pct": 3.854,
+    "coverage_10_90_pct": 79.3,
+    "mae_median_pct": 11.684,
+    "pit_decile_share_pct": [
+     11.2,
+     11.6,
+     10.4,
+     10.5,
+     10.4,
+     10.4,
+     9.5,
+     9.1,
+     7.5,
+     9.5
+    ],
+    "pit_chance_center_pct": [
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0
+    ],
+    "pit_chance_band_pct": [
+     1.6,
+     1.3,
+     1.2,
+     1.2,
+     1.1,
+     1.2,
+     1.2,
+     1.2,
+     1.3,
+     1.8
+    ],
+    "dm_vs_har_iv": {
+     "crps_grid": {
+      "stat": -1.874,
+      "p_value": 0.08771468440774918,
+      "groups": 12,
+      "mean_diff": -0.8003,
+      "periods_model_lower": 2,
+      "periods_har_iv_lower": 10,
+      "period_means": [
+       0.0988,
+       -0.1451,
+       -0.4229,
+       -0.0589,
+       -0.7553,
+       -0.5103,
+       -0.4671,
+       -5.3702,
+       -0.5177,
+       -0.3343,
+       0.0173,
+       -1.1421
+      ],
+      "groups_8": {
+       "stat": -1.927,
+       "p_value": 0.09527859290927426
+      },
+      "groups_16": {
+       "stat": -1.951,
+       "p_value": 0.06995020224447322
+      },
+      "dm_test": {
+       "stat": -3.429,
+       "p_value": 0.0006111970983252481,
+       "lags": 9
+      },
+      "nw94": {
+       "lags": 46,
+       "stat": -2.298,
+       "p_value": 0.021630612656230296
+      },
+      "by_grid": [
+       {
+        "stat": -2.048,
+        "p_value": 0.04082315311227401
+       },
+       {
+        "stat": -2.214,
+        "p_value": 0.027101318402641055
+       },
+       {
+        "stat": -2.372,
+        "p_value": 0.0179252497854199
+       },
+       {
+        "stat": -2.548,
+        "p_value": 0.010997327778336098
+       },
+       {
+        "stat": -2.504,
+        "p_value": 0.012444883781727718
+       }
+      ],
+      "grid_bonferroni_p": 0.05498663889168049,
+      "acf": {
+       "5": 0.388,
+       "10": 0.36,
+       "20": 0.174,
+       "40": -0.016
+      },
+      "concentration": {
+       "share_2020_pct": 52.6,
+       "share_largest_1pct_days_pct": 40.6
+      }
+     },
+     "pinball_10": {
+      "stat": -1.209,
+      "p_value": 0.2518830669735363,
+      "groups": 12,
+      "mean_diff": -0.1827,
+      "periods_model_lower": 2,
+      "periods_har_iv_lower": 10,
+      "period_means": [
+       -0.0014,
+       0.1115,
+       -0.2212,
+       0.0843,
+       -0.0415,
+       -0.093,
+       -0.0453,
+       -1.8243,
+       -0.0273,
+       -0.0736,
+       -0.0478,
+       -0.0142
+      ],
+      "groups_8": {
+       "stat": -1.138,
+       "p_value": 0.29266831011964467
+      },
+      "groups_16": {
+       "stat": -1.114,
+       "p_value": 0.28273197694229224
+      },
+      "dm_test": {
+       "stat": -1.987,
+       "p_value": 0.047017646941675754,
+       "lags": 9
+      },
+      "nw94": {
+       "lags": 47,
+       "stat": -1.335,
+       "p_value": 0.18189459641468825
+      },
+      "by_grid": [
+       {
+        "stat": -1.558,
+        "p_value": 0.11966056745908471
+       },
+       {
+        "stat": -1.02,
+        "p_value": 0.30795249913810024
+       },
+       {
+        "stat": -1.014,
+        "p_value": 0.3106680692667647
+       },
+       {
+        "stat": -1.448,
+        "p_value": 0.14810870915371585
+       },
+       {
+        "stat": -1.778,
+        "p_value": 0.07570939469318605
+       }
+      ],
+      "grid_bonferroni_p": 0.37854697346593025,
+      "acf": {
+       "5": 0.328,
+       "10": 0.369,
+       "20": 0.103,
+       "40": -0.095
+      }
+     },
+     "pinball_90": {
+      "stat": -2.655,
+      "p_value": 0.022380662768976312,
+      "groups": 12,
+      "mean_diff": -0.3081,
+      "periods_model_lower": 2,
+      "periods_har_iv_lower": 10,
+      "period_means": [
+       0.1297,
+       -0.0141,
+       0.0533,
+       -0.1489,
+       -0.2959,
+       -0.3431,
+       -0.2583,
+       -1.2126,
+       -0.3644,
+       -0.177,
+       -0.0861,
+       -0.9813
+      ],
+      "groups_8": {
+       "stat": -2.71,
+       "p_value": 0.030185238269760776
+      },
+      "groups_16": {
+       "stat": -3.311,
+       "p_value": 0.004748096512829734
+      },
+      "dm_test": {
+       "stat": -3.289,
+       "p_value": 0.0010136230713391396,
+       "lags": 9
+      },
+      "nw94": {
+       "lags": 34,
+       "stat": -2.978,
+       "p_value": 0.002915665241381451
+      },
+      "by_grid": [
+       {
+        "stat": -1.573,
+        "p_value": 0.11597792918869552
+       },
+       {
+        "stat": -2.874,
+        "p_value": 0.004152494516725504
+       },
+       {
+        "stat": -2.895,
+        "p_value": 0.0038859225118803094
+       },
+       {
+        "stat": -3.012,
+        "p_value": 0.0026744653101446903
+       },
+       {
+        "stat": -2.887,
+        "p_value": 0.003989666641652487
+       }
+      ],
+      "grid_bonferroni_p": 0.013372326550723452,
+      "acf": {
+       "5": 0.054,
+       "10": 0.042,
+       "20": 0.033,
+       "40": 0.0
+      }
+     },
+     "crps_grid_log": {
+      "stat": -2.682,
+      "p_value": 0.021314211153329325,
+      "dm_test": {
+       "stat": -4.404,
+       "p_value": 1.086003732002985e-05
+      }
+     }
+    },
+    "alternatives": {
+     "static_t": {
+      "crps_grid_pct": 9.114,
+      "berkowitz_p": 2.6836207354125555e-09
+     }
+    },
+    "berkowitz": {
+     "registered": "lr3",
+     "reference": "chi2(3)",
+     "p_value": 0.0023375162093832846,
+     "p_cauchy": 0.001397536519708134,
+     "grids_below_5pct": 5,
+     "by_grid": [
+      {
+       "grid": 0,
+       "n_weeks": 874,
+       "lr": 15.409,
+       "p_value": 0.0014985887751185942,
+       "mu": -0.083,
+       "sigma": 1.064,
+       "rho": 0.053
+      },
+      {
+       "grid": 1,
+       "n_weeks": 874,
+       "lr": 17.872,
+       "p_value": 0.0004675032418766569,
+       "mu": -0.079,
+       "sigma": 1.067,
+       "rho": 0.073
+      },
+      {
+       "grid": 2,
+       "n_weeks": 874,
+       "lr": 12.214,
+       "p_value": 0.006686013482640317,
+       "mu": -0.074,
+       "sigma": 1.049,
+       "rho": 0.062
+      },
+      {
+       "grid": 3,
+       "n_weeks": 874,
+       "lr": 13.36,
+       "p_value": 0.003919092446292886,
+       "mu": -0.058,
+       "sigma": 1.03,
+       "rho": 0.1
+      },
+      {
+       "grid": 4,
+       "n_weeks": 874,
+       "lr": 14.135,
+       "p_value": 0.0027269709854012905,
+       "mu": -0.069,
+       "sigma": 1.041,
+       "rho": 0.09
+      }
+     ],
+     "p_count_pit": 0.002733834342754991,
+     "clamp_days": 1,
+     "extreme_days": 35
+    }
+   },
+   {
+    "key": "gjr",
+    "label": "GJR-GARCH(1,1)-t",
+    "method": "simulated from its fitted recursion with Student-t shocks",
+    "pit_construction": "exact",
+    "crps_grid_pct": 9.051,
+    "crps_grid_log": 0.2558,
+    "pinball_10_pct": 2.084,
+    "pinball_90_pct": 3.854,
+    "coverage_10_90_pct": 79.0,
+    "mae_median_pct": 11.684,
+    "pit_decile_share_pct": [
+     11.8,
+     11.4,
+     11.1,
+     10.7,
+     9.9,
+     10.8,
+     9.0,
+     8.7,
+     7.3,
+     9.2
+    ],
+    "pit_chance_center_pct": [
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0
+    ],
+    "pit_chance_band_pct": [
+     1.6,
+     1.3,
+     1.2,
+     1.2,
+     1.1,
+     1.2,
+     1.2,
+     1.2,
+     1.3,
+     1.8
+    ],
+    "dm_vs_har_iv": {
+     "crps_grid": {
+      "stat": -1.761,
+      "p_value": 0.10603363277379309,
+      "groups": 12,
+      "mean_diff": -0.817,
+      "periods_model_lower": 2,
+      "periods_har_iv_lower": 10,
+      "period_means": [
+       0.1506,
+       -0.0593,
+       -0.3657,
+       0.0214,
+       -0.2958,
+       -0.4185,
+       -0.3422,
+       -5.6843,
+       -0.7661,
+       -0.2545,
+       -0.0735,
+       -1.7214
+      ],
+      "groups_8": {
+       "stat": -1.56,
+       "p_value": 0.16279382760580038
+      },
+      "groups_16": {
+       "stat": -1.668,
+       "p_value": 0.11601830310055815
+      },
+      "dm_test": {
+       "stat": -3.041,
+       "p_value": 0.0023702752524343367,
+       "lags": 9
+      },
+      "nw94": {
+       "lags": 47,
+       "stat": -1.955,
+       "p_value": 0.05068957253866268
+      },
+      "by_grid": [
+       {
+        "stat": -1.709,
+        "p_value": 0.08783478302171231
+       },
+       {
+        "stat": -1.88,
+        "p_value": 0.060420406227406666
+       },
+       {
+        "stat": -2.063,
+        "p_value": 0.03940065847690019
+       },
+       {
+        "stat": -2.208,
+        "p_value": 0.02750553877929033
+       },
+       {
+        "stat": -2.226,
+        "p_value": 0.026284081676309433
+       }
+      ],
+      "grid_bonferroni_p": 0.13142040838154717,
+      "acf": {
+       "5": 0.475,
+       "10": 0.393,
+       "20": 0.228,
+       "40": -0.019
+      },
+      "concentration": {
+       "share_2020_pct": 57.3,
+       "share_largest_1pct_days_pct": 47.1
+      }
+     },
+     "pinball_10": {
+      "stat": -1.07,
+      "p_value": 0.30774771812263074,
+      "groups": 12,
+      "mean_diff": -0.2037,
+      "periods_model_lower": 4,
+      "periods_har_iv_lower": 8,
+      "period_means": [
+       0.0104,
+       0.1323,
+       -0.2104,
+       0.1189,
+       0.0073,
+       -0.0473,
+       -0.0048,
+       -2.2813,
+       -0.0605,
+       -0.0234,
+       -0.0366,
+       -0.0499
+      ],
+      "groups_8": {
+       "stat": -0.955,
+       "p_value": 0.3713502459800387
+      },
+      "groups_16": {
+       "stat": -0.959,
+       "p_value": 0.35271905008012916
+      },
+      "dm_test": {
+       "stat": -1.877,
+       "p_value": 0.06054629357055182,
+       "lags": 9
+      },
+      "nw94": {
+       "lags": 48,
+       "stat": -1.177,
+       "p_value": 0.23930774067353527
+      },
+      "by_grid": [
+       {
+        "stat": -1.474,
+        "p_value": 0.14090761524801784
+       },
+       {
+        "stat": -0.994,
+        "p_value": 0.32058953052531186
+       },
+       {
+        "stat": -0.934,
+        "p_value": 0.350623701357818
+       },
+       {
+        "stat": -1.228,
+        "p_value": 0.21994274611529196
+       },
+       {
+        "stat": -1.545,
+        "p_value": 0.12276629803082421
+       }
+      ],
+      "grid_bonferroni_p": 0.6138314901541211,
+      "acf": {
+       "5": 0.412,
+       "10": 0.437,
+       "20": 0.186,
+       "40": -0.053
+      }
+     },
+     "pinball_90": {
+      "stat": -2.081,
+      "p_value": 0.06155111354168642,
+      "groups": 12,
+      "mean_diff": -0.3077,
+      "periods_model_lower": 3,
+      "periods_har_iv_lower": 9,
+      "period_means": [
+       0.1312,
+       0.0457,
+       0.1645,
+       -0.1274,
+       -0.0468,
+       -0.2825,
+       -0.0474,
+       -0.9911,
+       -0.6442,
+       -0.2136,
+       -0.1274,
+       -1.5554
+      ],
+      "groups_8": {
+       "stat": -1.807,
+       "p_value": 0.11365346048259774
+      },
+      "groups_16": {
+       "stat": -2.411,
+       "p_value": 0.02919915795289606
+      },
+      "dm_test": {
+       "stat": -2.799,
+       "p_value": 0.0051437581152492294,
+       "lags": 9
+      },
+      "nw94": {
+       "lags": 36,
+       "stat": -2.373,
+       "p_value": 0.017689761276933093
+      },
+      "by_grid": [
+       {
+        "stat": -1.469,
+        "p_value": 0.14207214270733717
+       },
+       {
+        "stat": -2.189,
+        "p_value": 0.028846775102345724
+       },
+       {
+        "stat": -2.241,
+        "p_value": 0.025247610599265013
+       },
+       {
+        "stat": -2.453,
+        "p_value": 0.014351107341173244
+       },
+       {
+        "stat": -2.498,
+        "p_value": 0.012686037780002208
+       }
+      ],
+      "grid_bonferroni_p": 0.06343018890001104,
+      "acf": {
+       "5": 0.123,
+       "10": 0.045,
+       "20": 0.08,
+       "40": -0.015
+      }
+     },
+     "crps_grid_log": {
+      "stat": -2.4,
+      "p_value": 0.03522915200886128,
+      "dm_test": {
+       "stat": -3.642,
+       "p_value": 0.00027412400607640586
+      }
+     }
+    },
+    "alternatives": {
+     "static_t": {
+      "crps_grid_pct": 9.133,
+      "berkowitz_p": 1.0799011522983924e-09
+     }
+    },
+    "berkowitz": {
+     "registered": "lr3",
+     "reference": "chi2(3)",
+     "p_value": 0.0007783415091790989,
+     "p_cauchy": 0.0003885324264581564,
+     "grids_below_5pct": 5,
+     "by_grid": [
+      {
+       "grid": 0,
+       "n_weeks": 874,
+       "lr": 19.102,
+       "p_value": 0.0002604800747629243,
+       "mu": -0.105,
+       "sigma": 1.067,
+       "rho": 0.046
+      },
+      {
+       "grid": 1,
+       "n_weeks": 874,
+       "lr": 20.181,
+       "p_value": 0.0001556683018358198,
+       "mu": -0.099,
+       "sigma": 1.068,
+       "rho": 0.065
+      },
+      {
+       "grid": 2,
+       "n_weeks": 874,
+       "lr": 14.699,
+       "p_value": 0.002092840469414122,
+       "mu": -0.094,
+       "sigma": 1.052,
+       "rho": 0.052
+      },
+      {
+       "grid": 3,
+       "n_weeks": 874,
+       "lr": 15.157,
+       "p_value": 0.0016874591546138752,
+       "mu": -0.079,
+       "sigma": 1.034,
+       "rho": 0.094
+      },
+      {
+       "grid": 4,
+       "n_weeks": 874,
+       "lr": 17.173,
+       "p_value": 0.0006512361724103033,
+       "mu": -0.09,
+       "sigma": 1.046,
+       "rho": 0.087
+      }
+     ],
+     "p_count_pit": 0.000894090910509162,
+     "clamp_days": 1,
+     "extreme_days": 37
+    }
+   },
+   {
+    "key": "ewma",
+    "label": "EWMA (RiskMetrics)",
+    "method": "normal returns at its variance: RV5 = sigma sqrt(chi2_5 / 5)",
+    "pit_construction": "exact",
+    "crps_grid_pct": 9.597,
+    "crps_grid_log": 0.2672,
+    "pinball_10_pct": 2.37,
+    "pinball_90_pct": 3.979,
+    "coverage_10_90_pct": 70.5,
+    "mae_median_pct": 12.406,
+    "pit_decile_share_pct": [
+     15.5,
+     11.8,
+     10.9,
+     9.7,
+     8.4,
+     7.6,
+     7.9,
+     7.6,
+     6.6,
+     13.9
+    ],
+    "pit_chance_center_pct": [
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0
+    ],
+    "pit_chance_band_pct": [
+     1.6,
+     1.3,
+     1.2,
+     1.2,
+     1.1,
+     1.2,
+     1.2,
+     1.2,
+     1.3,
+     1.8
+    ],
+    "dm_vs_har_iv": {
+     "crps_grid": {
+      "stat": -1.675,
+      "p_value": 0.12213367496467117,
+      "groups": 12,
+      "mean_diff": -1.3635,
+      "periods_model_lower": 2,
+      "periods_har_iv_lower": 10,
+      "period_means": [
+       0.0496,
+       -0.3741,
+       -0.3742,
+       0.1069,
+       -0.9473,
+       -0.6777,
+       -0.6913,
+       -10.1306,
+       -1.4239,
+       -0.1411,
+       -0.0103,
+       -1.7541
+      ],
+      "groups_8": {
+       "stat": -1.609,
+       "p_value": 0.15161109639860593
+      },
+      "groups_16": {
+       "stat": -1.723,
+       "p_value": 0.1054570432398315
+      },
+      "dm_test": {
+       "stat": -4.023,
+       "p_value": 5.84579560546897e-05,
+       "lags": 9
+      },
+      "nw94": {
+       "lags": 49,
+       "stat": -2.334,
+       "p_value": 0.019628166767374004
+      },
+      "by_grid": [
+       {
+        "stat": -2.375,
+        "p_value": 0.01776775800376117
+       },
+       {
+        "stat": -2.426,
+        "p_value": 0.015488217490505878
+       },
+       {
+        "stat": -2.569,
+        "p_value": 0.010361075851965508
+       },
+       {
+        "stat": -2.677,
+        "p_value": 0.007562116879781849
+       },
+       {
+        "stat": -2.664,
+        "p_value": 0.007859126377841471
+       }
+      ],
+      "grid_bonferroni_p": 0.03781058439890925,
+      "acf": {
+       "5": 0.615,
+       "10": 0.504,
+       "20": 0.337,
+       "40": 0.141
+      },
+      "concentration": {
+       "share_2020_pct": 57.9,
+       "share_largest_1pct_days_pct": 40.5
+      }
+     },
+     "pinball_10": {
+      "stat": -1.148,
+      "p_value": 0.2751786811480582,
+      "groups": 12,
+      "mean_diff": -0.49,
+      "periods_model_lower": 4,
+      "periods_har_iv_lower": 8,
+      "period_means": [
+       -0.0101,
+       0.0209,
+       -0.2648,
+       0.0887,
+       -0.136,
+       -0.1375,
+       -0.0429,
+       -5.1699,
+       -0.2654,
+       0.1257,
+       0.0092,
+       -0.1009
+      ],
+      "groups_8": {
+       "stat": -1.138,
+       "p_value": 0.2927327739364386
+      },
+      "groups_16": {
+       "stat": -1.158,
+       "p_value": 0.2648578231730588
+      },
+      "dm_test": {
+       "stat": -2.821,
+       "p_value": 0.004814830487261887,
+       "lags": 9
+      },
+      "nw94": {
+       "lags": 50,
+       "stat": -1.572,
+       "p_value": 0.11612820906206417
+      },
+      "by_grid": [
+       {
+        "stat": -1.89,
+        "p_value": 0.05910607994642367
+       },
+       {
+        "stat": -1.579,
+        "p_value": 0.11459398167867012
+       },
+       {
+        "stat": -1.694,
+        "p_value": 0.09053278206767508
+       },
+       {
+        "stat": -1.72,
+        "p_value": 0.08578552311063053
+       },
+       {
+        "stat": -1.791,
+        "p_value": 0.07356540892425849
+       }
+      ],
+      "grid_bonferroni_p": 0.29553039973211837,
+      "acf": {
+       "5": 0.639,
+       "10": 0.611,
+       "20": 0.357,
+       "40": 0.157
+      }
+     },
+     "pinball_90": {
+      "stat": -2.741,
+      "p_value": 0.019202642781304447,
+      "groups": 12,
+      "mean_diff": -0.4324,
+      "periods_model_lower": 1,
+      "periods_har_iv_lower": 11,
+      "period_means": [
+       0.1413,
+       -0.1473,
+       -0.0937,
+       -0.1835,
+       -0.2808,
+       -0.3258,
+       -0.4217,
+       -1.7057,
+       -0.8026,
+       -0.1098,
+       -0.0286,
+       -1.2331
+      ],
+      "groups_8": {
+       "stat": -2.674,
+       "p_value": 0.03183396423679901
+      },
+      "groups_16": {
+       "stat": -3.293,
+       "p_value": 0.004929899497086978
+      },
+      "dm_test": {
+       "stat": -3.983,
+       "p_value": 6.92540148900245e-05,
+       "lags": 9
+      },
+      "nw94": {
+       "lags": 34,
+       "stat": -3.524,
+       "p_value": 0.00042897807739176503
+      },
+      "by_grid": [
+       {
+        "stat": -2.124,
+        "p_value": 0.03393602420757421
+       },
+       {
+        "stat": -3.461,
+        "p_value": 0.0005636341770715638
+       },
+       {
+        "stat": -3.566,
+        "p_value": 0.00038166718111101874
+       },
+       {
+        "stat": -3.332,
+        "p_value": 0.0008986264826329554
+       },
+       {
+        "stat": -3.521,
+        "p_value": 0.0004519917747228937
+       }
+      ],
+      "grid_bonferroni_p": 0.0019083359055550937,
+      "acf": {
+       "5": 0.081,
+       "10": 0.039,
+       "20": 0.045,
+       "40": 0.014
+      }
+     },
+     "crps_grid_log": {
+      "stat": -2.087,
+      "p_value": 0.060976149330601255,
+      "dm_test": {
+       "stat": -5.802,
+       "p_value": 7.012911231135268e-09
+      }
+     }
+    },
+    "berkowitz": {
+     "registered": "lr3",
+     "reference": "chi2(3)",
+     "p_value": 2.1418421183757184e-77,
+     "p_cauchy": 2.1417118938474456e-77,
+     "grids_below_5pct": 5,
+     "by_grid": [
+      {
+       "grid": 0,
+       "n_weeks": 874,
+       "lr": 328.132,
+       "p_value": 8.095841842394965e-71,
+       "mu": -0.026,
+       "sigma": 1.457,
+       "rho": 0.068
+      },
+      {
+       "grid": 1,
+       "n_weeks": 874,
+       "lr": 342.085,
+       "p_value": 7.716619850713657e-74,
+       "mu": -0.021,
+       "sigma": 1.466,
+       "rho": 0.086
+      },
+      {
+       "grid": 2,
+       "n_weeks": 874,
+       "lr": 361.738,
+       "p_value": 4.2836842367514365e-78,
+       "mu": -0.009,
+       "sigma": 1.483,
+       "rho": 0.061
+      },
+      {
+       "grid": 3,
+       "n_weeks": 874,
+       "lr": 324.992,
+       "p_value": 3.873879740545801e-70,
+       "mu": 0.001,
+       "sigma": 1.451,
+       "rho": 0.109
+      },
+      {
+       "grid": 4,
+       "n_weeks": 874,
+       "lr": 337.346,
+       "p_value": 8.194471474920521e-73,
+       "mu": -0.01,
+       "sigma": 1.462,
+       "rho": 0.094
+      }
+     ]
+    }
+   },
+   {
+    "key": "quantile_har",
+    "label": "Quantile HAR-IV (not in the benchmark)",
+    "method": "linear quantile regressions on HAR-IV's terms, refit quarterly, sorted",
+    "pit_construction": "estimated_quantiles",
+    "crps_grid_pct": 8.209,
+    "crps_grid_log": 0.2414,
+    "pinball_10_pct": 1.899,
+    "pinball_90_pct": 3.45,
+    "coverage_10_90_pct": 78.8,
+    "mae_median_pct": 10.638,
+    "pit_decile_share_pct": [
+     11.4,
+     10.0,
+     10.3,
+     10.5,
+     9.8,
+     10.3,
+     9.3,
+     9.5,
+     9.1,
+     9.8
+    ],
+    "pit_chance_center_pct": [
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0,
+     10.0
+    ],
+    "pit_chance_band_pct": [
+     1.6,
+     1.3,
+     1.2,
+     1.2,
+     1.1,
+     1.2,
+     1.2,
+     1.2,
+     1.3,
+     1.8
+    ],
+    "dm_vs_har_iv": {
+     "crps_grid": {
+      "stat": 0.673,
+      "p_value": 0.5146006657527619,
+      "groups": 12,
+      "mean_diff": 0.0253,
+      "periods_model_lower": 9,
+      "periods_har_iv_lower": 3,
+      "period_means": [
+       -0.1295,
+       -0.2889,
+       0.0127,
+       0.0784,
+       0.083,
+       0.1031,
+       0.0417,
+       0.0891,
+       0.0452,
+       0.2364,
+       -0.0215,
+       0.0545
+      ],
+      "groups_8": {
+       "stat": 0.695,
+       "p_value": 0.5094919462648873
+      },
+      "groups_16": {
+       "stat": 0.804,
+       "p_value": 0.43393545001031714
+      },
+      "dm_test": {
+       "stat": 0.655,
+       "p_value": 0.5127747719853253,
+       "lags": 9
+      },
+      "nw94": {
+       "lags": 19,
+       "stat": 0.641,
+       "p_value": 0.521299133369913
+      },
+      "by_grid": [
+       {
+        "stat": 0.156,
+        "p_value": 0.8764196755741801
+       },
+       {
+        "stat": 1.006,
+        "p_value": 0.3146266734228362
+       },
+       {
+        "stat": 0.757,
+        "p_value": 0.4493555616113776
+       },
+       {
+        "stat": 0.33,
+        "p_value": 0.7415626510512913
+       },
+       {
+        "stat": 0.619,
+        "p_value": 0.535872024231929
+       }
+      ],
+      "grid_bonferroni_p": 1.0,
+      "acf": {
+       "5": -0.052,
+       "10": 0.037,
+       "20": -0.024,
+       "40": 0.024
+      },
+      "concentration": {
+       "share_2020_pct": 25.2,
+       "share_largest_1pct_days_pct": 61.8
+      }
+     },
+     "pinball_10": {
+      "stat": -0.815,
+      "p_value": 0.43229451012709674,
+      "groups": 12,
+      "mean_diff": -0.0189,
+      "periods_model_lower": 5,
+      "periods_har_iv_lower": 7,
+      "period_means": [
+       0.0103,
+       -0.185,
+       -0.1386,
+       0.0341,
+       0.0305,
+       -0.0147,
+       -0.0407,
+       -0.0257,
+       -0.0588,
+       0.0712,
+       -0.0029,
+       0.0932
+      ],
+      "groups_8": {
+       "stat": -0.618,
+       "p_value": 0.5563664277051962
+      },
+      "groups_16": {
+       "stat": -0.716,
+       "p_value": 0.4850655487332553
+      },
+      "dm_test": {
+       "stat": -1.147,
+       "p_value": 0.2515200229625293,
+       "lags": 9
+      },
+      "nw94": {
+       "lags": 31,
+       "stat": -0.985,
+       "p_value": 0.3245611428987172
+      },
+      "by_grid": [
+       {
+        "stat": -0.739,
+        "p_value": 0.4602493057637937
+       },
+       {
+        "stat": -0.697,
+        "p_value": 0.48585522690809674
+       },
+       {
+        "stat": -0.607,
+        "p_value": 0.543778166496788
+       },
+       {
+        "stat": -0.541,
+        "p_value": 0.5886919368120513
+       },
+       {
+        "stat": -1.76,
+        "p_value": 0.07870786385990791
+       }
+      ],
+      "grid_bonferroni_p": 0.39353931929953956,
+      "acf": {
+       "5": 0.016,
+       "10": 0.107,
+       "20": 0.043,
+       "40": 0.046
+      }
+     },
+     "pinball_90": {
+      "stat": 1.903,
+      "p_value": 0.08345664143917217,
+      "groups": 12,
+      "mean_diff": 0.0959,
+      "periods_model_lower": 7,
+      "periods_har_iv_lower": 5,
+      "period_means": [
+       -0.0078,
+       -0.1346,
+       0.1877,
+       -0.0462,
+       0.2948,
+       0.0804,
+       0.2313,
+       0.3774,
+       0.2769,
+       -0.0469,
+       -0.1321,
+       0.0711
+      ],
+      "groups_8": {
+       "stat": 1.755,
+       "p_value": 0.12267384560443322
+      },
+      "groups_16": {
+       "stat": 2.296,
+       "p_value": 0.03648211009654723
+      },
+      "dm_test": {
+       "stat": 2.244,
+       "p_value": 0.024913177793763955,
+       "lags": 9
+      },
+      "nw94": {
+       "lags": 25,
+       "stat": 2.205,
+       "p_value": 0.027487809097053305
+      },
+      "by_grid": [
+       {
+        "stat": 1.541,
+        "p_value": 0.12364688908322836
+       },
+       {
+        "stat": 1.73,
+        "p_value": 0.08397679792384471
+       },
+       {
+        "stat": 2.075,
+        "p_value": 0.03825518733726554
+       },
+       {
+        "stat": 1.981,
+        "p_value": 0.047923179244054814
+       },
+       {
+        "stat": 2.602,
+        "p_value": 0.009430249408598957
+       }
+      ],
+      "grid_bonferroni_p": 0.04715124704299478,
+      "acf": {
+       "5": 0.085,
+       "10": -0.02,
+       "20": -0.015,
+       "40": 0.041
+      }
+     },
+     "crps_grid_log": {
+      "stat": 0.293,
+      "p_value": 0.7749071323268092,
+      "dm_test": {
+       "stat": 0.359,
+       "p_value": 0.7192676948762927
+      }
+     }
+    },
+    "quantile_har": {
+     "refits": 72,
+     "crossing_days_oos": 355,
+     "crossing_days_evaluation": 121,
+     "tail_days": 504
+    },
+    "berkowitz": {
+     "registered": "censored",
+     "reference": "doubly censored, chi2(2)",
+     "p_value": 0.03137887186699772,
+     "p_cauchy": 0.028815506541926588,
+     "grids_below_5pct": 1,
+     "by_grid": [
+      {
+       "grid": 0,
+       "n_weeks": 874,
+       "lr": 10.142,
+       "p_value": 0.0062757743733995435,
+       "mu": -0.059,
+       "sigma": 1.073,
+       "below": 59,
+       "above": 56
+      },
+      {
+       "grid": 1,
+       "n_weeks": 874,
+       "lr": 4.481,
+       "p_value": 0.10643124940697675,
+       "mu": -0.049,
+       "sigma": 1.042,
+       "below": 63,
+       "above": 46
+      },
+      {
+       "grid": 2,
+       "n_weeks": 874,
+       "lr": 3.35,
+       "p_value": 0.1872676271593294,
+       "mu": -0.057,
+       "sigma": 1.02,
+       "below": 52,
+       "above": 43
+      },
+      {
+       "grid": 3,
+       "n_weeks": 874,
+       "lr": 1.396,
+       "p_value": 0.4976946981895981,
+       "mu": -0.04,
+       "sigma": 0.998,
+       "below": 46,
+       "above": 47
+      },
+      {
+       "grid": 4,
+       "n_weeks": 874,
+       "lr": 1.365,
+       "p_value": 0.5054383692948058,
+       "mu": -0.039,
+       "sigma": 1.004,
+       "below": 51,
+       "above": 41
+      }
+     ],
+     "randomized_tail": {
+      "p_value": 0.15650804878851676,
+      "seed": [
+       20261020,
+       24,
+       4634
+      ],
+      "seed_min": 0.01080779334598606,
+      "seed_max": 0.7314106583484268,
+      "seeds": 100,
+      "share_below_5pct": 14.0
+     }
+    }
+   }
+  ],
+  "mcs_crps": {
+   "block_20": {
+    "included": [
+     "quantile_har",
+     "har_iv_range",
+     "har_iv",
+     "ovx_only"
+    ],
+    "p_values": {
+     "garch": 0.028,
+     "ewma": 0.028,
+     "gjr": 0.0648,
+     "har_iv": 0.8874,
+     "ovx_only": 0.8874,
+     "har_iv_range": 0.9466,
+     "quantile_har": 1.0
+    }
+   },
+   "block_40": {
+    "included": [
+     "quantile_har",
+     "har_iv_range",
+     "har_iv",
+     "ovx_only",
+     "gjr"
+    ],
+    "p_values": {
+     "garch": 0.0638,
+     "ewma": 0.0824,
+     "gjr": 0.1242,
+     "har_iv": 0.8896,
+     "ovx_only": 0.8896,
+     "har_iv_range": 0.9458,
+     "quantile_har": 1.0
+    }
+   },
+   "block_80": {
+    "included": [
+     "quantile_har",
+     "har_iv_range",
+     "ovx_only",
+     "har_iv",
+     "gjr",
+     "ewma",
+     "garch"
+    ],
+    "p_values": {
+     "garch": 0.1048,
+     "ewma": 0.1488,
+     "gjr": 0.17,
+     "har_iv": 0.8812,
+     "ovx_only": 0.8814,
+     "har_iv_range": 0.9424,
+     "quantile_har": 1.0
+    }
+   },
+   "note": "context; the set depends on the bootstrap block length"
+  },
+  "quantile_har_field": {
+   "n_days": 4634,
+   "qlike": 0.3797,
+   "dm_qlike_vs_har_iv": {
+    "batch_means": {
+     "stat": -1.049,
+     "p_value": 0.3166529118343258
+    },
+    "dm_test": {
+     "stat": -2.028,
+     "p_value": 0.042666440996273494,
+     "lags": 9
+    },
+    "nw94": {
+     "lags": 47,
+     "p_value": 0.2053573390931376
+    },
+    "by_grid_p": [
+     0.1986310228031088,
+     0.20644119352030965,
+     0.19663059058791454,
+     0.18261809647741836,
+     0.14712133085919007
+    ]
+   },
+   "mcs": {
+    "included": [
+     "har_iv_range",
+     "combo",
+     "ovx_only",
+     "raw_ovx"
+    ],
+    "p_values": {
+     "persistence": 0.0,
+     "lgbm": 0.0006,
+     "ewma": 0.0016,
+     "garch": 0.0028,
+     "har_rv": 0.0036,
+     "har_rs": 0.0044,
+     "gjr": 0.007,
+     "har_iv": 0.047,
+     "har_range": 0.079,
+     "quantile_har": 0.079,
+     "combo": 0.1212,
+     "ovx_only": 0.1212,
+     "raw_ovx": 0.1212,
+     "har_iv_range": 1.0
+    }
+   },
+   "mcs_block_10": {
+    "included": [
+     "har_iv_range"
+    ],
+    "p_quantile_har": 0.0366
+   },
+   "mcs_block_40": {
+    "included": [
+     "har_iv_range",
+     "combo",
+     "ovx_only",
+     "raw_ovx",
+     "har_range",
+     "quantile_har"
+    ],
+    "p_quantile_har": 0.1074
+   },
+   "mcs_by_grid": {
+    "0": {
+     "included": [
+      "har_iv_range",
+      "combo",
+      "ovx_only",
+      "raw_ovx",
+      "har_range",
+      "har_iv",
+      "quantile_har"
+     ],
+     "p_quantile_har": 0.155
+    },
+    "1": {
+     "included": [
+      "har_iv_range",
+      "combo",
+      "ovx_only",
+      "raw_ovx",
+      "quantile_har"
+     ],
+     "p_quantile_har": 0.1128
+    },
+    "2": {
+     "included": [
+      "har_iv_range",
+      "combo",
+      "ovx_only",
+      "raw_ovx",
+      "quantile_har",
+      "har_iv"
+     ],
+     "p_quantile_har": 0.1624
+    },
+    "3": {
+     "included": [
+      "har_iv_range",
+      "combo",
+      "har_range",
+      "ovx_only",
+      "raw_ovx",
+      "quantile_har"
+     ],
+     "p_quantile_har": 0.1182
+    },
+    "4": {
+     "included": [
+      "har_iv_range",
+      "combo",
+      "har_range",
+      "raw_ovx",
+      "ovx_only",
+      "quantile_har"
+     ],
+     "p_quantile_har": 0.1366
+    }
+   },
+   "mcs_2008_2016": {
+    "n_days": 2177,
+    "included": [
+     "combo",
+     "har_iv_range",
+     "har_range",
+     "raw_ovx",
+     "ovx_only",
+     "quantile_har"
+    ],
+    "p_quantile_har": 0.265
+   },
+   "mcs_2017_2026": {
+    "n_days": 2457,
+    "included": [
+     "har_iv_range"
+    ],
+    "p_quantile_har": 0.0574
+   },
+   "spa": {
+    "p_consistent": 0.0114,
+    "best_model": "har_iv_range",
+    "models": [
+     "persistence",
+     "raw_ovx",
+     "ewma",
+     "garch",
+     "gjr",
+     "har_rv",
+     "har_rs",
+     "har_range",
+     "ovx_only",
+     "har_iv_range",
+     "lgbm",
+     "combo",
+     "quantile_har"
+    ]
+   },
+   "alt_point_forecast": {
+    "method": "sqrt(mean of the 19 squared quantiles)",
+    "qlike": 0.3755,
+    "batch_means_p": 0.32076545676059837,
+    "dm_test_p": 0.23761382998374467,
+    "mcs_included": true,
+    "mcs_p": 0.1198
+   },
+   "note": "context: the quantile HAR is a robustness competitor outside the benchmark field, never eligible for the live pair; this rerun selects nothing"
+  }
+ },
  "har_iv_coefficients": {
   "terms": [
    {

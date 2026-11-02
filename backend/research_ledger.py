@@ -823,7 +823,7 @@ def _distribution_rows() -> list[Row]:
         for tag, score, phrase in _SCORES:
             dm = f"{base}.dm_vs_har_iv.{score}"
             if picked:
-                hypothesis = f"The challenger HAR-IV-range's predictive distribution beats the model of record's on {phrase}."
+                hypothesis = "The challenger {model}'s predictive distribution beats the model of record's on " + phrase + "."
             elif m == "quantile_har":
                 hypothesis = f"A quantile HAR-IV regression's predictive distribution beats the model of record's on {phrase}."
             else:
@@ -847,8 +847,8 @@ def _distribution_rows() -> list[Row]:
             if picked:
                 note = ("Selected after a search: the challenger is the lowest-QLIKE model of the field on this same "
                         "sample, so this pairwise p-value ignores the search. The row is left out of the multiplicity "
-                        "family; no search-adjusted version exists (the SPA test searches the field on QLIKE). "
-                        + _DIST_FORKS)
+                        "family; no search-adjusted version of this test exists (the SPA test searches the field on "
+                        "QLIKE). " + _DIST_FORKS)
             elif m == "quantile_har":
                 note = ("A robustness competitor outside the benchmark field: never ranked, banded, selected or "
                         "eligible for the live pair. Its design (HAR-IV's terms), its quarterly refits, the exact "
@@ -864,7 +864,8 @@ def _distribution_rows() -> list[Row]:
                       "conformal band's days."),
                 statistic=("batch-means t", f"{dm}.stat"), p=Field(f"{dm}.p_value"), sided="two",
                 expects=POSITIVE if picked or m == "quantile_har" else NEGATIVE,
-                context=context, names={"model": f"{base}.label"}, note=note, selected_after_search=picked))
+                context=context, names={} if m == "quantile_har" else {"model": f"{base}.label"}, note=note,
+                selected_after_search=picked))
     for m in ("har_iv", *DISTRIBUTION_MODELS):
         base = _LD.format(m)
         berk = f"{base}.berkowitz"
@@ -919,7 +920,7 @@ def _distribution_rows() -> list[Row]:
         rows.append(Row(
             id=f"vol_berkowitz_{m}", family="distribution calibration", source=LAB, hypothesis=hypothesis, test=test,
             statistic=("grids below 5%", f"{berk}.grids_below_5pct"), p=BonferroniOverRuns(f"{berk}.by_grid", "p_value"),
-            sided="two", context=context, names={"model": f"{base}.label"},
+            sided="two", context=context, names={} if m == "quantile_har" else {"model": f"{base}.label"},
             note=note + " The reference per PIT construction and the Bonferroni combination were fixed after "
                         "prototype runs on this sample (docs/METHODOLOGY.md section 7)."))
     return rows

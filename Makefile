@@ -17,7 +17,7 @@ help:
 	@echo "make lint            ruff (both configurations) and eslint"
 	@echo "make type            mypy strict on the typed modules (pyproject.toml)"
 	@echo "make test            the Python and frontend unit suites"
-	@echo "make reproduce       rebuild data/vol_lab.json from the pinned snapshot and compare (about 4 minutes)"
+	@echo "make reproduce       rebuild data/vol_lab.json from the pinned snapshot and compare (about 7 minutes)"
 	@echo "make check-frontend  npm run check: eslint, tests, build and both audits"
 	@echo "make figures         regenerate docs/figures and show any drift from the committed ones"
 	@echo "make docs            the generated numbers in the README and docs match the artifacts (cog)"

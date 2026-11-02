@@ -135,6 +135,40 @@ backs the new one.
 
 ### Research
 
+- **The whole predictive distribution (ROADMAP 2.4, first part).** `data/vol_lab.json` adds a
+  `distribution` block: seven models' predictive quantiles at τ = 0.05, …, 0.95, scored on the days
+  the 80% band is scored on (2009-05-27 to 2026-10-12) by the CRPS over the 19 quantiles, the 10% and
+  90% pinball losses (vol points) and the log-scale CRPS, with the PIT histogram's decile shares and
+  their chance spread. The log models' quantiles are trailing quantiles of their own matured log
+  errors (the band's window, without its adaptive step); GARCH-t and GJR-t simulate their fitted
+  recursion (2^14 scrambled Sobol paths, seeded); EWMA assumes normal returns; and a quantile HAR-IV
+  (Koenker-Bassett, solved exactly as a linear program, refit quarterly, rearranged) is a robustness
+  competitor kept out of the benchmark field, every confidence set, the SPA test, the selection, the
+  choice of challenger and the live pair. Each model is compared with the model of record by a
+  batch-means test on 12 consecutive periods, because the daily score differences stay correlated
+  far beyond what the 9-lag Diebold-Mariano variance covers; that test and the others are published
+  as context. Calibration is Berkowitz's LR3 on each sampling grid's non-overlapping weeks,
+  Bonferroni over the five grids, against χ²(3) for the parametric PITs, a seeded simulated null
+  (10,000 draws) for the trailing-rank ones and a doubly censored form for the quantile HAR. The
+  quantile HAR's QLIKE rerun of the field and a Model Confidence Set on CRPS are context. Results: no
+  CRPS difference is significant at 5% (GARCH-t's is inconclusive); on the 90% pinball loss the model
+  of record scores significantly lower than GARCH-t and EWMA, and neither survives Benjamini-Hochberg;
+  Berkowitz rejects OVX-only, GARCH-t, GJR-t and EWMA (each surviving Benjamini-Hochberg) and the
+  quantile HAR (not surviving); it is inconclusive for the model of record and does not reject the
+  challenger. The ledger gains 25 rows in two families ("predictive distribution", "distribution
+  calibration"), none pre-specified, and a `BonferroniOverRuns` p-source; the challenger's three
+  score rows are selected after the search and outside the family (now six such rows). The family
+  grows from 107 to 129 rows and the ledger from 110 to 135. No existing row's status, p-value, BH or
+  Holm survival or t > 3 flag changes; 32 q-values rise (by at most 0.0028), 57 fall and 18 stay
+  equal, and none crosses 0.10 (`vol_spa_beats_record` stays at q = 0.084). Every other value in the
+  artifact is unchanged: rebuilt in the pinned container, it equals the previous artifact once the new
+  block is removed. Choices made after the scores were seen, each disclosed in the row notes and
+  the methodology: the vol-point scale, equal weights, the batch-means rule and its 12 periods,
+  registering all three scores, the GARCH simulation and its PIT form, the quantile HAR's design and
+  solver, its censored test, and the reference distributions. The rebuild now takes about seven
+  minutes (about four before). New statistics in `backend/forecast_eval.py`, each with a known-answer
+  test, and RESULTS section 2.9.
+
 - **When the differences arise: conditional predictive ability and stability over time (ROADMAP 2.3,
   first part).** `data/vol_lab.json` adds, for every model against the model of record, a
   Giacomini-White (2006) test of whether the daily QLIKE difference moves with what is known at the

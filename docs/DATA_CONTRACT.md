@@ -356,6 +356,51 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
     of d up to that date (3 dp). The last weekly date can fall before `stability.cumulative.end_date`, so
     the last value can differ from `end_all_days`. In these names, and in `stability.cumulative` and
     `stability.series`, `challenger` is the lab's challenger (`config.challenger`), not a fixed model key.
+- The whole predictive distribution (`vol_lab.distribution_report`; ROADMAP 2.4):
+  `distribution{config, n_days, first, last, weeks_per_grid[], models[], mcs_crps, quantile_har_field}`.
+  Every score is on the `n_days` days the interval band is scored on (`conformal.<model>.n_days`), not
+  on every out-of-sample day. Scores are in vol points (annualized vol × 100).
+  - `config`: `taus[]` (the 19 levels), `pinball_taus[]`, `crps` and `scale` in words,
+    `gaussian_ratio_k19` (the 19-level score over the closed-form CRPS under a correct normal forecast),
+    `residual_window_days, delay_sessions, warmup_days` (the trailing quantiles), `garch{method, draws,
+    sequence, seed[], pit}`, `ewma`, `quantile_har{design, estimator, refit_weeks, rearranged,
+    point_forecast}`, `berkowitz{per, form, combine, reference{trailing_rank, parametric, quantile_har},
+    null{draws, seed[], returns, lr_mean_by_grid[], lr_q95_by_grid[]}, null_size_pct{simulated, chi2}}`
+    (`null_size_pct`: the share of the null draws each rule rejects at 5%, each draw against all draws for
+    the simulated reference), `dm{registered, groups, context[]}`, `pit_bins`, `chance_band`.
+  - `models[]`, in the order model of record, challenger, `ovx_only`, `garch`, `gjr`, `ewma`, `quantile_har`
+    (the last two only with the slow walk; the quantile HAR is never in `leaderboard`): `key, label, method,
+    pit_construction` (`trailing_rank`, `exact` or `estimated_quantiles`), `crps_grid_pct, crps_grid_log,
+    pinball_10_pct, pinball_90_pct` (3 dp; the log score 4 dp), `coverage_10_90_pct` (1 dp),
+    `mae_median_pct` (the CRPS a point forecast at the predictive median would score), `pit_decile_share_pct[10]`
+    (the share of days between consecutive predicted deciles, 1 dp; descriptive, no bin is tested),
+    `pit_chance_center_pct[10]` and `pit_chance_band_pct[10]` (the null mean of each share and 1.96 times its
+    standard deviation across the first 2,000 null draws, for the model's PIT construction), and
+    `dm_vs_har_iv` (null for the model of record): `{crps_grid, pinball_10, pinball_90}` each `{stat,
+    p_value, groups, mean_diff, periods_model_lower, periods_har_iv_lower, period_means[], groups_8{stat,
+    p_value}, groups_16{...}, dm_test{stat, p_value, lags}, nw94{lags, stat, p_value}, by_grid[{stat,
+    p_value}], grid_bonferroni_p, acf{5, 10, 20, 40}}` with `concentration{share_2020_pct,
+    share_largest_1pct_days_pct}` on `crps_grid` (shares of the total difference; meaningless when the
+    total is near zero), plus `crps_grid_log{stat, p_value, dm_test{stat, p_value}}`. `stat` and `p_value`
+    are the registered batch-means test; d = the model of record's score − the model's (positive: the
+    model scores lower). `berkowitz{registered` (`lr3` or `censored`), `reference, p_value` (Bonferroni over
+    the grids), `p_cauchy, grids_below_5pct, by_grid[{grid, n_weeks, lr, p_value, mu, sigma` and `rho`, or
+    `below` and `above` for the censored form; `p_chi2` for a trailing-rank PIT`}]}`; a trailing-rank model
+    adds `mc_se, p_chi2` (the χ²(3) Bonferroni, context) and `window_exceedances{days, null_mean,
+    null_q95}`; the GARCH models add `p_count_pit, clamp_days, extreme_days`; the quantile HAR adds
+    `randomized_tail{p_value, seed[], seed_min, seed_max, seeds, share_below_5pct}`. The two banded models
+    add `band_split{pinball_lower_pct, pinball_upper_pct, interval_score_pct}` (10 × the sum is the band's
+    interval score), the GARCH models `alternatives{static_t{crps_grid_pct, berkowitz_p}}`, and the
+    quantile HAR `quantile_har{refits, crossing_days_oos, crossing_days_evaluation, tail_days}`.
+  - `mcs_crps{block_20, block_40, block_80{included[], p_values{}}, note}`: a Model Confidence Set on the
+    daily grid CRPS (context; null without the GARCH models).
+  - `quantile_har_field`: the QLIKE comparisons rerun with the quantile HAR's point forecast added to the
+    feasible field, on every out-of-sample day (context; nothing reads it): `n_days, qlike,
+    dm_qlike_vs_har_iv{batch_means{stat, p_value}, dm_test{stat, p_value, lags}, nw94{lags, p_value},
+    by_grid_p[]}, mcs{included[], p_values{}}, mcs_block_10, mcs_block_40{included[], p_quantile_har},
+    mcs_by_grid{<grid>{included[], p_quantile_har}}, mcs_<first year>_<last year>{n_days, included[],
+    p_quantile_har}` (two sub-periods, as in `mcs_robustness_qlike`), `spa{p_consistent, best_model,
+    models[]}, alt_point_forecast{method, qlike, batch_means_p, dm_test_p, mcs_included, mcs_p}, note`.
 - `postmortem`: `five_year` and `ten_year`, each `{purged, leaked, config}`; a run is
   `{n, direction_acc_pct, p_value, sharpe, total_pnl_usd, max_drawdown_usd, mae_vs_best_baseline_pct, first, last,
   equity: [[date, cumulative_pnl_usd], ...]}`.
@@ -384,9 +429,15 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   model: "conditional predictive ability" (`vol_gw_<model>`, the Giacomini-White conditional p) and
   "stability over time" (`vol_fluct_<model>`, the fluctuation test's search-adjusted p). The χ²(4)
   Giacomini-White form and every robustness variant stay in `vol_lab` as context; they are not rows.
-  Three rows are outside the family because they test the challenger, which was picked on this sample:
-  its full-sample, conditional and over-time rows (`vol_challenger_qlike`, `vol_gw_har_iv_range` and
-  `vol_fluct_har_iv_range`, all listed in `selected_after_search`). A row whose artifact could not
+  Two families score the whole predictive distribution (ROADMAP 2.4): "predictive distribution"
+  (`vol_crps_<model>`, `vol_pinball10_<model>`, `vol_pinball90_<model>`, each model against the model of
+  record by the batch-means test, `distribution.models[key=<model>].dm_vs_har_iv.<score>`) and
+  "distribution calibration" (`vol_berkowitz_<model>`, the model of record included, Bonferroni over the
+  five grids' `berkowitz.by_grid[].p_value`). The quantile HAR has rows in both but is never in the
+  benchmark field. Six rows are outside the family because they test the challenger, which was picked on
+  this sample: its full-sample, conditional and over-time rows (`vol_challenger_qlike`,
+  `vol_gw_har_iv_range` and `vol_fluct_har_iv_range`) and its three score rows (`vol_crps_har_iv_range`,
+  `vol_pinball10_har_iv_range`, `vol_pinball90_har_iv_range`), all listed in `selected_after_search`. A row whose artifact could not
   compute its test (a stored p-value of null) has a null `p_value`, is `inconclusive`, and is outside
   the family too, with null `q_bh`, `p_holm`, `survives_bh` and `clears_t3`. Rows on the same loss
   difference are dependent: Benjamini-Hochberg assumes positive dependence (PRDS) and Holm holds under

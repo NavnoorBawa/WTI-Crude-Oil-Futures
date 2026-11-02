@@ -1,7 +1,7 @@
 # The reproduce environment, pinned (docs/ROADMAP.md, Stage 1, item 6).
 #
 #   docker build -t wti-vol .
-#   docker run --rm wti-vol make reproduce       # rebuilds data/vol_lab.json and compares (about 4 minutes)
+#   docker run --rm wti-vol make reproduce       # rebuilds data/vol_lab.json and compares (about 7 minutes)
 #   docker run --rm wti-vol make test            # or lint, type, check-frontend, figures (see the Makefile)
 #
 # Both base images are pinned by digest, and each was at least 14 days old when pinned (the

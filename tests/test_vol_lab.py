@@ -689,7 +689,8 @@ class StabilityReportTest(unittest.TestCase):
             self.assertIsNone(rows[rid]["p_value"], rid)
             self.assertEqual(rows[rid]["status"], "inconclusive", rid)
             self.assertIsNone(rows[rid]["q_value_bh"], rid)
-        self.assertEqual(ledger["summary"]["rows_in_multiplicity_family"], ledger["summary"]["rows_with_p_value"] - 3)
+        self.assertEqual(ledger["summary"]["rows_in_multiplicity_family"],
+                         ledger["summary"]["rows_with_p_value"] - len(ledger["summary"]["selected_after_search"]))
 
 
 # --- ROADMAP 2.4: scoring the whole predictive distribution --------------------------------------------------------
@@ -1767,11 +1768,11 @@ class DistributionTest(unittest.TestCase):
         import ast
         import inspect
 
-        from backend import field_record as fr
         from backend import research_ledger as rl
 
+        # FEASIBLE is also the shadow log's field (its own tests keep the two equal).
         for name, field in (("MODEL_KEYS", lab.MODEL_KEYS), ("FEASIBLE", lab.FEASIBLE), ("LOG_MODELS", lab.LOG_MODELS),
-                            ("LAB_COMPARED", rl.LAB_COMPARED), ("FIELD_KEYS", fr.FIELD_KEYS)):
+                            ("LAB_COMPARED", rl.LAB_COMPARED)):
             self.assertNotIn(lab.QHAR_KEY, field, name)
         names = {"quantile_har", "QHAR_KEY", "_quantile_fit", "quantile_har_field", "distribution_report",
                  "distribution_scores", "distribution_mcs", "garch_predictive", "empirical_predictive", "ewma_predictive",
@@ -2015,6 +2016,47 @@ class ArtifactContractTest(unittest.TestCase):
             key = challenger if name == "challenger" else name
             self.assertLess(abs(total - n_days * committed[key]["dm_qlike_vs_har_iv"]["mean_diff"]), 1e-9, name)
 
+    def test_the_distribution_block_is_consistent(self):
+        # ROADMAP 2.4: the scores cover the band's days, the quantile HAR stays out of the field, and every registered
+        # number agrees with the parts it is built from.
+        dist, conf, board = self.report["distribution"], self.report["conformal"], self.report["leaderboard"]
+        champion, challenger = self.report["config"]["champion"], self.report["config"]["challenger"]
+        self.assertEqual(dist["n_days"], conf[champion]["n_days"])
+        self.assertEqual(sum(dist["weeks_per_grid"]), dist["n_days"])
+        keys = [m["key"] for m in dist["models"]]
+        self.assertEqual(keys, [champion, challenger, "ovx_only", "garch", "gjr", "ewma", lab.QHAR_KEY])
+        self.assertEqual(dist["config"]["taus"], list(lab.DIST_TAUS))
+        for where in (board["models"], board["spa_qlike_vs_har_iv"]["models"], board["mcs_qlike_included"],
+                      board["mcs_robustness_qlike"], board["mcs_qlike_by_grid"], self.report["oos_selection"]):
+            self.assertNotIn(lab.QHAR_KEY, json.dumps(where))
+        for m in dist["models"]:
+            with self.subTest(m["key"]):
+                self.assertTrue(m["pinball_10_pct"] < m["crps_grid_pct"] and m["pinball_90_pct"] < m["crps_grid_pct"])
+                self.assertAlmostEqual(sum(m["pit_decile_share_pct"]), 100, delta=0.6)
+                berk = m["berkowitz"]
+                grid_p = [g["p_value"] for g in berk["by_grid"]]
+                self.assertEqual(berk["p_value"], min(1.0, vf.STEP * min(grid_p)))
+                self.assertEqual(berk["grids_below_5pct"], sum(p < 0.05 for p in grid_p))
+                self.assertEqual([g["n_weeks"] for g in berk["by_grid"]], dist["weeks_per_grid"])
+                if m["key"] in conf:
+                    self.assertAlmostEqual(m["band_split"]["interval_score_pct"], conf[m["key"]]["interval_score_pct"],
+                                           delta=0.011)
+                if m["key"] == champion:
+                    self.assertIsNone(m["dm_vs_har_iv"])
+                    continue
+                for score in ("crps_grid", "pinball_10", "pinball_90"):
+                    dm = m["dm_vs_har_iv"][score]
+                    self.assertEqual(np.sign(dm["stat"]), np.sign(dm["mean_diff"]))
+                    self.assertEqual(len(dm["period_means"]), lab.DIST_DM_GROUPS)
+                    self.assertEqual(dm["periods_model_lower"], sum(v > 0 for v in dm["period_means"]))
+        size = dist["config"]["berkowitz"]["null_size_pct"]
+        self.assertTrue(2 <= size["simulated"] <= 8 and size["chi2"] < 2, size)
+        field = dist["quantile_har_field"]
+        self.assertEqual(field["n_days"], self.report["sample"]["n_days"])
+        self.assertEqual(field["spa"]["p_consistent"], board["spa_qlike_vs_har_iv"]["p_consistent"]
+                         if field["spa"]["best_model"] != lab.QHAR_KEY else field["spa"]["p_consistent"])
+        self.assertIn(lab.QHAR_KEY, field["spa"]["models"])
+
     def test_nothing_that_ranks_or_bands_a_model_reads_the_stability_tests(self):
         import ast
         import inspect
@@ -2139,7 +2181,7 @@ class ArtifactContractTest(unittest.TestCase):
                 self.assertTrue(lab.compare_reports(committed, {**committed, key: value})["violations"])
         self.assertTrue(lab.compare_reports(committed, {**committed, "extra": 1})["violations"])
 
-    @unittest.skipUnless(os.environ.get("RUN_SLOW") == "1", "set RUN_SLOW=1 to rebuild the artifact (~4 min)")
+    @unittest.skipUnless(os.environ.get("RUN_SLOW") == "1", "set RUN_SLOW=1 to rebuild the artifact (~7 min)")
     def test_artifact_reproduces_from_the_snapshot(self):
         rebuilt = json.loads(json.dumps(lab._jsonable(lab.build_report(md.load_snapshot()))))
         if os.environ.get("VOL_LAB_REBUILT"):                                # kept for the CI job summary
