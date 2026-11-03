@@ -5,6 +5,7 @@ docs' _pthr follows the same rule, so a q-value reads the same in RESULTS and on
 """
 
 import json
+import re
 import unittest
 
 from scripts import readme_blocks as rb
@@ -31,6 +32,24 @@ class ThresholdAwarePTest(unittest.TestCase):
         self.assertEqual(rb._pthr(None), "—")
         self.assertEqual(rb._peq_thr(0.00999), "p < 0.01")
         self.assertEqual(rb._peq_thr(0.0996), "p = 0.0996")
+
+
+class ModelInputsTest(unittest.TestCase):
+    """Every lab model says what it reads at the decision. A result PR that adds a model to vol_lab.MODELS without an
+    entry in MODEL_INPUTS fails here, naming the file, before the doc rebuild fails on it (docs/HANDOFF.md)."""
+
+    def test_every_lab_model_has_its_inputs(self):
+        from backend import vol_lab
+
+        missing = [key for key in vol_lab.MODEL_KEYS if key not in rb.MODEL_INPUTS]
+        self.assertEqual(missing, [], "scripts/readme_blocks.py MODEL_INPUTS does not describe these vol_lab.MODELS "
+                                      "keys: add what each reads at the decision (returns, range, implied)")
+        self.assertEqual(sorted(rb.MODEL_INPUTS), sorted(vol_lab.MODEL_KEYS), "MODEL_INPUTS lists a model the lab "
+                                                                               "does not have")
+        for key, inputs in rb.MODEL_INPUTS.items():
+            with self.subTest(model=key):
+                self.assertTrue(inputs)
+                self.assertLessEqual(inputs, {"returns", "range", "implied"})
 
 
 if __name__ == "__main__":
@@ -310,6 +329,7 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
     setUp = StabilityBlocksTest.setUp
     patched = StabilityBlocksTest.patched
     row = StabilityBlocksTest.row
+    model = StabilityBlocksTest.model
 
     def test_a_saffron_only_rejection_is_not_counted_as_surviving_an_adjustment(self):
         text = self.patched(rb.ledger_online)
@@ -582,6 +602,71 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
         self.assertIn("; a ledger row whose test could not be computed has no p-value and no q.", table)
         for name in ("stability_reading", "ledger_online", "abstract"):                  # the other blocks still build
             self.assertTrue(self.patched(getattr(rb, name)), name)
+
+    def _not_computed_ledger(self, keys):
+        """The ledger built by the ledger itself from the lab with these models' fluctuation tests not computed (the
+        lab's null form), added to whatever the committed artifacts hold."""
+        from unittest import mock
+
+        from backend import research_ledger as rl
+        from tests.test_research_ledger import _not_computed
+
+        for key in keys:
+            entry = self.model(key)
+            entry["fluctuation_qlike_vs_har_iv"] = _not_computed(entry["fluctuation_qlike_vs_har_iv"])
+        with mock.patch.object(rl, "ORDER_DRAWS", 3):
+            self.ledger = json.loads(json.dumps(rl.build(load=lambda name: self.lab if name == rl.LAB
+                                                         else rl.load_artifact(name))))
+        rows = [r for r in self.ledger["rows"] if r["status"] == "inconclusive" and r["p_value"] is None]
+        return ([r["id"] for r in rows if r["online_position"] is not None],
+                [r["id"] for r in rows if r["online_position"] is None])
+
+    def test_a_selected_row_the_lab_could_not_compute_is_outside_the_stream(self):
+        """The challenger's fluctuation test not computed: its row is inconclusive with no p-value, and it was selected
+        after a search, so it is outside the online stream as well as the family. The copy says so and never says it
+        is tested at p = 1."""
+        from backend import research_ledger as rl
+
+        rid = f"vol_fluct_{rl.CHALLENGER}"
+        streamed, searched = self._not_computed_ledger([rl.CHALLENGER])
+        r = self.row(rid)
+        self.assertEqual((r["status"], r["p_value"], r["selected_after_search"], r["online_position"], r["online_p"]),
+                         ("inconclusive", None, True, None, None))
+        self.assertEqual(searched, [rid])
+        block, reading = self.patched(rb.ledger_block), self.patched(rb.ledger_reading)
+        if not streamed:                                   # the committed ledger has no other uncomputed row
+            self.assertIn(f"The Inconclusive column counts {rid}, whose test the artifact could not compute (it has no "
+                          "p-value; selected after a search, it is outside both the multiplicity family and the online "
+                          "stream).", block)
+            self.assertIn(f"{rid} has no p-value: the artifact could not compute its test, and it was selected after a "
+                          "search, so it is outside both the multiplicity family and the online stream.", reading)
+        for text in (block, reading):
+            sentence = next(x for x in re.split(r"(?<=[.)]) ", text) if rid in x and "no p-value" in x)
+            self.assertNotIn(f"{rid} is tested at p = 1", sentence)
+            if not streamed:
+                self.assertNotIn("p = 1", sentence)
+
+    def test_uncomputed_rows_in_and_out_of_the_stream_are_named_apart(self):
+        """One uncomputed row in the stream (garch's) and the challenger's outside it: the p = 1 clause names only the
+        rows in the stream."""
+        from backend import research_ledger as rl
+
+        rid = f"vol_fluct_{rl.CHALLENGER}"
+        streamed, searched = self._not_computed_ledger([rl.CHALLENGER, "garch"])
+        self.assertIn("vol_fluct_garch", streamed)
+        self.assertEqual(searched, [rid])
+        self.assertEqual(self.row("vol_fluct_garch")["online_p"], 1.0)
+        both = sorted([*streamed, *searched], key=[r["id"] for r in self.ledger["rows"]].index)
+        k = len(streamed)
+        self.assertIn(f"The Inconclusive column counts {rb._join(both)}, whose test the artifact could not compute (they "
+                      f"have no p-value; in the online stream {rb._join(streamed)} {'is' if k == 1 else 'are each'} "
+                      f"tested at p = 1, and {rid}, selected after a search, is outside both the multiplicity family "
+                      "and the online stream).", self.patched(rb.ledger_block))
+        self.assertIn(f"{rb._join(both)} have no p-value: the artifact could not compute their test, so they are "
+                      f"outside the multiplicity family; in the online stream {rb._join(streamed)} "
+                      f"{'is' if k == 1 else 'are each'} tested at p = 1, as a retracted row is, so "
+                      f"{'it spends its' if k == 1 else 'each spends its'} level and earns none, and {rid}, selected "
+                      "after a search, is outside the online stream too.", self.patched(rb.ledger_reading))
 
     def test_the_retracted_rows_spend_their_level_online(self):
         self.assertIn("in the online stream each is tested at p = 1, so it spends its level and earns none",

@@ -122,8 +122,9 @@ export const ledgerOnlineText = (row, procedure) => {
 
 /**
  * LEDG's note on the online view, from the ledger's summary.online: both procedures' counts over the decided rows
- * of the stream (a pending registered row and the rows after it have no decision yet), the independence they
- * assume, the legacy rows' order sensitivity and that no status reads them. Null for a ledger without an online view.
+ * of the stream (a pending registered row and the rows after it have no decision yet), which rows are tested at p = 1
+ * (retracted rows, rows whose test could not be computed and withdrawn registrations), the independence they assume,
+ * the legacy rows' order sensitivity and that no status reads them. Null for a ledger without an online view.
  */
 export const ledgerOnlineNote = (ledger) => {
   const online = asObject(ledger?.online);
@@ -137,9 +138,14 @@ export const ledgerOnlineNote = (ledger) => {
   const counted = undecided
     ? `of the ${decided} decided rows in the stream, and ${undecided} more ${undecided === 1 ? "waits" : "wait"} for a registered result`
     : `of the ${stream} rows in the stream`;
+  const withdrawn = num(ledger?.registeredWithdrawn) ?? 0;
+  const atOne = withdrawn
+    ? `retracted rows, rows whose test could not be computed and ${withdrawn === 1 ? "the withdrawn registration"
+      : `the ${withdrawn} withdrawn registrations`} are tested at p = 1`
+    : "retracted rows and rows whose test could not be computed are tested at p = 1";
   let text = `Online control: in the order rows entered the ledger, at a ${fmtNum(alpha * 100, 0)}% false discovery rate, `
     + `LORD++ rejects ${lord.length} and SAFFRON ${saffron.length} ${counted} (rows selected after a search stay out; `
-    + "retracted rows and rows whose test could not be computed are tested at p = 1). Both assume independent p-values, "
+    + `${atOne}). Both assume independent p-values, `
     + "which rows on shared data do not have, and the page's other verdicts cite the batch view (q and t > 3) instead.";
   const sens = asObject(online.legacy_order_sensitivity);
   if (sens && num(sens.legacy_rows)) {

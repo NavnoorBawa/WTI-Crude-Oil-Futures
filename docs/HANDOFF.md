@@ -314,8 +314,13 @@ exists, in two PRs, in this order:
    A null in a field the test does not read as optional keeps the row pending. Its definition must
    not change (the spec hash); notes and context may be added. A generated family's model moves
    from `REGISTERED_LAB_MODELS` to `LAB_COMPARED` (or to `DISTRIBUTION_MODELS`) as it joins the
-   lab, which leaves the spec hash unchanged; a lab model joins `MODELS` in `backend/vol_lab.py` in
-   the same PR (a test checks that the two lists agree).
+   lab, which leaves the spec hash unchanged. A lab model also changes three lists in the same PR:
+   it joins `MODELS` in `backend/vol_lab.py` (a test checks that it and `LAB_COMPARED` agree), gets
+   an entry in `MODEL_INPUTS` in `scripts/readme_blocks.py` saying what it reads at the decision
+   (returns, the daily range, implied vol; a test checks that every lab model has one, and the doc
+   rebuild fails without it), and, unless it is a timing control, joins `FIELD_KEYS` in
+   `backend/field_record.py` (a test keeps it equal to `vol_lab.FEASIBLE`), so the field shadow
+   log starts logging it.
 
 A pending row blocks the online decisions after it, so resolve it promptly, or withdraw it (only
 before its result exists) with a reason, which the changelog names. The rows one registry makes for
@@ -323,10 +328,13 @@ a model are withdrawn together: `vol_gw_`/`vol_fluct_` read the leaderboard entr
 it, the score and `vol_berkowitz_` rows its distribution entry, and the entry that would hold a
 pending row's result would hold its withdrawn sibling's too (the build refuses a partial
 withdrawal). That retires the key in that registry: it stays in `REGISTERED_LAB_MODELS` and the lab
-never adds the model, or it stays in `REGISTERED_DISTRIBUTION_MODELS` and the lab never scores the
-model's distribution; a later attempt registers a new key. The two registries' rows read different
-entries, so a model registered through both can lose its distribution rows and keep its lab rows,
-or the other way round. Every changed p-value of an
+never adds the model to its leaderboard, or it stays in `REGISTERED_DISTRIBUTION_MODELS` and the lab
+never scores the model's distribution under that key; a later attempt registers a new key. The two
+registries' rows read different entries (a distribution row reads the leaderboard only as context,
+and only for a model in `LAB_COMPARED`), so a model registered through both can lose its
+distribution rows and keep its lab rows, or the other way round. In that second case its
+distribution rows resolve when the lab scores it as a distribution only, as it scores the quantile
+HAR, and the key moves to `DISTRIBUTION_MODELS` while it stays in `REGISTERED_LAB_MODELS`. Every changed p-value of an
 existing row (an erratum, a retraction after entry, a lab rebuild that moves p-values) recomputes
 the online view from that row on: name the row in `ONLINE_CORRECTIONS` in
 `tests/test_research_ledger.py` with its changelog errata entry.

@@ -468,7 +468,24 @@ test("the ledger's online view: CSV columns, the method note, and nothing for a 
   const followed = { ...registered, online: { ...pendingOnline, rows_in_stream: pendingOnline.rows_in_stream + 1 } };
   assert.ok(reference.ledgerOnlineNote(followed)
     .includes(`Rows after ${pendingOnline.waiting_on}, which waits for its result, have no online decision yet.`));
-  assert.ok(note.includes("retracted rows and rows whose test could not be computed are tested at p = 1"), note);
+  // Which rows are tested at p = 1: withdrawn registrations too, whenever the ledger holds one (the two synthetic rows
+  // are added to whatever the committed ledger holds).
+  const atOne = (n) => (n ? `retracted rows, rows whose test could not be computed and ${n === 1 ? "the withdrawn registration"
+    : `the ${n} withdrawn registrations`} are tested at p = 1` : "retracted rows and rows whose test could not be computed are tested at p = 1");
+  const committedWithdrawn = (committedLedger().summary.registered_withdrawn ?? []).length;
+  assert.ok(note.includes(`(rows selected after a search stay out; ${atOne(committedWithdrawn)}).`), note);
+  assert.equal(registered.registeredWithdrawn, committedWithdrawn + 1);
+  assert.ok(pendingNote.includes(`(rows selected after a search stay out; ${atOne(committedWithdrawn + 1)}).`), pendingNote);
+  const two = { ...registered, registeredWithdrawn: 2 };
+  assert.ok(reference.ledgerOnlineNote(two).includes("and the 2 withdrawn registrations are tested at p = 1"));
+  // Without the summary list, the withdrawn rows are counted from the rows themselves.
+  const both = withRegistered(research);
+  const bare = m.research.researchLedger({ ...both, ledger: { ...both.ledger, summary: { ...both.ledger.summary,
+    registered_withdrawn: undefined } } });
+  assert.equal(bare.registeredWithdrawn, committedWithdrawn + 1);
+  const withdrawnText = spaced(visibleText(section(renderPage(both).html, "ledg")));
+  assert.ok(withdrawnText.includes(spaced("A withdrawn registration stays listed (its flags read withdrawn), keeps its place in "
+    + "the online order and is tested there at p = 1, so it spends its level and is never rejected.")), "the registered note");
   // A research.json without the online view renders as before.
   assert.equal(reference.ledgerOnlineNote(m.research.researchLedger(research)), null);
   const old = visibleText(section(renderPage().html, "ledg"));

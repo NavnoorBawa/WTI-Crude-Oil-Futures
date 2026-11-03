@@ -921,6 +921,7 @@ def _registration_day():
 # registers instead of replacing it.
 TEST_MODEL, TEST_LABEL = "zz_test_model", "Test model T"
 COMMITTED_MODEL, COMMITTED_LABEL = "zz_committed_model", "Test model C"
+RETEST_MODEL, RETEST_LABEL = "zz_retest_model", "Test model R"     # a distribution registered again under a new key
 
 
 def _model_registrations(key, day, *, lab=True, distribution=True, withdrawn=None):
@@ -1385,6 +1386,98 @@ class RegistrationTest(unittest.TestCase):
         self.assertEqual([rid for rid in s["registered_withdrawn"] if rid in regs], lab_ids)
         self.assertEqual([rid for rid in s["registered"] if rid in regs], dist_ids)
 
+    def test_a_model_s_distribution_rows_resolve_after_its_lab_rows_are_withdrawn(self):
+        """The other way round, taken to its result PR: a model registered through both registries loses its lab rows,
+        which retires its key in REGISTERED_LAB_MODELS (the lab never adds it to its leaderboard), and the lab then
+        scores it as a distribution only, as it scores the quantile HAR. The key moves into DISTRIBUTION_MODELS and
+        stays in REGISTERED_LAB_MODELS; the distribution rows read the leaderboard only for a model in LAB_COMPARED,
+        so they resolve from the distribution entry alone, and the withdrawn lab rows stay at p = 1."""
+        day, reason = _registration_day(), "the lab will not add this model to its leaderboard"
+        regs = _model_registrations(TEST_MODEL, day)
+        lab_ids = list(_model_registrations(TEST_MODEL, day, distribution=False))
+        dist_ids = list(_model_registrations(TEST_MODEL, day, lab=False))
+        partial = {**regs, **{rid: dataclasses.replace(regs[rid], withdrawn=reason) for rid in lab_ids}}
+        with contextlib.ExitStack() as stack:
+            _patched(stack, (*_register_model(TEST_MODEL, TEST_LABEL, day), mock.patch.dict(rl.REGISTERED, partial)))
+            before = json.loads(json.dumps(rl.build()))
+        # The result PR: the lab writes the model's distribution entry and no leaderboard entry.
+        lab = _lab_with_model(TEST_MODEL, TEST_LABEL)
+        lab["leaderboard"]["models"] = [m for m in lab["leaderboard"]["models"] if m["key"] != TEST_MODEL]
+        with contextlib.ExitStack() as stack:
+            _patched(stack, (mock.patch.dict(rl.REGISTERED, partial),
+                             mock.patch.dict(rl.REGISTERED_LAB_MODELS, {TEST_MODEL: TEST_LABEL}),
+                             mock.patch.object(rl, "DISTRIBUTION_MODELS", (*rl.DISTRIBUTION_MODELS, TEST_MODEL))))
+            after = json.loads(json.dumps(rl.build(load=_loader(lab))))
+            with self.assertRaisesRegex(ValueError, "withdrawn, but its result exists"):     # the key stays retired
+                rl.build(load=_loader(_lab_with_model(TEST_MODEL, TEST_LABEL)))
+        dist = next(m for m in lab["distribution"]["models"] if m["key"] == TEST_MODEL)
+        rows, old = {r["id"]: r for r in after["rows"]}, {r["id"]: r for r in before["rows"]}
+        for tag, score, _ in rl._SCORES:
+            r = rows[f"vol_{tag}_{TEST_MODEL}"]
+            self.assertEqual(r["p_value"], dist["dm_vs_har_iv"][score]["p_value"])
+            self.assertNotIn("dm_qlike_p", r["context"])
+            self.assertNotIn("dm_qlike_p", r["artifact"]["context_fields"])
+        grids = [g["p_value"] for g in dist["berkowitz"]["by_grid"]]
+        self.assertEqual(rows[f"vol_berkowitz_{TEST_MODEL}"]["p_value"], min(1.0, len(grids) * min(grids)))
+        for rid in dist_ids:
+            with self.subTest(row=rid):
+                self.assertIn(rid, before["summary"]["registered"])
+                self.assertNotEqual(rows[rid]["status"], "registered")
+                self.assertIsNotNone(rows[rid]["q_value_bh"])
+                self.assertIn(TEST_LABEL, rows[rid]["hypothesis"])
+                self.assertEqual(rows[rid]["registration"]["spec_sha256"], old[rid]["registration"]["spec_sha256"])
+                self.assertEqual(rows[rid]["online_position"], old[rid]["online_position"])
+        for rid in lab_ids:
+            with self.subTest(row=rid):
+                self.assertEqual((rows[rid]["status"], rows[rid]["online_p"]), ("registered", 1.0))
+                self.assertIn(rid, after["summary"]["registered_withdrawn"])
+        self.assertEqual(_append_only_violations(before["rows"], after["rows"], {}), [])
+
+    def test_a_distribution_registered_again_under_a_new_key_resolves(self):
+        """HANDOFF's later attempt, for a distribution: the model's lab rows resolved under its key, its distribution
+        rows were withdrawn (the key is retired in REGISTERED_DISTRIBUTION_MODELS), and its distribution is registered
+        again under a new key. The lab writes the distribution entry under the new key, which has no leaderboard
+        entry; the new rows resolve from it, and the retired ones stay at p = 1."""
+        day, reason = _registration_day(), "the distribution's design changed before the lab scored it"
+        regs = _model_registrations(TEST_MODEL, day)
+        dist_ids = list(_model_registrations(TEST_MODEL, day, lab=False))
+        retired = {**regs, **{rid: dataclasses.replace(regs[rid], withdrawn=reason) for rid in dist_ids}}
+        again = _model_registrations(RETEST_MODEL, day, lab=False)
+        lab = _lab_with_model(TEST_MODEL, TEST_LABEL)
+        lab["distribution"]["models"] = [m for m in lab["distribution"]["models"] if m["key"] != TEST_MODEL]
+        common = (mock.patch.dict(rl.REGISTERED, {**retired, **again}),
+                  mock.patch.dict(rl.REGISTERED_DISTRIBUTION_MODELS, {TEST_MODEL: TEST_LABEL}),
+                  mock.patch.object(rl, "LAB_COMPARED", (*rl.LAB_COMPARED, TEST_MODEL)))
+        with contextlib.ExitStack() as stack:                     # the new key's registration PR: its rows wait
+            _patched(stack, (*common, mock.patch.dict(rl.REGISTERED_DISTRIBUTION_MODELS, {RETEST_MODEL: RETEST_LABEL})))
+            before = json.loads(json.dumps(rl.build(load=_loader(lab))))
+        # Its result PR: the lab scores the distribution under the new key, which moves into DISTRIBUTION_MODELS.
+        scored = copy.deepcopy(lab)
+        entry = copy.deepcopy(next(m for m in scored["distribution"]["models"] if m["key"] == "garch"))
+        entry.update(key=RETEST_MODEL, label=RETEST_LABEL)
+        scored["distribution"]["models"].append(entry)
+        with contextlib.ExitStack() as stack:
+            _patched(stack, (*common, mock.patch.object(rl, "DISTRIBUTION_MODELS", (*rl.DISTRIBUTION_MODELS,
+                                                                                     RETEST_MODEL))))
+            after = json.loads(json.dumps(rl.build(load=_loader(scored))))
+        rows, old = {r["id"]: r for r in after["rows"]}, {r["id"]: r for r in before["rows"]}
+        for tag, score, _ in rl._SCORES:
+            r = rows[f"vol_{tag}_{RETEST_MODEL}"]
+            self.assertEqual(r["p_value"], entry["dm_vs_har_iv"][score]["p_value"])
+            self.assertNotIn("dm_qlike_p", r["context"])
+        for rid in again:
+            with self.subTest(row=rid):
+                self.assertIn(rid, before["summary"]["registered"])
+                self.assertNotEqual(rows[rid]["status"], "registered")
+                self.assertIn(RETEST_LABEL, rows[rid]["hypothesis"])
+                self.assertEqual(rows[rid]["registration"]["spec_sha256"], old[rid]["registration"]["spec_sha256"])
+                self.assertEqual(rows[rid]["online_position"], old[rid]["online_position"])
+        for rid in dist_ids:
+            with self.subTest(row=rid):
+                self.assertEqual((rows[rid]["status"], rows[rid]["online_p"]), ("registered", 1.0))
+        self.assertNotEqual(rows[f"vol_gw_{TEST_MODEL}"]["status"], "registered")      # the lab rows resolved
+        self.assertEqual(_append_only_violations(before["rows"], after["rows"], {}), [])
+
     def test_same_day_registrations_keep_their_registration_order(self):
         """Two registrations on one day, the second defined earlier in the code than the first: the first keeps the
         position and levels it had before the second existed, and the second follows it."""
@@ -1490,7 +1583,7 @@ class ReservedModelKeysTest(unittest.TestCase):
         lab = rl.load_artifact(rl.LAB)
         used = {*rl.LAB_COMPARED, *rl.DISTRIBUTION_MODELS, *vol_lab.MODEL_KEYS,
                 *(m["key"] for m in lab["leaderboard"]["models"]), *(m["key"] for m in lab["distribution"]["models"])}
-        for key in (TEST_MODEL, COMMITTED_MODEL):
+        for key in (TEST_MODEL, COMMITTED_MODEL, RETEST_MODEL):
             self.assertNotIn(key, used)
             self.assertFalse(any(rid.endswith(f"_{key}") for rid in rl.REGISTERED), key)
 

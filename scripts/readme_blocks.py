@@ -2315,6 +2315,13 @@ def _power(row: dict) -> tuple[float, float] | None:
     return (power, ctx["target_power"]) if power is not None and "target_power" in ctx else None
 
 
+def _uncomputed_by_stream(rows: list[dict]) -> tuple[list[str], list[str]]:
+    """Rows whose test the artifact could not compute, split by the online stream: those in it (tested there at p = 1)
+    and those selected after a search (outside the multiplicity family and the stream alike)."""
+    return ([r["id"] for r in rows if r.get("online_position") is not None],
+            [r["id"] for r in rows if r.get("online_position") is None and r.get("selected_after_search")])
+
+
 def ledger_block() -> str:
     led = _ledger()
     s = led["summary"]
@@ -2327,7 +2334,8 @@ def ledger_block() -> str:
     # Registered rows have no result: those still waiting, and those withdrawn before a result existed.
     pending, withdrawn = len(s.get("registered", [])), len(s.get("registered_withdrawn", []))
     # An inconclusive row without a p-value: its artifact ran the test and could not compute it.
-    uncomputed = [r["id"] for r in led["rows"] if r["status"] == "inconclusive" and r["p_value"] is None]
+    uncomputed_rows = [r for r in led["rows"] if r["status"] == "inconclusive" and r["p_value"] is None]
+    uncomputed = [r["id"] for r in uncomputed_rows]
     band = f"{alpha:.2f} ≤ p < {inconclusive_below:.2f}"
     if uncomputed:
         n = len(uncomputed)
@@ -2374,9 +2382,20 @@ def ledger_block() -> str:
                    + f"{f['supported_surviving_bh_5pct']} | {f['supported_clearing_hlz_t3']} |")
     if uncomputed:
         n = len(uncomputed)
+        streamed, searched = _uncomputed_by_stream(uncomputed_rows) if s.get("online") else ([], [])
+        detail = f"{'it has' if n == 1 else 'they have'} no p-value"
+        if streamed and not searched:
+            detail += f", and in the online stream {'it is' if n == 1 else 'each is'} tested at p = 1"
+        elif searched and not streamed:
+            detail += (f"; selected after a search, {'it is' if n == 1 else 'they are'} outside both the multiplicity "
+                       f"family and the online stream")
+        elif searched:
+            detail += (f"; in the online stream {_join(streamed)} {'is' if len(streamed) == 1 else 'are each'} tested "
+                       f"at p = 1, and {_join(searched)}, selected after a search, "
+                       f"{'is' if len(searched) == 1 else 'are'} outside both the multiplicity family and the online "
+                       f"stream")
         out += ["", f"The Inconclusive column counts {_join(uncomputed)}, whose test the artifact could not compute "
-                    f"({'it has' if n == 1 else 'they have'} no p-value, and in the online stream "
-                    f"{'it is' if n == 1 else 'each is'} tested at p = 1)."]
+                    f"({detail})."]
     out += ["", "The supported hypotheses in the multiplicity family that survive Benjamini-Hochberg at 5%:", "",
             "| Claim | p | BH q | Clears t > 3 |", "|---|---:|---:|:---:|"]
     for key in s["supported_surviving_bh_5pct"]:
@@ -2550,15 +2569,31 @@ def ledger_reading() -> str:
                 + (". One of them is the share of periods with OVX above realized volatility tested against 50%, the "
                    "wrong null for a premium (section 2.5)." if vrp is not None and vrp["status"] == "retracted"
                    else "."))
-    # Rows whose test the artifact could not compute: no p-value, outside the family, at p = 1 in the stream.
-    uncomputed = [r["id"] for r in led["rows"] if r["status"] not in ("registered", "retracted") and r["p_value"] is None]
-    if uncomputed:
+    # Rows whose test the artifact could not compute: no p-value and outside the family; in the stream at p = 1, unless
+    # selected after a search (then outside the stream too).
+    uncomputed_rows = [r for r in led["rows"] if r["status"] not in ("registered", "retracted") and r["p_value"] is None]
+    if uncomputed_rows:
+        uncomputed = [r["id"] for r in uncomputed_rows]
         n = len(uncomputed)
-        text.append(f"{_join(uncomputed)} {'has' if n == 1 else 'have'} no p-value: the artifact could not compute "
-                    f"{'its' if n == 1 else 'their'} test, so {'it is' if n == 1 else 'they are'} outside the "
-                    f"multiplicity family" + (f"; in the online stream {'it is' if n == 1 else 'each is'} tested at "
-                                              "p = 1, as a retracted row is, so it spends its level and earns none"
-                                              if s.get("online") else "") + ".")
+        streamed, searched = _uncomputed_by_stream(uncomputed_rows) if s.get("online") else ([], [])
+        sentence = (f"{_join(uncomputed)} {'has' if n == 1 else 'have'} no p-value: the artifact could not compute "
+                    f"{'its' if n == 1 else 'their'} test")
+        if searched and not streamed:
+            sentence += (f", and {'it was' if n == 1 else 'they were'} selected after a search, so "
+                         f"{'it is' if n == 1 else 'they are'} outside both the multiplicity family and the online "
+                         f"stream")
+        else:
+            sentence += f", so {'it is' if n == 1 else 'they are'} outside the multiplicity family"
+            if streamed and not searched:
+                sentence += (f"; in the online stream {'it is' if n == 1 else 'each is'} tested at p = 1, as a "
+                             "retracted row is, so it spends its level and earns none")
+            elif streamed:
+                k = len(streamed)
+                sentence += (f"; in the online stream {_join(streamed)} {'is' if k == 1 else 'are each'} tested at "
+                             f"p = 1, as a retracted row is, so {'it spends its' if k == 1 else 'each spends its'} "
+                             f"level and earns none, and {_join(searched)}, selected after a search, "
+                             f"{'is' if len(searched) == 1 else 'are'} outside the online stream too")
+        text.append(sentence + ".")
     return " ".join(text)
 
 

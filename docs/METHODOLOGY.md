@@ -880,13 +880,19 @@ pre-specified.
   model are withdrawn together: they read one entry the lab writes whole (the leaderboard entry for
   the conditional and stability rows, the distribution entry for the score and calibration rows), so
   the entry that would hold a pending row's result would hold its withdrawn sibling's too.
-  Withdrawal retires the key in that registry (the lab never adds the model, or never scores its
-  distribution); a later attempt registers a new key. The two registries' rows read different
-  entries, so each group is withdrawn on its own. `registered` means fixed before the result existed;
-  `pre_specified` means fixed before the data were seen, and most registered rows will run on data
-  already explored, so the two are counted separately. The checks see main only: a result computed
-  off main before registration cannot be detected, and the row's note must disclose it if it
-  happened.
+  Withdrawal retires the key in that registry (the lab never adds the model to its leaderboard, or
+  never scores its distribution under that key); a later attempt registers a new key. The two
+  registries' rows read different entries (a distribution row reads the leaderboard only as
+  context, and only for a model in `LAB_COMPARED`), so each group is withdrawn on its own, and a
+  model's distribution rows resolve with no leaderboard entry under their key: after its lab rows
+  are withdrawn (the lab scores it as a distribution only, as it does the quantile HAR) or when its
+  distribution is registered again under a new key. A lab model's result pull request also gives
+  it an entry in `MODEL_INPUTS` (`scripts/readme_blocks.py`) and, unless it is a timing control, in
+  `FIELD_KEYS` (`backend/field_record.py`, the field shadow log). `registered` means fixed before
+  the result existed; `pre_specified` means fixed before the data were seen, and most registered
+  rows will run on data already explored, so the two are counted separately. The checks see main
+  only: a result computed off main before registration cannot be detected, and the row's note must
+  disclose it if it happened.
 - `pre_specified` is true only where the code documents the test as fixed before the data were
   seen; most of the project was exploratory.
 - **Families** name the kind of claim (direction model, leak anatomy, carry, variance risk premium,

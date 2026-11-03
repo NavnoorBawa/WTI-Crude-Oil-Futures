@@ -153,7 +153,8 @@ backs the new one.
   test could not be computed (inconclusive, or not supported when its stored estimate points the wrong way). A model
   of a generated family (one row per model) is registered with the label its rows show until the lab produces it;
   the rows one registry makes for it read one artifact entry and are withdrawn together, which retires the key in
-  that registry. From now on every new hypothesis is registered first. The online decisions assume independent null p-values, which these rows do not have, and for the rows that
+  that registry; a model's distribution rows read only its distribution entry (the leaderboard only as context, for a
+  model the lab compares), so they resolve whatever its lab rows do. From now on every new hypothesis is registered first. The online decisions assume independent null p-values, which these rows do not have, and for the rows that
   entered before registration began they are a retrospective reading of the ledger's code order within entry batches
   dated from the git history, an order fixed after their p-values were known. The old
   use of "registered" for "the form the ledger enters" becomes "entered" or "adopted" in the docs and row notes. The
@@ -264,8 +265,10 @@ backs the new one.
   a registration shows its registration date beside its status, since Recorded is the artifact's date (for lab rows,
   the snapshot's), which can precede the registration. The table's caption says "Hypotheses". The online view stays off screen: the CSV gains each row's entry date, online position,
   and LORD++ and SAFFRON levels and decisions (yes, no, pending, excluded or n/a), and the method notes (closed by
-  default) gain a sentence built from the ledger's online summary, with the procedures' counts, the independence they
-  assume, the legacy rows' order sensitivity and that no status reads them, and a note on the registered status. METH
+  default) gain a sentence built from the ledger's online summary, with the procedures' counts, which rows are tested
+  at p = 1 (retracted rows, rows whose test could not be computed and any withdrawn registration), the independence
+  they assume, the legacy rows' order sensitivity and that no status reads them, and a note on the registered status
+  (a withdrawn registration keeps its place in the online order and is tested there at p = 1). METH
   cites LORD++ and SAFFRON; the data-vintage row reads the ledger's latest entry. A research.json without the online
   view renders as before. The status strip reserves its height from its own label layout in each width band and is
   never drawn shorter, so a registered group's label line, or a narrower strip, no longer shifts the table below it.

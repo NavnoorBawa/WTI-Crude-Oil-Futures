@@ -63,7 +63,10 @@ REGISTERED_DISTRIBUTION_MODELS) makes for a model are withdrawn together, which 
 that registry: they read one entry the lab writes whole (leaderboard.models[key=...] or
 distribution.models[key=...]), so the entry that would hold a pending row's result would hold its
 withdrawn sibling's too, and a withdrawn row's result may never exist. The two registries' rows read
-different entries, so each is withdrawn on its own. Both procedures assume independent null
+different entries (a distribution row reads the leaderboard only as context, and only for a model in
+LAB_COMPARED), so each is withdrawn on its own, and a model's distribution rows resolve with no
+leaderboard entry under their key: after its lab rows are withdrawn, or when its distribution is
+registered again under a new key. Both procedures assume independent null
 p-values, which these rows do not have, and no status reads either online view. The rows that
 entered before registration began have no order fixed in advance: their entry batches are dated
 from the git history, but their order within each batch is the code's, fixed after their p-values
@@ -806,8 +809,10 @@ LAB_COMPARED = ("persistence", "raw_ovx", "ewma", "garch", "gjr", "har_rv", "har
 # other. In the result PR the model joins vol_lab's MODELS and moves from here to LAB_COMPARED, which leaves every
 # row's definition, and so its spec hash, unchanged. Both rows registered here for a model are withdrawn together (they
 # read the one leaderboard entry the lab writes for it), and the model then stays here for good: its key is retired
-# here, and the lab never adds the model. Its distribution rows (REGISTERED_DISTRIBUTION_MODELS) read another entry and
-# are withdrawn, or not, on their own.
+# here, and the lab never adds the model to its leaderboard. Its distribution rows (REGISTERED_DISTRIBUTION_MODELS)
+# read another entry and are withdrawn, or not, on their own: kept, they resolve when the lab scores the model as a
+# distribution only, as it scores the quantile HAR. A result PR also adds a new lab model to the other lists
+# docs/HANDOFF.md names (scripts/readme_blocks.py MODEL_INPUTS among them).
 REGISTERED_LAB_MODELS: dict[str, str] = {}
 CHALLENGER = "har_iv_range"
 _APPROXIMATE = ("The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it "
@@ -894,7 +899,9 @@ DISTRIBUTION_MODELS = ("har_iv_range", "ovx_only", "garch", "gjr", "ewma", "quan
 # Models whose distribution rows are registered before the lab scores them (ROADMAP 2.12), as REGISTERED_LAB_MODELS: key
 # -> the label shown while the rows wait; in the result PR the model moves from here to DISTRIBUTION_MODELS. The four
 # rows registered here for a model read the one distribution entry the lab writes for it, so they are withdrawn
-# together, which retires the key here: the lab never scores the model's distribution (whatever its lab rows do).
+# together, which retires the key here: the lab never scores the model's distribution under that key (whatever its lab
+# rows do), and a later attempt registers a new key. The rows read the leaderboard only for context, and only for a
+# model in LAB_COMPARED, so they resolve for a model with no leaderboard entry (lab rows withdrawn, or a new key).
 REGISTERED_DISTRIBUTION_MODELS: dict[str, str] = {}
 _SCORES = (("crps", "crps_grid", "CRPS over 19 quantiles"), ("pinball10", "pinball_10", "the 10% pinball loss"),
            ("pinball90", "pinball_90", "the 90% pinball loss"))
@@ -940,7 +947,10 @@ def _distribution_rows() -> list[Row]:
                     context.update({"qlike_batch_means_p": f"{field}.dm_qlike_vs_har_iv.batch_means.p_value",
                                     "qlike_mcs_p": f"{field}.mcs.p_values.quantile_har",
                                     "spa_p_with_it": f"{field}.spa.p_consistent"})
-            else:
+            elif m in LAB_COMPARED:
+                # Context from the leaderboard only for a model the lab compares there: a model scored only as a
+                # distribution (one whose lab rows were withdrawn, or a distribution registered again under a new
+                # key) has no leaderboard entry, and its rows read nothing but its distribution entry.
                 context["dm_qlike_p"] = f"{_LM.format(m)}.dm_qlike_vs_har_iv.p_value"
             if picked:
                 note = ("Selected after a search: the challenger is the lowest-QLIKE model of the field on this same "
@@ -1083,8 +1093,9 @@ def ledger_rows() -> list[Row]:
     entry date of the function that defines it. Every row generated for a registered model must be registered, and
     the rows one registry makes for a model are withdrawn together: they read one entry the lab writes whole, so the
     entry that would hold a pending row's result would hold its withdrawn sibling's too. A model registered through
-    both registries has two such groups, which read different entries (leaderboard and distribution), so each is
-    withdrawn on its own."""
+    both registries has two such groups, which read different entries (leaderboard and distribution; a distribution
+    row reads the leaderboard only as context, and only for a model in LAB_COMPARED), so each is withdrawn on its
+    own."""
     out = []
     models: dict[tuple[str, str], list[str]] = {}
     for fn, row in _defined_rows():
