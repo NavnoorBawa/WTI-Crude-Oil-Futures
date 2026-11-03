@@ -269,7 +269,10 @@ class DistributionBlocksTest(StabilityBlocksTest.__base__):
 
     def test_the_ledger_reading_names_rows_that_survive_only_with_the_new_families(self):
         text = self.patched(rb.ledger_reading)
-        self.assertIn("The 25 rows on the whole predictive distribution (section 2.9) add 22 to the family", text)
+        dist = [r for r in self.ledger["rows"] if r["family"] in ("predictive distribution", "distribution calibration")]
+        added = [r for r in dist if r["q_value_bh"] is not None]
+        self.assertIn(f"The {len(dist)} rows on the whole predictive distribution (section 2.9) add {len(added)} to the "
+                      "family (the challenger's", text)
         self.assertNotIn("Without them", text)
         weak = self.row("carry_spread_post2007")
         weak["survives_bh_5pct"] = True                        # a fixture: it could survive only with the new rows
@@ -335,9 +338,14 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
         s["online"]["waiting_on"] = "reg_pending"
         s["online"]["lordpp"]["next_level"] = s["online"]["saffron"]["next_level"] = None
         text = self.patched(rb.ledger_online)
-        self.assertIn("2 registered rows wait for their results (reg_pending and reg_later); the level it will be "
-                      "tested at is fixed: reg_pending at 0.001 by LORD++ and 0.06 by SAFFRON; rows after reg_pending "
+        # Its SAFFRON level, 0.06, is above the 5% target: the caveat follows the level for as long as the row waits.
+        self.assertIn("2 registered rows wait for their results (reg_pending and reg_later). The levels reg_pending will "
+                      "be tested at are fixed: 0.001 by LORD++ and 0.06 by SAFFRON, which is above 5% after the recent "
+                      "rejections: a SAFFRON rejection with p at 5% or more would not be support. Rows after reg_pending "
                       "have no online decision until it resolves.", text)
+        pending["online_alpha_saffron"] = 0.04
+        self.assertIn("The levels reg_pending will be tested at are fixed: 0.001 by LORD++ and 0.04 by SAFFRON. Rows "
+                      "after reg_pending", self.patched(rb.ledger_online))
         gone = s["registered_withdrawn"]
         if len(gone) == 1:
             self.assertIn("1 registration was withdrawn (reg_gone) and spends its online level at p = 1 (not counted "
@@ -395,6 +403,52 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
         self.assertNotIn("registered and wait", abstract)
         self.assertIn("1 registration was withdrawn (reg_gone) and spends its online level at p = 1 (not counted as "
                       "tested).", self.patched(rb.ledger_online))
+
+    def test_registered_distribution_rows_are_not_counted_in_the_family(self):
+        """Built by the ledger itself: a model registered through the distribution families (HANDOFF's route) adds rows
+        to those families but none to the multiplicity family until its results exist; the reading counts them apart."""
+        import contextlib
+        from datetime import date, timedelta
+        from unittest import mock
+
+        from backend import research_ledger as rl
+
+        key, day = "zz_test_model", max([(date.fromisoformat(rl.latest_legacy_entry()) + timedelta(days=1)).isoformat(),
+                                         *(r.on for r in rl.REGISTERED.values())])
+        base = f"distribution.models[key={key}]"
+        regs = {f"vol_{tag}_{key}": rl.Registration(day, f"{base}.dm_vs_har_iv.{score}.p_value")
+                for tag, score, _ in rl._SCORES}
+        regs[f"vol_berkowitz_{key}"] = rl.Registration(day, f"{base}.berkowitz.by_grid")
+        with contextlib.ExitStack() as stack:
+            for patch in (mock.patch.dict(rl.REGISTERED, regs),
+                          mock.patch.dict(rl.REGISTERED_DISTRIBUTION_MODELS, {key: "Test model T"}),
+                          mock.patch.object(rl, "ORDER_DRAWS", 3)):
+                stack.enter_context(patch)
+            plain = json.loads(json.dumps(rl.build()))
+            regs[f"vol_berkowitz_{key}"] = rl.Registration(day, f"{base}.berkowitz.by_grid", "abandoned")
+            for rid in list(regs)[:3]:
+                regs[rid] = rl.Registration(day, regs[rid].field, "abandoned")
+            with mock.patch.dict(rl.REGISTERED, regs):
+                gone = json.loads(json.dumps(rl.build()))
+        for ledger in (plain, gone):
+            self.ledger = ledger
+            dist = [r for r in ledger["rows"] if r["family"] in ("predictive distribution", "distribution calibration")]
+            added = [r for r in dist if r["q_value_bh"] is not None]
+            picked = sum(r["selected_after_search"] for r in dist)
+            registered = [r for r in dist if r["status"] == "registered"]
+            waiting = sum(not r["registration"]["withdrawn"] for r in registered)
+            self.assertEqual(len(dist) - len(added), picked + len(registered))     # the four added rows among them
+            self.assertGreaterEqual(waiting if ledger is plain else len(registered) - waiting, 4)
+            text = self.patched(rb.ledger_reading)
+            self.assertIn(f"The {len(dist)} rows on the whole predictive distribution (section 2.9) add {len(added)} "
+                          f"to the family (the challenger's {picked} are left out; ", text)
+            if waiting:
+                self.assertIn(f"; {waiting} registered rows wait for their results", text)
+            if len(registered) > waiting:
+                self.assertIn(f"; {len(registered) - waiting} registered rows were withdrawn before their results "
+                              "existed", text)
+            self.assertIn(f"The multiplicity adjustments run over {ledger['summary']['rows_in_multiplicity_family']} "
+                          "rows", self.patched(rb.ledger_block))
 
     def test_the_retracted_rows_spend_their_level_online(self):
         self.assertIn("in the online stream each is tested at p = 1, so it spends its level and earns none",

@@ -432,8 +432,8 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   entered_on, online_position, online_alpha_lordpp, online_rejected_lordpp, online_alpha_saffron,
   online_rejected_saffron, registration}`, with `status` one of those five keys, and `q_bh`, `p_holm`,
   `survives_bh` and `clears_t3` null for a row selected after a search. `date` is the source artifact's
-  own date (for `vol_lab` rows, the pinned snapshot's retrieval date; null for a registered row without a
-  result); the order rows entered the ledger is `entered_on`, the UTC date of the merge to main that first
+  own date (for `vol_lab` rows, the pinned snapshot's retrieval date, which can precede the day the test
+  was added or registered; null for a registered row without a result); the order rows entered the ledger is `entered_on`, the UTC date of the merge to main that first
   held the row, or its registration date. The online view (ROADMAP 2.12) runs LORD++ and SAFFRON at a
   target false discovery rate of 0.05 over the rows in that order: `online_position` is the row's place
   in the stream (1-based), and each procedure's `online_alpha_*` is the level the row was tested at and
@@ -444,9 +444,12 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   `online_rejected_*` is false for a retracted row and for a withdrawn registration, which are tested at
   p = 1 with their level set, and a withdrawn registration does not hold up later rows. `registration`
   is `{on, field, withdrawn}` (the date, the artifact field that will hold the result, and a withdrawal
-  reason) or null. A registered row, pending or withdrawn, has a null `p_value`, `q_bh`, `p_holm`,
-  `survives_bh` and `clears_t3`; its online decision is null while it is pending and false once it is
-  withdrawn. The full artifact also has, per row,
+  reason) or null. A registered row's result exists once `registration.field` holds a value, or a null
+  that the row's test reads as optional (a test the artifact ran and could not compute, as the lab's
+  `not_computed` fluctuation fields: the row is then `inconclusive` with a null `p_value`, and tested
+  online at p = 1); until then, or while its artifact file is missing, the row is pending. A
+  registered row, pending or withdrawn, has a null `p_value`, `q_bh`, `p_holm`, `survives_bh` and
+  `clears_t3`; its online decision is null while it is pending and false once it is withdrawn. The full artifact also has, per row,
   `online_p` (the p the row is tested on: `p_two_sided`, or 1 for a retracted row, a row whose test could
   not be computed and a withdrawn registration), `online_candidate_saffron` (`online_p` ≤ λ) and
   `registration.spec_sha256` (the hash of the declared test). `summary.online` is `{alpha, reference,

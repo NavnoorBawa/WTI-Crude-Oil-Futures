@@ -224,7 +224,7 @@ test("the ledger's CSV exports what each flag cell shows, with the id, test and 
   // Export-only columns are in the markup (hidden by CSS) so the CSV carries them.
   assert.match(ledg, /<th scope="col" class="align-left csv-only"[^>]*><span class="th-label">ID<\/span><\/th>/);
   assert.match(ledg, /<th scope="col" class="align-left csv-only"[^>]*><span class="th-label">Test<\/span><\/th>/);
-  assert.match(ledg, /<th scope="col" class="align-left muted-cell"[^>]*title="The date of the artifact that holds the test"[^>]*><button type="button" class="sort-button"><span>Recorded<\/span>/);
+  assert.match(ledg, /<th scope="col" class="align-left muted-cell"[^>]*title="The source artifact&#x27;s own date; for lab rows, the data snapshot&#x27;s retrieval date, which can precede when the test was added or registered"[^>]*><button type="button" class="sort-button"><span>Recorded<\/span>/);
   // Status (the default sort) comes right after the hypothesis, so a tablet that scrolls the table
   // sideways starts on each row's verdict; the descriptive columns follow.
   const labels = [...(ledg.match(/<thead[\s\S]*?<\/thead>/)?.[0] ?? "").matchAll(/<th scope="col"[^>]*>([\s\S]*?)<\/th>/g)]
@@ -394,6 +394,23 @@ test("a registered row has its own status, rank, strip group and pending flags, 
   assert.match(full, new RegExp(`>Registered \\(${registeredCount}\\)</option>`));
   assert.ok(visibleText(full).includes(`${registeredCount} registered`), "the meta counts them");
   assert.ok(visibleText(full).includes(`Hypotheses: ${reference.LEDGER_PAGE} of ${ledger.rows.length} shown`), "the caption counts every row");
+});
+
+test("a row with a registration shows its registration date beside its status", () => {
+  // Recorded is the artifact's date (for lab rows the snapshot's, which can precede the registration), so a resolved
+  // registered row shows the day it was registered on screen; a pending or withdrawn one shows it too.
+  const spliced = withRegistered(research);
+  const rows = spliced.ledger.rows;
+  const tested = rows.find((row) => row.status === "supported" && row.registration == null && row.date);
+  const resolved = { ...tested, id: "reg_resolved", registration: { on: "2026-11-12", field: "experiment3.p_value", withdrawn: null } };
+  const few = { ...spliced, ledger: { ...spliced.ledger, rows: [...rows.slice(0, 3), ...rows.slice(-2), resolved] } };
+  const ledg = spaced(section(renderPage(few).html, "ledg"));
+  const chips = [...ledg.matchAll(/<span class="chip chip--muted" title="The day \(UTC\) the hypothesis was registered[^"]*">([^<]+)<\/span>/g)]
+    .map((match) => match[1]);
+  const f = m.format;
+  assert.deepEqual(chips.sort(), [`on ${f.fmtDate("2026-11-10")}`, `on ${f.fmtDate("2026-11-11")}`,
+    `registered ${f.fmtDate("2026-11-12")}`].map(spaced).sort());
+  assert.ok(visibleText(ledg).includes("a registered row shows its registration date beside its status"), "the note says so");
 });
 
 test("the ledger's online view: CSV columns, the method note, and nothing for a ledger without one", () => {

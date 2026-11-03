@@ -653,8 +653,8 @@ each row's level depends only on the rows before it, so adding rows never change
 decision. A corrected p-value does change it, and is listed as an erratum. Every other section cites
 the batch view. A hypothesis added to the ledger after the rows below is registered before its
 result exists: its row states its test and the artifact field that will hold its p-value, its
-status stays "registered" until that field exists, and its place in the online order is fixed when
-it is registered.
+status stays "registered" until that field holds the result, and its place in the online order is
+fixed when it is registered.
 
 <!-- [[[cog import scripts.readme_blocks as b; b.print_block("ledger_block") ]]] -->
 

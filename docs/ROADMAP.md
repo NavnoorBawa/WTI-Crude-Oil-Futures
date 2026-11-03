@@ -386,7 +386,7 @@ Tick items here with the PR number and date when they ship, and move any new fin
   within-batch order sensitivity for the legacy rows. BH, Holm and HLZ stay the batch view; every
   existing row's batch fields are unchanged. The `registered` status: `REGISTERED` declares a row's
   date and result field, its complete test is defined at registration, and its status resolves on the
-  first rebuild after the field exists. It has a withdrawal path (p = 1, listed for good) and a spec
+  first rebuild after the field holds the result. It has a withdrawal path (p = 1, listed for good) and a spec
   hash. Git-backed tests check entry dates, registration integrity and append-only online decisions.
   LEDG shows the status, CSV columns and a method note for the online decisions.
 

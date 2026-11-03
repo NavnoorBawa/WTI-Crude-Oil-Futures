@@ -29,7 +29,7 @@ const STATUS_TITLE = {
     + "tested (or withdrawn before a result existed)",
 };
 const REGISTERED_NOTE = "Registered: a hypothesis declared, with its test and the artifact field that will hold its p-value, "
-  + "before its result existed. It has no p-value or decision until that field exists (its flags read pending), it is not "
+  + "before its result existed. It has no p-value or decision until that field holds its result (its flags read pending), it is not "
   + "counted as tested, and a withdrawn registration stays listed. From ROADMAP 2.12 on, every new hypothesis is registered "
   + "first; its place in the online order is fixed when it is registered.";
 const UNDERPOWERED_TITLE = "The test's recorded power is below its target, so a failure to reject says little about whether the effect exists";
@@ -37,6 +37,11 @@ const AFTER_SEARCH_TITLE = "The model was chosen as the best of a field on this 
   + "The row is left out of the multiplicity adjustment (no q-value, Holm p-value or t > 3 flag); where a search-adjusted test "
   + "exists (the Hansen SPA row, for the full-sample comparison), the row's note names it.";
 const PRE_SPECIFIED_TITLE = "The code documents this test as fixed before the data were seen; most of the project was exploratory";
+const REGISTERED_ON_TITLE = "The day (UTC) the hypothesis was registered, with its test and the artifact field for its result, "
+  + "before that result existed";
+// The Recorded column: for lab rows the data snapshot's date, which can precede the day a test was added or registered.
+const RECORDED_TITLE = "The source artifact's own date; for lab rows, the data snapshot's retrieval date, which can precede "
+  + "when the test was added or registered";
 // The default order (status rank, then q), as a sort the URL leaves out.
 const DEFAULT_SORT = Object.freeze({ key: "status", direction: "asc" });
 const SORT_KEYS = new Set(["family", "statistic", "p", "q", "survives_bh", "clears_t3", "status", "date"]);
@@ -155,6 +160,11 @@ export default function LedgerPanel({ research, researchStatus }) {
           {row.underpowered && <Chip tone="status-warn" title={UNDERPOWERED_TITLE}>underpowered</Chip>}
           {row.selectedAfterSearch && <Chip tone="warn" title={AFTER_SEARCH_TITLE}>selected after search</Chip>}
           {row.pre_specified === true && <Chip tone="status-pending" title={PRE_SPECIFIED_TITLE}>pre-specified</Chip>}
+          {asText(row.registration?.on) && (
+            <Chip tone="muted" title={REGISTERED_ON_TITLE}>
+              {`${row.status === "registered" ? "on" : "registered"} ${fmtDate(row.registration.on)}`}
+            </Chip>
+          )}
         </span>
       ) : DASH),
     },
@@ -190,7 +200,7 @@ export default function LedgerPanel({ research, researchStatus }) {
       render: (row) => flagCell(row, "clears_t3"),
     },
     {
-      key: "date", label: "Recorded", title: "The date of the artifact that holds the test", sortable: true, firstDirection: "desc",
+      key: "date", label: "Recorded", title: RECORDED_TITLE, sortable: true, firstDirection: "desc",
       className: "muted-cell", render: (row) => fmtDate(row.date),
     },
     // Export-only columns (hidden on screen; the id and test are shown inside the hypothesis cell, and the online
@@ -366,7 +376,8 @@ export default function LedgerPanel({ research, researchStatus }) {
         `p is the p-value as the test was run, one-sided where the hypothesis is directional. q (Benjamini-Hochberg) and the t > ${fmtNum(hurdle, 0)} `
           + "hurdle use the two-sided p (a one-sided p doubled), across every row except those selected after a search. Each row's test "
           + "line gives its sample and sign convention; DM statistics are positive when the named model has the lower loss, as everywhere "
-          + "on the page. Recorded is the date of the artifact that holds the test.",
+          + "on the page. Recorded is the source artifact's own date; for lab rows, the data snapshot's retrieval date, which can "
+          + "precede when the test was added or registered (a registered row shows its registration date beside its status).",
         ledgerOnlineNote(ledger),
         ledger.online ? REGISTERED_NOTE : null,
       ].filter(Boolean)}

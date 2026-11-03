@@ -307,12 +307,20 @@ exists, in two PRs, in this order:
    its rows show while they wait, in `REGISTERED_LAB_MODELS` (or `REGISTERED_DISTRIBUTION_MODELS`)
    and each of its rows in `REGISTERED`; `vol_lab.py` does not change in this PR.
 2. **Result PR.** It rebuilds the artifact so the field exists, then the ledger: the row resolves by
-   itself. Its definition must not change (the spec hash); notes and context may be added. A
-   generated family's model moves from `REGISTERED_LAB_MODELS` to `LAB_COMPARED` (or to
-   `DISTRIBUTION_MODELS`) as it joins the lab, which leaves the spec hash unchanged.
+   itself. A test the artifact ran but could not compute resolves it too, where the row reads the
+   field as optional (`Field(optional=True)`, as the `vol_gw_`/`vol_fluct_` rows do): the row is
+   then inconclusive, with no p-value, and tested online at p = 1. A null in a field the test does
+   not read as optional keeps the row pending. Its definition must not change (the spec hash); notes
+   and context may be added. A generated family's model moves from `REGISTERED_LAB_MODELS` to
+   `LAB_COMPARED` (or to `DISTRIBUTION_MODELS`) as it joins the lab, which leaves the spec hash
+   unchanged.
 
 A pending row blocks the online decisions after it, so resolve it promptly, or withdraw it (only
-before its result exists) with a reason, which the changelog names. Every changed p-value of an
+before its result exists) with a reason, which the changelog names. A generated family's model is
+withdrawn whole, every row registered for it at once (the build refuses a partial withdrawal, since
+its rows read one model entry and a pending sibling could never resolve). That retires its key: it
+stays in `REGISTERED_LAB_MODELS` (or `REGISTERED_DISTRIBUTION_MODELS`) and never joins the lab, and
+a later attempt registers a new key. Every changed p-value of an
 existing row (an erratum, a retraction after entry, a lab rebuild that moves p-values) recomputes
 the online view from that row on: name the row in `ONLINE_CORRECTIONS` in
 `tests/test_research_ledger.py` with its changelog errata entry.

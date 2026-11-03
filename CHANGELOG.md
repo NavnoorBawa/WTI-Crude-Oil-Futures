@@ -148,9 +148,10 @@ backs the new one.
   p-value before that field exists, with no p-value or decision until it does. Its place in the online order is fixed
   at registration (its date, then its place in the registration table, so a later registration on the same day never
   moves it), a hash of its declared test is checked against the version that first reached main, and the status
-  changes by itself on the first rebuild after the field exists. A model of a generated family (one row per model) is
-  registered with the label its rows show until the lab produces it. From now on every new hypothesis is registered
-  first. The online decisions assume independent null p-values, which these rows do not have, and for the rows that
+  changes by itself on the first rebuild after the field holds the result; a test the artifact ran but could not
+  compute is a result where the row reads the field as optional, and the row is then inconclusive. A model of a
+  generated family (one row per model) is registered with the label its rows show until the lab produces it, and is
+  withdrawn whole, which retires its key. From now on every new hypothesis is registered first. The online decisions assume independent null p-values, which these rows do not have, and for the rows that
   entered before registration began they are a retrospective reading of the ledger's code order within entry batches
   dated from the git history, an order fixed after their p-values were known. The old
   use of "registered" for "the form the ledger enters" becomes "entered" or "adopted" in the docs and row notes. The
@@ -257,8 +258,9 @@ backs the new one.
 
 - **The registered status and the online view in LEDG (ROADMAP 2.12, second part).** A `registered` row (declared
   before its result exists) gets its own status chip, sorts last, has its own outlined group in the status strip, reads
-  "pending" (or "withdrawn") in its BH and t > 3 cells, and is not counted among the hypotheses tested. The table's
-  caption says "Hypotheses". The online view stays off screen: the CSV gains each row's entry date, online position,
+  "pending" (or "withdrawn") in its BH and t > 3 cells, and is not counted among the hypotheses tested. Every row with
+  a registration shows its registration date beside its status, since Recorded is the artifact's date (for lab rows,
+  the snapshot's), which can precede the registration. The table's caption says "Hypotheses". The online view stays off screen: the CSV gains each row's entry date, online position,
   and LORD++ and SAFFRON levels and decisions (yes, no, pending, excluded or n/a), and the method notes (closed by
   default) gain a sentence built from the ledger's online summary, with the procedures' counts, the independence they
   assume, the legacy rows' order sensitivity and that no status reads them, and a note on the registered status. METH

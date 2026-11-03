@@ -26,8 +26,11 @@ Status, from the test as the project ran it (one- or two-sided as recorded in `s
                  existed). It has no p-value and no batch decision; a pending one has no online
                  decision (its online level is fixed once every earlier row is decided), and a
                  withdrawn one is tested online at p = 1 but not counted as tested. Its status changes
-                 by itself on the first rebuild after the field exists. `registered` means fixed
-                 before the result existed; `pre_specified` means fixed before the data were seen.
+                 by itself on the first rebuild after the field holds its result. A stored null is no
+                 result yet, unless the declared test reads that field as optional (Field(optional=
+                 True)): then the null is the result, a test the artifact could not compute, and the
+                 row is inconclusive like any such row. `registered` means fixed before the result
+                 existed; `pre_specified` means fixed before the data were seen.
 
 Multiplicity. Across the rows with a p-value: Benjamini-Hochberg (1995) q-values and Holm (1979)
 adjusted p-values, both computed on `p_two_sided`: the directional one-sided p doubled (capped at
@@ -54,7 +57,10 @@ their level and can neither be rejected nor fund later tests), rows selected aft
 out, and registered rows follow in the order of REGISTERED (registration order, which a new
 registration extends), so a registered row holds the position it was given when it was registered.
 A pending registered row blocks the decisions after it until it resolves or is withdrawn (then it
-enters at p = 1). Both procedures assume independent null p-values, which these rows do not have, and
+enters at p = 1). A model registered through a generated family (REGISTERED_LAB_MODELS,
+REGISTERED_DISTRIBUTION_MODELS) is withdrawn whole, every row generated for it at once, which
+retires its key: its rows read one model entry, so a pending sibling of a withdrawn row could never
+resolve. Both procedures assume independent null p-values, which these rows do not have, and
 no status reads either online view. The rows that entered before registration began have no order
 fixed in advance: their entry batches are dated from the git history, but their order within each
 batch is the code's, fixed after their p-values were known, so the summary records how the rejection
@@ -278,10 +284,11 @@ P_SOURCES = (Field, Binomial, TwoProportion, NormalZ, LargestOf, LargestOverRuns
 @dataclass(frozen=True)
 class Registration:
     """A hypothesis declared before its result exists (ROADMAP 2.12): its row holds its complete test, and its
-    status stays `registered` until `field`, the artifact field its test reads the result from, exists."""
+    status stays `registered` until `field`, the artifact field its test reads the result from, holds the result
+    (result_exists)."""
     on: str                       # YYYY-MM-DD (UTC): the day the registration PR is prepared; at most its merge day
     field: str                    # the artifact field that will hold the result (p-value path, or the runs list path)
-    withdrawn: str | None = None  # reason; allowed only while the field does not resolve to a non-null value
+    withdrawn: str | None = None  # reason; allowed only while the result does not exist
 
 
 @dataclass(frozen=True)
@@ -304,11 +311,14 @@ class Row:
     names: dict[str, str] = field(default_factory=dict)    # label -> field path of a display name; "{label}"
                                                            # in the hypothesis inserts it
     pending_names: dict[str, str] = field(default_factory=dict)  # label -> the display text a registered row
-                                                                 # shows until its result (and the name) exists
+                                                                 # shows while it waits and its artifact lacks the name
     underpowered_if: tuple[str, str] | None = None  # (power, target power) context labels
     selected_after_search: bool = False             # the tested model was chosen as the best of a field
     entered_on: str | None = None                   # stamped by ledger_rows(): when the row entered the ledger
     registration: Registration | None = None        # stamped by ledger_rows() from REGISTERED
+    registered_model: str | None = None             # set by a generated family: the key of the model registered
+                                                    # through REGISTERED_LAB_MODELS or REGISTERED_DISTRIBUTION_MODELS
+                                                    # whose row this is (its rows are withdrawn whole)
 
 
 VOL = "vol_forecast_validation.json"
@@ -789,7 +799,8 @@ LAB_COMPARED = ("persistence", "raw_ovx", "ewma", "garch", "gjr", "har_rv", "har
 # Models whose conditional and stability rows are registered before the lab produces them (ROADMAP 2.12): model key ->
 # the display label the rows show while they wait. Each row (vol_gw_<key>, vol_fluct_<key>) is in REGISTERED like any
 # other. In the result PR the model joins vol_lab's MODELS and moves from here to LAB_COMPARED, which leaves every
-# row's definition, and so its spec hash, unchanged.
+# row's definition, and so its spec hash, unchanged. A model is withdrawn whole (every row generated for it, here and
+# in REGISTERED_DISTRIBUTION_MODELS), and then stays here for good: its key is retired.
 REGISTERED_LAB_MODELS: dict[str, str] = {}
 CHALLENGER = "har_iv_range"
 _APPROXIMATE = ("The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it "
@@ -806,6 +817,7 @@ def _conditional_rows() -> list[Row]:
     rows = []
     for m in (*LAB_COMPARED, *REGISTERED_LAB_MODELS):
         pending = {"model": REGISTERED_LAB_MODELS[m]} if m in REGISTERED_LAB_MODELS else {}
+        model = m if m in REGISTERED_LAB_MODELS else None
         gw = f"{_LM.format(m)}.gw_qlike_vs_har_iv"
         fl = f"{_LM.format(m)}.fluctuation_qlike_vs_har_iv"
         dm_p = f"{_LM.format(m)}.dm_qlike_vs_har_iv.p_value"
@@ -822,7 +834,7 @@ def _conditional_rows() -> list[Row]:
             context={"df": f"{gw}.conditional.df", "p_with_constant": f"{gw}.p_value", "dm_p": dm_p,
                      "p_bartlett_10": f"{gw}.robustness.bartlett_10.conditional_p_value",
                      "p_bartlett_40": f"{gw}.robustness.bartlett_40.conditional_p_value", "n_days": f"{gw}.n_days"},
-            names={"model": f"{_LM.format(m)}.label"}, pending_names=pending,
+            names={"model": f"{_LM.format(m)}.label"}, pending_names=pending, registered_model=model,
             note=(("Selected after a search: the challenger is the lowest-QLIKE model of the field on this same "
                    "sample. This statistic is unchanged by a constant shift of the difference, but its moments move "
                    "with the mean the challenger was picked on whenever the difference's variance moves with the "
@@ -852,7 +864,7 @@ def _conditional_rows() -> list[Row]:
                      "p_bartlett_40": f"{fl}.robustness.bartlett_40.p_value",
                      "p_full_sample_variance": f"{fl}.robustness.full_sample_variance.p_value",
                      "grids_outside_5pct": f"{fl}.robustness.by_grid.outside_5pct", "dm_p": dm_p},
-            names={"model": f"{_LM.format(m)}.label"}, pending_names=pending,
+            names={"model": f"{_LM.format(m)}.label"}, pending_names=pending, registered_model=model,
             note=(("Selected after a search: the challenger is the lowest-QLIKE model of the field on this same "
                    "sample, and this test's null includes that mean, so its p-value ignores the search. The row is "
                    "left out of the multiplicity family. No search-adjusted fluctuation test exists; "
@@ -873,7 +885,8 @@ _LD = "distribution.models[key={}]"
 # HAR is a robustness competitor outside LAB_COMPARED: it is never ranked, banded or selected.
 DISTRIBUTION_MODELS = ("har_iv_range", "ovx_only", "garch", "gjr", "ewma", "quantile_har")
 # Models whose distribution rows are registered before the lab scores them (ROADMAP 2.12), as REGISTERED_LAB_MODELS: key
-# -> the label shown while the rows wait; in the result PR the model moves from here to DISTRIBUTION_MODELS.
+# -> the label shown while the rows wait; in the result PR the model moves from here to DISTRIBUTION_MODELS. Withdrawn
+# whole, as there.
 REGISTERED_DISTRIBUTION_MODELS: dict[str, str] = {}
 _SCORES = (("crps", "crps_grid", "CRPS over 19 quantiles"), ("pinball10", "pinball_10", "the 10% pinball loss"),
            ("pinball90", "pinball_90", "the 90% pinball loss"))
@@ -896,6 +909,7 @@ def _distribution_rows() -> list[Row]:
         base = _LD.format(m)
         picked = m == CHALLENGER
         pending = {"model": REGISTERED_DISTRIBUTION_MODELS[m]} if m in REGISTERED_DISTRIBUTION_MODELS else {}
+        model = m if m in REGISTERED_DISTRIBUTION_MODELS else None
         for tag, score, phrase in _SCORES:
             dm = f"{base}.dm_vs_har_iv.{score}"
             if picked:
@@ -941,10 +955,11 @@ def _distribution_rows() -> list[Row]:
                 statistic=("batch-means t", f"{dm}.stat"), p=Field(f"{dm}.p_value"), sided="two",
                 expects=POSITIVE if picked or m == "quantile_har" else NEGATIVE,
                 context=context, names={} if m == "quantile_har" else {"model": f"{base}.label"},
-                pending_names=pending, note=note, selected_after_search=picked))
+                pending_names=pending, registered_model=model, note=note, selected_after_search=picked))
     for m in ("har_iv", *DISTRIBUTION_MODELS, *REGISTERED_DISTRIBUTION_MODELS):
         base = _LD.format(m)
         pending = {"model": REGISTERED_DISTRIBUTION_MODELS[m]} if m in REGISTERED_DISTRIBUTION_MODELS else {}
+        model = m if m in REGISTERED_DISTRIBUTION_MODELS else None
         berk = f"{base}.berkowitz"
         context = {f"p_grid_{g}": f"{berk}.by_grid[{g}].p_value" for g in range(5)}
         context.update({"grids_below_5pct": f"{berk}.grids_below_5pct", "p_cauchy": f"{berk}.p_cauchy",
@@ -1002,7 +1017,7 @@ def _distribution_rows() -> list[Row]:
             id=f"vol_berkowitz_{m}", family="distribution calibration", source=LAB, hypothesis=hypothesis, test=test,
             statistic=("grids below 5%", f"{berk}.grids_below_5pct"), p=BonferroniOverRuns(f"{berk}.by_grid", "p_value"),
             sided="two", context=context, names={} if m == "quantile_har" else {"model": f"{base}.label"},
-            pending_names=pending,
+            pending_names=pending, registered_model=model,
             note=note + " The reference per PIT construction and the Bonferroni combination were fixed after "
                         "prototype runs on this sample (docs/METHODOLOGY.md section 7)."))
     return rows
@@ -1026,7 +1041,8 @@ LEGACY_ENTRY = {"_direction_rows": ("2026-10-21", "#54"), "_leak_rows": ("2026-1
 # dated no earlier than the entry before it (the same day is allowed). Each one's place in the online order is fixed
 # here: its date, then its place in this table, so a later registration never moves an earlier one, wherever its row
 # is defined. The row is defined with its complete test wherever its family's rows are defined (a generated family's
-# model through REGISTERED_LAB_MODELS or REGISTERED_DISTRIBUTION_MODELS).
+# model through REGISTERED_LAB_MODELS or REGISTERED_DISTRIBUTION_MODELS, with every row generated for it here). A
+# withdrawal sets `withdrawn` and keeps the entry; a generated family's model is withdrawn whole.
 REGISTERED: dict[str, Registration] = {}
 
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -1055,10 +1071,18 @@ def legacy_batches() -> dict[str, str]:
 
 def ledger_rows() -> list[Row]:
     """Every row, stamped with when it entered the ledger: its registration date if it is in REGISTERED, else the
-    entry date of the function that defines it."""
+    entry date of the function that defines it. Every row generated for a registered model must be registered, and
+    the model is withdrawn whole: its rows read one model entry, so a withdrawn row's pending sibling could never
+    resolve (the entry it needs would be the withdrawn row's result)."""
     out = []
+    models: dict[str, list[str]] = {}
     for fn, row in _defined_rows():
         registration = REGISTERED.get(row.id)
+        if row.registered_model is not None:
+            if registration is None:
+                raise ValueError(f"{row.id} is generated for the registered model {row.registered_model!r}: register "
+                                 "it in REGISTERED")
+            models.setdefault(row.registered_model, []).append(row.id)
         if registration is not None:
             out.append(replace(row, registration=registration, entered_on=registration.on))
         elif fn in LEGACY_ENTRY:
@@ -1068,6 +1092,11 @@ def ledger_rows() -> list[Row]:
     orphans = sorted(set(REGISTERED) - {row.id for row in out})
     if orphans:
         raise ValueError(f"registrations without a row: {orphans}")
+    for model, ids in models.items():
+        withdrawn = [rid for rid in ids if REGISTERED[rid].withdrawn]
+        if withdrawn and len(withdrawn) != len(ids):
+            raise ValueError(f"model {model!r}: {withdrawn} withdrawn but not {[rid for rid in ids if rid not in withdrawn]}"
+                             ": a registered model is withdrawn whole, which retires its key")
     return out
 
 
@@ -1335,14 +1364,41 @@ def _under(path: str, prefix: str) -> bool:
     return path == prefix or path.startswith((prefix + ".", prefix + "["))
 
 
-def _result_exists(doc: Artifact | None, path: str) -> bool:
-    """Whether a declared result field resolves to a non-null value (a missing artifact holds no result)."""
+def result_exists(row: Row, doc: Artifact | None) -> bool:
+    """Whether a registered row's result exists in its artifact `doc` (None: the file does not exist yet): its declared
+    field resolves to a value, or to a null its test reads as a result. That is an optional Field reading exactly that
+    field, where a null means the artifact ran the test and could not compute it (the row is then inconclusive, as any
+    such row). Any other null is a placeholder: no result yet."""
+    reg = row.registration
+    if reg is None:
+        raise ValueError(f"{row.id} has no registration")
     if doc is None:
         return False
     try:
-        return resolve(doc, path) is not None
+        value = resolve(doc, reg.field)
     except FieldError:
         return False
+    return value is not None or (isinstance(row.p, Field) and row.p.optional and row.p.path == reg.field)
+
+
+def _names_while_pending(row: Row, doc: Artifact | None) -> dict[str, str]:
+    """A pending (or withdrawn) registered row's display names: each from its artifact where the name already exists
+    there, else the text the row declares for it (pending_names)."""
+    extra = sorted(set(row.pending_names) - set(row.names))
+    if extra:
+        raise ValueError(f"{row.id}: pending_names {extra} name no field in names {sorted(row.names)}")
+    out = {}
+    for label, path in row.names.items():
+        try:
+            if doc is None:
+                raise FieldError(path)
+            out[label] = str(resolve(doc, path))
+        except FieldError:
+            if label not in row.pending_names:
+                raise ValueError(f"{row.id}: a registered row declares the text its name {label!r} shows until the "
+                                 f"artifact holds it at {path} (pending_names)") from None
+            out[label] = row.pending_names[label]
+    return out
 
 
 ONLINE_FIELDS = ("online_position", "online_p", "online_alpha_lordpp", "online_rejected_lordpp", "online_alpha_saffron",
@@ -1467,18 +1523,16 @@ def build(load: Callable[[str], Artifact] | None = None, rows: list[Row] | None 
                 docs[row.source] = None       # a registered row's artifact may not exist yet
         doc = docs[row.source]
         stat_label, stat_path = row.statistic
-        exists = True if reg is None else _result_exists(doc, reg.field)
+        exists = True if reg is None else result_exists(row, doc)
         if reg is not None and reg.withdrawn and exists:
             raise ValueError(f"{row.id}: withdrawn, but its result exists at {reg.field} in {row.source}")
         registration = None if reg is None else {"on": reg.on, "field": reg.field, "withdrawn": reg.withdrawn,
                                                  "spec_sha256": spec_sha256(row)}
         if reg is not None and (reg.withdrawn or not exists):
-            if set(row.pending_names) != set(row.names):
-                raise ValueError(f"{row.id}: a registered row with names declares the text each shows until its result "
-                                 f"exists (pending_names {sorted(row.pending_names)}, names {sorted(row.names)})")
+            shown = _names_while_pending(row, doc)
             out.append({
                 "id": row.id, "date": None, "entered_on": entered_on, "family": row.family,
-                "hypothesis": row.hypothesis.format(**row.pending_names) if row.names else row.hypothesis,
+                "hypothesis": row.hypothesis.format(**shown) if shown else row.hypothesis,
                 "test": row.test,
                 "statistic": {"name": stat_label, "value": None}, "context": {},
                 "p_value": None, "sided": row.sided, "p_two_sided": None,
@@ -1497,7 +1551,9 @@ def build(load: Callable[[str], Artifact] | None = None, rows: list[Row] | None 
                                     or (p_inputs and all(_under(path, reg.field) for path in p_inputs))):
             raise FieldError(f"{row.id}: registered field not read by its test ({reg.field})")
         direction_ok = None
-        if row.beats is not None:
+        if p is None and stat is None:
+            pass                              # not computed, its statistic null too: no direction (inconclusive)
+        elif row.beats is not None:
             direction_ok = float(stat) > float(resolve(doc, row.beats))
         elif row.expects is not None:
             direction_ok = bool(row.expects(float(stat)))
@@ -1591,7 +1647,7 @@ def build(load: Callable[[str], Artifact] | None = None, rows: list[Row] | None 
                    "defaults, over the rows in the order they entered the ledger, on p_two_sided, with retracted "
                    "rows and rows whose test could not be computed taken as p = 1, leaving out rows selected after "
                    "a search, and assuming independent null p-values. Registered rows: declared before their "
-                   "result exists, with null p and batch fields until the declared field exists."),
+                   "result exists, with null p and batch fields until the declared field holds their result."),
         "alpha": ALPHA,
         "hlz_t": HLZ_T,
         "summary": summary,

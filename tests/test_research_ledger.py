@@ -13,6 +13,7 @@ platform's libm (Linux and glibc, as CI and the cloud sessions run), where math.
 the same as when the artifact was built.
 """
 
+import contextlib
 import copy
 import dataclasses
 import json
@@ -365,7 +366,10 @@ class ConditionalAndStabilityRowsTest(unittest.TestCase):
                 self.assertEqual(gw["context"]["p_with_constant"], block_gw["p_value"])
                 self.assertEqual(fl["context"]["p_mu_0_2"], block_fl["p_value"])
                 self.assertEqual(fl["context"]["critical_5pct"], lab["stability"]["fluctuation"]["critical_values"]["five_pct"])
-                self.assertGreaterEqual(fl["p_value"], 1 / (lab["stability"]["fluctuation"]["null"]["draws"] + 1))
+                if block_fl.get("not_computed"):            # the lab ran the test and could not compute it
+                    self.assertEqual((fl["p_value"], fl["status"], fl["online_p"]), (None, "inconclusive", 1.0))
+                else:
+                    self.assertGreaterEqual(fl["p_value"], 1 / (lab["stability"]["fluctuation"]["null"]["draws"] + 1))
 
 
 class DistributionRowsTest(unittest.TestCase):
@@ -864,9 +868,86 @@ def _registration_day():
     return max([_day(1), *(registration.on for registration in rl.REGISTERED.values())])
 
 
+# Model keys reserved for the synthetic registrations of generated families in these tests: no lab model and no real
+# registration may use them (test_the_reserved_model_keys_are_unused), so the tests add them to whatever the code
+# registers instead of replacing it.
+TEST_MODEL, TEST_LABEL = "zz_test_model", "Test model T"
+COMMITTED_MODEL, COMMITTED_LABEL = "zz_committed_model", "Test model C"
+
+
+def _model_registrations(key, day, *, lab=True, distribution=True, withdrawn=None):
+    """REGISTERED entries for every row the generated families make for model `key`: vol_gw_ and vol_fluct_ (lab), the
+    three score rows and vol_berkowitz_ (distribution), each declaring the field its test reads."""
+    regs = {}
+    if lab:
+        base = rl._LM.format(key)
+        regs[f"vol_gw_{key}"] = rl.Registration(day, f"{base}.gw_qlike_vs_har_iv.conditional.p_value", withdrawn)
+        regs[f"vol_fluct_{key}"] = rl.Registration(
+            day, f"{base}.fluctuation_qlike_vs_har_iv.search_adjusted.p_value", withdrawn)
+    if distribution:
+        base = rl._LD.format(key)
+        for tag, score, _ in rl._SCORES:
+            regs[f"vol_{tag}_{key}"] = rl.Registration(day, f"{base}.dm_vs_har_iv.{score}.p_value", withdrawn)
+        regs[f"vol_berkowitz_{key}"] = rl.Registration(day, f"{base}.berkowitz.by_grid", withdrawn)
+    return regs
+
+
+def _register_model(key, label, day, *, lab=True, distribution=True, withdrawn=None):
+    """Patches that register model `key` through the generated families, as HANDOFF's registration PR does, on top of
+    whatever the code registers: its label in REGISTERED_LAB_MODELS and REGISTERED_DISTRIBUTION_MODELS, and every row
+    generated for it in REGISTERED."""
+    patches = [mock.patch.dict(rl.REGISTERED, _model_registrations(key, day, lab=lab, distribution=distribution,
+                                                                     withdrawn=withdrawn))]
+    if lab:
+        patches.append(mock.patch.dict(rl.REGISTERED_LAB_MODELS, {key: label}))
+    if distribution:
+        patches.append(mock.patch.dict(rl.REGISTERED_DISTRIBUTION_MODELS, {key: label}))
+    return patches
+
+
+def _patched(stack, patches):
+    for patch in patches:
+        stack.enter_context(patch)
+
+
+def _not_computed(block):
+    """A fluctuation block the lab ran but could not compute, as DATA_CONTRACT specifies: every field the ledger reads
+    null, each window length keeping only its window and p, and `not_computed` naming the reason."""
+    return {**{key: None for key in ("sup", "sign", "at", "window_start", "p_value")},
+            **{key: None for key in block if key.startswith("rejects_")},
+            "search_adjusted": {**block["search_adjusted"], "min_p": None, "at_mu": None, "p_value": None},
+            "by_mu": {mu: {"window_sessions": b["window_sessions"], "p_value": None} for mu, b in block["by_mu"].items()},
+            "robustness": {"bartlett_40": {"p_value": None}, "full_sample_variance": {"p_value": None},
+                           "by_grid": {"outside_5pct": None}},
+            "not_computed": "a window's variance is not positive"}
+
+
+def _lab_with_model(key, label, *, like="garch", fluctuation_computed=True):
+    """The committed lab artifact as a result PR rebuilds it: model `key` added to the leaderboard and the distribution
+    block as a copy of `like`'s entries, its fluctuation test not computable if asked."""
+    lab = copy.deepcopy(rl.load_artifact(rl.LAB))
+    for block in (lab["leaderboard"]["models"], lab["distribution"]["models"]):
+        entry = copy.deepcopy(next(m for m in block if m["key"] == like))
+        entry.update(key=key, label=label)
+        if not fluctuation_computed and "fluctuation_qlike_vs_har_iv" in entry:
+            entry["fluctuation_qlike_vs_har_iv"] = _not_computed(entry["fluctuation_qlike_vs_har_iv"])
+        block.append(entry)
+    return lab
+
+
+def _loader(lab):
+    return lambda name: lab if name == rl.LAB else rl.load_artifact(name)
+
+
+def _moved_into_the_lab(key):
+    """The result PR's code change: the model leaves the registered dicts (as committed) and joins the lab's lists."""
+    return (mock.patch.object(rl, "LAB_COMPARED", (*rl.LAB_COMPARED, key)),
+            mock.patch.object(rl, "DISTRIBUTION_MODELS", (*rl.DISTRIBUTION_MODELS, key)))
+
+
 class RegistrationTest(unittest.TestCase):
     """The registered status (ROADMAP 2.12) through synthetic rows: a row declared with its test and the artifact field
-    that will hold its result keeps the status `registered` until that field exists, and then resolves by itself. The
+    that will hold its result keeps the status `registered` until that field holds it, and then resolves by itself. The
     synthetic rows are added to the ledger's unregistered rows, so the expectations do not depend on which committed
     registrations exist."""
 
@@ -991,6 +1072,11 @@ class RegistrationTest(unittest.TestCase):
         self.assertEqual(s["online"]["waiting_on"], "reg_first")
         self.assertEqual(s["online"]["rows_decided"], self.n)
         self.assertIsNone(s["online"]["lordpp"]["next_level"])
+        # So a row with a p-value can have its batch adjustment and no online decision yet: the reviewer guide's claim
+        # names the exception.
+        guide = " ".join((ROOT / "docs" / "REVIEWER_GUIDE.md").read_text(encoding="utf-8").split())
+        claim = re.search(r"Claim: every hypothesis the project tested or registered.*?\.(?= )", guide).group(0)
+        self.assertIn("unless an earlier registered row still waits for its result, an online decision", claim)
 
     def test_withdrawal_unblocks_and_costs_its_level(self):
         first = _fake("reg_first", day=1, withdrawn="the experiment was abandoned before it ran")
@@ -1011,8 +1097,8 @@ class RegistrationTest(unittest.TestCase):
 
     def test_constraint_violations_raise(self):
         latest = rl.latest_legacy_entry()
-        for bad in (_fake(names={"model": "leaderboard.models[0].label"}),            # no text to show while pending
-                    _fake(names={"model": "leaderboard.models[0].label"}, pending_names={"other": "HAR-X"}),
+        for bad in (_fake(names={"model": "experiment.label"}),      # no text to show while the artifact lacks the name
+                    _fake(names={"model": "experiment.label"}, pending_names={"other": "HAR-X"}),
                     _fake(expects=lambda s: s > 0),
                     _fake(p=None),
                     _fake(p=lambda doc: (0.5, {})),
@@ -1021,10 +1107,13 @@ class RegistrationTest(unittest.TestCase):
             with self.subTest(row=bad), self.assertRaises(ValueError):
                 self.build_with([bad])
         with mock.patch.dict(rl.REGISTERED, {"no_such_row": rl.Registration(_day(1), "experiment.p_value")}):
-            with self.assertRaises(ValueError):
+            with self.assertRaisesRegex(ValueError, "registrations without a row"):
                 rl.ledger_rows()
-        with mock.patch.object(rl, "REGISTERED_LAB_MODELS", {"har_rv": "HAR-RV"}):   # already in LAB_COMPARED
-            with self.assertRaises(ValueError):
+        with mock.patch.dict(rl.REGISTERED_LAB_MODELS, {"har_rv": "HAR-RV"}):       # already in LAB_COMPARED
+            with self.assertRaisesRegex(ValueError, "vol_gw_har_rv is defined twice"):
+                rl.ledger_rows()
+        with mock.patch.dict(rl.REGISTERED_DISTRIBUTION_MODELS, {TEST_MODEL: TEST_LABEL}):   # rows not in REGISTERED
+            with self.assertRaisesRegex(ValueError, f"vol_crps_{TEST_MODEL} is generated for the registered model"):
                 rl.ledger_rows()
 
     def test_a_named_row_shows_its_declared_text_while_pending(self):
@@ -1038,63 +1127,142 @@ class RegistrationTest(unittest.TestCase):
         resolved = self.build_with([row], {"experiment": {"p_value": 0.3, "stat": 1.0, "label": "HAR-X (lab)"}})
         r = next(r for r in resolved["rows"] if r["id"] == "reg_fake")
         self.assertEqual(r["hypothesis"], "The model of record beats HAR-X (lab).")   # the artifact's name, once it exists
+        # While the row waits, a name its artifact already holds is read from there, declared text or not.
+        named = self.build_with([row], {"experiment": {"stat": None, "label": "HAR-X (lab)"}})
+        self.assert_pending(named, "reg_fake")
+        self.assertEqual(next(r for r in named["rows"] if r["id"] == "reg_fake")["hypothesis"],
+                         "The model of record beats HAR-X (lab).")
+        known = self.build_with([dataclasses.replace(row, names={"model": "leaderboard.models[0].label"},
+                                                     pending_names={})])
+        self.assertEqual(next(r for r in known["rows"] if r["id"] == "reg_fake")["hypothesis"],
+                         f"The model of record beats {self.load(rl.LAB)['leaderboard']['models'][0]['label']}.")
 
     def test_a_generated_family_registers_a_model_before_the_lab_has_it(self):
-        """The route ROADMAP 2.13 takes: a model's generated rows are registered with the label they show while
-        pending, and in the result PR the model moves into LAB_COMPARED, which leaves every spec hash unchanged."""
-        model = "leaderboard.models[key=har_cj]"
-        regs = {"vol_gw_har_cj": rl.Registration(_registration_day(),
-                                                 f"{model}.gw_qlike_vs_har_iv.conditional.p_value"),
-                "vol_fluct_har_cj": rl.Registration(_registration_day(),
-                                                    f"{model}.fluctuation_qlike_vs_har_iv.search_adjusted.p_value")}
-        with mock.patch.dict(rl.REGISTERED, regs), mock.patch.object(rl, "REGISTERED_LAB_MODELS", {"har_cj": "HAR-CJ"}):
+        """The route ROADMAP 2.13 takes: a model's generated rows (both lab families and both distribution families)
+        are registered with the label they show while pending; in the result PR the lab holds the model and the model
+        moves into LAB_COMPARED and DISTRIBUTION_MODELS, which leaves every spec hash and online position unchanged and
+        moves no earlier online decision. The model is added to whatever the code registers."""
+        regs = _model_registrations(TEST_MODEL, _registration_day())
+        with contextlib.ExitStack() as stack:
+            _patched(stack, _register_model(TEST_MODEL, TEST_LABEL, _registration_day()))
             definitions = {row.id: row for row in rl.ledger_rows()}
             hashes = {rid: rl.spec_sha256(definitions[rid]) for rid in regs}
-            pending = {r["id"]: r for r in json.loads(json.dumps(rl.build()))["rows"]}
+            pending_rows = json.loads(json.dumps(rl.build()))["rows"]
+        pending = {r["id"]: r for r in pending_rows}
+        self.assertEqual([rid for rid in pending if rid.endswith(f"_{TEST_MODEL}")], list(regs))
         for rid in regs:
             with self.subTest(row=rid):
                 self.assertEqual(pending[rid]["status"], "registered")
-                self.assertIn("HAR-CJ", pending[rid]["hypothesis"])
+                self.assertIn(TEST_LABEL, pending[rid]["hypothesis"])
                 self.assertNotIn("{model}", pending[rid]["hypothesis"])
                 self.assertEqual(pending[rid]["registration"]["spec_sha256"], hashes[rid])
-        # The result PR: the lab holds the model, and the model moves into LAB_COMPARED.
-        lab = copy.deepcopy(rl.load_artifact(rl.LAB))
-        entry = copy.deepcopy(next(m for m in lab["leaderboard"]["models"] if m["key"] == "har_rv"))
-        entry.update(key="har_cj", label="HAR-CJ")
-        lab["leaderboard"]["models"].append(entry)
-
-        def load(name):
-            return lab if name == rl.LAB else rl.load_artifact(name)
-
-        with mock.patch.dict(rl.REGISTERED, regs), mock.patch.object(rl, "LAB_COMPARED", (*rl.LAB_COMPARED, "har_cj")):
+        # The result PR: the lab holds the model, and the model moves into the lab's lists.
+        lab = _lab_with_model(TEST_MODEL, TEST_LABEL)
+        with contextlib.ExitStack() as stack:
+            _patched(stack, (mock.patch.dict(rl.REGISTERED, regs), *_moved_into_the_lab(TEST_MODEL)))
             definitions = {row.id: row for row in rl.ledger_rows()}
             self.assertEqual({rid: rl.spec_sha256(definitions[rid]) for rid in regs}, hashes)
-            resolved = {r["id"]: r for r in json.loads(json.dumps(rl.build(load=load)))["rows"]}
-            with self.assertRaises(ValueError):                 # moved before the lab holds it: no label to show
+            resolved_rows = json.loads(json.dumps(rl.build(load=_loader(lab))))["rows"]
+            with self.assertRaisesRegex(ValueError, "pending_names"):   # moved before the lab holds it: no label to show
                 rl.build()
-        self.assertEqual(resolved["vol_gw_har_cj"]["p_value"], entry["gw_qlike_vs_har_iv"]["conditional"]["p_value"])
-        self.assertEqual(resolved["vol_fluct_har_cj"]["p_value"],
+        resolved = {r["id"]: r for r in resolved_rows}
+        entry = next(m for m in lab["leaderboard"]["models"] if m["key"] == TEST_MODEL)
+        dist = next(m for m in lab["distribution"]["models"] if m["key"] == TEST_MODEL)
+        self.assertEqual(resolved[f"vol_gw_{TEST_MODEL}"]["p_value"], entry["gw_qlike_vs_har_iv"]["conditional"]["p_value"])
+        self.assertEqual(resolved[f"vol_fluct_{TEST_MODEL}"]["p_value"],
                          entry["fluctuation_qlike_vs_har_iv"]["search_adjusted"]["p_value"])
+        for tag, score, _ in rl._SCORES:
+            self.assertEqual(resolved[f"vol_{tag}_{TEST_MODEL}"]["p_value"], dist["dm_vs_har_iv"][score]["p_value"])
+        grids = [g["p_value"] for g in dist["berkowitz"]["by_grid"]]
+        self.assertEqual(resolved[f"vol_berkowitz_{TEST_MODEL}"]["p_value"], min(1.0, len(grids) * min(grids)))
         for rid in regs:
             with self.subTest(row=rid):
                 self.assertNotEqual(resolved[rid]["status"], "registered")
-                self.assertIn("HAR-CJ", resolved[rid]["hypothesis"])
+                self.assertIsNotNone(resolved[rid]["q_value_bh"])
+                self.assertIn(TEST_LABEL, resolved[rid]["hypothesis"])
                 self.assertEqual(resolved[rid]["registration"]["spec_sha256"], hashes[rid])
                 self.assertEqual(resolved[rid]["online_position"], pending[rid]["online_position"])
+        self.assertEqual(_append_only_violations(pending_rows, resolved_rows, {}), [])
 
     def test_the_distribution_families_register_a_model_the_same_way(self):
-        base = "distribution.models[key=har_cj]"
-        regs = {f"vol_{tag}_har_cj": rl.Registration(_registration_day(), f"{base}.dm_vs_har_iv.{score}.p_value")
-                for tag, score, _ in rl._SCORES}
-        regs["vol_berkowitz_har_cj"] = rl.Registration(_registration_day(), f"{base}.berkowitz.by_grid")
-        with mock.patch.dict(rl.REGISTERED, regs), \
-                mock.patch.object(rl, "REGISTERED_DISTRIBUTION_MODELS", {"har_cj": "HAR-CJ"}):
+        """A model registered through the distribution families alone: its four rows wait with the label they declare,
+        added to whatever the code registers."""
+        regs = _model_registrations(TEST_MODEL, _registration_day(), lab=False)
+        with contextlib.ExitStack() as stack:
+            _patched(stack, _register_model(TEST_MODEL, TEST_LABEL, _registration_day(), lab=False))
             rows = {r["id"]: r for r in json.loads(json.dumps(rl.build()))["rows"]}
         for rid in regs:
             with self.subTest(row=rid):
                 self.assertEqual(rows[rid]["status"], "registered")
-                self.assertIn("HAR-CJ", rows[rid]["hypothesis"])
-        self.assertEqual([rid for rid in rows if rid.endswith("_har_cj")], list(regs))
+                self.assertIn(TEST_LABEL, rows[rid]["hypothesis"])
+        self.assertEqual([rid for rid in rows if rid.endswith(f"_{TEST_MODEL}")], list(regs))
+
+    def test_a_result_the_lab_could_not_compute_resolves_the_row(self):
+        """The lab runs a registered model's fluctuation test and cannot compute it: the fields the row reads are null
+        and not_computed names the reason (DATA_CONTRACT). An optional field's null is the result, so the row resolves
+        as any unregistered row with that null does (inconclusive, no p-value, outside the family, tested online at
+        p = 1), and it can no longer be withdrawn. A null the test does not read as optional stays a placeholder
+        (test_a_null_field_keeps_the_row_registered)."""
+        day = _registration_day()
+        regs = _model_registrations(TEST_MODEL, day, distribution=False)
+        gw, fluct = f"vol_gw_{TEST_MODEL}", f"vol_fluct_{TEST_MODEL}"
+        lab = _lab_with_model(TEST_MODEL, TEST_LABEL, fluctuation_computed=False)
+        with contextlib.ExitStack() as stack:
+            _patched(stack, _register_model(TEST_MODEL, TEST_LABEL, day, distribution=False))
+            pending_rows = json.loads(json.dumps(rl.build()))["rows"]
+        with contextlib.ExitStack() as stack:
+            _patched(stack, (mock.patch.dict(rl.REGISTERED, regs),
+                             mock.patch.object(rl, "LAB_COMPARED", (*rl.LAB_COMPARED, TEST_MODEL))))
+            ledger = json.loads(json.dumps(rl.build(load=_loader(lab))))
+            late = {fluct: dataclasses.replace(regs[fluct], withdrawn="the lab could not compute it")}
+            with mock.patch.dict(rl.REGISTERED, late), self.assertRaisesRegex(ValueError, f"{fluct}: withdrawn, but its "
+                                                                                          "result exists"):
+                rl.build(load=_loader(lab))
+        rows = {r["id"]: r for r in ledger["rows"]}
+        r = rows[fluct]
+        self.assertEqual((r["status"], r["p_value"], r["p_two_sided"], r["q_value_bh"], r["survives_bh_5pct"]),
+                         ("inconclusive", None, None, None, None))
+        self.assertEqual(r["artifact"]["p_value_fields"], {regs[fluct].field: None})
+        self.assertEqual(r["online_p"], 1.0)
+        self.assertIn(TEST_LABEL, r["hypothesis"])
+        self.assertEqual(r["context"]["p_mu_0_2"], None)
+        self.assertNotIn(fluct, ledger["summary"]["registered"])
+        entry = next(m for m in lab["leaderboard"]["models"] if m["key"] == TEST_MODEL)
+        self.assertEqual(rows[gw]["p_value"], entry["gw_qlike_vs_har_iv"]["conditional"]["p_value"])   # computed
+        if ledger["summary"]["online"]["waiting_on"] is None:          # no earlier registration still waits
+            self.assertEqual((r["online_rejected_lordpp"], r["online_rejected_saffron"]), (False, False))
+        self.assertEqual(_append_only_violations(pending_rows, ledger["rows"], {}), [])
+        # An unregistered row with the same null reads the same way.
+        garch = next(m for m in lab["leaderboard"]["models"] if m["key"] == "garch")
+        garch["fluctuation_qlike_vs_har_iv"] = _not_computed(garch["fluctuation_qlike_vs_har_iv"])
+        with mock.patch.dict(rl.REGISTERED, regs), mock.patch.object(rl, "LAB_COMPARED", (*rl.LAB_COMPARED, TEST_MODEL)):
+            legacy = next(x for x in rl.build(load=_loader(lab))["rows"] if x["id"] == "vol_fluct_garch")
+        self.assertEqual([legacy[k] for k in ("status", "p_value", "q_value_bh", "online_p")],
+                         [r[k] for k in ("status", "p_value", "q_value_bh", "online_p")])
+
+    def test_a_registered_model_is_withdrawn_whole(self):
+        """Every row generated for a registered model reads one model entry, so a pending sibling of a withdrawn row
+        could never resolve: the model is withdrawn whole or not at all, and withdrawal retires its key."""
+        day, reason = _registration_day(), "the model was abandoned before the lab ran it"
+        regs = _model_registrations(TEST_MODEL, day, withdrawn=reason)
+        with contextlib.ExitStack() as stack:
+            _patched(stack, _register_model(TEST_MODEL, TEST_LABEL, day, withdrawn=reason))
+            ledger = json.loads(json.dumps(rl.build()))
+            rows, s = {r["id"]: r for r in ledger["rows"]}, ledger["summary"]
+            for rid in regs:
+                with self.subTest(row=rid):
+                    self.assertEqual((rows[rid]["status"], rows[rid]["online_p"]), ("registered", 1.0))
+                    self.assertIn(TEST_LABEL, rows[rid]["hypothesis"])
+            self.assertEqual([rid for rid in s["registered_withdrawn"] if rid in regs], list(regs))
+            self.assertFalse(set(s["registered"]) & set(regs))
+            for kept in (f"vol_fluct_{TEST_MODEL}", f"vol_berkowitz_{TEST_MODEL}"):    # one lab, one distribution row
+                pending = {kept: dataclasses.replace(regs[kept], withdrawn=None)}
+                with self.subTest(kept=kept), mock.patch.dict(rl.REGISTERED, pending):
+                    with self.assertRaisesRegex(ValueError, "withdrawn whole"):
+                        rl.ledger_rows()
+            # The key is retired: a lab that holds the model makes the build fail.
+            with self.assertRaisesRegex(ValueError, "withdrawn, but its result exists"):
+                rl.build(load=_loader(_lab_with_model(TEST_MODEL, TEST_LABEL)))
 
     def test_same_day_registrations_keep_their_registration_order(self):
         """Two registrations on one day, the second defined earlier in the code than the first: the first keeps the
@@ -1173,7 +1341,7 @@ class RegistrationTest(unittest.TestCase):
                     doc = rl.load_artifact(r["artifact"]["path"].removeprefix("data/"))
                 except FileNotFoundError:
                     doc = None
-                exists = rl._result_exists(doc, reg["field"])
+                exists = rl.result_exists(definitions[r["id"]], doc)
                 self.assertEqual(reg["spec_sha256"], rl.spec_sha256(definitions[r["id"]]))
                 if r["status"] == "registered":
                     self.assertFalse(exists, f"the result of {r['id']} exists in {r['artifact']['path']}: rebuild "
@@ -1190,6 +1358,20 @@ class RegistrationTest(unittest.TestCase):
                     self.assertTrue(exists)
                     fields = r["artifact"]["p_value_fields"]
                     self.assertTrue(reg["field"] in fields or all(rl._under(k, reg["field"]) for k in fields))
+
+
+class ReservedModelKeysTest(unittest.TestCase):
+    """The keys the synthetic registrations use are no model's and no committed registration's."""
+
+    def test_the_reserved_model_keys_are_unused(self):
+        from backend import vol_lab
+
+        lab = rl.load_artifact(rl.LAB)
+        used = {*rl.LAB_COMPARED, *rl.DISTRIBUTION_MODELS, *vol_lab.MODEL_KEYS,
+                *(m["key"] for m in lab["leaderboard"]["models"]), *(m["key"] for m in lab["distribution"]["models"])}
+        for key in (TEST_MODEL, COMMITTED_MODEL):
+            self.assertNotIn(key, used)
+            self.assertFalse(any(rid.endswith(f"_{key}") for rid in rl.REGISTERED), key)
 
 
 def _git(*args):
@@ -1288,27 +1470,59 @@ class AppendOnlyCheckTest(unittest.TestCase):
         self.assertEqual(_append_only_violations(rows, two, {**named, second["id"]: "CHANGELOG errata: test"}), [])
 
 
+def _defined_also(extra):
+    """A patch of _ROW_FUNCTIONS under which each function named in `extra` also defines the rows listed for it."""
+    def wrap(fn):
+        if fn.__name__ not in extra:
+            return fn
+
+        def rows():
+            return [*fn(), *extra[fn.__name__]]
+
+        rows.__name__ = fn.__name__
+        return rows
+
+    return mock.patch.object(rl, "_ROW_FUNCTIONS", tuple(wrap(fn) for fn in rl._ROW_FUNCTIONS))
+
+
 def _committed_registration_patches():
     """Patches under which the ledger holds one more committed registration, pending, its row defined in _vol_rows
     (before other families' rows): the state after a registration PR, which the tests above must also pass in."""
     on, field = _registration_day(), "experiment_committed.p_value"
     row = dataclasses.replace(_fake("vol_registered_committed", field), registration=None)
-    defining = rl._vol_rows
+    return _defined_also({"_vol_rows": [row]}), mock.patch.dict(rl.REGISTERED, {row.id: rl.Registration(on, field)})
 
-    def rows():
-        return [*defining(), row]
 
-    rows.__name__ = defining.__name__
-    return (mock.patch.object(rl, "_ROW_FUNCTIONS", tuple(rows if fn is defining else fn for fn in rl._ROW_FUNCTIONS)),
-            mock.patch.dict(rl.REGISTERED, {row.id: rl.Registration(on, field)}))
+def _registrations_in_every_function_patches():
+    """One more committed pending registration defined in every row function, registered in the reverse of the
+    functions' order: the artifact lists the rows in the code's order, the online stream in registration order."""
+    on, rows, regs = _registration_day(), {}, {}
+    for fn in reversed(rl._ROW_FUNCTIONS):
+        rid, field = f"registered_in{fn.__name__}", f"experiment{fn.__name__}.p_value"
+        rows[fn.__name__] = [dataclasses.replace(_fake(rid, field), registration=None)]
+        regs[rid] = rl.Registration(on, field)
+    return _defined_also(rows), mock.patch.dict(rl.REGISTERED, regs)
+
+
+def _registered_model_patches(withdrawn=None):
+    """One more committed model registered through both generated families (HANDOFF's route for ROADMAP 2.13), pending
+    or withdrawn whole."""
+    return tuple(_register_model(COMMITTED_MODEL, COMMITTED_LABEL, _registration_day(), withdrawn=withdrawn))
+
+
+def _withdrawn_model_patches():
+    return _registered_model_patches(withdrawn="the model was abandoned before the lab ran it")
 
 
 class _WithACommittedRegistration:
-    """Runs a test class against a fresh build in which a registration is committed and pending."""
+    """Runs a test class against a fresh build in which more registrations are committed (PATCHES), added to whatever
+    the code registers."""
+
+    PATCHES = staticmethod(_committed_registration_patches)
 
     @classmethod
     def setUpClass(cls):
-        for patch in _committed_registration_patches():
+        for patch in cls.PATCHES():
             patch.start()
             cls.addClassCleanup(patch.stop)
         super().setUpClass()
@@ -1318,26 +1532,71 @@ class _WithACommittedRegistration:
         return json.loads(json.dumps(rl.build()))
 
 
-class OnlineStreamWithARegistrationTest(_WithACommittedRegistration, OnlineStreamTest):
+class _TheLastRegistrationWaits:
+    """The scenario's last registration (LAST) is pending at the end of the stream."""
+
+    LAST = "vol_registered_committed"
+
     def test_the_registration_waits_at_the_end_of_the_stream(self):
-        r = next(r for r in self.rows if r["id"] == "vol_registered_committed")
+        r = next(r for r in self.rows if r["id"] == self.LAST)
         self.assertEqual((r["status"], r["online_position"], r["online_p"]), ("registered", len(self.stream), None))
         earlier = [x for x in self.stream[:-1] if x["online_p"] is None]      # committed registrations still waiting
         self.assertEqual(r["online_alpha_lordpp"] is None, bool(earlier))   # its level is fixed unless one waits
         self.assertEqual(self.online["waiting_on"], (earlier[0] if earlier else r)["id"])
         self.assertIsNone(self.online["lordpp"]["next_level"])
-        self.assertEqual(self.ledger["summary"]["registered"][-1], r["id"])
+        # summary.registered lists the pending rows in the artifact's (code) order, the stream in registration order.
+        registered = self.ledger["summary"]["registered"]
+        self.assertEqual([x["id"] for x in self.stream if x["id"] in registered][-1], r["id"])
+        self.assertEqual(sorted(registered), sorted(x["id"] for x in self.stream if _pending(x)
+                                                    and not x["registration"]["withdrawn"]))
+
+
+class OnlineStreamWithARegistrationTest(_WithACommittedRegistration, _TheLastRegistrationWaits, OnlineStreamTest):
+    pass
+
+
+class OnlineStreamWithRegistrationsInEveryFunctionTest(_WithACommittedRegistration, _TheLastRegistrationWaits,
+                                                       OnlineStreamTest):
+    PATCHES = staticmethod(_registrations_in_every_function_patches)
+    LAST = f"registered_in{rl._ROW_FUNCTIONS[0].__name__}"
+
+
+class OnlineStreamWithARegisteredModelTest(_WithACommittedRegistration, _TheLastRegistrationWaits, OnlineStreamTest):
+    PATCHES = staticmethod(_registered_model_patches)
+    LAST = f"vol_berkowitz_{COMMITTED_MODEL}"
+
+
+class OnlineStreamWithAWithdrawnModelTest(_WithACommittedRegistration, OnlineStreamTest):
+    PATCHES = staticmethod(_withdrawn_model_patches)
 
 
 class RegistrationWithACommittedRegistrationTest(_WithACommittedRegistration, RegistrationTest):
     pass
 
 
+class RegistrationWithRegistrationsInEveryFunctionTest(_WithACommittedRegistration, RegistrationTest):
+    PATCHES = staticmethod(_registrations_in_every_function_patches)
+
+
+class RegistrationWithARegisteredModelTest(_WithACommittedRegistration, RegistrationTest):
+    PATCHES = staticmethod(_registered_model_patches)
+
+
+class RegistrationWithAWithdrawnModelTest(_WithACommittedRegistration, RegistrationTest):
+    PATCHES = staticmethod(_withdrawn_model_patches)
+
+
 class AppendOnlyWithARegistrationTest(AppendOnlyCheckTest):
+    PATCHES = staticmethod(_committed_registration_patches)
+
     def ledger_rows(self):
-        patches = _committed_registration_patches()
-        with patches[0], patches[1]:
+        with contextlib.ExitStack() as stack:
+            _patched(stack, self.PATCHES())
             return json.loads(json.dumps(rl.build()))["rows"]
+
+
+class AppendOnlyWithARegisteredModelTest(AppendOnlyWithARegistrationTest):
+    PATCHES = staticmethod(_registered_model_patches)
 
 
 class LedgerHistoryTest(unittest.TestCase):
@@ -1402,6 +1661,8 @@ class LedgerHistoryTest(unittest.TestCase):
                 self.assertEqual(current[row["id"]]["entered_on"], day)
 
     def test_registrations_reached_main_before_their_results(self):
+        # Today's definitions decide what counts as a result; the spec hash below shows each declared test is unchanged.
+        definitions = {row.id: row for row in rl.ledger_rows()}
         current_doc = {}
         for r in self.current["rows"]:
             reg = r["registration"]
@@ -1414,7 +1675,7 @@ class LedgerHistoryTest(unittest.TestCase):
                     self.assertEqual(r["status"], "registered", "a registered row reaches main before its result")
                     if source not in current_doc:
                         current_doc[source] = self._artifact_at(self.base, source)
-                    self.assertFalse(rl._result_exists(current_doc[source], reg["field"]),
+                    self.assertFalse(rl.result_exists(definitions[r["id"]], current_doc[source]),
                                      f"the result of {r['id']} already exists on main")
                     continue
                 sha, day, _, first = self.first[r["id"]]
@@ -1422,7 +1683,7 @@ class LedgerHistoryTest(unittest.TestCase):
                 self.assertEqual(first["registration"]["spec_sha256"], reg["spec_sha256"],
                                  "the declared test changed after the row reached main")
                 self.assertLessEqual(reg["on"], day)
-                self.assertFalse(rl._result_exists(self._artifact_at(sha, source), reg["field"]),
+                self.assertFalse(rl.result_exists(definitions[r["id"]], self._artifact_at(sha, source)),
                                  "the result existed on main when the row was registered")
                 if reg["withdrawn"]:
                     for _, _, _, doc in self.versions:

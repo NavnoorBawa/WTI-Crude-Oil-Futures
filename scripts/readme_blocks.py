@@ -2472,11 +2472,27 @@ def ledger_reading() -> str:
 
         from backend.research_ledger import benjamini_hochberg
 
-        fam = [r for r in dist if not r["selected_after_search"]]
+        # The rows in the family are those with a q-value: a row selected after a search, a registered row (pending
+        # or withdrawn) and a row whose test could not be computed have none.
+        fam = [r for r in dist if r["q_value_bh"] is not None]
         survive = [r for r in fam if r["survives_bh_5pct"]]
         families = sorted({r["family"] for r in survive})
+        picked = sum(bool(r["selected_after_search"]) for r in dist)
+        registered = [bool((r.get("registration") or {}).get("withdrawn")) for r in dist if r["status"] == "registered"]
+        waiting, withdrawn = registered.count(False), registered.count(True)
+        uncomputed = len(dist) - len(fam) - picked - waiting - withdrawn
+        out = []
+        if picked:
+            out.append(f"the challenger's {picked} {'is' if picked == 1 else 'are'} left out")
+        if waiting:
+            out.append(f"{waiting} registered row{'s wait for their results' if waiting != 1 else ' waits for its result'}")
+        if withdrawn:
+            out.append(f"{withdrawn} registered row{'s were' if withdrawn != 1 else ' was'} withdrawn before "
+                       f"{'their results' if withdrawn != 1 else 'its result'} existed")
+        if uncomputed:
+            out.append(f"{uncomputed} could not be computed")
         sentence = (f"The {len(dist)} rows on the whole predictive distribution (section 2.9) add {len(fam)} to the "
-                    f"family (the challenger's {len(dist) - len(fam)} are left out); "
+                    f"family" + (f" ({'; '.join(out)})" if out else "") + "; "
                     + (f"{_word(len(survive))} of them survive the Benjamini-Hochberg adjustment, all in the "
                        f"{_join(families)} {'family' if len(families) == 1 else 'families'}." if survive else
                        "none of them survives the Benjamini-Hochberg adjustment."))
@@ -2514,6 +2530,14 @@ def _level_text(value: float) -> str:
 
 def _ids(ids: list[str]) -> str:
     return _join(list(ids))
+
+
+def _levels_text(lord: float, saffron: float, alpha: float) -> str:
+    """A row's two online levels, ending the sentence; a SAFFRON level above alpha says what a rejection there means."""
+    pct = f"{alpha:.0%}"
+    return (f"{_level_text(lord)} by LORD++ and {_level_text(saffron)} by SAFFRON"
+            + (f", which is above {pct} after the recent rejections: a SAFFRON rejection with p at {pct} or more would "
+               f"not be support." if saffron > alpha else "."))
 
 
 def ledger_online() -> str:
@@ -2587,28 +2611,24 @@ def ledger_online() -> str:
     pending, withdrawn = s.get("registered", []), s.get("registered_withdrawn", [])
     if pending:
         n = len(pending)
-        sentence = (f"{n} registered row{'s' if n != 1 else ''} {'wait' if n != 1 else 'waits'} for "
-                    f"{'their results' if n != 1 else 'its result'} ({_ids(pending)})")
-        fixed = [rid for rid in pending if rows[rid]["online_alpha_lordpp"] is not None]
-        if fixed:
-            sentence += ("; the level " + ("each" if len(fixed) != 1 else "it") + " will be tested at is fixed: "
-                         + "; ".join(f"{rid} at {_level_text(rows[rid]['online_alpha_lordpp'])} by LORD++ and "
-                                     f"{_level_text(rows[rid]['online_alpha_saffron'])} by SAFFRON" for rid in fixed))
+        text.append(f"{n} registered row{'s' if n != 1 else ''} {'wait' if n != 1 else 'waits'} for "
+                    f"{'their results' if n != 1 else 'its result'} ({_ids(pending)}).")
+        # A pending row's levels are fixed once every earlier row is decided (only the first can be).
+        for rid in sorted((rid for rid in pending if rows[rid]["online_alpha_lordpp"] is not None),
+                          key=lambda rid: rows[rid]["online_position"]):
+            text.append(f"The levels {rid} will be tested at are fixed: "
+                        + _levels_text(rows[rid]["online_alpha_lordpp"], rows[rid]["online_alpha_saffron"], alpha))
         if o["waiting_on"] is not None and any(r["online_position"] is not None
                                               and r["online_position"] > rows[o["waiting_on"]]["online_position"]
                                               for r in led["rows"]):
-            sentence += f"; rows after {o['waiting_on']} have no online decision until it resolves"
-        text.append(sentence + ".")
+            text.append(f"Rows after {o['waiting_on']} have no online decision until it resolves.")
     if withdrawn:
         w = len(withdrawn)
         text.append(f"{w} registration{'s were' if w != 1 else ' was'} withdrawn ({_ids(withdrawn)}) and "
                     f"{'spend their' if w != 1 else 'spends its'} online level at p = 1 (not counted as tested).")
     if o["lordpp"]["next_level"] is not None and o["saffron"]["next_level"] is not None:
-        nxt = o["saffron"]["next_level"]
-        text.append(f"The next registered row will be tested at {_level_text(o['lordpp']['next_level'])} by LORD++ and "
-                    f"{_level_text(nxt)} by SAFFRON"
-                    + (f", which is above {pct} after the recent rejections: a SAFFRON rejection with p at {pct} or more "
-                       f"would not be support." if nxt > alpha else "."))
+        text.append("The next registered row will be tested at "
+                    + _levels_text(o["lordpp"]["next_level"], o["saffron"]["next_level"], alpha))
     else:
         text.append(f"The next registered row's level is not fixed until {o['waiting_on']} resolves.")
     text.append("No row's status depends on either online procedure.")

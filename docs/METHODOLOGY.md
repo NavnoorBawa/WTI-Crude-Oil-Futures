@@ -789,7 +789,9 @@ pre-specified.
   true when it is below the artifact's target power (null where no power figure exists). Retracted
   rows keep their p-values and stay in the multiplicity count, but are never counted as survivors.
   A registered row has no p-value, takes no part in either view's decisions, and changes status by
-  itself on the first rebuild after its field exists.
+  itself on the first rebuild after its field holds the result: a value, or a null where the row's
+  test reads the field as optional, which means the artifact ran the test and could not compute it
+  (the row is then inconclusive, as any row with such a null). Any other null is a placeholder.
 - **Multiplicity, the batch view**, across the rows with a p-value, on the two-sided p (a one-sided p doubled,
   capped at 1): Benjamini-Hochberg (1995) q-values, Holm (1979) adjusted p-values, and the
   Harvey, Liu and Zhu (2016) hurdle t > 3 on the normal quantile of that p. Rows marked
@@ -861,15 +863,19 @@ pre-specified.
   artifact field that will hold its result (`registration.field`); it merges before any pull request
   that produces the result. The ledger records `registration.spec_sha256`, the hash of everything
   that decides the row's p-value, direction and status. The checks: the declared field did not
-  resolve on main when the row arrived there; the hash is unchanged since; the status changes only
-  when the field exists, and the test must read that field; a pending row's field must not exist
-  (else the ledger was not rebuilt). A registration can be withdrawn only while its result does not
-  exist; the row then stays listed for good, with status registered, and is tested online at p = 1,
-  so a withdrawal still costs its level (it is not counted as tested). A generated family's row (one
-  per model, its hypothesis naming the model) is registered by listing the model, with the label the
-  rows show while they wait, in `REGISTERED_LAB_MODELS` or `REGISTERED_DISTRIBUTION_MODELS`; the hash
-  covers the hypothesis as written and the field paths of its names, so moving the model into
-  `LAB_COMPARED` or `DISTRIBUTION_MODELS` in the result pull request leaves it unchanged. `registered` means fixed before the result existed;
+  hold a result on main when the row arrived there; the hash is unchanged since; the status changes
+  only when the field holds the result, and the test must read that field; a pending row's field
+  must not hold it (else the ledger was not rebuilt). A registration can be withdrawn only while its
+  result does not exist; the row then stays listed for good, with status registered, and is tested
+  online at p = 1, so a withdrawal still costs its level (it is not counted as tested). A generated
+  family's row (one per model, its hypothesis naming the model) is registered by listing the model,
+  with the label the rows show while they wait, in `REGISTERED_LAB_MODELS` or
+  `REGISTERED_DISTRIBUTION_MODELS`; the hash covers the hypothesis as written and the field paths of
+  its names, so moving the model into `LAB_COMPARED` or `DISTRIBUTION_MODELS` in the result pull
+  request leaves it unchanged. While a row waits, each name is read from its artifact where the
+  artifact already holds it, else the declared label is shown. Such a model is withdrawn whole, every
+  row registered for it at once: its rows read one model entry, so a pending sibling of a withdrawn
+  row could never resolve. Withdrawal retires the key; a later attempt registers a new one. `registered` means fixed before the result existed;
   `pre_specified` means fixed before the data were seen, and most registered rows will run on data
   already explored, so the two are counted separately. The checks see main only: a result computed
   off main before registration cannot be detected, and the row's note must disclose it if it
