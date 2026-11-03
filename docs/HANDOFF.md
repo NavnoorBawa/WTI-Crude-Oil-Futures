@@ -305,7 +305,9 @@ exists, in two PRs, in this order:
    earlier date is not), so the merged one keeps its place. A model for a generated family (the
    `vol_gw_`/`vol_fluct_` rows, or the distribution rows) is registered by listing it, with the label
    its rows show while they wait, in `REGISTERED_LAB_MODELS` (or `REGISTERED_DISTRIBUTION_MODELS`)
-   and each of its rows in `REGISTERED`; `vol_lab.py` does not change in this PR.
+   and each of its rows in `REGISTERED`; `vol_lab.py` does not change in this PR. A row in a new
+   family also adds the family's name to the list in `test_rows_cover_every_research_family` in
+   `tests/test_research_ledger.py`, in this PR, before any result exists.
 2. **Result PR.** It rebuilds the artifact so the field exists, then the ledger: the row resolves by
    itself. A test the artifact ran but could not compute resolves it too, where the row reads the
    field as optional (`Field(optional=True)`, as the `vol_gw_`/`vol_fluct_` rows do): the row then
@@ -317,8 +319,9 @@ exists, in two PRs, in this order:
    from `REGISTERED_LAB_MODELS` to `LAB_COMPARED` (or to `DISTRIBUTION_MODELS`) as it joins the
    lab, which leaves the spec hash unchanged; in `DISTRIBUTION_MODELS` it takes its place in the
    artifact's `distribution.models` order (a test checks that the two agree, and the tests of the
-   distribution readings read their groups from the artifact and the ledger, so none is edited
-   after the result). A lab model also changes three lists in the same PR:
+   distribution readings read their groups from the artifact and the ledger and also run on a
+   synthetic new model with values of its own, so none is edited after the result). A lab model
+   also changes three lists in the same PR:
    it joins `MODELS` in `backend/vol_lab.py` (a test checks that it and `LAB_COMPARED` agree), gets
    an entry in `MODEL_INPUTS` in `scripts/readme_blocks.py` saying what it reads at the decision
    (returns, the daily range, implied vol; a test checks that every lab model has one; for a model
@@ -339,7 +342,11 @@ registries' rows read different entries (a distribution row reads the leaderboar
 and only for a model in `LAB_COMPARED`), so a model registered through both can lose its
 distribution rows and keep its lab rows, or the other way round. In that second case its
 distribution rows resolve when the lab scores it as a distribution only, as it scores the quantile
-HAR, and the key moves to `DISTRIBUTION_MODELS` while it stays in `REGISTERED_LAB_MODELS`. Every changed p-value of an
-existing row (an erratum, a retraction after entry, a lab rebuild that moves p-values) recomputes
-the online view from that row on: name the row in `ONLINE_CORRECTIONS` in
-`tests/test_research_ledger.py` with its changelog errata entry.
+HAR, and the key moves to `DISTRIBUTION_MODELS` while it stays in `REGISTERED_LAB_MODELS`.
+Every changed p-value or status of an existing row (an erratum, a retraction after entry, a test
+that becomes computable, a lab rebuild that moves p-values) is named in `ONLINE_CORRECTIONS` in
+`tests/test_research_ledger.py` with its changelog errata entry, a row selected after a search too
+(it is outside the online stream, but the batch check below compares its fields). In the stream
+the correction recomputes the online view from that row on. The history test's two checks (the
+append-only online view, and the batch fields while the family is unchanged) exempt the named
+row's own p-value and status, and the online levels and decisions recomputed after it.

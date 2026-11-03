@@ -443,7 +443,8 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   `online_rejected_*` is null, and its `online_alpha_*` is published, fixed before the result exists, once
   every earlier row is decided; every later row's level and decision are null until it resolves.
   `online_rejected_*` is false for a retracted row and for a withdrawn registration, which are tested at
-  p = 1 with their level set, and a withdrawn registration does not hold up later rows. `registration`
+  p = 1 with their level set once every earlier row is decided (after a pending row both are null, as
+  every later row's are), and a withdrawn registration does not hold up later rows. `registration`
   is `{on, field, withdrawn}` (the date, the artifact field that will hold the result, and a withdrawal
   reason) or null. A registered row's result exists once `registration.field` holds a value, or a null
   that the row's test reads as optional (a test the artifact ran and could not compute, as the lab's
@@ -452,7 +453,8 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   null `p_value`, and is tested online at p = 1); until then, or while its artifact file is missing,
   the row is pending. A
   registered row, pending or withdrawn, has a null `p_value`, `q_bh`, `p_holm`, `survives_bh` and
-  `clears_t3`; its online decision is null while it is pending and false once it is withdrawn. The full artifact also has, per row,
+  `clears_t3`; its online decision is null while it is pending, and false once it is withdrawn and every
+  earlier row is decided (null while it sits after a pending row). The full artifact also has, per row,
   `online_p` (the p the row is tested on: `p_two_sided`, or 1 for a retracted row, a row whose test could
   not be computed and a withdrawn registration), `online_candidate_saffron` (`online_p` ≤ λ) and
   `registration.spec_sha256` (the hash of the declared test). `summary.online` is `{alpha, reference,

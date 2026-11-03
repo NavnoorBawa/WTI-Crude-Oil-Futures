@@ -122,22 +122,38 @@ class MultiplicityTest(unittest.TestCase):
         self.assertEqual((row["p_two_sided"], row["selected_after_search"]), (None, True))
         self.assert_selected_rows_are_outside(ledger)
 
+    def test_a_registered_row_selected_after_a_search_joins_the_selected_rows(self):
+        # A new family's challenger row, registered and pending: selected after a search, with no p-value yet.
+        with contextlib.ExitStack() as stack:
+            _patched(stack, (*_registered_selected_row_patches(), mock.patch.object(rl, "ORDER_DRAWS", 3)))
+            ledger = json.loads(json.dumps(rl.build()))
+            row = next(r for r in ledger["rows"] if r["id"] == SELECTED_ROW)
+            self.assertEqual((row["status"], row["p_two_sided"], row["online_position"]), ("registered", None, None))
+            self.assertIn(SELECTED_ROW, ledger["summary"]["selected_after_search"])
+            self.assert_selected_rows_are_outside(ledger)
+
+    COMMITTED_SELECTED = ("vol_challenger_qlike", "vol_gw_har_iv_range", "vol_fluct_har_iv_range",
+                          "vol_crps_har_iv_range", "vol_pinball10_har_iv_range", "vol_pinball90_har_iv_range")
+
     def assert_selected_rows_are_outside(self, ledger):
+        # The selected rows are the ones the definitions mark (a new family's challenger row joins them), each testing
+        # the challenger; the committed ones stay among them.
         selected = [r for r in ledger["rows"] if r["selected_after_search"]]
-        expected = ["vol_challenger_qlike", "vol_gw_har_iv_range", "vol_fluct_har_iv_range", "vol_crps_har_iv_range",
-                    "vol_pinball10_har_iv_range", "vol_pinball90_har_iv_range"]
+        expected = [row.id for row in rl.ledger_rows() if row.selected_after_search]
         self.assertEqual([r["id"] for r in selected], expected)
         self.assertEqual(ledger["summary"]["selected_after_search"], expected)
+        self.assertLessEqual(set(self.COMMITTED_SELECTED), set(expected))
         s = ledger["summary"]
         for row in selected:
+            self.assertIn(f"[key={rl.CHALLENGER}]", row["artifact"]["statistic_field"], row["id"])
             for key in ("q_value_bh", "p_holm", "survives_bh_5pct", "survives_holm_5pct", "clears_hlz_t3"):
                 self.assertIsNone(row[key], key)
-            # Each names the search-adjusted test where one exists, or says none does.
-            if row["id"] not in ("vol_challenger_qlike", "vol_fluct_har_iv_range"):
+            # Each committed one names the search-adjusted test where one exists, or says none does.
+            if row["id"] in ("vol_challenger_qlike", "vol_fluct_har_iv_range"):
+                self.assertIn("vol_spa_beats_record", row["note"])
+            elif row["id"] in self.COMMITTED_SELECTED:
                 self.assertIn("no search-adjusted version of this test exists", row["note"])
                 self.assertNotIn("vol_spa_beats_record", row["note"])
-            else:
-                self.assertIn("vol_spa_beats_record", row["note"])
             for key in ("supported_surviving_bh_5pct", "supported_surviving_holm_5pct", "supported_clearing_hlz_t3",
                         "supported_failing_bh_5pct"):
                 self.assertNotIn(row["id"], s[key], key)
@@ -1663,6 +1679,84 @@ def _append_only_violations(old_rows, new_rows, corrections):
     return problems
 
 
+BATCH_FIELDS = ("p_value", "sided", "p_two_sided", "status", "q_value_bh", "p_holm", "t_equivalent",
+                "survives_bh_5pct", "survives_holm_5pct", "clears_hlz_t3", "selected_after_search", "pre_specified")
+# A corrected row's own result: an erratum or a test that becomes computable moves its p (a row selected after a
+# search is outside the family, so its p moves while the family stays), a retraction its status.
+CORRECTED_FIELDS = ("p_value", "p_two_sided", "t_equivalent", "status")
+
+
+def _batch_family(rows):
+    return {(r["id"], r["p_two_sided"]) for r in rows if r["p_two_sided"] is not None and not r["selected_after_search"]}
+
+
+def _batch_violations(old_rows, new_rows, corrections):
+    """How a later ledger moves an earlier version's batch view while the family's (id, p_two_sided) set is unchanged:
+    a batch field of a row changed, other than the own result (CORRECTED_FIELDS) of a row named in `corrections`.
+    None when the family changed (then the batch fields may move)."""
+    if _batch_family(old_rows) != _batch_family(new_rows):
+        return None
+    new = {r["id"]: r for r in new_rows}
+    problems = []
+    for r in old_rows:
+        if r["id"] not in new:
+            problems.append(f"{r['id']} left the ledger")
+            continue
+        exempt = CORRECTED_FIELDS if r["id"] in corrections else ()
+        changed = [key for key in BATCH_FIELDS if key not in exempt and new[r["id"]][key] != r[key]]
+        if changed:
+            problems.append(f"{r['id']}: {changed} changed without a correction named in ONLINE_CORRECTIONS")
+    return problems
+
+
+class BatchCheckTest(unittest.TestCase):
+    """The history test's batch comparison, on synthetic versions: a correction named in ONLINE_CORRECTIONS (as the
+    online view's check reads it) passes it too, on a row in the stream and on one selected after a search."""
+
+    def ledger_rows(self):
+        return copy.deepcopy(_committed()["rows"])
+
+    def test_the_comparison(self):
+        rows = self.ledger_rows()
+        self.assertEqual(_batch_violations(rows, rows, {}), [])
+        moved = copy.deepcopy(rows)
+        target = next(r for r in moved if r["q_value_bh"] is not None)
+        target["q_value_bh"] *= 1.5                                 # a batch field moved by a code change
+        self.assertTrue(_batch_violations(rows, moved, {}))
+        self.assertTrue(_batch_violations(rows, moved, {target["id"]: "CHANGELOG errata: test"}),
+                        "a named row's family fields are still checked")
+        family = copy.deepcopy(rows)
+        next(r for r in family if r["q_value_bh"] is not None)["p_two_sided"] = 0.5
+        self.assertIsNone(_batch_violations(rows, family, {}), "a changed family skips the check")
+
+    def test_a_retraction_after_entry_named_as_a_correction_passes(self):
+        rows = self.ledger_rows()
+        target = next(r for r in rows if r["status"] == "supported" and not r["selected_after_search"])
+        retracted = copy.deepcopy(rows)
+        for r in retracted:
+            if r["id"] == target["id"]:
+                r.update(status="retracted", retraction_reason="the evidence was found invalid after entry",
+                         online_p=1.0)
+        self.assertIsNotNone(_batch_violations(rows, retracted, {}))
+        self.assertTrue(_batch_violations(rows, retracted, {}))
+        named = {target["id"]: "CHANGELOG errata: test"}
+        self.assertEqual(_batch_violations(rows, retracted, named), [])
+        self.assertEqual(_append_only_violations(rows, retracted, named), [])
+
+    def test_a_corrected_row_selected_after_a_search_named_as_a_correction_passes(self):
+        rows = self.ledger_rows()
+        target = next(r for r in rows if r["selected_after_search"] and r["p_two_sided"] is not None)
+        corrected = copy.deepcopy(rows)
+        for r in corrected:
+            if r["id"] == target["id"]:
+                r.update(p_value=None, p_two_sided=None, t_equivalent=None, status="inconclusive")
+        self.assertIsNotNone(_batch_violations(rows, corrected, {}), "outside the family, the family is unchanged")
+        self.assertTrue(_batch_violations(rows, corrected, {}))
+        named = {target["id"]: "CHANGELOG errata: test"}
+        self.assertEqual(_batch_violations(rows, corrected, named), [])
+        self.assertEqual(_append_only_violations(rows, corrected, named), [])
+
+
 class AppendOnlyCheckTest(unittest.TestCase):
     """The history test's comparison, on synthetic versions (main has no version with online fields before 2.12)."""
 
@@ -1752,6 +1846,21 @@ def _registrations_in_every_function_patches():
     return _defined_also(rows), mock.patch.dict(rl.REGISTERED, regs)
 
 
+def _registered_selected_row_patches():
+    """The committed registration above, and beside it a new family's challenger row registered pending: selected after
+    a search, it waits outside the online stream (HANDOFF's route for a per-model family the challenger is in)."""
+    on, field = _registration_day(), "experiment_committed.p_value"
+    picked_field = f"leaderboard.models[key={rl.CHALLENGER}].experiment_selected.p_value"
+    plain = dataclasses.replace(_fake("vol_registered_committed", field), registration=None)
+    picked = dataclasses.replace(_fake(SELECTED_ROW, picked_field), registration=None, selected_after_search=True)
+    return (_defined_also({"_vol_rows": [picked, plain]}),
+            mock.patch.dict(rl.REGISTERED, {picked.id: rl.Registration(on, picked_field),
+                                            plain.id: rl.Registration(on, field)}))
+
+
+SELECTED_ROW = "vol_registered_selected"
+
+
 def _registered_model_patches(withdrawn=None):
     """One more committed model registered through both generated families (HANDOFF's route for ROADMAP 2.13), pending
     or withdrawn whole."""
@@ -1795,8 +1904,11 @@ class _TheLastRegistrationWaits:
         # summary.registered lists the pending rows in the artifact's (code) order, the stream in registration order.
         registered = self.ledger["summary"]["registered"]
         self.assertEqual([x["id"] for x in self.stream if x["id"] in registered][-1], r["id"])
-        self.assertEqual(sorted(registered), sorted(x["id"] for x in self.stream if _pending(x)
-                                                    and not x["registration"]["withdrawn"]))
+        # A pending row selected after a search (a new family's challenger row) waits outside the stream.
+        searched = [x["id"] for x in self.rows if x["selected_after_search"] and _pending(x)
+                    and not x["registration"]["withdrawn"]]
+        self.assertEqual(sorted(registered), sorted([x["id"] for x in self.stream if _pending(x)
+                                                     and not x["registration"]["withdrawn"]] + searched))
 
 
 class OnlineStreamWithARegistrationTest(_WithACommittedRegistration, _TheLastRegistrationWaits, OnlineStreamTest):
@@ -1818,6 +1930,11 @@ class OnlineStreamWithAWithdrawnModelTest(_WithACommittedRegistration, OnlineStr
     PATCHES = staticmethod(_withdrawn_model_patches)
 
 
+class OnlineStreamWithARegisteredSelectedRowTest(_WithACommittedRegistration, _TheLastRegistrationWaits,
+                                                 OnlineStreamTest):
+    PATCHES = staticmethod(_registered_selected_row_patches)
+
+
 class RegistrationWithACommittedRegistrationTest(_WithACommittedRegistration, RegistrationTest):
     pass
 
@@ -1832,6 +1949,10 @@ class RegistrationWithARegisteredModelTest(_WithACommittedRegistration, Registra
 
 class RegistrationWithAWithdrawnModelTest(_WithACommittedRegistration, RegistrationTest):
     PATCHES = staticmethod(_withdrawn_model_patches)
+
+
+class RegistrationWithARegisteredSelectedRowTest(_WithACommittedRegistration, RegistrationTest):
+    PATCHES = staticmethod(_registered_selected_row_patches)
 
 
 class AppendOnlyWithARegistrationTest(AppendOnlyCheckTest):
@@ -1853,8 +1974,7 @@ class LedgerHistoryTest(unittest.TestCase):
     git or without full history (a shallow clone: git fetch --unshallow); CI sets LEDGER_HISTORY_REQUIRED=1 so it
     fails there instead of skipping."""
 
-    BATCH_FIELDS = ("p_value", "sided", "p_two_sided", "status", "q_value_bh", "p_holm", "t_equivalent",
-                    "survives_bh_5pct", "survives_holm_5pct", "clears_hlz_t3", "selected_after_search", "pre_specified")
+    BATCH_FIELDS = BATCH_FIELDS
 
     @classmethod
     def setUpClass(cls):
@@ -1954,19 +2074,13 @@ class LedgerHistoryTest(unittest.TestCase):
 
     def test_existing_rows_batch_fields_are_unchanged_while_the_family_is(self):
         """Acceptance (ROADMAP 2.12), permanent form: against the newest version on main, if the batch family's
-        (id, p_two_sided) set is unchanged, so is every batch field of every row in that version."""
+        (id, p_two_sided) set is unchanged, so is every batch field of every row in that version, except a row named
+        in ONLINE_CORRECTIONS, whose own result may change (see _batch_violations)."""
         sha, _, _, newest = self.versions[-1]
-
-        def family(doc):
-            return {(r["id"], r["p_two_sided"]) for r in doc["rows"]
-                    if r["p_two_sided"] is not None and not r["selected_after_search"]}
-
-        if family(newest) != family(self.current):
+        problems = _batch_violations(newest["rows"], self.current["rows"], ONLINE_CORRECTIONS)
+        if problems is None:
             self.skipTest("the batch family changed, so the batch fields may move")
-        current = {r["id"]: r for r in self.current["rows"]}
-        for r in newest["rows"]:
-            for key in self.BATCH_FIELDS:
-                self.assertEqual(current[r["id"]][key], r[key], (sha[:7], r["id"], key))
+        self.assertEqual(problems, [], sha[:7])
 
 
 if __name__ == "__main__":

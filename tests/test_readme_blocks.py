@@ -342,37 +342,158 @@ class DistributionBlocksTest(StabilityBlocksTest.__base__):
         self.assertNotIn("does not survive it", text)
         self.assertIn("The quantile HAR's rejection rests on one of five grids", text)
 
-    def test_context_verdicts_follow_their_p_values_and_sides(self):
+    def _crps(self, text):
+        return text[text.index("On CRPS over 19 quantiles"):text.index("On the 10% pinball loss")]
+
+    def _assert_context_verdicts(self):
+        """The context's Berkowitz bands and log-scale groups, built from whatever models the artifact scores."""
         for key in ("garch", "gjr"):
             self.dist(key)["alternatives"]["static_t"]["berkowitz_p"] = 0.3
         self.dist("ovx_only")["dm_vs_har_iv"]["crps_grid_log"].update(stat=2.5, p_value=0.02)
         text = self.patched(rb.distribution_reading)
-        self.assertIn("Berkowitz does not reject at 10% GARCH(1,1)-t and GJR-GARCH(1,1)-t (p = 0.300, p = 0.300)", text)
+        static = [m for m in self.lab["distribution"]["models"] if "alternatives" in m]
+        for words, low, high in (("Berkowitz rejects", 0.0, 0.05), ("Berkowitz is inconclusive for", 0.05, 0.10),
+                                 ("Berkowitz does not reject at 10%", 0.10, 1.01)):
+            group = [m for m in static if low <= m["alternatives"]["static_t"]["berkowitz_p"] < high]
+            if group:
+                ps = ", ".join(rb._peq_thr(m["alternatives"]["static_t"]["berkowitz_p"]) for m in group)
+                self.assertIn(f"{words} {rb._dist_names(group)} ({ps})", text)
+            if words == "Berkowitz does not reject at 10%":
+                self.assertTrue({"garch", "gjr"} <= {m["key"] for m in group})       # the case set above
         self.assertNotIn("Berkowitz rejects GARCH", text)
-        self.assertIn("on the log scale OVX-only regression scores a significantly lower CRPS than the model of record", text)
+        chall = self.lab["config"]["challenger"]
+        log_mod = [m for m in self.lab["distribution"]["models"] if m["dm_vs_har_iv"] is not None and m["key"] != chall
+                   and m["dm_vs_har_iv"]["crps_grid_log"]["p_value"] < 0.05 and m["dm_vs_har_iv"]["crps_grid_log"]["stat"] > 0]
+        self.assertIn("ovx_only", [m["key"] for m in log_mod])                           # the case set above
+        ps = ", ".join(rb._peq_thr(m["dm_vs_har_iv"]["crps_grid_log"]["p_value"]) for m in log_mod)
+        self.assertIn(f"on the log scale {rb._dist_names(log_mod)} {'scores' if len(log_mod) == 1 else 'score'} a "
+                      f"significantly lower CRPS than the model of record ({ps})", text)
 
-    def test_a_result_against_the_registered_direction_cites_no_adjusted_support(self):
+    def test_context_verdicts_follow_their_p_values_and_sides(self):
+        self._assert_context_verdicts()
+
+    def _assert_the_registered_direction(self, crps):
+        """The significant CRPS results in `crps`: the adjustment is cited only for those that run the way the ledger
+        states, and names them when the sentence also lists one that does not."""
+        chall = self.lab["config"]["challenger"]
+        sig = [m for m in self.lab["distribution"]["models"] if m["dm_vs_har_iv"] is not None and m["key"] != chall
+               and m["dm_vs_har_iv"]["crps_grid"]["p_value"] < 0.05]
+        registered = [m for m in sig if rb._dist_registered(m, m["dm_vs_har_iv"]["crps_grid"])]
+        opposite = [m for m in sig if m not in registered]
+        if opposite:
+            self.assertIn(f"The difference against {rb._dist_names(opposite)} runs opposite to the direction the ledger "
+                          "states", crps)
+        if not registered:
+            self.assertNotIn("Benjamini-Hochberg", crps)      # no adjusted support cited for an unregistered direction
+            return
+        qs = ", ".join(rb._pthr(self.row(f"vol_crps_{m['key']}")["q_value_bh"]) for m in registered)
+        self.assertIn(f" the ledger's Benjamini-Hochberg adjustment (q = {qs}).", crps)
+        if opposite:                                          # the adjustment names its own subject
+            subject = rb._dist_names(registered)
+            self.assertTrue(f"The result against {subject} " in crps or f"Of the results against {subject}, " in crps
+                            or f"The results against {subject} " in crps, crps)
+            self.assertNotIn(" It does not survive", crps)
+            self.assertNotIn(" It survives", crps)
+
+    def _assert_a_result_against_the_registered_direction(self):
         self.dist("quantile_har")["dm_vs_har_iv"]["crps_grid"].update(stat=-2.6, p_value=0.03)
-        text = self.patched(rb.distribution_reading)
-        crps = text[text.index("On CRPS over 19 quantiles"):text.index("On the 10% pinball loss")]
-        self.assertIn("the model of record scores significantly lower than the quantile HAR (p = 0.030)", crps)
-        self.assertIn("The difference against the quantile HAR runs opposite to the direction the ledger states", crps)
-        self.assertNotIn("Benjamini-Hochberg", crps)          # no adjusted support cited for an unregistered direction
+        crps = self._crps(self.patched(rb.distribution_reading))
+        lower = self._record_lower("crps_grid", 0.0, 0.05)
+        self.assertIn("quantile_har", [m["key"] for m in lower])                         # the case set above
+        self.assertIn(f"the model of record scores significantly lower than {self._listed(lower, 'crps_grid')}", crps)
+        self._assert_the_registered_direction(crps)
         # With a registered result beside it, the adjustment names its own subject.
         self.dist("garch")["dm_vs_har_iv"]["crps_grid"].update(stat=-2.5, p_value=0.03)
-        crps = (lambda t: t[t.index("On CRPS over 19 quantiles"):t.index("On the 10% pinball loss")])(
-            self.patched(rb.distribution_reading))
-        self.assertIn("The result against GARCH(1,1)-t does not survive the ledger's Benjamini-Hochberg adjustment", crps)
-        self.assertNotIn(" It does not survive", crps)
+        crps = self._crps(self.patched(rb.distribution_reading))
+        lower = self._record_lower("crps_grid", 0.0, 0.05)
+        self.assertTrue({"garch", "quantile_har"} <= {m["key"] for m in lower})
+        self.assertIn(f"the model of record scores significantly lower than {self._listed(lower, 'crps_grid')}", crps)
+        self._assert_the_registered_direction(crps)
+        self.assertIn("Benjamini-Hochberg", crps)
 
-    def test_the_tail_reading_reads_the_chance_bands(self):
-        text = self.patched(rb.distribution_reading)
-        self.assertIn("EWMA (RiskMetrics)'s two outer tenths both lie above their chance bands", text)
-        self.assertNotIn("HAR-IV (model of record)'s two outer tenths", text)
+    def test_a_result_against_the_registered_direction_cites_no_adjusted_support(self):
+        self._assert_a_result_against_the_registered_direction()
+
+    def _tails(self):
+        """The models whose lowest, highest or both outer tenths lie above their chance bands, read from the artifact."""
+        groups = {"both": [], "lowest": [], "highest": []}
+        for m in self.lab["distribution"]["models"]:
+            share, center, band = m["pit_decile_share_pct"], m["pit_chance_center_pct"], m["pit_chance_band_pct"]
+            low, high = (share[i] > center[i] + band[i] for i in (0, -1))
+            if low or high:
+                groups["both" if low and high else "lowest" if low else "highest"].append(m)
+        return groups
+
+    def _assert_the_tails(self, text):
+        groups = self._tails()
+        for m in groups["both"]:
+            sh = m["pit_decile_share_pct"]
+            self.assertIn(f"{rb._dist_name(m)}'s two outer tenths both lie above their chance bands ({sh[0]:.1f}% and "
+                          f"{sh[-1]:.1f}% of outcomes", text)
+        for side, i in (("lowest", 0), ("highest", -1)):
+            group = groups[side]
+            if group:
+                one = len(group) == 1
+                vals = " and ".join(f"{m['pit_decile_share_pct'][i]:.1f}%" for m in group)
+                self.assertIn(f"the {side} {'tenth' if one else 'tenths'} of {rb._dist_names(group)} "
+                              f"{'lies above its chance band' if one else 'lie above their chance bands'} ({vals})", text)
+        if not any(groups.values()):
+            self.assertNotIn("Descriptively (no bin is tested)", text)
+
+    def _assert_the_tail_reading(self):
+        self._assert_the_tails(self.patched(rb.distribution_reading))
+        self.assertIn("ewma", [m["key"] for m in self._tails()["both"]])               # the artifact's case
+        self.assertNotIn(self.lab["config"]["champion"], [m["key"] for g in self._tails().values() for m in g])
         gjr = self.dist("gjr")
         gjr["pit_decile_share_pct"] = [4.0, *gjr["pit_decile_share_pct"][1:9], 24.0]
-        self.assertIn("the highest tenth of GJR-GARCH(1,1)-t lies above its chance band (24.0%)",
-                      self.patched(rb.distribution_reading))
+        self.assertIn("gjr", [m["key"] for m in self._tails()["highest"]])
+        self._assert_the_tails(self.patched(rb.distribution_reading))
+
+    def test_the_tail_reading_reads_the_chance_bands(self):
+        self._assert_the_tail_reading()
+
+    def _with_a_new_model_of_its_own(self):
+        """The distribution result PR for a model registered through the distribution families, its values its own (not
+        GARCH's): the model of record significantly lower on CRPS, the new model significantly lower on the log scale,
+        its highest tenth above its chance band (its shares still summing to 100) and its static-t Berkowitz test
+        inconclusive. The ledger is built from that artifact."""
+        import contextlib
+        from unittest import mock
+
+        from backend import research_ledger as rl
+        from tests.test_research_ledger import (TEST_LABEL, TEST_MODEL, _lab_with_model, _loader, _model_registrations,
+                                                _registration_day)
+
+        self.lab = _lab_with_model(TEST_MODEL, TEST_LABEL, leaderboard=False)
+        entry = self.dist(TEST_MODEL)
+        entry["dm_vs_har_iv"]["crps_grid"].update(stat=-2.3, p_value=0.031)
+        entry["dm_vs_har_iv"]["crps_grid_log"].update(stat=2.2, p_value=0.04)
+        entry["alternatives"]["static_t"]["berkowitz_p"] = 0.07
+        share = [10.0] * 10
+        share[-1] = entry["pit_chance_center_pct"][-1] + entry["pit_chance_band_pct"][-1] + 3.0
+        share[1:9] = [(100.0 - share[0] - share[-1]) / 8] * 8
+        entry["pit_decile_share_pct"] = share
+        with contextlib.ExitStack() as stack:
+            for patch in (mock.patch.dict(rl.REGISTERED, _model_registrations(TEST_MODEL, _registration_day(), lab=False)),
+                          mock.patch.object(rl, "DISTRIBUTION_MODELS", (*rl.DISTRIBUTION_MODELS, TEST_MODEL)),
+                          mock.patch.object(rl, "ORDER_DRAWS", 3)):
+                stack.enter_context(patch)
+            self.ledger = json.loads(json.dumps(rl.build(load=_loader(self.lab))))
+        self.assertEqual(self.row(f"vol_crps_{TEST_MODEL}")["status"], "supported")
+        return TEST_MODEL
+
+    def test_the_distribution_readings_for_a_new_model_with_values_of_its_own(self):
+        """Every reading test above, on the artifact a distribution result PR builds: no test is edited after the
+        result, whatever its values."""
+        for check in (self._assert_verdicts, self._assert_context_verdicts,
+                      self._assert_a_result_against_the_registered_direction, self._assert_the_tail_reading):
+            with self.subTest(check=check.__name__):
+                key = self._with_a_new_model_of_its_own()
+                text = self.patched(rb.distribution_reading)
+                self.assertIn(key, [m["key"] for m in self._record_lower("crps_grid", 0.0, 0.05)])
+                self.assertIn(key, [m["key"] for m in self._tails()["highest"]])
+                self.assertIn(f"Berkowitz is inconclusive for {self.dist(key)['label']} (p = 0.070)", text)
+                check()
 
     def test_fragile_t3_flags_are_computed(self):
         text = self.patched(rb.ledger_reading)
@@ -442,21 +563,26 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
                       "order, fixed after their p-values were known", text)
         self.assertNotIn("reconstructed", text)
 
-    def test_pending_and_withdrawn_registrations(self):
-        # Synthetic rows after the committed stream, first in line: committed registrations still pending are set
-        # aside, so this case does not depend on which registrations are committed.
-        self.ledger["rows"] = [r for r in self.ledger["rows"]
-                               if not (r["status"] == "registered" and not r["registration"]["withdrawn"])]
+    def _assert_pending_and_withdrawn_registrations(self):
+        # Synthetic rows after the committed stream, first in line: committed registrations (pending or withdrawn) are
+        # set aside, so this case does not depend on which registrations are committed.
+        self.ledger["rows"] = [r for r in self.ledger["rows"] if r["status"] != "registered"]
         last = max(self.ledger["rows"], key=lambda r: r["online_position"] or 0)
-        pending = {**last, "id": "reg_pending", "status": "registered", "online_position": last["online_position"] + 1,
+        position = last["online_position"]
+        gone_reg = {**(last["registration"] or {}), "withdrawn": "abandoned before it ran"}
+        early = {**last, "id": "reg_gone_early", "status": "registered", "online_position": position + 1,
+                 "online_p": 1.0, "online_alpha_lordpp": 0.001, "online_alpha_saffron": 0.02,
+                 "online_rejected_lordpp": False, "online_rejected_saffron": False, "registration": gone_reg}
+        pending = {**last, "id": "reg_pending", "status": "registered", "online_position": position + 2,
                    "online_p": None, "online_alpha_lordpp": 0.001, "online_alpha_saffron": 0.06,
                    "online_rejected_lordpp": None, "online_rejected_saffron": None}
-        later = {**pending, "id": "reg_later", "online_position": last["online_position"] + 2,
+        later = {**pending, "id": "reg_later", "online_position": position + 3,
                  "online_alpha_lordpp": None, "online_alpha_saffron": None}
-        withdrawn = {**later, "id": "reg_gone", "online_position": last["online_position"] + 3}
-        self.ledger["rows"] += [pending, later, withdrawn]
+        withdrawn = {**later, "id": "reg_gone", "online_position": position + 4, "registration": gone_reg}
+        searched = {**withdrawn, "id": "reg_gone_searched", "online_position": None, "selected_after_search": True}
+        self.ledger["rows"] += [early, pending, later, withdrawn, searched]
         s = self.ledger["summary"]
-        s.update(registered=["reg_pending", "reg_later"], registered_withdrawn=[*s["registered_withdrawn"], "reg_gone"])
+        s.update(registered=["reg_pending", "reg_later"], registered_withdrawn=["reg_gone"])
         s["online"]["waiting_on"] = "reg_pending"
         s["online"]["lordpp"]["next_level"] = s["online"]["saffron"]["next_level"] = None
         text = self.patched(rb.ledger_online)
@@ -465,17 +591,105 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
                       "be tested at are fixed: 0.001 by LORD++ and 0.06 by SAFFRON, which is above 5% after the recent "
                       "rejections: a SAFFRON rejection with p at 5% or more would not be support. Rows after reg_pending "
                       "have no online decision until it resolves.", text)
+        self.assertIn("The next registered row's level is not fixed until reg_pending resolves.", text)
         pending["online_alpha_saffron"] = 0.04
         self.assertIn("The levels reg_pending will be tested at are fixed: 0.001 by LORD++ and 0.04 by SAFFRON. Rows "
                       "after reg_pending", self.patched(rb.ledger_online))
-        gone = s["registered_withdrawn"]
-        if len(gone) == 1:
-            self.assertIn("1 registration was withdrawn (reg_gone) and spends its online level at p = 1 (not counted "
-                          "as tested).", text)
-        else:
-            self.assertIn(f"{len(gone)} registrations were withdrawn ({rb._join(gone)}) and spend their online level "
-                          "at p = 1 (not counted as tested).", text)
-        self.assertIn("The next registered row's level is not fixed until reg_pending resolves.", text)
+        # The withdrawal sentence by stream (in it, or selected after a search) and by level (set, or after the
+        # pending row): a withdrawn registration behind a pending one has no level yet, so it has spent nothing.
+        later_spend = "will spend its online level at p = 1 once every earlier row is decided"
+        both = "spend (or, after a pending row, will spend) their online level at p = 1"
+        outside = "selected after a search, is outside the online stream."
+        for gone, sentence in (
+                (["reg_gone_early"], "1 registration was withdrawn (reg_gone_early) and spends its online level at "
+                                     "p = 1 (not counted as tested)."),
+                (["reg_gone"], f"1 registration was withdrawn (reg_gone) and {later_spend} (not counted as tested)."),
+                (["reg_gone_early", "reg_gone"], f"2 registrations were withdrawn (reg_gone_early and reg_gone) and "
+                                                 f"{both} (not counted as tested)."),
+                (["reg_gone_searched"], "1 registration was withdrawn (reg_gone_searched), not counted as tested; "
+                                        "selected after a search, it is outside the online stream, so it spends no "
+                                        "level there."),
+                (["reg_gone", "reg_gone_searched"], f"2 registrations were withdrawn (reg_gone and reg_gone_searched), "
+                                                    f"not counted as tested: reg_gone {later_spend}, and "
+                                                    f"reg_gone_searched, {outside}"),
+                (["reg_gone_early", "reg_gone", "reg_gone_searched"],
+                 f"3 registrations were withdrawn (reg_gone_early, reg_gone and reg_gone_searched), not counted as "
+                 f"tested: reg_gone_early and reg_gone {both}, and reg_gone_searched, {outside}")):
+            with self.subTest(withdrawn=gone):
+                s["registered_withdrawn"] = gone
+                text = self.patched(rb.ledger_online)
+                self.assertIn(sentence, text)
+                if "reg_gone" in gone:
+                    self.assertNotIn("reg_gone spends its online level", text)
+
+    def test_pending_and_withdrawn_registrations(self):
+        self._assert_pending_and_withdrawn_registrations()
+
+    def test_pending_and_withdrawn_registrations_beside_committed_withdrawals(self):
+        """Built by the ledger itself: the committed ledger holds withdrawn registrations, one in the stream and one
+        selected after a search (a new family's challenger row), as after HANDOFF's withdrawal PR; the synthetic
+        case above does not depend on them."""
+        import dataclasses
+        from datetime import date, timedelta
+        from unittest import mock
+
+        from backend import research_ledger as rl
+
+        day = (date.fromisoformat(rl.latest_legacy_entry()) + timedelta(days=1)).isoformat()
+
+        def registration(rid, **changes):
+            row = rl.Row(id=rid, family="volatility forecast", hypothesis=f"A withdrawn registration, {rid}.",
+                         test="a two-sided test whose p-value the artifact stores", source=rl.LAB,
+                         statistic=("statistic", f"experiment_{rid}.stat"), p=rl.Field(f"experiment_{rid}.p_value"),
+                         sided="two", expects=rl.POSITIVE,
+                         registration=rl.Registration(day, f"experiment_{rid}.p_value", "abandoned before it ran"))
+            return dataclasses.replace(row, **changes)
+
+        committed = [registration("reg_committed_gone"),
+                     registration("reg_committed_searched", selected_after_search=True)]
+        with mock.patch.object(rl, "ORDER_DRAWS", 3):
+            self.ledger = json.loads(json.dumps(rl.build(rows=[*rl.ledger_rows(), *committed])))
+        self.assertEqual(self.ledger["summary"]["registered_withdrawn"][-2:], [r.id for r in committed])
+        self._assert_pending_and_withdrawn_registrations()
+
+    def test_a_withdrawn_registration_behind_a_pending_one_will_spend_its_level(self):
+        """Built by the ledger itself: a registration withdrawn while an earlier one waits has no level and no decision
+        yet (DATA_CONTRACT), and the copy says it will spend its level, not that it has."""
+        import dataclasses
+        from datetime import date, timedelta
+        from unittest import mock
+
+        from backend import research_ledger as rl
+
+        day = (date.fromisoformat(rl.latest_legacy_entry()) + timedelta(days=1)).isoformat()
+
+        def registration(rid, withdrawn=None):
+            return rl.Row(id=rid, family="volatility forecast", hypothesis=f"A registration, {rid}.",
+                          test="a two-sided test whose p-value the artifact stores", source=rl.LAB,
+                          statistic=("statistic", f"experiment_{rid}.stat"), p=rl.Field(f"experiment_{rid}.p_value"),
+                          sided="two", expects=rl.POSITIVE,
+                          registration=rl.Registration(day, f"experiment_{rid}.p_value", withdrawn))
+
+        base = [row for row in rl.ledger_rows() if row.registration is None]
+        rows = [registration("reg_waits"), registration("reg_gone", "abandoned before it ran")]
+        with mock.patch.object(rl, "ORDER_DRAWS", 3):
+            self.ledger = json.loads(json.dumps(rl.build(rows=[*base, *rows])))
+        gone = self.row("reg_gone")
+        self.assertEqual((gone["online_p"], gone["online_alpha_lordpp"], gone["online_rejected_lordpp"],
+                          gone["online_alpha_saffron"], gone["online_rejected_saffron"]), (1.0, None, None, None, None))
+        text = self.patched(rb.ledger_online)
+        self.assertIn("1 registration was withdrawn (reg_gone) and will spend its online level at p = 1 once every "
+                      "earlier row is decided (not counted as tested).", text)
+        self.assertNotIn("spends its online level", text)
+        # Once the earlier registration is withdrawn too, both levels are set and both are spent.
+        rows[0] = dataclasses.replace(rows[0], registration=rl.Registration(day, rows[0].registration.field,
+                                                                             "abandoned before it ran"))
+        with mock.patch.object(rl, "ORDER_DRAWS", 3):
+            self.ledger = json.loads(json.dumps(rl.build(rows=[*base, *rows])))
+        self.assertIsNotNone(self.row("reg_gone")["online_alpha_lordpp"])
+        self.assertIs(self.row("reg_gone")["online_rejected_lordpp"], False)
+        self.assertIn("2 registrations were withdrawn (reg_waits and reg_gone) and spend their online level at p = 1 "
+                      "(not counted as tested).", self.patched(rb.ledger_online))
 
     def test_the_abstract_and_the_block_count_tested_rows(self):
         s = self.ledger["summary"]

@@ -858,9 +858,12 @@ pre-specified.
   Decisions are stable while the artifacts stay pinned. A corrected p-value (an erratum, a
   retraction after entry, a test that becomes computable, or a snapshot refresh that re-runs the lab
   rows on new data) recomputes that row and every later one, and is recorded in the changelog's
-  errata; the history test names each such row (`ONLINE_CORRECTIONS`). Strictly, re-testing on new
-  data is a new hypothesis, but the ledger reads only current artifacts, so it cannot keep old
-  p-values.
+  errata; the history test names each such row (`ONLINE_CORRECTIONS`), a row selected after a search
+  too (it is outside the stream), and its two checks (the append-only online view, and the batch
+  fields while the family is unchanged) exempt only the named row's own p-value and status, and the
+  online levels and decisions recomputed after it.
+  Strictly, re-testing on new data is a new hypothesis, but the ledger reads only current
+  artifacts, so it cannot keep old p-values.
 - **Registered rows.** From ROADMAP 2.12 on, every new hypothesis is registered before its result
   exists. A registration pull request adds the row's full definition (hypothesis, test, p-value
   source, direction) and an entry in `REGISTERED` with its date (`registration.on`, UTC) and the
