@@ -1025,11 +1025,14 @@ def _distribution_rows() -> list[Row]:
                 context.update({"rho_grid_0": f"{berk}.by_grid[0].rho", "p_count_pit": f"{berk}.p_count_pit",
                                 "clamp_days": f"{berk}.clamp_days", "extreme_days": f"{berk}.extreme_days",
                                 "p_static_t": f"{base}.alternatives.static_t.berkowitz_p"})
-                note = ("The PIT reads the simulated sample's Hazen CDF, continuous in its inputs, chosen for "
-                        "reproduction stability after the count PIT's p (context p_count_pit) was seen; where the two "
-                        "forms' p-values sit on either side of the t > 3 hurdle, the flag depends on that choice, and the "
-                        "ledger reading names such rows. The literal reading, a Student-t on the expected variance path, "
-                        "is context (p_static_t).")
+                note = (("The PIT reads the simulated sample's Hazen CDF, continuous in its inputs, chosen for "
+                         "reproduction stability after the count PIT's p (context p_count_pit) was seen; "
+                         if f"vol_berkowitz_{m}" not in REGISTERED else
+                         "The PIT reads the simulated sample's Hazen CDF, the form adopted for the GARCH models before "
+                         "this row was registered; its count PIT's p is context p_count_pit; ")
+                        + "where the two forms' p-values sit on either side of the t > 3 hurdle, the flag depends on "
+                          "that choice, and the ledger reading names such rows. The literal reading, a Student-t on the "
+                          "expected variance path, is context (p_static_t).")
             else:
                 context["rho_grid_0"] = f"{berk}.by_grid[0].rho"
                 note = "The normal score of a far-tail week comes from the survival function, so it stays finite."

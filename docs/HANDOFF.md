@@ -309,9 +309,10 @@ exists, in two PRs, in this order:
    its rows show while they wait, in `REGISTERED_LAB_MODELS` (or `REGISTERED_DISTRIBUTION_MODELS`)
    and each of its rows in `REGISTERED`; `vol_lab.py` does not change in this PR. A row in a new
    family also adds the family's name to the list in `test_rows_cover_every_research_family` in
-   `tests/test_research_ledger.py`, in this PR, before any result exists; if it has a row for the
-   challenger (`selected_after_search`), the PR also adds that row's kind where METHODOLOGY 17 lists
-   the challenger's rows (the abstract counts it by itself).
+   `tests/test_research_ledger.py` and to METHODOLOGY 17's Families list, in this PR, before any
+   result exists; if it has a row for the challenger (`selected_after_search`), the PR also adds that
+   row's kind where METHODOLOGY 17 lists the challenger's rows (the abstract counts it by itself once
+   it has run).
 2. **Result PR.** It rebuilds the artifact so the field exists, then the ledger: the row resolves by
    itself. A test the artifact ran but could not compute resolves it too, where the row reads the
    field as optional (`Field(optional=True)`, as the `vol_gw_`/`vol_fluct_` rows do): the row then

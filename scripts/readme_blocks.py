@@ -454,7 +454,9 @@ def abstract() -> str:
     if withdrawn:
         ledger_text += (f" {withdrawn} registration{' was' if withdrawn == 1 else 's were'} withdrawn before "
                         f"{'its' if withdrawn == 1 else 'their'} result existed.")
-    searched = s.get("selected_after_search", [])
+    # The challenger's tests that ran: a registered row (pending or withdrawn) has no result yet.
+    unrun = {*s.get("registered", []), *s.get("registered_withdrawn", [])}
+    searched = [rid for rid in s.get("selected_after_search", []) if rid not in unrun]
     kinds = [kind for prefix, kind in (("vol_challenger_qlike", "full-sample"), ("vol_gw_", "conditional"),
                                        ("vol_fluct_", "over-time")) if any(rid.startswith(prefix) for rid in searched)]
     n_kinds = len(kinds)
@@ -2447,7 +2449,10 @@ def _fragile_t3(rows: list[dict]) -> list[str]:
             continue
         ctx, t = r["context"], _t_equivalent(r["p_two_sided"])
         if ctx.get("p_count_pit") is not None and _t_equivalent(ctx["p_count_pit"]) <= 3:
+            # A registered row inherits the form adopted earlier; it was not chosen after its own count PIT was seen.
             out.append(f"{r['id']} at t = {t:.3f} with the PIT form chosen after the count PIT's p was seen, which "
+                       f"gives t = {_t_equivalent(ctx['p_count_pit']):.3f}" if not r.get("registration") else
+                       f"{r['id']} at t = {t:.3f} with the PIT form fixed before it was registered; the count PIT "
                        f"gives t = {_t_equivalent(ctx['p_count_pit']):.3f}")
         elif ctx.get("mc_se") is not None and _t_equivalent(r["p_value"] + ctx["mc_se"]) <= 3:
             out.append(f"{r['id']} at t = {t:.3f}, which one Monte Carlo standard error of its simulated p would bring "

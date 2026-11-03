@@ -216,6 +216,15 @@ class StabilityBlocksTest(unittest.TestCase):
         self.assertIn("The challenger's seven pairwise tests (full-sample, conditional, over-time, three on the "
                       "predictive distribution and one on another criterion) are left out", text)
         self.assertIn("and the other six have none", text)
+        # A registered challenger row, pending or withdrawn, has not run: it is not counted.
+        for status in ("registered", "registered_withdrawn"):
+            with self.subTest(status=status):
+                self.ledger["summary"][status] = ["vol_newtest_har_iv_range"]
+                text = self.patched(rb.abstract)
+                self.assertIn("The challenger's six pairwise tests (full-sample, conditional, over-time and three on "
+                              "the predictive distribution) are left out", text)
+                self.assertIn("and the other five have none", text)
+                self.ledger["summary"][status] = []
         self.ledger["summary"]["selected_after_search"] = ["vol_challenger_qlike", "vol_gw_har_iv_range",
                                                            "vol_fluct_har_iv_range"]
         self.assertIn("The challenger's three pairwise tests (full-sample, conditional and over-time) are left out",
@@ -509,9 +518,21 @@ class DistributionBlocksTest(StabilityBlocksTest.__base__):
                 self.assertIn(key, [m["key"] for m in mid])
                 ps = ", ".join(rb._peq_thr(m["alternatives"]["static_t"]["berkowitz_p"]) for m in mid)
                 self.assertIn(f"Berkowitz is inconclusive for {rb._dist_names(mid)} ({ps})", text)
-                # Its calibration row carries the PIT-form context the t > 3 reading checks.
+                # Its calibration row carries the PIT-form context the t > 3 reading checks, and its note says the
+                # form was fixed before the registration (not chosen after its own count PIT was seen).
                 self.assertIsNotNone(self.row(f"vol_berkowitz_{key}")["context"].get("p_count_pit"))
+                self.assertIn("the form adopted for the GARCH models before this row was registered",
+                              self.row(f"vol_berkowitz_{key}")["note"])
                 check()
+
+    def test_a_registered_row_s_pit_form_is_not_said_to_be_chosen_after_its_count_pit(self):
+        row = {"id": "vol_berkowitz_zz", "family": "distribution calibration", "clears_hlz_t3": True,
+               "p_two_sided": 0.0024, "p_value": 0.0024, "context": {"p_count_pit": 0.0028}}
+        self.assertIn("with the PIT form chosen after the count PIT's p was seen", rb._fragile_t3([row])[0])
+        registered = {**row, "registration": {"on": "2026-11-03", "field": "f", "withdrawn": None}}
+        self.assertEqual(rb._fragile_t3([registered]),
+                         [f"vol_berkowitz_zz at t = {rb._t_equivalent(0.0024):.3f} with the PIT form fixed before it "
+                          f"was registered; the count PIT gives t = {rb._t_equivalent(0.0028):.3f}"])
 
     def test_fragile_t3_flags_are_computed(self):
         text = self.patched(rb.ledger_reading)
@@ -521,7 +542,21 @@ class DistributionBlocksTest(StabilityBlocksTest.__base__):
         self.row("vol_berkowitz_garch")["context"]["p_count_pit"] = 0.0001
         one = self.patched(rb.ledger_reading)
         self.assertNotIn("vol_berkowitz_garch at t", one)
-        self.assertIn("One of the calibration rows clears the t > 3 hurdle narrowly", one)
+        # The rows still narrow, counted from the rows themselves (a result PR may add one): the count PIT's p, or the
+        # p one Monte Carlo standard error higher, falls to t <= 3.
+        from statistics import NormalDist
+
+        def t(p):
+            return NormalDist().inv_cdf(1 - p / 2)
+
+        narrow = [r["id"] for r in self.ledger["rows"]
+                  if r["family"] == "distribution calibration" and r.get("clears_hlz_t3")
+                  and ((r["context"].get("p_count_pit") is not None and t(r["context"]["p_count_pit"]) <= 3)
+                       or (r["context"].get("mc_se") is not None and t(r["p_value"] + r["context"]["mc_se"]) <= 3))]
+        self.assertIn("vol_berkowitz_ovx_only", narrow)
+        n = len(narrow)
+        self.assertIn(f"{rb._word(n).capitalize()} of the calibration rows {'clears' if n == 1 else 'clear'} the t > 3 "
+                      "hurdle narrowly", one)
 
     def test_the_ledger_reading_names_rows_that_survive_only_with_the_new_families(self):
         text = self.patched(rb.ledger_reading)

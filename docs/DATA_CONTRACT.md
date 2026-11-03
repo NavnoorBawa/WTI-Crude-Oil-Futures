@@ -368,9 +368,9 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
     null{draws, seed[], returns, lr_mean_by_grid[], lr_q95_by_grid[]}, null_size_pct{simulated, chi2}}`
     (`null_size_pct`: the share of the null draws each rule rejects at 5%, each draw against all draws for
     the simulated reference), `dm{registered, groups, context[]}`, `pit_bins`, `chance_band`.
-  - `models[]`, in the order model of record, challenger, `ovx_only`, `garch`, `gjr`, `ewma`, `quantile_har`
-    (`garch` and `gjr` only with the slow walk, whose parameter columns they need; without them `mcs_crps` is
-    null, and `quantile_har_field` needs every model's column, so the block as published needs the slow walk; the
+  - `models[]`, in the order model of record, then `DISTRIBUTION_MODELS` in `backend/research_ledger.py`
+    (challenger, `ovx_only`, `garch`, `gjr`, `ewma`, `quantile_har` today; `garch` and `gjr` only with the
+    slow walk, whose parameter columns they need; without them `mcs_crps` is null, and `quantile_har_field` needs every model's column, so the block as published needs the slow walk; the
     quantile HAR is never in `leaderboard`): `key, label, method,
     pit_construction` (`trailing_rank`, `exact` or `estimated_quantiles`), `crps_grid_pct, crps_grid_log,
     pinball_10_pct, pinball_90_pct` (3 dp; the log score 4 dp), `coverage_10_90_pct` (1 dp),
@@ -389,7 +389,7 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
     the grids), `p_cauchy, grids_below_5pct, by_grid[{grid, n_weeks, lr, p_value, mu, sigma` and `rho`, or
     `below` and `above` for the censored form; `p_chi2` for a trailing-rank PIT`}]}`; a trailing-rank model
     adds `mc_se, p_chi2` (the χ²(3) Bonferroni, context) and `window_exceedances{days, null_mean,
-    null_q95}`; the GARCH models add `p_count_pit, clamp_days, extreme_days`; the quantile HAR adds
+    null_q95}`; the GARCH models (`PARAMETRIC_DISTRIBUTION_MODELS`) add `p_count_pit, clamp_days, extreme_days`; the quantile HAR adds
     `randomized_tail{p_value, seed[], seed_min, seed_max, seeds, share_below_5pct}`. The two banded models
     add `band_split{pinball_lower_pct, pinball_upper_pct, interval_score_pct}` (10 × the sum is the band's
     interval score), the GARCH models `alternatives{static_t{crps_grid_pct, berkowitz_p}}`, and the
@@ -479,10 +479,11 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   record by the batch-means test, `distribution.models[key=<model>].dm_vs_har_iv.<score>`) and
   "distribution calibration" (`vol_berkowitz_<model>`, the model of record included, Bonferroni over the
   five grids' `berkowitz.by_grid[].p_value`). The quantile HAR has rows in both but is never in the
-  benchmark field. Six rows are outside the family because they test the challenger, which was picked on
-  this sample: its full-sample, conditional and over-time rows (`vol_challenger_qlike`,
-  `vol_gw_har_iv_range` and `vol_fluct_har_iv_range`) and its three score rows (`vol_crps_har_iv_range`,
-  `vol_pinball10_har_iv_range`, `vol_pinball90_har_iv_range`), all listed in `selected_after_search`. A row whose artifact could not
+  benchmark field. The rows that test the challenger, which was picked on this sample, are outside the
+  family: its full-sample, conditional and over-time rows (`vol_challenger_qlike`,
+  `vol_gw_har_iv_range` and `vol_fluct_har_iv_range`), its three score rows (`vol_crps_har_iv_range`,
+  `vol_pinball10_har_iv_range`, `vol_pinball90_har_iv_range`) and any challenger row a later family
+  registers, all listed in `selected_after_search`. A row whose artifact could not
   compute its test (a stored p-value of null) has a null `p_value`, is `inconclusive` (`not_supported`
   when its stored estimate points the wrong way), and is outside the family too, with null `q_bh`, `p_holm`, `survives_bh` and `clears_t3`. Rows on the same loss
   difference are dependent: Benjamini-Hochberg assumes positive dependence (PRDS) and Holm holds under
