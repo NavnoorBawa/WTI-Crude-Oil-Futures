@@ -376,8 +376,8 @@ These stay out, whatever a review suggests, unless the owner changes the rules:
 Tick items here with the PR number and date when they ship, and move any new finding into
 `HANDOFF.md`'s backlog.
 
-- **2.12 Multiplicity as the ledger grows: online control and registered rows** (two PRs, numbers to
-  be filled in at merge; 2026-11-03): `research_ledger.py` runs LORD++ (Ramdas et al. 2017) and SAFFRON
+- **2.12 Multiplicity as the ledger grows: online control and registered rows** (#107, 2026-11-03):
+  `research_ledger.py` runs LORD++ (Ramdas et al. 2017) and SAFFRON
   (Ramdas et al. 2018) at FDR 0.05 with onlineFDR 2.21.3's defaults (LORD++ W0 = α/10 and the
   Javanmard-Montanari γ with C = 0.07908197; SAFFRON W0 = α/2, λ = 0.5, γ ∝ j^−1.6; no horizon
   normalisation; p ≤ α_t). It runs over the 129 rows outside the search exclusion, in the order they
