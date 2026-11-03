@@ -391,7 +391,7 @@ test("a registered row has its own status, rank, strip group and pending flags, 
   assert.equal((ledg.match(/>pending</g) ?? []).length, 2, "both flags of the pending row");
   assert.equal((ledg.match(/>withdrawn</g) ?? []).length, 2, "both flags of the withdrawn row");
   const full = section(renderPage(spliced).html, "ledg");
-  assert.match(full, new RegExp(`>Registered \\(${registeredCount}\\)</option>`));
+  assert.ok(full.includes(`>Registered (${registeredCount})</option>`), "the status filter counts them");
   assert.ok(visibleText(full).includes(`${registeredCount} registered`), "the meta counts them");
   assert.ok(visibleText(full).includes(`Hypotheses: ${reference.LEDGER_PAGE} of ${ledger.rows.length} shown`), "the caption counts every row");
 });
@@ -433,8 +433,10 @@ test("the ledger's online view: CSV columns, the method note, and nothing for a 
   assert.equal(reference.ledgerOnlineText(ledgerRows().find((row) => row.status === "supported" && !row.selectedAfterSearch), "lordpp"),
     null, "an old bundle has no online decision");
   const ledg = section(renderPage(spliced).html, "ledg");
+  const csvOnly = [...ledg.matchAll(/<th scope="col" class="align-left csv-only"[^>]*><span class="th-label">([^<]+)<\/span><\/th>/g)]
+    .map((match) => match[1]);
   for (const label of ["Entered", "Online position", "LORD++ level", "LORD++ rejects", "SAFFRON level", "SAFFRON rejects"]) {
-    assert.match(ledg, new RegExp(`<th scope="col" class="align-left csv-only"[^>]*><span class="th-label">${label.replace(/\+/g, "\\+")}</span></th>`), label);
+    assert.ok(csvOnly.includes(label), label);
   }
   // The method note reads summary.online; no on-screen column shows the online view.
   const note = reference.ledgerOnlineNote(ledger);
