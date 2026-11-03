@@ -2452,7 +2452,7 @@ def _fragile_t3(rows: list[dict]) -> list[str]:
             # A registered row inherits the form adopted earlier; it was not chosen after its own count PIT was seen.
             out.append(f"{r['id']} at t = {t:.3f} with the PIT form chosen after the count PIT's p was seen, which "
                        f"gives t = {_t_equivalent(ctx['p_count_pit']):.3f}" if not r.get("registration") else
-                       f"{r['id']} at t = {t:.3f} with the PIT form fixed before it was registered; the count PIT "
+                       f"{r['id']} at t = {t:.3f} with the PIT form fixed before it was registered, whose count PIT "
                        f"gives t = {_t_equivalent(ctx['p_count_pit']):.3f}")
         elif ctx.get("mc_se") is not None and _t_equivalent(r["p_value"] + ctx["mc_se"]) <= 3:
             out.append(f"{r['id']} at t = {t:.3f}, which one Monte Carlo standard error of its simulated p would bring "

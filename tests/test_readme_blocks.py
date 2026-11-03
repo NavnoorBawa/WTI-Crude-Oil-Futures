@@ -205,6 +205,8 @@ class StabilityBlocksTest(unittest.TestCase):
         six = ["vol_challenger_qlike", "vol_gw_har_iv_range", "vol_fluct_har_iv_range", "vol_crps_har_iv_range",
                "vol_pinball10_har_iv_range", "vol_pinball90_har_iv_range"]
         self.ledger["summary"]["selected_after_search"] = six
+        # Whatever registrations the ledger holds (a registration PR adds one), none of these rows is registered here.
+        self.ledger["summary"]["registered"] = self.ledger["summary"]["registered_withdrawn"] = []
         text = self.patched(rb.abstract)
         self.assertIn("The challenger's six pairwise tests (full-sample, conditional, over-time and three on the "
                       "predictive distribution) are left out", text)
@@ -532,7 +534,7 @@ class DistributionBlocksTest(StabilityBlocksTest.__base__):
         registered = {**row, "registration": {"on": "2026-11-03", "field": "f", "withdrawn": None}}
         self.assertEqual(rb._fragile_t3([registered]),
                          [f"vol_berkowitz_zz at t = {rb._t_equivalent(0.0024):.3f} with the PIT form fixed before it "
-                          f"was registered; the count PIT gives t = {rb._t_equivalent(0.0028):.3f}"])
+                          f"was registered, whose count PIT gives t = {rb._t_equivalent(0.0028):.3f}"])
 
     def test_fragile_t3_flags_are_computed(self):
         text = self.patched(rb.ledger_reading)
