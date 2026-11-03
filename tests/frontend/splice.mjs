@@ -13,6 +13,11 @@ export const bundleLedgerRow = (row) => ({
   p_value: row.p_value, q_bh: row.q_value_bh, p_holm: row.p_holm,
   survives_bh: row.survives_bh_5pct, clears_t3: row.clears_hlz_t3,
   pre_specified: row.pre_specified, status: row.status, artifact: row.artifact?.path,
+  entered_on: row.entered_on, online_position: row.online_position,
+  online_alpha_lordpp: row.online_alpha_lordpp, online_rejected_lordpp: row.online_rejected_lordpp,
+  online_alpha_saffron: row.online_alpha_saffron, online_rejected_saffron: row.online_rejected_saffron,
+  registration: row.registration == null ? null
+    : { on: row.registration.on, field: row.registration.field, withdrawn: row.registration.withdrawn },
 });
 
 /**

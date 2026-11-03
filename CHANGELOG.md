@@ -135,6 +135,23 @@ backs the new one.
 
 ### Research
 
+- **Online false-discovery control and registered rows (ROADMAP 2.12).** `data/research_ledger.json` adds a second,
+  online view of multiplicity: LORD++ and SAFFRON at a target false discovery rate of 5%, with the defaults of
+  onlineFDR 2.21.3, over the rows in the order they entered the ledger. Each row gets the date it entered main, its
+  place in that order, the p-value it is tested on (retracted rows, and rows whose test could not be computed, at
+  p = 1), each procedure's level and decision, and SAFFRON's candidate flag. The summary holds the rejection lists,
+  both wealth paths, the level the next row would face and, for the rows that entered before registration began, how
+  the counts move when their order within each entry batch is drawn at random. Adding a row never changes an earlier
+  online decision; a corrected p-value does, and is listed as an erratum. The batch view (Benjamini-Hochberg, Holm,
+  t > 3) is unchanged, no existing row's status, p-value or batch field changed, and every other section still cites
+  it. A new status, `registered`: a hypothesis declared with its test and the artifact field that will hold its
+  p-value before that field exists, with no p-value or decision until it does. Its place in the online order is fixed
+  at registration, a hash of its declared test is checked against the version that first reached main, and the status
+  changes by itself on the first rebuild after the field exists. From now on every new hypothesis is registered first.
+  The online decisions assume independent null p-values, which these rows do not have, and for the rows that entered
+  before registration began they are a retrospective reading of an order reconstructed from the git history. The old
+  use of "registered" for "the form the ledger enters" becomes "entered" or "adopted" in the docs and row notes. The
+  Python CI job now checks out the full history for the ledger's history tests.
 - **The whole predictive distribution (ROADMAP 2.4, first part).** `data/vol_lab.json` adds a
   `distribution` block: seven models' predictive quantiles at τ = 0.05, …, 0.95, scored on the days
   the 80% band is scored on (2009-05-27 to 2026-10-12) by the CRPS over the 19 quantiles, the 10% and

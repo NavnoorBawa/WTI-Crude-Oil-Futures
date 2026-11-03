@@ -186,7 +186,7 @@ flowchart TB
 | `backend/server.py`, `freeze.py` | Payload assembly (Flask test client, frozen to static JSON) |
 | `backend/backtest_walk_forward.py` | The purged walk-forward engine the post-mortem runs on (retracted direction model) |
 | `backend/leak_anatomy.py`, `backend/carry_signal_test.py`, `backend/supply_shock_playbook.py` | The leak demonstration and the side studies |
-| `backend/research_ledger.py` | Every hypothesis tested, with multiplicity adjustments |
+| `backend/research_ledger.py` | Every hypothesis tested or registered, with batch and online multiplicity control |
 | `scripts/validate_frozen_payload.py` | Deploy gate (stdlib only) |
 | `scripts/record_health.py` | The Health workflow's check of the record, the site and the last runs (stdlib only) |
 | `backend/field_record.py` | The unsealed shadow log of the whole field: issue (build side, needs the models' packages), append, resolve and validate (stdlib only) |

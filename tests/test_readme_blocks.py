@@ -146,7 +146,7 @@ class StabilityBlocksTest(unittest.TestCase):
         self.assertIn("The challenger's six pairwise tests (full-sample, conditional, over-time and three on the "
                       "predictive distribution) are left out", text)
         self.assertIn("and the other five have none", text)
-        self.assertIn("published as context and not registered", text)
+        self.assertIn("published as context and not entered in the ledger", text)
         self.ledger["summary"]["selected_after_search"] = ["vol_challenger_qlike", "vol_gw_har_iv_range",
                                                            "vol_fluct_har_iv_range"]
         self.assertIn("The challenger's three pairwise tests (full-sample, conditional and over-time) are left out",
@@ -238,7 +238,7 @@ class DistributionBlocksTest(StabilityBlocksTest.__base__):
         text = self.patched(rb.distribution_reading)
         crps = text[text.index("On CRPS over 19 quantiles"):text.index("On the 10% pinball loss")]
         self.assertIn("the model of record scores significantly lower than the quantile HAR (p = 0.030)", crps)
-        self.assertIn("The difference against the quantile HAR runs opposite to the direction the ledger registered", crps)
+        self.assertIn("The difference against the quantile HAR runs opposite to the direction the ledger states", crps)
         self.assertNotIn("Benjamini-Hochberg", crps)          # no adjusted support cited for an unregistered direction
         # With a registered result beside it, the adjustment names its own subject.
         self.dist("garch")["dm_vs_har_iv"]["crps_grid"].update(stat=-2.5, p_value=0.03)
@@ -275,3 +275,80 @@ class DistributionBlocksTest(StabilityBlocksTest.__base__):
         self.assertIn("Without them, carry_spread_post2007 would not survive it.", self.patched(rb.ledger_reading))
         self.assertIn("Another supported row is not in the table", text)
         self.assertIn("No search-adjusted version of this test exists", text)
+
+
+class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
+    """RESULTS section 6's online paragraph (ROADMAP 2.12): generated from the ledger's online view, it never lets an
+    online rejection read as more than the batch view and the row's own test support."""
+
+    setUp = StabilityBlocksTest.setUp
+    patched = StabilityBlocksTest.patched
+    row = StabilityBlocksTest.row
+
+    def test_a_saffron_only_rejection_is_not_counted_as_surviving_an_adjustment(self):
+        text = self.patched(rb.ledger_online)
+        online = self.ledger["summary"]["online"]
+        bh = self.ledger["summary"]["supported_surviving_bh_5pct"]
+        only = [rid for rid in online["saffron"]["rejected"] if rid not in bh]
+        self.assertTrue(only)
+        self.assertIn(f"({rb._join(only)}); those {len(only)} are not counted as surviving any adjustment elsewhere", text)
+        self.assertIn(f"LORD++ rejects {len(online['lordpp']['rejected'])} of the {online['rows_in_stream']} rows", text)
+        self.assertNotIn("significant", text)
+        self.assertIn("No row's status depends on either online procedure.", text)
+
+    def test_a_rejection_of_an_unsupported_row_is_not_support(self):
+        self.assertNotIn("not supported by its own test", self.patched(rb.ledger_online))
+        # An inconclusive row (p from 5% to 10%) that SAFFRON could reject once its level exceeds 5%.
+        rid = next(r["id"] for r in self.ledger["rows"] if r["status"] == "inconclusive" and r["online_position"])
+        self.ledger["summary"]["online"]["saffron"]["rejected"].append(rid)
+        text = self.patched(rb.ledger_online)
+        self.assertIn(f"1 row that a procedure rejects is not supported by its own test at 5% ({rid}): SAFFRON's level "
+                      "can exceed 5% after recent rejections, and such a rejection is not support.", text)
+
+    def test_the_legacy_order_caveat_and_the_independence_assumption(self):
+        text = self.patched(rb.ledger_online)
+        sens = self.ledger["summary"]["online"]["legacy_order_sensitivity"]
+        self.assertIn(f"The {sens['legacy_rows']} rows in the stream entered before registration began", text)
+        self.assertIn(f"LORD++ rejects between {sens['lordpp']['min']} and {sens['lordpp']['max']} of them", text)
+        self.assertIn("retrospective reading, not decisions made at the time", text)
+        self.assertIn("a reading under that assumption, not a guarantee for this ledger", text)
+
+    def test_pending_and_withdrawn_registrations(self):
+        last = max(self.ledger["rows"], key=lambda r: r["online_position"] or 0)
+        pending = {**last, "id": "reg_pending", "status": "registered", "online_position": last["online_position"] + 1,
+                   "online_p": None, "online_alpha_lordpp": 0.001, "online_alpha_saffron": 0.06,
+                   "online_rejected_lordpp": None, "online_rejected_saffron": None}
+        later = {**pending, "id": "reg_later", "online_position": last["online_position"] + 2,
+                 "online_alpha_lordpp": None, "online_alpha_saffron": None}
+        self.ledger["rows"] += [pending, later]
+        s = self.ledger["summary"]
+        s.update(registered=["reg_pending", "reg_later"], registered_withdrawn=["reg_gone"])
+        s["online"]["waiting_on"] = "reg_pending"
+        s["online"]["lordpp"]["next_level"] = s["online"]["saffron"]["next_level"] = None
+        text = self.patched(rb.ledger_online)
+        self.assertIn("2 registered rows wait for their results (reg_pending and reg_later); the level it will be "
+                      "tested at is fixed: reg_pending at 0.001 by LORD++ and 0.06 by SAFFRON; rows after reg_pending "
+                      "have no online decision until it resolves.", text)
+        self.assertIn("1 registration was withdrawn (reg_gone) and counts as tested at p = 1.", text)
+        self.assertIn("The next registered row's level is not fixed until reg_pending resolves.", text)
+
+    def test_the_abstract_and_the_block_count_tested_rows(self):
+        s = self.ledger["summary"]
+        self.assertIn(f"All {s['rows_tested']} hypotheses the project has tested", self.patched(rb.abstract))
+        self.assertNotIn("registered and wait", self.patched(rb.abstract))
+        s["rows_tested"] -= 1
+        s["registered"] = ["reg_pending"]
+        s["by_status"]["registered"] = 1
+        s["by_family"]["volatility forecast"]["by_status"]["registered"] = 1
+        abstract = self.patched(rb.abstract)
+        self.assertIn(f"All {s['rows_tested']} hypotheses the project has tested", abstract)
+        self.assertIn("1 more is registered and waits for its result.", abstract)
+        block = self.patched(rb.ledger_block)
+        self.assertIn("9 retracted and 1 registered (results pending).", block)
+        self.assertIn("| Retracted | Registered | Supported, surviving BH |", block)
+        self.assertNotIn("Registered", self.patched(rb.ledger_block).split("| Family |")[0].replace("1 registered", ""))
+
+    def test_the_retracted_rows_spend_their_level_online(self):
+        self.assertIn("in the online stream each is tested at p = 1, so it spends its level and earns none",
+                      self.patched(rb.ledger_reading))
+

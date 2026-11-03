@@ -685,12 +685,20 @@ class StabilityReportTest(unittest.TestCase):
                 model["fluctuation_qlike_vs_har_iv"] = json.loads(json.dumps(lab._jsonable(fl)))
         ledger = rl.build(lambda name: doc if name == rl.LAB else rl.load_artifact(name))
         rows = {r["id"]: r for r in ledger["rows"]}
+        committed = {r["id"]: r for r in json.loads((ROOT / "data" / "research_ledger.json").read_text())["rows"]}
         for rid in ("vol_gw_combo", "vol_fluct_combo"):
             self.assertIsNone(rows[rid]["p_value"], rid)
             self.assertEqual(rows[rid]["status"], "inconclusive", rid)
             self.assertIsNone(rows[rid]["q_value_bh"], rid)
+            # Online, the row keeps its place in the stream and is tested at p = 1 (ROADMAP 2.12).
+            self.assertEqual(rows[rid]["online_p"], 1.0, rid)
+            self.assertEqual(rows[rid]["online_position"], committed[rid]["online_position"], rid)
+            self.assertFalse(rows[rid]["online_rejected_lordpp"], rid)
+            self.assertFalse(rows[rid]["online_rejected_saffron"], rid)
         self.assertEqual(ledger["summary"]["rows_in_multiplicity_family"],
                          ledger["summary"]["rows_with_p_value"] - len(ledger["summary"]["selected_after_search"]))
+        self.assertEqual(ledger["summary"]["online"]["rows_in_stream"],
+                         len(committed) - len(ledger["summary"]["selected_after_search"]))
 
 
 # --- ROADMAP 2.4: scoring the whole predictive distribution --------------------------------------------------------

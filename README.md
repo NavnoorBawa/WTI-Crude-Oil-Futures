@@ -73,7 +73,7 @@ should print.
 | The benchmark field reproduces from pinned inputs | The weekly [Reproduce](https://github.com/NavnoorBawa/WTI-Crude-Oil-Futures/actions/workflows/reproduce.yml) workflow rebuilds `data/vol_lab.json` from the SHA-256-pinned snapshot and compares it with the committed file; locally, `RUN_SLOW=1 PYTHONPATH=. python -m unittest tests.test_vol_lab.ArtifactContractTest.test_artifact_reproduces_from_the_snapshot` rebuilds it in memory and compares, within the published rounding (about seven minutes; [reviewer guide, check 2](docs/REVIEWER_GUIDE.md#2-the-benchmark-field-reproduces-from-pinned-inputs-seven-minutes)) |
 | Every number on the page comes from an artifact | `PYTHONPATH=. cog --check README.md docs/RESULTS.md`; on the dashboard, each section's source line names the payload fields it reads |
 | Each live forecast was committed before the prices it is scored on | `git show origin/live-data:runtime-state/vol_track_record.json \| python scripts/verify_record.py -` re-derives every entry's window, seal margin, realized volatility and loss from the record alone; `python scripts/verify_anchors.py` gives, for each sealed entry, the first time Sigstore's public Rekor log saw a version of the record holding it (once the anchor job has run) |
-| No result is stated beyond its test | The [research ledger](data/research_ledger.json) lists every hypothesis tested with Benjamini-Hochberg and Holm adjustments; the dashboard's LEDG section filters it |
+| No result is stated beyond its test | The [research ledger](data/research_ledger.json) lists every hypothesis tested with Benjamini-Hochberg and Holm adjustments and online false-discovery control (LORD++, SAFFRON) in the order rows entered it; new hypotheses are registered before their results exist; the dashboard's LEDG section filters it |
 | Failures are reported, not dropped | The direction model this project began with is retracted, with its [post-mortem](docs/RESULTS.md#4-post-mortem-the-direction-model) and [errata](CHANGELOG.md#errata-published-numbers-that-were-wrong) |
 
 ## How it works
@@ -121,7 +121,7 @@ should print.
 | [`backend/vol_lab.py`](backend/vol_lab.py), [`backend/forecast_eval.py`](backend/forecast_eval.py) | The benchmark field and its losses and tests (DM, MCS, SPA, VaR tests, conformal) |
 | [`backend/vol_record.py`](backend/vol_record.py), [`backend/contract_calendar.py`](backend/contract_calendar.py) | The live forward record, its seal and the promotion test; the CME calendar (standard library only) |
 | [`backend/market_data.py`](backend/market_data.py) | Download, clean and pin the data snapshot |
-| [`backend/research_ledger.py`](backend/research_ledger.py) | Every hypothesis tested, with multiplicity adjustments |
+| [`backend/research_ledger.py`](backend/research_ledger.py) | Every hypothesis tested or registered, with batch and online multiplicity control |
 | [`backend/leak_anatomy.py`](backend/leak_anatomy.py), [`backend/backtest_walk_forward.py`](backend/backtest_walk_forward.py) | The post-mortem of the retracted direction model |
 | [`freeze.py`](freeze.py), [`scripts/`](scripts) | Payload freeze and validation, record verification, research bundle, generated docs and figures |
 | [`src/`](src) | The dashboard (React; canvas charts with lightweight-charts, SVG charts with d3) |

@@ -282,7 +282,7 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
     have a matured lag of d. `coef_levels` is the OLS fit of d on a constant, d of 5 sessions earlier, ln
     OVX and ln RV5: descriptive, with no test per coefficient. `robustness` repeats both p-values with
     Bartlett kernels at 10 and 40 lags, and on each weekly grid alone (`by_grid`: 0 lags, the lag of d being
-    the grid's previous row). It is context, not registered. `stat` is rounded to 3 dp and `coef_levels` to
+    the grid's previous row). It is context, not entered in the ledger. `stat` is rounded to 3 dp and `coef_levels` to
     4 dp; p-values are full floats. When either main HAC matrix (truncated kernel; the full test's or the
     conditional part's) is not positive definite, `stat`, `p_value`, `conditional.stat` and
     `conditional.p_value` are null, `robustness` holds only the two Bartlett entries with null p-values,
@@ -314,7 +314,7 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
     window's Bartlett variance at 40 lags, and with Giacomini and Rossi's single full-sample variance, each
     `{sup, sign, at, p_value, rejects_5pct}`; `robustness.by_grid{signed_sup[5], p_value[5], outside_5pct}`:
     each weekly grid alone, against its own null (`stability.fluctuation.grid`), with the signed peak t, its
-    p and the number of grids with p < 0.05. The robustness is context, not registered. `sup`, `max`, `min`
+    p and the number of grids with p < 0.05. The robustness is context, not entered in the ledger. `sup`, `max`, `min`
     and the `by_mu` and robustness sups are rounded to 3 dp, window means to 4 dp,
     `largest_same_sign_window.t` and `signed_sup` to 2 dp; p-values are unrounded. When one window's
     variance, at any of the five window lengths, is not positive, these fields are null, every field the
@@ -330,7 +330,7 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
     `fluctuation.null`). `gw{instruments[], d_lag_sessions, lags, kernel, variance, n_days, first,
     conditional, registered, coef_levels, robustness[]}`: the instruments (all known at the decision), the
     lag of d, the HAC settings, the rows tested and the first of them, and in words the conditional part,
-    what the ledger registers, the levels fit and the robustness variants. `fluctuation{mu, window_sessions,
+    what the ledger enters, the levels fit and the robustness variants. `fluctuation{mu, window_sessions,
     n_days, first_window_end, lags, kernel, variance, dated, two_sided, critical_values{five_pct, ten_pct,
     mc_se_five_pct}, null{draws, seed[], method}, search{over_mu[], method}, gr2010_table1{five_pct,
     ten_pct}, context{mu_0_1, mu_0_3, mu_0_4, mu_0_5}, robustness{bartlett_40, full_sample_variance},
@@ -384,7 +384,7 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
     p_value}], grid_bonferroni_p, acf{5, 10, 20, 40}}` with `concentration{share_2020_pct,
     share_largest_1pct_days_pct}` on `crps_grid` (shares of the total difference; meaningless when the
     total is near zero), plus `crps_grid_log{stat, p_value, dm_test{stat, p_value}}`. `stat` and `p_value`
-    are the registered batch-means test; d = the model of record's score − the model's (positive: the
+    are the ledger's batch-means test; d = the model of record's score − the model's (positive: the
     model scores lower). `berkowitz{registered` (`lr3` or `censored`), `reference, p_value` (Bonferroni over
     the grids), `p_cauchy, grids_below_5pct, by_grid[{grid, n_weeks, lr, p_value, mu, sigma` and `rho`, or
     `below` and `above` for the censored form; `p_chi2` for a trailing-rank PIT`}]}`; a trailing-rank model
@@ -421,13 +421,38 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   overlapping_events, superseded_claims, conclusion}`.
 - `ledger`: `data/research_ledger.json` `{method, alpha, hlz_t, summary, rows[]}`; `summary` includes
   `by_status` and each `by_family.<family>.by_status` (keys `supported`, `not_supported`, `retracted`,
-  `inconclusive`), `rows_in_multiplicity_family`, the lists of supported rows surviving each
+  `inconclusive`, `registered`), `rows_in_multiplicity_family`, the lists of supported rows surviving each
   adjustment, `selected_after_search` and `supported_selected_after_search` (rows left out of the
-  multiplicity family because the model they test was picked by a search of the same sample) and
-  `underpowered`; a row is `{id, date, family, hypothesis, test, statistic_name, statistic_value,
-  p_value, q_bh, p_holm, survives_bh, clears_t3, pre_specified, status, artifact}`, with `status`
-  one of those four keys, and `q_bh`, `p_holm`, `survives_bh` and `clears_t3` null for a row
-  selected after a search. Two families test each model against the model of record, one row per
+  multiplicity family because the model they test was picked by a search of the same sample),
+  `underpowered`, `rows_tested` (`rows` less the registered rows), `registered` (registered rows still
+  without a result), `registered_withdrawn`, `registered_before_result` (every row with a registration,
+  whatever its status) and `online`; a row is `{id, date, family, hypothesis, test, statistic_name,
+  statistic_value, p_value, q_bh, p_holm, survives_bh, clears_t3, pre_specified, status, artifact,
+  entered_on, online_position, online_alpha_lordpp, online_rejected_lordpp, online_alpha_saffron,
+  online_rejected_saffron, registration}`, with `status` one of those five keys, and `q_bh`, `p_holm`,
+  `survives_bh` and `clears_t3` null for a row selected after a search. `date` is the source artifact's
+  own date (for `vol_lab` rows, the pinned snapshot's retrieval date; null for a registered row without a
+  result); the order rows entered the ledger is `entered_on`, the UTC date of the merge to main that first
+  held the row, or its registration date. The online view (ROADMAP 2.12) runs LORD++ and SAFFRON at a
+  target false discovery rate of 0.05 over the rows in that order: `online_position` is the row's place
+  in the stream (1-based), and each procedure's `online_alpha_*` is the level the row was tested at and
+  `online_rejected_*` its decision. The online fields are null outside the stream (a row selected after a
+  search), and the level and decision are null while the row, or an earlier row, is registered without a
+  result; `online_rejected_*` is false for a retracted row, which is tested at p = 1. `registration` is
+  `{on, field, withdrawn}` (the date, the artifact field that will hold the result, and a withdrawal
+  reason) or null. A registered row without a result has a null `p_value`, `q_bh`, `p_holm`,
+  `survives_bh` and `clears_t3`, and null online decisions. The full artifact also has, per row,
+  `online_p` (the p the row is tested on: `p_two_sided`, or 1 for a retracted row, a row whose test could
+  not be computed and a withdrawn registration), `online_candidate_saffron` (`online_p` ≤ λ) and
+  `registration.spec_sha256` (the hash of the declared test). `summary.online` is `{alpha, reference,
+  order, rows_in_stream, rows_decided, waiting_on, legacy_batches[{entered_on, pr, rows_in_stream}],
+  lordpp{w0, gamma_c, gamma, rejected[], wealth[], next_level}, saffron{w0, lambda, gamma_c, gamma_s,
+  candidates, rejected[], wealth[], next_level}, legacy_order_sensitivity{draws, seed, scope,
+  legacy_rows, lordpp{min, max, same_set_share}, saffron{min, max, same_set_share}}}`: `waiting_on` names
+  the first registered row without a result (null when none), `wealth` runs over the decided rows, and
+  `next_level` is the level a row appended now would be tested at (null while a row waits). `vol_lab`'s
+  keys named `registered` (`gw_*.registered`, `dm.registered`, `berkowitz.registered`) name the form the
+  ledger reads and are unrelated to the status. Two families test each model against the model of record, one row per
   model: "conditional predictive ability" (`vol_gw_<model>`, the Giacomini-White conditional p) and
   "stability over time" (`vol_fluct_<model>`, the fluctuation test's search-adjusted p). The χ²(4)
   Giacomini-White form and every robustness variant stay in `vol_lab` as context; they are not rows.
@@ -447,4 +472,5 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
 
 `build_research_bundle.validate` requires the schema version, every `series` array to have
 `sample.n_weeks` entries, leaderboard rows with `key` and `qlike`, both post-mortem equity curves,
-ledger rows, the supply study's groups, and the leak anatomy's analytic sign agreement.
+ledger rows (and, when `ledger.summary.online` exists, an `online_position` key on every ledger row),
+the supply study's groups, and the leak anatomy's analytic sign agreement.

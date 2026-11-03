@@ -1,0 +1,680 @@
+{
+ "about": "The rows that entered the research ledger before registration began (ROADMAP 2.12), frozen: in online order (entered_on, then the row's place in ledger_rows()), each with the UTC date of the squash merge on main that first held it and that merge's PR. Built once from the git history (git log --first-parent origin/main -- data/research_ledger.json) and checked against it by LedgerHistoryTest. Every row not listed here must be registered (REGISTERED).",
+ "rows": [
+  {
+   "id": "dir_1w_5y_leaked",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "dir_1w_10y_leaked",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "dir_1w_5y_purged",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "dir_1w_10y_purged",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "dir_1d_5y_every_fifth_day",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "dir_1d_5y_every_day",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "dir_macro_uplift",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "dir_same_day_context",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "dir_hit_rate_at_ess",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "leak_forest_noise_unpurged",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "leak_forest_noise_purged",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "leak_nn_shuffled_cl_unpurged",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "leak_nn_shuffled_cl_purged",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "carry_spread_full",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "carry_rank_full",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "carry_sign_predictor_full",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "carry_sharpe_vs_buy_hold_full",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "carry_spread_pre2007",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "carry_rank_pre2007",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "carry_sign_predictor_pre2007",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "carry_sharpe_vs_buy_hold_pre2007",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "carry_spread_post2007",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "carry_rank_post2007",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "carry_sign_predictor_post2007",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "carry_sharpe_vs_buy_hold_post2007",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "carry_sign_split_full",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "carry_sign_split_post2007",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "carry_spread_changed_after_2007",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "carry_rank_changed_after_2007",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "carry_original_contango_beats",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vrp_exists",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vrp_exists_vs_zero_premium",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vrp_short_vol_swap_sharpe",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vrp_short_variance_sharpe",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vrp_timing",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vol_dir_vs_base_rate",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vol_dir_vs_noise_floor",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vol_dir_vs_mean_reversion",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vol_qlike_vs_persistence",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vol_ovx_gain_qlike",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vol_ovx_gain_direction",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vol_leverage_term",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vol_vs_implied_regression",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vol_vs_raw_ovx",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vol_same_day_ovx",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vol_challenger_qlike",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vol_challenger_mse",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vol_spa_beats_record",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vol_mcs_excludes_record",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vol_oos_model_selection",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vol_record_biased",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vol_ovx_coefficient",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "vol_target_overlay",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "var_normal_99_coverage",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "var_fhs_99_coverage",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "var_fhs_95_dq",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "var_hs_95_clustering",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "shock_supply_lost_peak",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "shock_supply_lost_settle",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "shock_threat_only_peak",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "shock_threat_only_settle",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "shock_opec_cut_peak",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "shock_opec_cut_settle",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "shock_weather_peak",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "shock_weather_settle",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "shock_conflict_peak",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "shock_conflict_settle",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "shock_sanctions_peak",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "shock_sanctions_settle",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "shock_iran_driven_peak",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "shock_iran_driven_settle",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "shock_strait_risk_peak",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "shock_strait_risk_settle",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "shock_removal_vs_threat_peak",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "shock_removal_vs_threat_settle",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "shock_priced_in",
+   "entered_on": "2026-10-21",
+   "pr": "#54"
+  },
+  {
+   "id": "band_regime_ovx_tercile_har_iv",
+   "entered_on": "2026-11-01",
+   "pr": "#99"
+  },
+  {
+   "id": "band_regime_ovx_rv_gap_har_iv",
+   "entered_on": "2026-11-01",
+   "pr": "#99"
+  },
+  {
+   "id": "band_regime_rv5_tercile_har_iv",
+   "entered_on": "2026-11-01",
+   "pr": "#99"
+  },
+  {
+   "id": "band_regime_target_spans_roll_har_iv",
+   "entered_on": "2026-11-01",
+   "pr": "#99"
+  },
+  {
+   "id": "band_regime_ovx_tercile_har_iv_range",
+   "entered_on": "2026-11-01",
+   "pr": "#99"
+  },
+  {
+   "id": "band_regime_ovx_rv_gap_har_iv_range",
+   "entered_on": "2026-11-01",
+   "pr": "#99"
+  },
+  {
+   "id": "band_regime_rv5_tercile_har_iv_range",
+   "entered_on": "2026-11-01",
+   "pr": "#99"
+  },
+  {
+   "id": "band_regime_target_spans_roll_har_iv_range",
+   "entered_on": "2026-11-01",
+   "pr": "#99"
+  },
+  {
+   "id": "vol_gw_persistence",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_fluct_persistence",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_gw_raw_ovx",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_fluct_raw_ovx",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_gw_ewma",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_fluct_ewma",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_gw_garch",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_fluct_garch",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_gw_gjr",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_fluct_gjr",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_gw_har_rv",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_fluct_har_rv",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_gw_har_rs",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_fluct_har_rs",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_gw_har_range",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_fluct_har_range",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_gw_ovx_only",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_fluct_ovx_only",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_gw_har_iv_sameday",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_fluct_har_iv_sameday",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_gw_har_iv_range",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_fluct_har_iv_range",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_gw_lgbm",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_fluct_lgbm",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_gw_combo",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_fluct_combo",
+   "entered_on": "2026-11-02",
+   "pr": "#101"
+  },
+  {
+   "id": "vol_crps_har_iv_range",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_pinball10_har_iv_range",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_pinball90_har_iv_range",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_crps_ovx_only",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_pinball10_ovx_only",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_pinball90_ovx_only",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_crps_garch",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_pinball10_garch",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_pinball90_garch",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_crps_gjr",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_pinball10_gjr",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_pinball90_gjr",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_crps_ewma",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_pinball10_ewma",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_pinball90_ewma",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_crps_quantile_har",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_pinball10_quantile_har",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_pinball90_quantile_har",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_berkowitz_har_iv",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_berkowitz_har_iv_range",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_berkowitz_ovx_only",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_berkowitz_garch",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_berkowitz_gjr",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_berkowitz_ewma",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  },
+  {
+   "id": "vol_berkowitz_quantile_har",
+   "entered_on": "2026-11-02",
+   "pr": "#104"
+  }
+ ]
+}

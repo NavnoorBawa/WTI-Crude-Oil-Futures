@@ -128,8 +128,8 @@ kept, so the post-mortem's runs can be repeated.
 
 ## 5. No result is stated beyond its test (three minutes)
 
-Claim: every hypothesis the project tested is listed with its test and a multiplicity adjustment,
-and only the forward record can promote the challenger.
+Claim: every hypothesis the project tested or registered is listed with its test, a batch
+multiplicity adjustment and an online one, and only the forward record can promote the challenger.
 
 ```bash
 python -c "import json; s = json.load(open('data/research_ledger.json'))['summary']; print(json.dumps(s['by_status'], indent=1))"
@@ -155,6 +155,29 @@ promotion rule, fixed before the first live forecast and pinned in code, is quot
 test has. [`PREREGISTRATION.md`](PREREGISTRATION.md) states it as a pre-registration (hypotheses,
 sample and stopping rule, analysis, what was known when it was fixed, deviations), with its tables
 and figures generated from the same constants and the commands that date it.
+
+The online view (LORD++ and SAFFRON, ROADMAP 2.12) and the registered rows can be checked on their
+own (a few seconds; no network):
+
+```bash
+python -c "import json; o = json.load(open('data/research_ledger.json'))['summary']['online']; print(o['rows_in_stream'], len(o['lordpp']['rejected']), len(o['saffron']['rejected']), o['waiting_on']); print(json.dumps(o['legacy_order_sensitivity'], indent=1))"
+python -c "import json; rows = json.load(open('data/research_ledger.json'))['rows']; [print(r['id'], r['status'], r['registration']) for r in rows if r['registration']]"
+python -B -m unittest tests.test_research_ledger.OnlineReferenceTest tests.test_research_ledger.OnlineStreamTest tests.test_research_ledger.RegistrationTest
+python -B -m unittest tests.test_research_ledger.LedgerHistoryTest     # needs full history: git fetch --unshallow
+```
+
+Passing: the first command prints the stream's size, the two procedures' rejection counts and the row
+the stream waits on (`None` when none), then how those counts move when the order of the rows that
+entered before registration began is drawn at random within each entry batch; the second prints each
+registered row with its status and registration, or nothing while there are none; the tests print
+`OK`. They check that both procedures reproduce every printed level and rejection of the reference
+implementation's examples (onlineFDR 2.21.3 and 2.19.1, `tests/fixtures/online_fdr_reference.json`),
+that the committed online decisions recompute from the artifact and that dropping the newest rows
+leaves every earlier one unchanged, and the registered status's lifecycle. The history test reads every
+version of the ledger on main and checks the entry dates, that each registration reached main before
+its result, and that the online view only grows; in a shallow clone it reports skipped, and a reviewer
+unshallows to run it. The [full results' ledger section](RESULTS.md#6-research-ledger) says how the
+two views compare.
 
 The conditional and over-time tests (Giacomini-White, and Giacomini-Rossi's fluctuation test) have
 acceptance tests of their own (about half a minute; they read the pinned snapshot, no network):
