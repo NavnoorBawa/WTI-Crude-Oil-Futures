@@ -64,8 +64,10 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   window opens; each call since 2026-10-28 also stores its fit, so it recomputes from its own entry.
   The first three windows resolved on 2026-10-29, 10-30 and 10-31: the Oct 20 call (47.3%, band
   23.1–63.6%) against a realized 40.95%, the Oct 21 call (49.6%, band 24.3–66.6%) against 37.76% and
-  the Oct 22 call (50.8%, band 24.9–68.2%) against 30.50%, all inside their band. The windows
-  overlap, so the page counts one independent week. `scripts/verify_record.py` passes on the record.
+  the Oct 22 call (50.8%, band 24.9–68.2%) against 30.50%, all inside their band. The Oct 23 call
+  (53.4%, band 26.2–71.8%) resolved on 2026-11-03 against 61.35%, inside its band too. The four
+  windows overlap, so the page counts one independent week. The 2026-11-02 entry is the first that
+  links to the one before it (one link, no break). `scripts/verify_record.py` passes on the record.
 - **Dashboard (2.2.0).** 2.1.0's research terminal, plus: the hero splits each change between calls
   into its inputs, refit and smearing; the hand arithmetic shows again; titles name their samples;
   the live record explains every never-scored status and an overdue result; charts keep their frame
@@ -350,4 +352,5 @@ that becomes computable, a lab rebuild that moves p-values) is named in `ONLINE_
 row's own result arriving is not a correction and is never named. In the stream
 the correction recomputes the online view from that row on. The history test's two checks (the
 append-only online view, and the batch fields while the family is unchanged) exempt the named
-row's own p-value and status, and the online levels and decisions recomputed after it.
+row's own p-value and status, and the online levels and decisions recomputed after it; the batch
+check also exempts a registered row's own p-value and status when its result arrives.

@@ -567,6 +567,30 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
                       "order, fixed after their p-values were known", text)
         self.assertNotIn("reconstructed", text)
 
+    def test_a_pending_registration_selected_after_a_search_is_named_outside_the_stream(self):
+        """A pending row selected after a search waits outside the online stream: the paragraph says so, so the next
+        row's levels are not read as its own."""
+        self.ledger["rows"] = [r for r in self.ledger["rows"] if r["status"] != "registered"]
+        last = max(self.ledger["rows"], key=lambda r: r["online_position"] or 0)
+        searched = {**last, "id": "reg_searched", "status": "registered", "online_position": None, "online_p": None,
+                    "online_alpha_lordpp": None, "online_alpha_saffron": None, "online_rejected_lordpp": None,
+                    "online_rejected_saffron": None, "selected_after_search": True,
+                    "registration": {**(last["registration"] or {}), "withdrawn": None}}
+        plain = {**searched, "id": "reg_plain", "online_position": last["online_position"] + 1,
+                 "selected_after_search": False, "online_alpha_lordpp": 0.001, "online_alpha_saffron": 0.02}
+        s = self.ledger["summary"]
+        s["registered_withdrawn"] = []
+        for rows, expected in (
+                ([searched], "1 registered row waits for its result (reg_searched); selected after a search, it is "
+                             "outside the online stream."),
+                ([plain, searched], "2 registered rows wait for their results (reg_plain and reg_searched); selected "
+                                    "after a search, reg_searched is outside the online stream.")):
+            with self.subTest(rows=[r["id"] for r in rows]):
+                self.ledger["rows"] = [r for r in self.ledger["rows"] if not r["id"].startswith("reg_")] + rows
+                s["registered"] = [r["id"] for r in rows]
+                s["online"]["waiting_on"] = "reg_plain" if plain in rows else None
+                self.assertIn(expected, self.patched(rb.ledger_online))
+
     def _assert_pending_and_withdrawn_registrations(self):
         # Synthetic rows after the committed stream, first in line: committed registrations (pending or withdrawn) are
         # set aside, so this case does not depend on which registrations are committed.
@@ -907,6 +931,18 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
         outside the online stream, and the copy names the two apart."""
         self.assert_registered_uncomputed(challenger_too=True)
 
+    def test_a_registered_uncomputed_result_behind_a_committed_pending_registration(self):
+        """Both cases above in the state a registration PR leaves: one more committed registration, pending, ahead of
+        this row in the online order, so this row's level and decision wait for it."""
+        from tests.test_research_ledger import TEST_MODEL
+
+        for challenger_too in (False, True):
+            with self.subTest(challenger_too=challenger_too):
+                self.assert_registered_uncomputed(challenger_too=challenger_too, committed_pending=True)
+                self.assertIsNone(self.row(f"vol_fluct_{TEST_MODEL}")["online_alpha_lordpp"])
+                self.assertIn("will spend its level, and earn none, once every earlier row is decided",
+                              self.patched(rb.ledger_reading))
+
     def test_an_uncomputed_result_behind_a_pending_row_will_spend_its_level(self):
         """Built by the ledger itself: two registrations on one day; the later one's result arrives first and its test
         could not be computed, while the earlier one still waits. Its level and decision are null until that resolves,
@@ -953,13 +989,13 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
         self.assertEqual(rb._spends_at_one(["a", "b"], rows), "each spends its level (or, after a pending row, will "
                          "once every earlier row is decided) and earns none")
 
-    def assert_registered_uncomputed(self, *, challenger_too):
+    def assert_registered_uncomputed(self, *, challenger_too, committed_pending=False):
         import contextlib
         from unittest import mock
 
         from backend import research_ledger as rl
-        from tests.test_research_ledger import (TEST_LABEL, TEST_MODEL, _lab_with_model, _loader, _model_registrations,
-                                                _not_computed, _registration_day)
+        from tests.test_research_ledger import (TEST_LABEL, TEST_MODEL, _committed_registration_patches, _lab_with_model,
+                                                _loader, _model_registrations, _not_computed, _registration_day)
 
         regs = _model_registrations(TEST_MODEL, _registration_day(), distribution=False)
         self.lab = _lab_with_model(TEST_MODEL, TEST_LABEL, fluctuation_computed=False)
@@ -967,9 +1003,11 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
             entry = self.model(rl.CHALLENGER)
             entry["fluctuation_qlike_vs_har_iv"] = _not_computed(entry["fluctuation_qlike_vs_har_iv"])
         with contextlib.ExitStack() as stack:
-            for patch in (mock.patch.dict(rl.REGISTERED, regs),
-                          mock.patch.object(rl, "LAB_COMPARED", (*rl.LAB_COMPARED, TEST_MODEL)),
-                          mock.patch.object(rl, "ORDER_DRAWS", 3)):
+            # A committed pending registration is entered first, so it comes first in REGISTERED's order.
+            for patch in ((*_committed_registration_patches(),) if committed_pending else ()) + (
+                    mock.patch.dict(rl.REGISTERED, regs),
+                    mock.patch.object(rl, "LAB_COMPARED", (*rl.LAB_COMPARED, TEST_MODEL)),
+                    mock.patch.object(rl, "ORDER_DRAWS", 3)):
                 stack.enter_context(patch)
             self.ledger = json.loads(json.dumps(rl.build(load=_loader(self.lab))))
         rid = f"vol_fluct_{TEST_MODEL}"
@@ -992,15 +1030,17 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
                       f"the artifact could not compute, with no p-value: {rb._join(none)})", block)
         self.assertNotIn(f"{b['inconclusive']} inconclusive (0.05 ≤ p < 0.10)", block)
         reading = self.patched(rb.ledger_reading)
+        # What p = 1 costs: a level now, or once every earlier row is decided (behind a pending row).
+        cost = rb._spends_at_one(streamed, {x["id"]: x for x in self.ledger["rows"]})
         if not searched:
             self.assertIn(f"The Inconclusive column counts {rb._join(none)}, whose test the artifact could not compute "
                           f"({'it has' if one else 'they have'} no p-value, and in the online stream "
                           f"{'it is' if one else 'each is'} tested at p = 1).", block)
             self.assertIn("has no p-value: the artifact could not compute its test, so it is outside the multiplicity "
-                          "family; in the online stream it is tested at p = 1, as a retracted row is, so it spends its "
-                          "level and earns none." if one else "have no p-value: the artifact could not compute their "
-                          "test, so they are outside the multiplicity family; in the online stream each is tested at "
-                          "p = 1", reading)
+                          f"family; in the online stream it is tested at p = 1, as a retracted row is, so {cost}."
+                          if one else "have no p-value: the artifact could not compute their test, so they are outside "
+                          f"the multiplicity family; in the online stream each is tested at p = 1, as a retracted row "
+                          f"is, so {cost}.", reading)
         else:
             m = len(searched)
             self.assertIn(f"The Inconclusive column counts {rb._join(none)}, whose test the artifact could not compute "
@@ -1010,8 +1050,7 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
                           "stream).", block)
             self.assertIn(f"{rb._join(none)} have no p-value: the artifact could not compute their test, so they are "
                           f"outside the multiplicity family; in the online stream {rb._join(streamed)} "
-                          f"{'is' if k == 1 else 'are each'} tested at p = 1, as a retracted row is, so "
-                          f"{'it spends its' if k == 1 else 'each spends its'} level and earns none, and "
+                          f"{'is' if k == 1 else 'are each'} tested at p = 1, as a retracted row is, so {cost}, and "
                           f"{rb._join(searched)}, selected after a search, {'is' if m == 1 else 'are'} outside the "
                           "online stream too.", reading)
         self.assertIn(rid, reading)
@@ -1093,7 +1132,7 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
         self.assertIn(f"{rb._join(both)} have no p-value: the artifact could not compute their test, so they are "
                       f"outside the multiplicity family; in the online stream {rb._join(streamed)} "
                       f"{'is' if k == 1 else 'are each'} tested at p = 1, as a retracted row is, so "
-                      f"{'it spends its' if k == 1 else 'each spends its'} level and earns none, and {rid}, selected "
+                      f"{rb._spends_at_one(streamed, {r['id']: r for r in self.ledger['rows']})}, and {rid}, selected "
                       "after a search, is outside the online stream too.", self.patched(rb.ledger_reading))
 
     def test_the_retracted_rows_spend_their_level_online(self):

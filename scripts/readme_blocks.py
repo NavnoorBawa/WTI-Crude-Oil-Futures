@@ -2723,8 +2723,13 @@ def ledger_online() -> str:
     pending, withdrawn = s.get("registered", []), s.get("registered_withdrawn", [])
     if pending:
         n = len(pending)
+        outside = [rid for rid in pending if rows[rid].get("online_position") is None]
         text.append(f"{n} registered row{'s' if n != 1 else ''} {'wait' if n != 1 else 'waits'} for "
-                    f"{'their results' if n != 1 else 'its result'} ({_ids(pending)}).")
+                    f"{'their results' if n != 1 else 'its result'} ({_ids(pending)})"
+                    + ("." if not outside else
+                       f"; selected after a search, {_ids(outside)} {'is' if len(outside) == 1 else 'are'} outside "
+                       "the online stream." if len(outside) < n else
+                       f"; selected after a search, {'it is' if n == 1 else 'they are'} outside the online stream."))
         # A pending row's levels are fixed once every earlier row is decided (only the first can be).
         for rid in sorted((rid for rid in pending if rows[rid]["online_alpha_lordpp"] is not None),
                           key=lambda rid: rows[rid]["online_position"]):
