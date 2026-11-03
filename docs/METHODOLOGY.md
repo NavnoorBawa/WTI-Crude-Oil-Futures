@@ -803,7 +803,7 @@ pre-specified.
   challenger's full-sample, conditional and over-time comparisons with the model of record, and its
   three predictive-distribution score rows. Their p-values ignore the search, so they are left out
   of the family and their adjusted fields are null. Each note names the search-adjusted test where
-  one exists or says none does: the SPA row adjusts the full-sample comparison, and the other five
+  one exists or says none does: the SPA row adjusts the full-sample comparison, and the others
   have none. Rows on the same loss
   difference are dependent (a model's Giacomini-White and fluctuation rows, and its
   Diebold-Mariano row where there is one): Benjamini-Hochberg assumes positive dependence (PRDS;
@@ -905,7 +905,7 @@ pre-specified.
   volatility forecast, value at risk, forecast interval, conditional predictive ability, stability
   over time, predictive distribution, distribution calibration, supply shock); the label does not
   split the adjustment: every row with a p-value, except those selected after a search (the
-  challenger's six rows; above), shares one multiplicity family. Robustness variants are published
+  challenger's rows; above), shares one multiplicity family. Robustness variants are published
   as context and not entered in the ledger: the χ²(4) Giacomini-White form, which includes the full-sample mean
   the DM test asks about, and section 7's distribution context (the log scale, the CRPS confidence
   set, the quantile HAR's field rerun).

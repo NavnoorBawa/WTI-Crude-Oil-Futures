@@ -202,11 +202,20 @@ class StabilityBlocksTest(unittest.TestCase):
                       "2020-04-01", self.patched(rb.stability_reading))
 
     def test_the_abstract_names_the_challenger_s_rows_by_kind(self):
+        six = ["vol_challenger_qlike", "vol_gw_har_iv_range", "vol_fluct_har_iv_range", "vol_crps_har_iv_range",
+               "vol_pinball10_har_iv_range", "vol_pinball90_har_iv_range"]
+        self.ledger["summary"]["selected_after_search"] = six
         text = self.patched(rb.abstract)
         self.assertIn("The challenger's six pairwise tests (full-sample, conditional, over-time and three on the "
                       "predictive distribution) are left out", text)
         self.assertIn("and the other five have none", text)
         self.assertIn("published as context and not entered in the ledger", text)
+        # A family registered later with a challenger row of its own (HANDOFF's new-family route) is counted too.
+        self.ledger["summary"]["selected_after_search"] = [*six, "vol_newtest_har_iv_range"]
+        text = self.patched(rb.abstract)
+        self.assertIn("The challenger's seven pairwise tests (full-sample, conditional, over-time, three on the "
+                      "predictive distribution and one on another criterion) are left out", text)
+        self.assertIn("and the other six have none", text)
         self.ledger["summary"]["selected_after_search"] = ["vol_challenger_qlike", "vol_gw_har_iv_range",
                                                            "vol_fluct_har_iv_range"]
         self.assertIn("The challenger's three pairwise tests (full-sample, conditional and over-time) are left out",
@@ -476,6 +485,9 @@ class DistributionBlocksTest(StabilityBlocksTest.__base__):
         with contextlib.ExitStack() as stack:
             for patch in (mock.patch.dict(rl.REGISTERED, _model_registrations(TEST_MODEL, _registration_day(), lab=False)),
                           mock.patch.object(rl, "DISTRIBUTION_MODELS", (*rl.DISTRIBUTION_MODELS, TEST_MODEL)),
+                          # a GARCH-like entry: its PIT reads a simulated sample (HANDOFF's result step lists it)
+                          mock.patch.object(rl, "PARAMETRIC_DISTRIBUTION_MODELS",
+                                            (*rl.PARAMETRIC_DISTRIBUTION_MODELS, TEST_MODEL)),
                           mock.patch.object(rl, "ORDER_DRAWS", 3)):
                 stack.enter_context(patch)
             self.ledger = json.loads(json.dumps(rl.build(load=_loader(self.lab))))
@@ -497,6 +509,8 @@ class DistributionBlocksTest(StabilityBlocksTest.__base__):
                 self.assertIn(key, [m["key"] for m in mid])
                 ps = ", ".join(rb._peq_thr(m["alternatives"]["static_t"]["berkowitz_p"]) for m in mid)
                 self.assertIn(f"Berkowitz is inconclusive for {rb._dist_names(mid)} ({ps})", text)
+                # Its calibration row carries the PIT-form context the t > 3 reading checks.
+                self.assertIsNotNone(self.row(f"vol_berkowitz_{key}")["context"].get("p_count_pit"))
                 check()
 
     def test_fragile_t3_flags_are_computed(self):
@@ -938,10 +952,9 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
 
         for challenger_too in (False, True):
             with self.subTest(challenger_too=challenger_too):
-                self.assert_registered_uncomputed(challenger_too=challenger_too, committed_pending=True)
+                behind = self.assert_registered_uncomputed(challenger_too=challenger_too, committed_pending=True)
                 self.assertIsNone(self.row(f"vol_fluct_{TEST_MODEL}")["online_alpha_lordpp"])
-                self.assertIn("will spend its level, and earn none, once every earlier row is decided",
-                              self.patched(rb.ledger_reading))
+                self.assertIn(f"vol_fluct_{TEST_MODEL}", behind)
 
     def test_an_uncomputed_result_behind_a_pending_row_will_spend_its_level(self):
         """Built by the ledger itself: two registrations on one day; the later one's result arrives first and its test
@@ -1031,7 +1044,10 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
         self.assertNotIn(f"{b['inconclusive']} inconclusive (0.05 ≤ p < 0.10)", block)
         reading = self.patched(rb.ledger_reading)
         # What p = 1 costs: a level now, or once every earlier row is decided (behind a pending row).
-        cost = rb._spends_at_one(streamed, {x["id"]: x for x in self.ledger["rows"]})
+        cost = self._cost_of_p_one(streamed)
+        waiting = self.ledger["summary"]["online"]["waiting_on"]
+        behind = [x for x in streamed if waiting is not None
+                  and self.row(x)["online_position"] > self.row(waiting)["online_position"]]
         if not searched:
             self.assertIn(f"The Inconclusive column counts {rb._join(none)}, whose test the artifact could not compute "
                           f"({'it has' if one else 'they have'} no p-value, and in the online stream "
@@ -1069,6 +1085,7 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
         self.assertIn("; a ledger row whose test could not be computed has no p-value and no q.", table)
         for name in ("stability_reading", "ledger_online", "abstract"):                  # the other blocks still build
             self.assertTrue(self.patched(getattr(rb, name)), name)
+        return behind
 
     def _not_computed_ledger(self, keys):
         """The ledger built by the ledger itself from the lab with these models' fluctuation tests not computed (the
@@ -1132,8 +1149,21 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
         self.assertIn(f"{rb._join(both)} have no p-value: the artifact could not compute their test, so they are "
                       f"outside the multiplicity family; in the online stream {rb._join(streamed)} "
                       f"{'is' if k == 1 else 'are each'} tested at p = 1, as a retracted row is, so "
-                      f"{rb._spends_at_one(streamed, {r['id']: r for r in self.ledger['rows']})}, and {rid}, selected "
-                      "after a search, is outside the online stream too.", self.patched(rb.ledger_reading))
+                      f"{self._cost_of_p_one(streamed)}, and {rid}, selected after a search, is outside the online "
+                      "stream too.", self.patched(rb.ledger_reading))
+
+    def _cost_of_p_one(self, streamed):
+        """What the reading should say p = 1 costs these stream rows, from their positions alone (independent of
+        rb._spends_at_one): behind the first pending row in the stream, a row's level is not set yet."""
+        waiting = self.ledger["summary"]["online"]["waiting_on"]
+        behind = [x for x in streamed if waiting is not None
+                  and self.row(x)["online_position"] > self.row(waiting)["online_position"]]
+        subject = "it" if len(streamed) == 1 else "each"
+        if not behind:
+            return f"{subject} spends its level and earns none"
+        if len(behind) == len(streamed):
+            return f"{subject} will spend its level, and earn none, once every earlier row is decided"
+        return "each spends its level (or, after a pending row, will once every earlier row is decided) and earns none"
 
     def test_the_retracted_rows_spend_their_level_online(self):
         self.assertIn("in the online stream each is tested at p = 1, so it spends its level and earns none",

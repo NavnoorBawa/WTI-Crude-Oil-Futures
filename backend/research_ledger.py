@@ -898,6 +898,10 @@ _LD = "distribution.models[key={}]"
 # The models whose whole predictive distribution the lab scores (ROADMAP 2.4), in the artifact's order. The quantile
 # HAR is a robustness competitor outside LAB_COMPARED: it is never ranked, banded or selected.
 DISTRIBUTION_MODELS = ("har_iv_range", "ovx_only", "garch", "gjr", "ewma", "quantile_har")
+# The distribution models whose PIT reads a simulated sample (the lab writes `alternatives` and `berkowitz.p_count_pit`
+# for them): their calibration rows carry the PIT-form context that the ledger reading's t > 3 check reads. A result
+# PR for such a model adds it here (a test keeps this equal to the artifact's models with `alternatives`).
+PARAMETRIC_DISTRIBUTION_MODELS = ("garch", "gjr")
 # Models whose distribution rows are registered before the lab scores them (ROADMAP 2.12), as REGISTERED_LAB_MODELS: key
 # -> the label shown while the rows wait; in the result PR the model moves from here to DISTRIBUTION_MODELS. The four
 # rows registered here for a model read the one distribution entry the lab writes for it, so they are withdrawn
@@ -1017,7 +1021,7 @@ def _distribution_rows() -> list[Row]:
                     "was adopted after it because its p-value does not depend on a seed. Context grids_below_5pct "
                     "says on how many grids the test rejects.")
         else:
-            if m in ("garch", "gjr"):
+            if m in PARAMETRIC_DISTRIBUTION_MODELS:
                 context.update({"rho_grid_0": f"{berk}.by_grid[0].rho", "p_count_pit": f"{berk}.p_count_pit",
                                 "clamp_days": f"{berk}.clamp_days", "extreme_days": f"{berk}.extreme_days",
                                 "p_static_t": f"{base}.alternatives.static_t.berkowitz_p"})

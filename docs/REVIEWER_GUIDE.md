@@ -148,10 +148,10 @@ regime and the fourth each model's Giacomini-White conditional test (`vol_gw_*`)
 predictive-distribution rows (CRPS, the 10% and 90% pinball losses, and Berkowitz's calibration test).
 The
 [full results' ledger section](RESULTS.md#6-research-ledger) says how many supported rows survive
-Benjamini-Hochberg and Holm, and why the challenger's six pairwise tests (full-sample, conditional,
-over time and three on the predictive distribution) are left out of that family (it was chosen by
+Benjamini-Hochberg and Holm, and why the challenger's pairwise tests (full-sample, conditional,
+over time and on the predictive distribution) are left out of that family (it was chosen by
 searching the same sample; Hansen's SPA test is the search-adjusted counterpart of the full-sample one,
-and the other five have none). The
+and the others have none). The
 promotion rule, fixed before the first live forecast and pinned in code, is quoted in
 [section 3 of the full results](RESULTS.md#3-live-record-and-governance), with the power the single
 test has. [`PREREGISTRATION.md`](PREREGISTRATION.md) states it as a pre-registration (hypotheses,

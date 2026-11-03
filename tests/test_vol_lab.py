@@ -252,7 +252,9 @@ class NoLookAheadTest(unittest.TestCase):
             np.testing.assert_array_equal(same_day[key], value, err_msg=key)
         day_before = _row_features(lab.build_design(r, dates, ovx, _widen_bar(ohlc, t - 1, 1.3)), i)
         changed = {key for key, value in base.items() if not np.array_equal(day_before[key], value)}
-        self.assertEqual(changed, {"har_range", "har_iv_range", "lgbm"})
+        from scripts.readme_blocks import MODEL_INPUTS      # what each model reads, as the docs state it
+        self.assertEqual(changed, {key for key in base if "range" in MODEL_INPUTS[key]})
+        self.assertTrue({"har_range", "har_iv_range", "lgbm"} <= changed)
         self.assertTrue((day_before["har_range"] > base["har_range"]).all())     # RV5, RV22 and RV66 all move
 
     def test_only_the_v1_timing_row_reads_the_test_days_own_ovx(self):
@@ -2136,6 +2138,10 @@ class ArtifactContractTest(unittest.TestCase):
                                                                     "lists the lab's distribution models in its order")
         self.assertEqual(keys[:2], [champion, challenger])
         self.assertIn(lab.QHAR_KEY, keys)
+        parametric = {m["key"] for m in report["distribution"]["models"] if "alternatives" in m}
+        self.assertEqual(parametric, set(rl.PARAMETRIC_DISTRIBUTION_MODELS),
+                         "backend/research_ledger.py PARAMETRIC_DISTRIBUTION_MODELS lists the models whose PIT reads "
+                         "a simulated sample (the lab writes `alternatives` for them)")
 
     def test_a_model_scored_as_a_distribution_joins_the_ledger_s_list(self):
         # A distribution result PR (docs/HANDOFF.md): the lab scores one more model, and the key moves into
@@ -2149,7 +2155,11 @@ class ArtifactContractTest(unittest.TestCase):
         with self.assertRaises(AssertionError):
             self.assert_distribution_keys(report)            # the lab scores a model the ledger does not list
         with mock.patch.object(rl, "DISTRIBUTION_MODELS", (*rl.DISTRIBUTION_MODELS, TEST_MODEL)):
-            self.assert_distribution_keys(report)
+            with self.assertRaises(AssertionError):
+                self.assert_distribution_keys(report)        # a parametric model (a GARCH copy) not listed as one
+            with mock.patch.object(rl, "PARAMETRIC_DISTRIBUTION_MODELS",
+                                   (*rl.PARAMETRIC_DISTRIBUTION_MODELS, TEST_MODEL)):
+                self.assert_distribution_keys(report)
 
     def test_the_distribution_block_is_consistent(self):
         # ROADMAP 2.4: the scores cover the band's days, the quantile HAR stays out of the field, and every registered

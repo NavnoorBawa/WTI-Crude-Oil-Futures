@@ -461,7 +461,12 @@ def abstract() -> str:
     dist = sum(rid.startswith(("vol_crps_", "vol_pinball10_", "vol_pinball90_")) for rid in searched)
     if dist:
         kinds.append(f"{_word(dist)} on the predictive distribution")
-    n_tests = n_kinds + dist
+    # A family registered later may add a challenger row of its own: counted, under a generic kind.
+    known = ("vol_challenger_qlike", "vol_gw_", "vol_fluct_", "vol_crps_", "vol_pinball10_", "vol_pinball90_")
+    other = sum(not rid.startswith(known) for rid in searched)
+    if other:
+        kinds.append(f"{_word(other)} on {'another criterion' if other == 1 else 'other criteria'}")
+    n_tests = n_kinds + dist + other
     if kinds == ["full-sample"]:
         ledger_text += (" The challenger's pairwise test is left out of that family, because the challenger was "
                         "picked by searching the field on the same sample; the SPA test is its search-adjusted "
