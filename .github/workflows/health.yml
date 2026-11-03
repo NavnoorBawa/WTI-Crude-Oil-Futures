@@ -119,7 +119,10 @@ jobs:
           digest="$(grep -o 'health-digest: [0-9a-f]*' health.md)"
           title="Live pipeline needs attention"
           if [ -n "${number}" ]; then
-            if ! gh issue view "${number}" --json body --jq .body | grep -qF "${digest}"; then
+            # Read the whole body first: piped into grep -q, gh could be cut off mid-write once grep matched, and
+            # pipefail would then read a match as a change.
+            body="$(gh issue view "${number}" --json body --jq .body)"
+            if ! grep -qF "${digest}" <<< "${body}"; then
               gh issue edit "${number}" --body-file health.md
               gh issue comment "${number}" --body "The problems changed; the description lists the current ones."
             fi
