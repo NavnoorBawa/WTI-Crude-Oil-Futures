@@ -83,5 +83,9 @@ live numbers.
 
 Committed to the repository (about 0.6 MB). `python -m backend.vol_lab --refresh` downloads a new
 snapshot (free sources, no API keys) and rewrites the manifest; the research artifacts are then
-regenerated and the change is reviewed like code. Terms: Yahoo Finance data is for personal use;
-FRED series are public; Cboe owns the OVX index.
+regenerated and the change is reviewed like code. Terms: Yahoo Finance data is for personal use.
+Cboe owns the OVX index; FRED republishes it as OVXCLS with Cboe's permission, marks the series
+"Copyrighted: Citation Required" and asks for this citation: Chicago Board Options Exchange, CBOE
+Crude Oil ETF Volatility Index [OVXCLS], retrieved from FRED, Federal Reserve Bank of St. Louis,
+https://fred.stlouisfed.org/series/OVXCLS. EIA's data are in the public domain
+(https://www.eia.gov/about/copyrights_reuse.php).
