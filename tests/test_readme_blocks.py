@@ -492,7 +492,11 @@ class DistributionBlocksTest(StabilityBlocksTest.__base__):
                 text = self.patched(rb.distribution_reading)
                 self.assertIn(key, [m["key"] for m in self._record_lower("crps_grid", 0.0, 0.05)])
                 self.assertIn(key, [m["key"] for m in self._tails()["highest"]])
-                self.assertIn(f"Berkowitz is inconclusive for {self.dist(key)['label']} (p = 0.070)", text)
+                mid = [m for m in self.lab["distribution"]["models"] if "alternatives" in m
+                       and 0.05 <= m["alternatives"]["static_t"]["berkowitz_p"] < 0.10]   # whatever else the lab holds
+                self.assertIn(key, [m["key"] for m in mid])
+                ps = ", ".join(rb._peq_thr(m["alternatives"]["static_t"]["berkowitz_p"]) for m in mid)
+                self.assertIn(f"Berkowitz is inconclusive for {rb._dist_names(mid)} ({ps})", text)
                 check()
 
     def test_fragile_t3_flags_are_computed(self):
@@ -902,6 +906,52 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
         """As above, with the challenger's fluctuation test not computed too: selected after a search, its row is
         outside the online stream, and the copy names the two apart."""
         self.assert_registered_uncomputed(challenger_too=True)
+
+    def test_an_uncomputed_result_behind_a_pending_row_will_spend_its_level(self):
+        """Built by the ledger itself: two registrations on one day; the later one's result arrives first and its test
+        could not be computed, while the earlier one still waits. Its level and decision are null until that resolves,
+        so the reading says it will spend its level, not that it spends it."""
+        import copy
+        from unittest import mock
+
+        from backend import research_ledger as rl
+        from tests.test_research_ledger import _loader, _registration_day
+
+        day = _registration_day()
+
+        def registered(rid):
+            return rl.Row(id=rid, family="volatility forecast", hypothesis=f"A registered test, {rid}.",
+                          test="a two-sided test whose p-value the lab stores (null when it cannot be computed)",
+                          source=rl.LAB, statistic=("statistic", f"experiment_{rid}.stat"),
+                          p=rl.Field(f"experiment_{rid}.p_value", optional=True), sided="two", expects=rl.POSITIVE,
+                          registration=rl.Registration(day, f"experiment_{rid}.p_value"))
+
+        self.lab = copy.deepcopy(rl.load_artifact(rl.LAB))
+        self.lab["experiment_zz_reg_later"] = {"p_value": None, "stat": None, "not_computed": "a variance is zero"}
+        base = [r for r in rl.ledger_rows() if r.registration is None]
+        with mock.patch.object(rl, "ORDER_DRAWS", 3):
+            self.ledger = json.loads(json.dumps(rl.build(load=_loader(self.lab),
+                                                         rows=[*base, registered("zz_reg_first"),
+                                                               registered("zz_reg_later")])))
+        later = self.row("zz_reg_later")
+        self.assertEqual((later["status"], later["p_value"], later["online_p"]), ("inconclusive", None, 1.0))
+        self.assertIsNone(later["online_alpha_lordpp"])
+        self.assertIsNone(later["online_rejected_lordpp"])
+        self.assertEqual(self.ledger["summary"]["online"]["waiting_on"], "zz_reg_first")
+        reading = self.patched(rb.ledger_reading)
+        self.assertIn("zz_reg_later has no p-value: the artifact could not compute its test, so it is outside the "
+                      "multiplicity family; in the online stream it is tested at p = 1, as a retracted row is, so it "
+                      "will spend its level, and earn none, once every earlier row is decided.", reading)
+        self.assertNotIn("spends its level and earns none.", reading.split("zz_reg_later has no p-value")[1])
+
+    def test_the_cost_of_p_one_is_worded_by_whether_the_level_is_set(self):
+        rows = {"a": {"online_alpha_lordpp": 0.001}, "b": {"online_alpha_lordpp": None},
+                "c": {"online_alpha_lordpp": None}}
+        self.assertEqual(rb._spends_at_one(["a"], rows), "it spends its level and earns none")
+        self.assertEqual(rb._spends_at_one(["b", "c"], rows),
+                         "each will spend its level, and earn none, once every earlier row is decided")
+        self.assertEqual(rb._spends_at_one(["a", "b"], rows), "each spends its level (or, after a pending row, will "
+                         "once every earlier row is decided) and earns none")
 
     def assert_registered_uncomputed(self, *, challenger_too):
         import contextlib

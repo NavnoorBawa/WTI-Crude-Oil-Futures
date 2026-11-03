@@ -2322,6 +2322,18 @@ def _uncomputed_by_stream(rows: list[dict]) -> tuple[list[str], list[str]]:
             [r["id"] for r in rows if r.get("online_position") is None and r.get("selected_after_search")])
 
 
+def _spends_at_one(ids: list[str], rows_by_id: dict) -> str:
+    """What rows tested online at p = 1 cost: a level once every earlier row is decided (behind a pending row both the
+    level and the decision are null until it resolves), never a rejection."""
+    subject = "it" if len(ids) == 1 else "each"
+    later = [rid for rid in ids if rows_by_id[rid].get("online_alpha_lordpp") is None]
+    if not later:
+        return f"{subject} spends its level and earns none"
+    if len(later) == len(ids):
+        return f"{subject} will spend its level, and earn none, once every earlier row is decided"
+    return "each spends its level (or, after a pending row, will once every earlier row is decided) and earns none"
+
+
 def ledger_block() -> str:
     led = _ledger()
     s = led["summary"]
@@ -2588,12 +2600,12 @@ def ledger_reading() -> str:
             sentence += f", so {'it is' if n == 1 else 'they are'} outside the multiplicity family"
             if streamed and not searched:
                 sentence += (f"; in the online stream {'it is' if n == 1 else 'each is'} tested at p = 1, as a "
-                             "retracted row is, so it spends its level and earns none")
+                             f"retracted row is, so {_spends_at_one(streamed, rows_by_id)}")
             elif streamed:
                 k = len(streamed)
                 sentence += (f"; in the online stream {_join(streamed)} {'is' if k == 1 else 'are each'} tested at "
-                             f"p = 1, as a retracted row is, so {'it spends its' if k == 1 else 'each spends its'} "
-                             f"level and earns none, and {_join(searched)}, selected after a search, "
+                             f"p = 1, as a retracted row is, so {_spends_at_one(streamed, rows_by_id)}, and "
+                             f"{_join(searched)}, selected after a search, "
                              f"{'is' if len(searched) == 1 else 'are'} outside the online stream too")
         text.append(sentence + ".")
     return " ".join(text)

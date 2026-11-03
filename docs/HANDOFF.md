@@ -346,7 +346,8 @@ HAR, and the key moves to `DISTRIBUTION_MODELS` while it stays in `REGISTERED_LA
 Every changed p-value or status of an existing row (an erratum, a retraction after entry, a test
 that becomes computable, a lab rebuild that moves p-values) is named in `ONLINE_CORRECTIONS` in
 `tests/test_research_ledger.py` with its changelog errata entry, a row selected after a search too
-(it is outside the online stream, but the batch check below compares its fields). In the stream
+(it is outside the online stream, but the batch check below compares its fields). A registered
+row's own result arriving is not a correction and is never named. In the stream
 the correction recomputes the online view from that row on. The history test's two checks (the
 append-only online view, and the batch fields while the family is unchanged) exempt the named
 row's own p-value and status, and the online levels and decisions recomputed after it.

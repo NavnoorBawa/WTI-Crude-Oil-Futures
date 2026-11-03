@@ -1690,10 +1690,17 @@ def _batch_family(rows):
     return {(r["id"], r["p_two_sided"]) for r in rows if r["p_two_sided"] is not None and not r["selected_after_search"]}
 
 
+def _result_arrived(old, new):
+    """A registered row pending in the old version and resolved in the new one: its own result is the outcome of its
+    registration, never a correction, so it is not named in ONLINE_CORRECTIONS."""
+    reg = old.get("registration")
+    return old["status"] == "registered" and reg is not None and not reg["withdrawn"] and new["status"] != "registered"
+
+
 def _batch_violations(old_rows, new_rows, corrections):
     """How a later ledger moves an earlier version's batch view while the family's (id, p_two_sided) set is unchanged:
-    a batch field of a row changed, other than the own result (CORRECTED_FIELDS) of a row named in `corrections`.
-    None when the family changed (then the batch fields may move)."""
+    a batch field of a row changed, other than the own result (CORRECTED_FIELDS) of a row named in `corrections` or of
+    a registered row whose result arrived. None when the family changed (then the batch fields may move)."""
     if _batch_family(old_rows) != _batch_family(new_rows):
         return None
     new = {r["id"]: r for r in new_rows}
@@ -1702,7 +1709,7 @@ def _batch_violations(old_rows, new_rows, corrections):
         if r["id"] not in new:
             problems.append(f"{r['id']} left the ledger")
             continue
-        exempt = CORRECTED_FIELDS if r["id"] in corrections else ()
+        exempt = CORRECTED_FIELDS if r["id"] in corrections or _result_arrived(r, new[r["id"]]) else ()
         changed = [key for key in BATCH_FIELDS if key not in exempt and new[r["id"]][key] != r[key]]
         if changed:
             problems.append(f"{r['id']}: {changed} changed without a correction named in ONLINE_CORRECTIONS")
@@ -1755,6 +1762,43 @@ class BatchCheckTest(unittest.TestCase):
         named = {target["id"]: "CHANGELOG errata: test"}
         self.assertEqual(_batch_violations(rows, corrected, named), [])
         self.assertEqual(_append_only_violations(rows, corrected, named), [])
+
+
+    def _pending_then_resolved(self, target, **result):
+        rows = self.ledger_rows()
+        old = copy.deepcopy(rows)
+        for r in old:
+            if r["id"] == target:
+                r.update(status="registered", p_value=None, p_two_sided=None, t_equivalent=None,
+                         registration={"on": r["entered_on"], "field": "test.field", "withdrawn": None})
+        new = copy.deepcopy(old)
+        for r in new:
+            if r["id"] == target:
+                r.update(**result)
+        return old, new
+
+    def test_a_registered_result_that_leaves_the_family_unchanged_is_not_a_correction(self):
+        """A result PR is never an erratum: a not-computed result, or a searched row's result, leaves the family's
+        (id, p_two_sided) set unchanged, and the check passes without naming the row."""
+        rows = self.ledger_rows()
+        streamed = next(r["id"] for r in rows if r["online_position"] is not None)
+        searched = next(r["id"] for r in rows if r["selected_after_search"] and r["p_two_sided"] is not None)
+        cases = {"not computed": (streamed, dict(status="inconclusive")),
+                 "selected after a search": (searched, dict(status="supported", p_value=0.004, p_two_sided=0.008,
+                                                            t_equivalent=2.65))}
+        for name, (target, result) in cases.items():
+            with self.subTest(name):
+                old, new = self._pending_then_resolved(target, **result)
+                self.assertEqual(_batch_family(old), _batch_family(new), "the family is unchanged")
+                self.assertEqual(_batch_violations(old, new, {}), [])
+
+    def test_a_withdrawn_registration_is_not_exempt(self):
+        rows = self.ledger_rows()
+        target = next(r["id"] for r in rows if r["online_position"] is not None)
+        old, new = self._pending_then_resolved(target, status="inconclusive")
+        for version in (old, new):
+            next(r for r in version if r["id"] == target)["registration"]["withdrawn"] = "test"
+        self.assertTrue(_batch_violations(old, new, {}), "a withdrawn row never resolves")
 
 
 class AppendOnlyCheckTest(unittest.TestCase):

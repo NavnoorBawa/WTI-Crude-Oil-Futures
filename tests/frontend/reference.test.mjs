@@ -468,10 +468,10 @@ test("the ledger's online view: CSV columns, the method note, and nothing for a 
   const followed = { ...registered, online: { ...pendingOnline, rows_in_stream: pendingOnline.rows_in_stream + 1 } };
   assert.ok(reference.ledgerOnlineNote(followed)
     .includes(`Rows after ${pendingOnline.waiting_on}, which waits for its result, have no online decision yet.`));
-  // Which rows are tested at p = 1: withdrawn registrations in the stream too, whenever the ledger holds one (the
+  // Which rows enter the stream at p = 1: withdrawn registrations in it too, whenever the ledger holds one (the
   // synthetic rows are added to whatever the committed ledger holds); one selected after a search stays out.
   const atOne = (n, where = "") => (n ? `retracted rows, rows whose test could not be computed and ${n === 1 ? "the withdrawn registration"
-    : `the ${n} withdrawn registrations`}${where} are tested at p = 1` : "retracted rows and rows whose test could not be computed are tested at p = 1");
+    : `the ${n} withdrawn registrations`}${where} enter at p = 1` : "retracted rows and rows whose test could not be computed enter at p = 1");
   const committedGone = new Set(committedLedger().summary.registered_withdrawn ?? []);
   const committedWithdrawn = committedGone.size;
   const committedInStream = committedLedger().rows.filter((row) => committedGone.has(row.id) && row.online_position != null).length;
@@ -481,7 +481,7 @@ test("the ledger's online view: CSV columns, the method note, and nothing for a 
   assert.equal(registered.withdrawnInStream, committedInStream + 1);
   assert.ok(pendingNote.includes(`(rows selected after a search stay out; ${atOne(committedInStream + 1, committedWhere)}).`), pendingNote);
   const two = { ...registered, registeredWithdrawn: 2, withdrawnInStream: 2 };
-  assert.ok(reference.ledgerOnlineNote(two).includes("and the 2 withdrawn registrations are tested at p = 1"));
+  assert.ok(reference.ledgerOnlineNote(two).includes("and the 2 withdrawn registrations enter at p = 1"));
   // A withdrawn registration selected after a search (a new family's challenger row) is outside the stream: listed
   // with the withdrawn ones, but not among the rows tested at p = 1, and its flags read excluded.
   const searched = m.research.researchLedger(withRegistered(research, { searched: true }));

@@ -861,7 +861,8 @@ pre-specified.
   errata; the history test names each such row (`ONLINE_CORRECTIONS`), a row selected after a search
   too (it is outside the stream), and its two checks (the append-only online view, and the batch
   fields while the family is unchanged) exempt only the named row's own p-value and status, and the
-  online levels and decisions recomputed after it.
+  online levels and decisions recomputed after it. A registered row's own result arriving is not a
+  correction and is never named.
   Strictly, re-testing on new data is a new hypothesis, but the ledger reads only current
   artifacts, so it cannot keep old p-values.
 - **Registered rows.** From ROADMAP 2.12 on, every new hypothesis is registered before its result

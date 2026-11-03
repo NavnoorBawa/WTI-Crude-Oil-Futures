@@ -450,13 +450,14 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   that the row's test reads as optional (a test the artifact ran and could not compute, as the lab's
   `not_computed` fluctuation fields: the row then takes the status of any row whose test could not be
   computed, `inconclusive`, or `not_supported` when its stored estimate points the wrong way, with a
-  null `p_value`, and is tested online at p = 1); until then, or while its artifact file is missing,
+  null `p_value`, and, unless it was selected after a search, is tested online at p = 1); until then, or while its artifact file is missing,
   the row is pending. A
   registered row, pending or withdrawn, has a null `p_value`, `q_bh`, `p_holm`, `survives_bh` and
   `clears_t3`; its online decision is null while it is pending, and false once it is withdrawn and every
   earlier row is decided (null while it sits after a pending row). The full artifact also has, per row,
   `online_p` (the p the row is tested on: `p_two_sided`, or 1 for a retracted row, a row whose test could
-  not be computed and a withdrawn registration), `online_candidate_saffron` (`online_p` ≤ λ) and
+  not be computed and a withdrawn registration), `online_candidate_saffron` (`online_p` ≤ λ; null, like the levels and decisions, for a row after a
+  pending one) and
   `registration.spec_sha256` (the hash of the declared test). `summary.online` is `{alpha, reference,
   order, rows_in_stream, rows_decided, waiting_on, legacy_batches[{entered_on, pr, rows_in_stream}],
   lordpp{w0, gamma_c, gamma, rejected[], wealth[], next_level}, saffron{w0, lambda, gamma_c, gamma_s,
