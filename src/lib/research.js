@@ -740,11 +740,20 @@ export const snapshotDay = (data) => ctIsoDate(toMs(data?.frozen_at));
 
 // --------------------------------------------------------------------------------------- ledger
 
+/** An online procedure's level and decision on a ledger row (null fields where the row has none). */
+const onlineDecision = (row, procedure) => ({
+  alpha: num(row[`online_alpha_${procedure}`]),
+  rejected: typeof row[`online_rejected_${procedure}`] === "boolean" ? row[`online_rejected_${procedure}`] : null,
+});
+
 /**
- * research.json ledger: every tested hypothesis with multiplicity-adjusted p-values. A row
+ * research.json ledger: every tested or registered hypothesis with multiplicity-adjusted p-values. A row
  * `selectedAfterSearch` tests a model chosen as the best of a field on the same sample: it is left
  * out of the multiplicity family, so its q, Holm p and survival flags are null by design. A row
- * `underpowered` failed to reject with a test whose recorded power is below its target.
+ * `underpowered` failed to reject with a test whose recorded power is below its target. A row with status
+ * `registered` was declared before its result existed and has none yet (or was withdrawn): it has no p-value
+ * and is not counted as tested. `online` is the ledger's online view (LORD++ and SAFFRON in the order rows
+ * entered it), null for a ledger without one; each row carries its own levels and decisions.
  */
 export const researchLedger = (research) => {
   const ledger = asObject(research?.ledger);
@@ -762,8 +771,15 @@ export const researchLedger = (research) => {
       holm: num(row.p_holm),
       selectedAfterSearch: row.selected_after_search === true || afterSearch.has(row.id),
       underpowered: row.underpowered === true || underpowered.has(row.id),
+      enteredOn: asText(row.entered_on),
+      onlinePosition: num(row.online_position),
+      onlineLord: onlineDecision(row, "lordpp"),
+      onlineSaffron: onlineDecision(row, "saffron"),
+      registration: asObject(row.registration),
     }));
   if (!rows.length) return null;
+  const byStatus = asObject(summary.by_status) ?? rows.reduce((acc, row) => ({ ...acc, [row.status]: (acc[row.status] ?? 0) + 1 }), {});
+  const registered = num(byStatus.registered) ?? rows.filter((row) => row.status === "registered").length;
   return {
     rows,
     byId: new Map(rows.filter((row) => asText(row.id)).map((row) => [row.id, row])),
@@ -771,7 +787,11 @@ export const researchLedger = (research) => {
     alpha: num(ledger?.alpha),
     hurdle: num(ledger?.hlz_t),
     byFamily: asObject(summary.by_family),
-    byStatus: asObject(summary.by_status) ?? rows.reduce((acc, row) => ({ ...acc, [row.status]: (acc[row.status] ?? 0) + 1 }), {}),
+    byStatus,
+    // Registered rows have no result yet: every count of tested hypotheses leaves them out.
+    registered,
+    tested: rows.length - registered,
+    online: asObject(summary.online),
     supported: asArray(summary.supported).length || rows.filter((row) => row.status === "supported").length,
     // Supported rows outside the multiplicity family (selected after a search): never counted as
     // surviving an adjustment they did not take part in.

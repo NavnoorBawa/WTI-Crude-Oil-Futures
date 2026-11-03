@@ -29,6 +29,8 @@
 .strip-cell.is-inconclusive { fill: var(--text-3); }
 .strip-cell.is-not-supported { fill: var(--text-4); }
 .strip-cell.is-retracted { fill: var(--warn); }
+/* A registered row has no result yet: an outlined cell with no fill. */
+.strip-cell.is-registered { fill: none; stroke: var(--text-3); stroke-width: 1; }
 .strip-leader { stroke: var(--text-4); shape-rendering: crispEdges; }
 .strip-label { fill: var(--text-2); }
 .strip-count { fill: var(--text-1); font-weight: 600; }

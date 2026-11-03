@@ -582,7 +582,7 @@ export const ledgerAssertion = (ledger) => {
     parts.push(`${ledger.survivingBh} of ${inFamily} supported claims survive Benjamini-Hochberg at ${fmtNum((ledger.alpha ?? ALPHA) * 100, 0)}%`);
   }
   if (ledger.clearingHurdle != null && ledger.hurdle != null) parts.push(`${ledger.clearingHurdle} clear t > ${fmtNum(ledger.hurdle, 0)}`);
-  return parts.length ? join(parts) : `${ledger.rows.length} hypotheses tested`;
+  return parts.length ? join(parts) : `${ledger.tested ?? ledger.rows.length} hypotheses tested`;
 };
 
 /**

@@ -158,20 +158,26 @@ and its CI run is the test.
   chart pane for the OVX/RV5 gap (it needs the forecast chart's percent formatting moved from
   `localization` to the series and a re-measured figure height). Neither changes a number.
 - **The published QLIKE DMs use the 9-lag rule (from ROADMAP 2.4).** The distribution scores showed
-  that persistent loss differences outrun 9 Bartlett lags, so 2.4 registers a batch-means test.
+  that persistent loss differences outrun 9 Bartlett lags, so 2.4 enters a batch-means test in the ledger.
   The published QLIKE DM p-values should gain the batch-means p as context (every published
   "significant" QLIKE verdict holds under it in the design check; this changes no number now).
 - **The record's residual window (from ROADMAP 2.4).** Its outcome fell outside the trailing
   780-day residual range on 35 days against 22 expected (95th percentile 31; descriptive): a longer
   or tail-weighted window is a candidate, and the quantile HAR's upper tail (its 90% pinball edge is
-  inconclusive) another. ROADMAP 2.12 (online FDR) is the next multiplicity step, so old decisions
-  stop moving as rows are added.
+  inconclusive) another.
+- **Multiplicity as the ledger grows (ROADMAP 2.12, done).** The ledger has an online view (LORD++,
+  SAFFRON) whose earlier decisions do not move as rows are added, and a `registered` status.
+  **Every new hypothesis is registered before its result exists**, so ROADMAP 2.5 and 2.13 start
+  with a registration PR (the working loop, below). Still open: asynchronous online variants
+  (LORD\*, SAFFRON\*), which would not make the rows after a pending one wait; BatchBH over the
+  legacy entry batches as context, which removes their within-batch order; per-row shares of the
+  within-batch draws in which each legacy row is rejected.
 - **Estimation error.** DM, MCS and SPA compare forecasts as produced on expanding windows; a
   rolling-window variant would give the Giacomini-White reading (ROADMAP 2.3).
 - **Benchmark breadth.** On free daily data only: HAR with a jump/continuous split (range-based
   proxies); Realized GARCH and HEAVY on range variance; a Yang-Zhang or Garman-Klass target as a
-  second proxy. Every new model is a new hypothesis: add it to the ledger with its multiplicity
-  adjustment and re-run MCS and SPA. The live challenger stays pinned.
+  second proxy. Every new model is a new hypothesis: register it in the ledger before its result
+  exists (the working loop, below) and re-run MCS and SPA. The live challenger stays pinned.
 
 ### 4. Interface follow-ups found but not done (each small; none changes a number)
 - Hash landings on `#vrp` and `#ledg` at about 600 px can exceed the 0.02 layout-shift budget (as
@@ -207,8 +213,12 @@ and its CI run is the test.
   exact one: the rendered text is up to about 340 px off between 480 and 640 px, about 260 px at
   320 px, and CALB's tables about 200 px from 900 to 1,279 px, below the first screen in the
   landings measured. A reservation that follows the text, or an intrinsic one, would remove it.
-- The first-load gzip headroom is about 6.1 KB after 2.4 (entry +10.4 KB). The CALB method notes
-  (about 3 KB of the entry) could load with the lazy chunk if a later item needs the room.
+- The first-load gzip headroom is about 4.8 KB after 2.12 (179,425 B of 184,320; the entry 310,581 B
+  of 327,680). The CALB method notes (about 3 KB of the entry) could load with the lazy chunk if a
+  later item needs the room.
+- LEDG shows the online view (ROADMAP 2.12) only in its CSV and method notes. An on-screen online
+  column or chip needs the 390 and 360 px card layout and the visual baselines; its value is low while
+  no other section cites the online view.
 
 ### 5. Engineering
 - **The rest of ROADMAP 1.7.** The first part (#91) pinned EIA's contracts 1 and 2 and Cushing
@@ -279,3 +289,20 @@ and its CI run is the test.
 
 Stop a line of work when two consecutive review rounds confirm no blocking finding in it. Then move
 to the next backlog item.
+
+**Adding a hypothesis (ROADMAP 2.12).** Every new ledger row is registered before its result
+exists, in two PRs, in this order:
+
+1. **Registration PR**, merged before any PR that produces the result. It adds the row's full
+   definition (hypothesis, test, p-value source, direction) where its family's rows are defined, an
+   entry in `REGISTERED` in `backend/research_ledger.py` dated today (UTC) with the artifact field
+   that will hold the result, and the rebuilt ledger, in which the row is `registered`. If another
+   registration merged on a later day first, move this one's date to at least that day.
+2. **Result PR.** It rebuilds the artifact so the field exists, then the ledger: the row resolves by
+   itself. Its definition must not change (the spec hash); notes and context may be added.
+
+A pending row blocks the online decisions after it, so resolve it promptly, or withdraw it (only
+before its result exists) with a reason, which the changelog names. Every changed p-value of an
+existing row (an erratum, a retraction after entry, a lab rebuild that moves p-values) recomputes
+the online view from that row on: name the row in `ONLINE_CORRECTIONS` in
+`tests/test_research_ledger.py` with its changelog errata entry.

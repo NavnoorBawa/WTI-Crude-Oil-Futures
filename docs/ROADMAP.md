@@ -376,6 +376,49 @@ These stay out, whatever a review suggests, unless the owner changes the rules:
 Tick items here with the PR number and date when they ship, and move any new finding into
 `HANDOFF.md`'s backlog.
 
+- **2.12 Multiplicity as the ledger grows: online control and registered rows** (two PRs, numbers to
+  be filled in at merge; 2026-11-03): `research_ledger.py` runs LORD++ (Ramdas et al. 2017) and SAFFRON
+  (Ramdas et al. 2018) at FDR 0.05 with onlineFDR 2.21.3's defaults (LORD++ W0 = α/10 and the
+  Javanmard-Montanari γ with C = 0.07908197; SAFFRON W0 = α/2, λ = 0.5, γ ∝ j^−1.6; no horizon
+  normalisation; p ≤ α_t). It runs over the 129 rows outside the search exclusion, in the order they
+  entered the ledger. Per row it stores the position, the p tested, both levels and decisions and
+  SAFFRON's candidate flag. The summary holds rejection lists, wealth paths, next levels and a seeded
+  within-batch order sensitivity for the legacy rows. BH, Holm and HLZ stay the batch view; every
+  existing row's batch fields are unchanged. The `registered` status: `REGISTERED` declares a row's
+  date and result field, its complete test is defined at registration, and its status resolves on the
+  first rebuild after the field exists. It has a withdrawal path (p = 1, listed for good) and a spec
+  hash. Git-backed tests check entry dates, registration integrity and append-only online decisions.
+  LEDG shows the status, CSV columns and a method note for the online decisions.
+
+  Accepted: both procedures reproduce every printed level and rejection of onlineFDR's rendered
+  examples (12 cases, 2.21.3 and 2.19.1) and its testthat vectors (6), plus 3 derived stress cases;
+  every prefix of the committed stream reproduces the full run; building without the last entry batch
+  leaves every earlier online field unchanged while q-values move; the batch fields equal the base
+  ledger's.
+
+  Departures:
+  - the order is the entry date (the UTC date of the merge that first held a row, from git), not the
+    artifact `date`, which is the snapshot's retrieval date for every lab row and would move with a
+    refresh;
+  - retracted rows and rows whose test could not be computed enter at p = 1, and searched rows stay out;
+  - the defaults were adopted after previews on provisional orders were seen;
+  - the 129 legacy rows' within-batch order was not fixed in advance, so their online decisions are a
+    retrospective reading (LORD++ 7 to 19 rejections over 1,000 random within-batch orders, SAFFRON 18
+    to 32; the published counts are 14 and 24);
+  - SAFFRON's level can exceed 5% after recent rejections (0.0612 for the next row), and such a
+    rejection is never read as support;
+  - a pending row blocks the online decisions after it, and withdrawal unblocks it;
+  - "registered" in its old sense became "entered" or "adopted" in prose;
+  - the Python CI job checks out full history.
+
+  Only 3 of 135 rows are pre-specified; registration does not change that.
+
+  Not done:
+  - asynchronous variants (LORD\*, SAFFRON\*);
+  - a batch procedure for the legacy rows (BatchBH; Zrnic, Jiang, Ramdas and Jordan 2020);
+  - an on-screen online column in LEDG;
+  - per-row within-batch rejection shares;
+  - dependence-robust online variants.
 - **2.4 Score the whole predictive distribution** (#104 and #105, 2026-11-02):
   `forecast_eval` gains the pinball loss, the CRPS from a quantile grid, the monotone rearrangement, trailing quantiles
   with their mid-rank PIT and its simulated null, the sample PIT, Berkowitz's LR3 with a doubly censored form, the

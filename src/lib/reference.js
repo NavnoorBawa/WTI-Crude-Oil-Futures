@@ -18,11 +18,15 @@ const plural = (count, word, many = `${word}s`) => `${count} ${count === 1 ? wor
 export const LEDGER_PAGE = 20;
 
 // The default order reads best evidence first: supported claims that survive Benjamini-Hochberg,
-// the other supported claims, inconclusive, not supported, and the retracted record last.
-const STATUS_RANK = { supported: 1, inconclusive: 2, not_supported: 3, retracted: 4 };
+// the other supported claims, inconclusive, not supported, the retracted record, and registered rows
+// (no result yet) last.
+const STATUS_RANK = { supported: 1, inconclusive: 2, not_supported: 3, retracted: 4, registered: 5 };
 const UNKNOWN_RANK = 3;
 
-/** 0 supported and surviving BH, 1 supported, 2 inconclusive, 3 not supported (or unknown), 4 retracted. */
+/**
+ * 0 supported and surviving BH, 1 supported, 2 inconclusive, 3 not supported (or unknown), 4 retracted, 5 registered
+ * (no result yet).
+ */
 export const ledgerStatusRank = (row) => {
   if (row?.status === "supported" && row.survives_bh === true) return 0;
   return STATUS_RANK[row?.status] ?? UNKNOWN_RANK;
@@ -91,12 +95,55 @@ export const visibleLedgerRows = (ordered, all) => (all ? ordered : ordered.slic
 
 /**
  * A multiplicity flag as the ledger prints it: "excluded" for a row selected after a search (it is
- * outside the adjustment), "n/a" for a retracted row, else yes / no; null when the row has none.
+ * outside the adjustment), "n/a" for a retracted row, "pending" for a registered row whose result does
+ * not exist yet ("withdrawn" if its registration was withdrawn), else yes / no; null when the row has none.
  */
 export const ledgerFlagText = (row, key) => {
   if (row?.selectedAfterSearch) return "excluded";
   if (row?.status === "retracted") return "n/a";
+  if (row?.status === "registered") return row.registration?.withdrawn ? "withdrawn" : "pending";
   return row?.[key] === true ? "yes" : row?.[key] === false ? "no" : null;
+};
+
+/**
+ * An online decision (procedure "lordpp" or "saffron") as the ledger's CSV prints it: "excluded" outside the
+ * online stream (a row selected after a search), "n/a" for a retracted row (tested at p = 1), "pending" while
+ * the row, or an earlier one, waits for its result, else yes / no; null for a ledger without an online view.
+ */
+export const ledgerOnlineText = (row, procedure) => {
+  if (row?.selectedAfterSearch) return "excluded";
+  if (row?.status === "retracted") return "n/a";
+  const rejected = (procedure === "saffron" ? row?.onlineSaffron : row?.onlineLord)?.rejected;
+  if (rejected === true) return "yes";
+  if (rejected === false) return "no";
+  return row?.onlinePosition != null ? "pending" : null;
+};
+
+/**
+ * LEDG's note on the online view, from the ledger's summary.online: both procedures' counts over the stream,
+ * the independence they assume, the legacy rows' order sensitivity and that no status reads them. Null for a
+ * ledger without an online view.
+ */
+export const ledgerOnlineNote = (ledger) => {
+  const online = asObject(ledger?.online);
+  const lord = asArray(online?.lordpp?.rejected);
+  const saffron = asArray(online?.saffron?.rejected);
+  const stream = num(online?.rows_in_stream);
+  if (!online || stream == null) return null;
+  const alpha = num(online.alpha) ?? ALPHA;
+  let text = `Online control: in the order rows entered the ledger, at a ${fmtNum(alpha * 100, 0)}% false discovery rate, `
+    + `LORD++ rejects ${lord.length} and SAFFRON ${saffron.length} of the ${stream} rows in the stream (rows selected after a `
+    + "search stay out; retracted rows are tested at p = 1). Both assume independent p-values, which rows on shared data do not "
+    + "have, and the page's other verdicts cite the batch view (q and t > 3) instead.";
+  const sens = asObject(online.legacy_order_sensitivity);
+  if (sens && num(sens.legacy_rows)) {
+    text += ` For the ${sens.legacy_rows} rows that entered before registration began, the decisions are a retrospective `
+      + `reading: with their order drawn at random within each entry batch, LORD++ rejects ${sens.lordpp?.min} to `
+      + `${sens.lordpp?.max} of them and SAFFRON ${sens.saffron?.min} to ${sens.saffron?.max}.`;
+  }
+  const waiting = asText(online.waiting_on);
+  if (waiting) text += ` Rows after ${waiting}, which waits for its result, have no online decision yet.`;
+  return `${text} A row's online decision never changes its status; the CSV holds each row's levels and decisions.`;
 };
 
 /**
@@ -118,12 +165,13 @@ const STRIP_GROUPS = [
   { key: "inconclusive", label: "inconclusive" },
   { key: "not_supported", label: "not supported" },
   { key: "retracted", label: "retracted" },
+  { key: "registered", label: "registered" },
 ];
 
 /**
  * The ledger as a strip of cells in the default order, one per hypothesis, each with its kind
  * ("survivor" for a supported row that survives Benjamini-Hochberg, else its status), and the
- * groups with their counts and the index of their first cell. Rows of a status outside the four
+ * groups with their counts and the index of their first cell. Rows of a status outside the five
  * known ones form their own groups at the end.
  *
  * @returns {{cells: {id: string, kind: string, status: string}[], groups: {key: string, label: string,
@@ -403,6 +451,8 @@ export const vintageRows = (data, research) => {
   const varDates = varSeries(lab).map((row) => isoDate(row.date));
   const windows = ["five_year", "ten_year"].map((key) => postmortemWindow(research, key)).filter(Boolean);
   const postmortemLast = latest(windows.flatMap((window) => [window.purged?.last, window.leaked?.last]));
+  // The ledger's latest entry (entered_on) where the ledger records it, else its latest artifact date.
+  const ledgerEntered = latest(asArray(research?.ledger?.rows).map((row) => isoDate(row?.entered_on)));
   const ledgerDates = asArray(research?.ledger?.rows).map((row) => isoDate(row?.date));
   const prices = asArray(data?.unified_data?.actual?.timestamps).filter((value) => typeof value === "string");
   const rows = [
@@ -415,7 +465,10 @@ export const vintageRows = (data, research) => {
     { key: "var", artifact: "VaR backtest series", section: "risk", asOf: latest(varDates), refreshed: null, pinned },
     { key: "economic", artifact: "Economic tests (VRP, sizing)", section: "vrp", asOf: isoDate(economic?.returns?.sample_end), refreshed: null, pinned: false },
     { key: "postmortem", artifact: "Leak post-mortem", section: "leak", asOf: postmortemLast, refreshed: null, pinned: false },
-    { key: "ledger", artifact: "Research ledger, latest row", section: "ledg", asOf: latest(ledgerDates), refreshed: null, pinned: false },
+    {
+      key: "ledger", artifact: ledgerEntered ? "Research ledger, latest entry" : "Research ledger, latest row", section: "ledg",
+      asOf: ledgerEntered ?? latest(ledgerDates), refreshed: null, pinned: false,
+    },
     { key: "prices", artifact: "Price history", section: "mkt", asOf: isoDate(prices.at(-1)), refreshed: null, pinned: false },
   ];
   return rows.filter((row) => row.asOf || row.refreshed);

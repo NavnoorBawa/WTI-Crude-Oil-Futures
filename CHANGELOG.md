@@ -252,6 +252,15 @@ backs the new one.
 
 ### Dashboard
 
+- **The registered status and the online view in LEDG (ROADMAP 2.12, second part).** A `registered` row (declared
+  before its result exists) gets its own status chip, sorts last, has its own outlined group in the status strip, reads
+  "pending" (or "withdrawn") in its BH and t > 3 cells, and is not counted among the hypotheses tested. The table's
+  caption says "Hypotheses". The online view stays off screen: the CSV gains each row's entry date, online position,
+  and LORD++ and SAFFRON levels and decisions (yes, no, pending, excluded or n/a), and the method notes (closed by
+  default) gain a sentence built from the ledger's online summary, with the procedures' counts, the independence they
+  assume, the legacy rows' order sensitivity and that no status reads them, and a note on the registered status. METH
+  cites LORD++ and SAFFRON; the data-vintage row reads the ledger's latest entry. A research.json without the online
+  view renders as before.
 - **Coverage and loss by regime in CALB and MODL (ROADMAP 2.2, second part).** CALB states the
   model of record's coverage by regime from the lab's labels: the range of each split whose test of
   equal coverage is significant or inconclusive, worded at that test's strength with the ledger's q

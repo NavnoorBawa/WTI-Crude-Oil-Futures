@@ -10,20 +10,28 @@ import Panel, { REPRODUCE } from "../components/Panel";
 import { ledgerAssertion } from "../lib/assertions";
 import { DASH, fmtDate, fmtInt, fmtNum, fmtPValue, humanizeKey, num } from "../lib/format";
 import {
-  LEDGER_PAGE, filterLedgerRows, ledgerAnchor, ledgerFlagText, ledgerOrderValue, ledgerStrip, ledgerSupportText,
-  revealLedgerView, visibleLedgerRows,
+  LEDGER_PAGE, filterLedgerRows, ledgerAnchor, ledgerFlagText, ledgerOnlineNote, ledgerOnlineText, ledgerOrderValue,
+  ledgerStrip, ledgerSupportText, revealLedgerView, visibleLedgerRows,
 } from "../lib/reference";
 import { asText, getLab, ledgerStatusLabel, ledgerText, mcsLevel, modelLabels, researchLedger } from "../lib/research";
 import { ResearchUnavailable } from "./common";
 
-const STATUS_TONE = { supported: "status-resolved", not_supported: "muted", retracted: "warn", inconclusive: "status-pending" };
-const STATUS_ORDER = ["supported", "not_supported", "inconclusive", "retracted"];
+const STATUS_TONE = {
+  supported: "status-resolved", not_supported: "muted", retracted: "warn", inconclusive: "status-pending", registered: "muted",
+};
+const STATUS_ORDER = ["supported", "not_supported", "inconclusive", "retracted", "registered"];
 const STATUS_TITLE = {
   supported: "p below 5%, with the estimate pointing the way the hypothesis says",
   not_supported: "p of 10% or more, or the estimate points the other way: a failure to reject, not evidence against the hypothesis",
   inconclusive: "p between 5% and 10%, or no p-value with the estimate pointing the right way",
   retracted: "the evidence was invalid when produced (leaked walk-forward, roll-contaminated returns or a wrong null); kept as a record",
+  registered: "declared, with its test and the artifact field that will hold its p-value, before the result existed; not yet "
+    + "tested (or withdrawn before a result existed)",
 };
+const REGISTERED_NOTE = "Registered: a hypothesis declared, with its test and the artifact field that will hold its p-value, "
+  + "before its result existed. It has no p-value or decision until that field exists (its flags read pending), it is not "
+  + "counted as tested, and a withdrawn registration stays listed. From ROADMAP 2.12 on, every new hypothesis is registered "
+  + "first; its place in the online order is fixed when it is registered.";
 const UNDERPOWERED_TITLE = "The test's recorded power is below its target, so a failure to reject says little about whether the effect exists";
 const AFTER_SEARCH_TITLE = "The model was chosen as the best of a field on this same sample, so this pairwise p-value ignores that search. "
   + "The row is left out of the multiplicity adjustment (no q-value, Holm p-value or t > 3 flag); where a search-adjusted test "
@@ -185,9 +193,22 @@ export default function LedgerPanel({ research, researchStatus }) {
       key: "date", label: "Recorded", title: "The date of the artifact that holds the test", sortable: true, firstDirection: "desc",
       className: "muted-cell", render: (row) => fmtDate(row.date),
     },
-    // Export-only columns (hidden on screen; the id and test are shown inside the hypothesis cell).
+    // Export-only columns (hidden on screen; the id and test are shown inside the hypothesis cell, and the online
+    // view's levels and decisions are in the CSV only).
     { key: "id", label: "ID", className: "csv-only", render: () => null },
     { key: "test", label: "Test", className: "csv-only", render: () => null },
+    { key: "entered_on", label: "Entered", className: "csv-only", csv: (row) => row.enteredOn, render: () => null },
+    { key: "online_position", label: "Online position", className: "csv-only", csv: (row) => row.onlinePosition, render: () => null },
+    { key: "online_alpha_lordpp", label: "LORD++ level", className: "csv-only", csv: (row) => row.onlineLord?.alpha, render: () => null },
+    {
+      key: "online_rejected_lordpp", label: "LORD++ rejects", className: "csv-only",
+      csv: (row) => ledgerOnlineText(row, "lordpp"), render: () => null,
+    },
+    { key: "online_alpha_saffron", label: "SAFFRON level", className: "csv-only", csv: (row) => row.onlineSaffron?.alpha, render: () => null },
+    {
+      key: "online_rejected_saffron", label: "SAFFRON rejects", className: "csv-only",
+      csv: (row) => ledgerOnlineText(row, "saffron"), render: () => null,
+    },
   ], [words, hurdle]);
 
   const filtered = useMemo(
@@ -344,7 +365,9 @@ export default function LedgerPanel({ research, researchStatus }) {
           + "hurdle use the two-sided p (a one-sided p doubled), across every row except those selected after a search. Each row's test "
           + "line gives its sample and sign convention; DM statistics are positive when the named model has the lower loss, as everywhere "
           + "on the page. Recorded is the date of the artifact that holds the test.",
-      ]}
+        ledgerOnlineNote(ledger),
+        ledger.online ? REGISTERED_NOTE : null,
+      ].filter(Boolean)}
       source={{ artifact: "research.json → ledger", reproduce: REPRODUCE.ledger }}
       resetKey={research}
     >
@@ -354,7 +377,7 @@ export default function LedgerPanel({ research, researchStatus }) {
         </LazyMount>
       )}
       <DataTable
-        caption={`Tested hypotheses: ${shown}${visible.length < filtered.length ? `; the CSV holds all ${fmtInt(filtered.length)}${filtered.length < total ? " matches" : ""}` : ""}`}
+        caption={`Hypotheses: ${shown}${visible.length < filtered.length ? `; the CSV holds all ${fmtInt(filtered.length)}${filtered.length < total ? " matches" : ""}` : ""}`}
         rowKey={(row) => String(row.id ?? row.hypothesis)}
         rowId={(row) => (asText(row.id) ? ledgerAnchor(row.id) : undefined)}
         rowClass={(row) => [row.status === "retracted" ? "is-flagged" : null, target && row.id === target.id ? "is-target" : null]
