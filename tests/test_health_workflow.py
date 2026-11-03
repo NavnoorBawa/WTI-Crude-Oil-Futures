@@ -72,7 +72,12 @@ if args[:2] == ["issue", "create"]:
     done()
 issue = next(i for i in issues if i["number"] == int(args[2]))
 if args[1] == "view":
-    print(issue["body"])
+    # Like a CLI streaming a long body: written in parts after the digest, so a reader that stops at the first match
+    # (grep -q) cuts the writer off, which pipefail would report as a failed pipeline.
+    sys.stdout.write(issue["body"])
+    for _ in range(64):
+        sys.stdout.write("\n" * 4096)
+        sys.stdout.flush()
 elif args[1] == "edit":
     issue["body"] = open(opt("--body-file")).read()
 elif args[1] == "comment":
