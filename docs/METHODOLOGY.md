@@ -793,8 +793,9 @@ pre-specified.
   itself on the first rebuild after its field holds the result: a value, or a null where the row's
   test reads the field as optional, which means the artifact ran the test and could not compute it
   (the row then takes the status of any row whose test could not be computed: inconclusive, or not
-  supported when its stored estimate points the wrong way; it has no p-value and is tested online
-  at p = 1). Any other null is a placeholder.
+  supported when its stored estimate points the wrong way; it has no p-value and, unless it was
+  selected after a search (then it is outside the online stream too), is tested online at p = 1).
+  Any other null is a placeholder.
 - **Multiplicity, the batch view**, across the rows with a p-value, on the two-sided p (a one-sided p doubled,
   capped at 1): Benjamini-Hochberg (1995) q-values, Holm (1979) adjusted p-values, and the
   Harvey, Liu and Zhu (2016) hurdle t > 3 on the normal quantile of that p. Rows marked
@@ -869,8 +870,9 @@ pre-specified.
   hold a result on main when the row arrived there; the hash is unchanged since; the status changes
   only when the field holds the result, and the test must read that field; a pending row's field
   must not hold it (else the ledger was not rebuilt). A registration can be withdrawn only while its
-  result does not exist; the row then stays listed for good, with status registered, and is tested
-  online at p = 1, so a withdrawal still costs its level (it is not counted as tested). A generated
+  result does not exist; the row then stays listed for good, with status registered, and, unless it
+  was selected after a search (then it is outside the online stream), is tested online at p = 1, so
+  a withdrawal still costs its level (it is not counted as tested). A generated
   family's row (one per model, its hypothesis naming the model) is registered by listing the model,
   with the label the rows show while they wait, in `REGISTERED_LAB_MODELS` or
   `REGISTERED_DISTRIBUTION_MODELS`; the hash covers the hypothesis as written and the field paths of

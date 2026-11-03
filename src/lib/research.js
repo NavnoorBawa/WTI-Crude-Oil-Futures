@@ -791,9 +791,12 @@ export const researchLedger = (research) => {
     // Registered rows have no result yet: every count of tested hypotheses leaves them out.
     registered,
     tested: rows.length - registered,
-    // Withdrawn registrations keep their place in the online stream and are tested there at p = 1.
+    // Withdrawn registrations keep their place in the online stream and are tested there at p = 1, except one
+    // selected after a search, which is outside the stream (no online position): the second count leaves it out.
     registeredWithdrawn: Array.isArray(summary.registered_withdrawn) ? summary.registered_withdrawn.length
       : rows.filter((row) => row.status === "registered" && row.registration?.withdrawn).length,
+    withdrawnInStream: rows.filter((row) => row.status === "registered" && row.registration?.withdrawn
+      && row.onlinePosition != null).length,
     online: asObject(summary.online),
     supported: asArray(summary.supported).length || rows.filter((row) => row.status === "supported").length,
     // Supported rows outside the multiplicity family (selected after a search): never counted as

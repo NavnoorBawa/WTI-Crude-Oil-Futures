@@ -2329,7 +2329,9 @@ def ledger_block() -> str:
     rows_by_id = {r["id"]: r for r in led["rows"]}
     alpha = led["alpha"]
     inconclusive_below = _code_constant("backend/research_ledger.py", "INCONCLUSIVE_BELOW")
-    selected = s.get("selected_after_search", [])
+    # The rows selected after a search that the family leaves out: those with a p-value (one whose test could not be
+    # computed has none, so it is outside the family already).
+    selected = [rid for rid in s.get("selected_after_search", []) if rows_by_id[rid]["p_two_sided"] is not None]
     family_supported = b["supported"] - len(s.get("supported_selected_after_search", []))
     # Registered rows have no result: those still waiting, and those withdrawn before a result existed.
     pending, withdrawn = len(s.get("registered", [])), len(s.get("registered_withdrawn", []))
@@ -2721,9 +2723,23 @@ def ledger_online() -> str:
                                               for r in led["rows"]):
             text.append(f"Rows after {o['waiting_on']} have no online decision until it resolves.")
     if withdrawn:
+        # A withdrawn registration spends its level at p = 1 in the stream, unless it was selected after a search:
+        # then it is outside the stream and spends nothing there.
         w = len(withdrawn)
-        text.append(f"{w} registration{'s were' if w != 1 else ' was'} withdrawn ({_ids(withdrawn)}) and "
-                    f"{'spend their' if w != 1 else 'spends its'} online level at p = 1 (not counted as tested).")
+        streamed = [rid for rid in withdrawn if rows[rid].get("online_position") is not None]
+        searched = [rid for rid in withdrawn if rid not in streamed]
+        head = f"{w} registration{'s were' if w != 1 else ' was'} withdrawn ({_ids(withdrawn)})"
+        if not searched:
+            text.append(f"{head} and {'spend their' if w != 1 else 'spends its'} online level at p = 1 (not counted "
+                        f"as tested).")
+        elif not streamed:
+            text.append(f"{head}, not counted as tested; selected after a search, {'they are' if w != 1 else 'it is'} "
+                        f"outside the online stream, so {'they spend' if w != 1 else 'it spends'} no level there.")
+        else:
+            k = len(streamed)
+            text.append(f"{head}, not counted as tested: {_ids(streamed)} {'spend their' if k != 1 else 'spends its'} "
+                        f"online level at p = 1, and {_ids(searched)}, selected after a search, "
+                        f"{'are' if len(searched) != 1 else 'is'} outside the online stream.")
     if o["lordpp"]["next_level"] is not None and o["saffron"]["next_level"] is not None:
         text.append("The next registered row will be tested at "
                     + _levels_text(o["lordpp"]["next_level"], o["saffron"]["next_level"], alpha))

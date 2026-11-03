@@ -310,15 +310,20 @@ exists, in two PRs, in this order:
    itself. A test the artifact ran but could not compute resolves it too, where the row reads the
    field as optional (`Field(optional=True)`, as the `vol_gw_`/`vol_fluct_` rows do): the row then
    takes the status of any row whose test could not be computed, inconclusive, or not supported
-   when its stored estimate points the wrong way; it has no p-value and is tested online at p = 1.
+   when its stored estimate points the wrong way; it has no p-value and, unless it was selected after
+   a search (then it is outside the online stream too), is tested online at p = 1.
    A null in a field the test does not read as optional keeps the row pending. Its definition must
    not change (the spec hash); notes and context may be added. A generated family's model moves
    from `REGISTERED_LAB_MODELS` to `LAB_COMPARED` (or to `DISTRIBUTION_MODELS`) as it joins the
-   lab, which leaves the spec hash unchanged. A lab model also changes three lists in the same PR:
+   lab, which leaves the spec hash unchanged; in `DISTRIBUTION_MODELS` it takes its place in the
+   artifact's `distribution.models` order (a test checks that the two agree, and the tests of the
+   distribution readings read their groups from the artifact and the ledger, so none is edited
+   after the result). A lab model also changes three lists in the same PR:
    it joins `MODELS` in `backend/vol_lab.py` (a test checks that it and `LAB_COMPARED` agree), gets
    an entry in `MODEL_INPUTS` in `scripts/readme_blocks.py` saying what it reads at the decision
-   (returns, the daily range, implied vol; a test checks that every lab model has one, and the doc
-   rebuild fails without it), and, unless it is a timing control, joins `FIELD_KEYS` in
+   (returns, the daily range, implied vol; a test checks that every lab model has one; for a model
+   in the field, which a timing control is not, the doc rebuild also fails without it), and, unless
+   it is a timing control, joins `FIELD_KEYS` in
    `backend/field_record.py` (a test keeps it equal to `vol_lab.FEASIBLE`), so the field shadow
    log starts logging it.
 

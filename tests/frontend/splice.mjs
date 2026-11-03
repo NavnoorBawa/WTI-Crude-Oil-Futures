@@ -121,10 +121,12 @@ export const withCommittedLedger = (research) => {
 /**
  * The committed ledger with two synthetic registered rows (ROADMAP 2.12) appended, as the ledger would write them: one
  * withdrawn (tested online at p = 1) and, after it, one waiting for its result, which blocks the online decisions after
- * it. If a committed registration already waits, both wait behind it (no level, no decision). The summary's counts and
- * lists extend the committed ones. Test data only: no such rows exist in the committed ledger.
+ * it. If a committed registration already waits, both wait behind it (no level, no decision). With `searched`, a third
+ * row, withdrawn and selected after a search (the challenger's row of a newly registered family), sits outside the
+ * online stream. The summary's counts and lists extend the committed ones. Test data only: no such rows exist in the
+ * committed ledger.
  */
-export const withRegistered = (research) => {
+export const withRegistered = (research, { searched = false } = {}) => {
   const base = withCommittedLedger(research);
   const { summary, rows } = base.ledger;
   const online = summary.online;
@@ -150,24 +152,35 @@ export const withRegistered = (research) => {
     online_alpha_saffron: blocked ? null : online.saffron.next_level / 2, online_rejected_saffron: null,
     registration: { on: "2026-11-11", field: "experiment2.p_value", withdrawn: null },
   };
+  // Outside the stream: no online position, level or decision.
+  const outside = {
+    ...common, id: "reg_withdrawn_searched", hypothesis: "A registered hypothesis on a model picked by a search, withdrawn.",
+    entered_on: "2026-11-10", online_position: null, online_alpha_lordpp: null, online_rejected_lordpp: null,
+    online_alpha_saffron: null, online_rejected_saffron: null,
+    registration: { on: "2026-11-10", field: "experiment4.p_value", withdrawn: "abandoned before it ran" },
+  };
+  const added = searched ? [withdrawn, outside, pending] : [withdrawn, pending];
+  const k = added.length;
+  const gone = added.filter((row) => row.registration.withdrawn).map((row) => row.id);
   const familySummary = summary.by_family[family];
   return {
     ...base,
     ledger: {
       ...base.ledger,
-      rows: [...rows, withdrawn, pending],
+      rows: [...rows, ...added],
       summary: {
         ...summary,
-        rows: summary.rows + 2,
-        by_status: { ...summary.by_status, registered: (summary.by_status.registered ?? 0) + 2 },
+        rows: summary.rows + k,
+        by_status: { ...summary.by_status, registered: (summary.by_status.registered ?? 0) + k },
         by_family: {
           ...summary.by_family,
-          [family]: { ...familySummary, rows: familySummary.rows + 2,
-            by_status: { ...familySummary.by_status, registered: (familySummary.by_status.registered ?? 0) + 2 } },
+          [family]: { ...familySummary, rows: familySummary.rows + k,
+            by_status: { ...familySummary.by_status, registered: (familySummary.by_status.registered ?? 0) + k } },
         },
+        selected_after_search: [...(summary.selected_after_search ?? []), ...(searched ? [outside.id] : [])],
         registered: [...(summary.registered ?? []), "reg_pending"],
-        registered_withdrawn: [...(summary.registered_withdrawn ?? []), "reg_withdrawn"],
-        registered_before_result: [...(summary.registered_before_result ?? []), "reg_withdrawn", "reg_pending"],
+        registered_withdrawn: [...(summary.registered_withdrawn ?? []), ...gone],
+        registered_before_result: [...(summary.registered_before_result ?? []), ...added.map((row) => row.id)],
         online: {
           ...online, rows_in_stream: n + 2, rows_decided: blocked ? online.rows_decided : n + 1,
           waiting_on: blocked ? online.waiting_on : "reg_pending",

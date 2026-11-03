@@ -25,7 +25,9 @@ Status, from the test as the project ran it (one- or two-sided as recorded in `s
                  and merged before that field existed; no result yet (or withdrawn before one
                  existed). It has no p-value and no batch decision; a pending one has no online
                  decision (its online level is fixed once every earlier row is decided), and a
-                 withdrawn one is tested online at p = 1 but not counted as tested. Its status changes
+                 withdrawn one is tested online at p = 1 but not counted as tested (one selected
+                 after a search is outside the online stream, as every such row is, pending or
+                 withdrawn). Its status changes
                  by itself on the first rebuild after the field holds its result. A stored null is no
                  result yet, unless the declared test reads that field as optional (Field(optional=
                  True)): then the null is the result, a test the artifact could not compute, and the
@@ -57,8 +59,8 @@ plus rows whose test could not be computed; retracted and uncomputed rows enter 
 their level and can neither be rejected nor fund later tests), rows selected after a search stay
 out, and registered rows follow in the order of REGISTERED (registration order, which a new
 registration extends), so a registered row holds the position it was given when it was registered.
-A pending registered row blocks the decisions after it until it resolves or is withdrawn (then it
-enters at p = 1). The rows a registry of generated families (REGISTERED_LAB_MODELS,
+A pending registered row in the stream blocks the decisions after it until it resolves or is
+withdrawn (then it enters at p = 1). The rows a registry of generated families (REGISTERED_LAB_MODELS,
 REGISTERED_DISTRIBUTION_MODELS) makes for a model are withdrawn together, which retires the key in
 that registry: they read one entry the lab writes whole (leaderboard.models[key=...] or
 distribution.models[key=...]), so the entry that would hold a pending row's result would hold its

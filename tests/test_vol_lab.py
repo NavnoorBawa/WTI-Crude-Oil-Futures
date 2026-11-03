@@ -773,11 +773,17 @@ class StabilityReportTest(unittest.TestCase):
                 self.assertIsNotNone(rep["fluctuation"][key]["search_adjusted"]["p_value"], key)
         self.assertTrue(all(v is None for v in rep["series"]["fluct_t_challenger"][:20]))
         # The ledger rows built from such a block have no p-value, read as inconclusive, and are outside the family.
+        # The challenger's fluctuation test is made not computable too: selected after a search, its row is outside
+        # the family and the online stream alike.
+        from tests.test_research_ledger import _not_computed
+
         doc = json.loads((ROOT / "data" / "vol_lab.json").read_text())
         for model in doc["leaderboard"]["models"]:
             if model["key"] == "combo":
                 model["gw_qlike_vs_har_iv"] = json.loads(json.dumps(lab._jsonable(gw)))
                 model["fluctuation_qlike_vs_har_iv"] = json.loads(json.dumps(lab._jsonable(fl)))
+            elif model["key"] == rl.CHALLENGER:
+                model["fluctuation_qlike_vs_har_iv"] = _not_computed(model["fluctuation_qlike_vs_har_iv"])
         ledger = rl.build(lambda name: doc if name == rl.LAB else rl.load_artifact(name))
         rows = {r["id"]: r for r in ledger["rows"]}
         committed = {r["id"]: r for r in json.loads((ROOT / "data" / "research_ledger.json").read_text())["rows"]}
@@ -790,10 +796,14 @@ class StabilityReportTest(unittest.TestCase):
             self.assertEqual(rows[rid]["online_position"], committed[rid]["online_position"], rid)
             self.assertFalse(rows[rid]["online_rejected_lordpp"], rid)
             self.assertFalse(rows[rid]["online_rejected_saffron"], rid)
+        searched = rows[f"vol_fluct_{rl.CHALLENGER}"]
+        self.assertEqual((searched["p_value"], searched["q_value_bh"], searched["online_position"], searched["online_p"]),
+                         (None, None, None, None))
+        # The family leaves out the selected rows that have a p-value; the stream leaves out every selected row.
+        selected = [rows[rid] for rid in ledger["summary"]["selected_after_search"]]
         self.assertEqual(ledger["summary"]["rows_in_multiplicity_family"],
-                         ledger["summary"]["rows_with_p_value"] - len(ledger["summary"]["selected_after_search"]))
-        self.assertEqual(ledger["summary"]["online"]["rows_in_stream"],
-                         len(committed) - len(ledger["summary"]["selected_after_search"]))
+                         ledger["summary"]["rows_with_p_value"] - sum(r["p_two_sided"] is not None for r in selected))
+        self.assertEqual(ledger["summary"]["online"]["rows_in_stream"], len(committed) - len(selected))
 
     def test_the_artifact_s_contract_test_accepts_a_test_that_cannot_be_computed(self):
         """ArtifactContractTest's stability check on a report assembled from stability_report, with the model of
@@ -2114,15 +2124,41 @@ class ArtifactContractTest(unittest.TestCase):
             key = challenger if name == "challenger" else name
             self.assertLess(abs(total - n_days * committed[key]["dm_qlike_vs_har_iv"]["mean_diff"]), 1e-9, name)
 
+    def assert_distribution_keys(self, report):
+        """The models the lab scores as distributions are the model of record and the ledger's DISTRIBUTION_MODELS, in
+        the artifact's order: the challenger first among them and the quantile HAR, which is never in the field, among
+        them. A distribution result PR moves its model into DISTRIBUTION_MODELS at its place in that order."""
+        from backend import research_ledger as rl
+
+        keys = [m["key"] for m in report["distribution"]["models"]]
+        champion, challenger = report["config"]["champion"], report["config"]["challenger"]
+        self.assertEqual(keys, [champion, *rl.DISTRIBUTION_MODELS], "backend/research_ledger.py DISTRIBUTION_MODELS "
+                                                                    "lists the lab's distribution models in its order")
+        self.assertEqual(keys[:2], [champion, challenger])
+        self.assertIn(lab.QHAR_KEY, keys)
+
+    def test_a_model_scored_as_a_distribution_joins_the_ledger_s_list(self):
+        # A distribution result PR (docs/HANDOFF.md): the lab scores one more model, and the key moves into
+        # DISTRIBUTION_MODELS; the check reads the list, not the committed models (reserved synthetic key).
+        from backend import research_ledger as rl
+        from tests.test_research_ledger import TEST_LABEL, TEST_MODEL
+
+        report = copy.deepcopy(self.report)
+        entry = copy.deepcopy(next(m for m in report["distribution"]["models"] if m["key"] == "garch"))
+        report["distribution"]["models"].append({**entry, "key": TEST_MODEL, "label": TEST_LABEL})
+        with self.assertRaises(AssertionError):
+            self.assert_distribution_keys(report)            # the lab scores a model the ledger does not list
+        with mock.patch.object(rl, "DISTRIBUTION_MODELS", (*rl.DISTRIBUTION_MODELS, TEST_MODEL)):
+            self.assert_distribution_keys(report)
+
     def test_the_distribution_block_is_consistent(self):
         # ROADMAP 2.4: the scores cover the band's days, the quantile HAR stays out of the field, and every registered
         # number agrees with the parts it is built from.
         dist, conf, board = self.report["distribution"], self.report["conformal"], self.report["leaderboard"]
-        champion, challenger = self.report["config"]["champion"], self.report["config"]["challenger"]
+        champion = self.report["config"]["champion"]
         self.assertEqual(dist["n_days"], conf[champion]["n_days"])
         self.assertEqual(sum(dist["weeks_per_grid"]), dist["n_days"])
-        keys = [m["key"] for m in dist["models"]]
-        self.assertEqual(keys, [champion, challenger, "ovx_only", "garch", "gjr", "ewma", lab.QHAR_KEY])
+        self.assert_distribution_keys(self.report)
         self.assertEqual(dist["config"]["taus"], list(lab.DIST_TAUS))
         for where in (board["models"], board["spa_qlike_vs_har_iv"]["models"], board["mcs_qlike_included"],
                       board["mcs_robustness_qlike"], board["mcs_qlike_by_grid"], self.report["oos_selection"]):

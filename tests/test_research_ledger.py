@@ -112,7 +112,17 @@ class MultiplicityTest(unittest.TestCase):
 
     def test_a_model_selected_after_a_search_is_outside_the_family(self):
         # The challenger is the best of the field on the same sample: its pairwise p ignores the search.
-        ledger = _committed()
+        self.assert_selected_rows_are_outside(_committed())
+
+    def test_a_selected_row_whose_test_could_not_be_computed_is_outside_already(self):
+        # The challenger's fluctuation test not computed: its row has no p-value, so the family, which holds only rows
+        # with one, leaves out one row fewer for the search.
+        ledger = _challenger_not_computed()[1]
+        row = next(r for r in ledger["rows"] if r["id"] == f"vol_fluct_{rl.CHALLENGER}")
+        self.assertEqual((row["p_two_sided"], row["selected_after_search"]), (None, True))
+        self.assert_selected_rows_are_outside(ledger)
+
+    def assert_selected_rows_are_outside(self, ledger):
         selected = [r for r in ledger["rows"] if r["selected_after_search"]]
         expected = ["vol_challenger_qlike", "vol_gw_har_iv_range", "vol_fluct_har_iv_range", "vol_crps_har_iv_range",
                     "vol_pinball10_har_iv_range", "vol_pinball90_har_iv_range"]
@@ -131,7 +141,9 @@ class MultiplicityTest(unittest.TestCase):
             for key in ("supported_surviving_bh_5pct", "supported_surviving_holm_5pct", "supported_clearing_hlz_t3",
                         "supported_failing_bh_5pct"):
                 self.assertNotIn(row["id"], s[key], key)
-        self.assertEqual(s["rows_in_multiplicity_family"], s["rows_with_p_value"] - len(selected))
+        # The family is every row with a p-value except the selected ones that have one.
+        self.assertEqual(s["rows_in_multiplicity_family"],
+                         s["rows_with_p_value"] - sum(r["p_two_sided"] is not None for r in selected))
 
     def test_a_wrong_way_result_is_never_a_discovery(self):
         # Two-sided p = 0.001 but the estimate points against the hypothesis.
@@ -332,10 +344,19 @@ class ConditionalAndStabilityRowsTest(unittest.TestCase):
     every model against the model of record."""
 
     def test_the_rows_read_the_registered_forms(self):
+        self.assert_registered_forms(_committed(), rl.load_artifact(rl.LAB))
+
+    def test_a_selected_row_whose_test_could_not_be_computed_is_outside_the_stream(self):
+        # The challenger's fluctuation test not computed: inconclusive with no p-value, and, selected after a search,
+        # outside the online stream (no p = 1 there).
+        lab, ledger = _challenger_not_computed()
+        self.assert_registered_forms(ledger, lab)
+        row = next(r for r in ledger["rows"] if r["id"] == f"vol_fluct_{rl.CHALLENGER}")
+        self.assertEqual((row["status"], row["online_position"], row["online_p"]), ("inconclusive", None, None))
+
+    def assert_registered_forms(self, ledger, lab):
         from backend import vol_lab
 
-        ledger = _committed()
-        lab = rl.load_artifact(rl.LAB)
         self.assertEqual(list(rl.LAB_COMPARED), [m for m in vol_lab.MODEL_KEYS if m != vol_lab.CHAMPION])
         self.assertFalse(set(rl.REGISTERED_LAB_MODELS) & set(vol_lab.MODEL_KEYS))   # registered: not in the lab yet
         self.assertEqual(rl.CHALLENGER, lab["config"]["challenger"])
@@ -367,7 +388,9 @@ class ConditionalAndStabilityRowsTest(unittest.TestCase):
                 self.assertEqual(fl["context"]["p_mu_0_2"], block_fl["p_value"])
                 self.assertEqual(fl["context"]["critical_5pct"], lab["stability"]["fluctuation"]["critical_values"]["five_pct"])
                 if block_fl.get("not_computed"):            # the lab ran the test and could not compute it
-                    self.assertEqual((fl["p_value"], fl["status"], fl["online_p"]), (None, "inconclusive", 1.0))
+                    # Tested online at p = 1, unless it was selected after a search: then it is outside the stream.
+                    self.assertEqual((fl["p_value"], fl["status"], fl["online_p"]),
+                                     (None, "inconclusive", None if m == rl.CHALLENGER else 1.0))
                 else:
                     self.assertGreaterEqual(fl["p_value"], 1 / (lab["stability"]["fluctuation"]["null"]["draws"] + 1))
 
@@ -971,11 +994,12 @@ def _not_computed(block):
             "not_computed": "a window's variance is not positive"}
 
 
-def _lab_with_model(key, label, *, like="garch", fluctuation_computed=True):
-    """The committed lab artifact as a result PR rebuilds it: model `key` added to the leaderboard and the distribution
-    block as a copy of `like`'s entries, its fluctuation test not computable if asked."""
+def _lab_with_model(key, label, *, like="garch", fluctuation_computed=True, leaderboard=True):
+    """The committed lab artifact as a result PR rebuilds it: model `key` added to the leaderboard (unless asked not to:
+    a model scored as a distribution only) and the distribution block as a copy of `like`'s entries, its fluctuation
+    test not computable if asked."""
     lab = copy.deepcopy(rl.load_artifact(rl.LAB))
-    for block in (lab["leaderboard"]["models"], lab["distribution"]["models"]):
+    for block in ((lab["leaderboard"]["models"],) if leaderboard else ()) + (lab["distribution"]["models"],):
         entry = copy.deepcopy(next(m for m in block if m["key"] == like))
         entry.update(key=key, label=label)
         if not fluctuation_computed and "fluctuation_qlike_vs_har_iv" in entry:
@@ -986,6 +1010,16 @@ def _lab_with_model(key, label, *, like="garch", fluctuation_computed=True):
 
 def _loader(lab):
     return lambda name: lab if name == rl.LAB else rl.load_artifact(name)
+
+
+def _challenger_not_computed():
+    """(lab, ledger): the committed lab with the challenger's fluctuation test not computed (the lab's null form), and
+    the ledger the ledger itself builds from it, whatever else the committed artifacts hold."""
+    lab = copy.deepcopy(rl.load_artifact(rl.LAB))
+    entry = next(m for m in lab["leaderboard"]["models"] if m["key"] == rl.CHALLENGER)
+    entry["fluctuation_qlike_vs_har_iv"] = _not_computed(entry["fluctuation_qlike_vs_har_iv"])
+    with mock.patch.object(rl, "ORDER_DRAWS", 3):
+        return lab, json.loads(json.dumps(rl.build(load=_loader(lab))))
 
 
 def _moved_into_the_lab(key):

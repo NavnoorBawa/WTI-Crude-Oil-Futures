@@ -36,7 +36,8 @@ class ThresholdAwarePTest(unittest.TestCase):
 
 class ModelInputsTest(unittest.TestCase):
     """Every lab model says what it reads at the decision. A result PR that adds a model to vol_lab.MODELS without an
-    entry in MODEL_INPUTS fails here, naming the file, before the doc rebuild fails on it (docs/HANDOFF.md)."""
+    entry in MODEL_INPUTS fails here, naming the file; for a model in the field (every lab model but a timing control)
+    the doc rebuild fails on it too, and for a timing control only this test does (docs/HANDOFF.md)."""
 
     def test_every_lab_model_has_its_inputs(self):
         from backend import vol_lab
@@ -50,6 +51,23 @@ class ModelInputsTest(unittest.TestCase):
             with self.subTest(model=key):
                 self.assertTrue(inputs)
                 self.assertLessEqual(inputs, {"returns", "range", "implied"})
+
+    def test_the_doc_rebuild_reads_the_entry_of_every_model_in_the_field(self):
+        """The failure mode docs/HANDOFF.md states: without its entry, a model in the field stops the README's key
+        findings; a timing control's entry is never read there, so the test above is what catches it."""
+        from unittest import mock
+
+        from backend import vol_lab
+
+        self.assertTrue(set(vol_lab.MODEL_KEYS) - set(vol_lab.FEASIBLE))       # the lab has a timing control
+        for key in vol_lab.MODEL_KEYS:
+            with self.subTest(model=key), mock.patch.dict(rb.MODEL_INPUTS):
+                del rb.MODEL_INPUTS[key]
+                if key in vol_lab.FEASIBLE:
+                    with self.assertRaisesRegex(KeyError, "scripts/readme_blocks.py MODEL_INPUTS"):
+                        rb.key_findings()
+                else:
+                    self.assertTrue(rb.key_findings())
 
 
 if __name__ == "__main__":
@@ -229,20 +247,78 @@ class DistributionBlocksTest(StabilityBlocksTest.__base__):
                 self.assertIn("| — | — |", line)
         self.assertIn(f"{self.dist('har_iv')['crps_grid_pct']:.3f}", text)
 
-    def test_each_verdict_is_worded_at_its_strength(self):
+    def _record_lower(self, score, low, high):
+        """The models, the challenger aside, that the model of record scores lower than on `score` with low <= p < high,
+        in the artifact's order: the group the reading lists, read from the artifact."""
+        chall = self.lab["config"]["challenger"]
+        return [m for m in self.lab["distribution"]["models"] if m["dm_vs_har_iv"] is not None and m["key"] != chall
+                and low <= m["dm_vs_har_iv"][score]["p_value"] < high and m["dm_vs_har_iv"][score]["stat"] < 0]
+
+    def _listed(self, group, score):
+        return (f"{rb._dist_names(group)} "
+                f"({', '.join(rb._peq_thr(m['dm_vs_har_iv'][score]['p_value']) for m in group)})")
+
+    def _assert_verdicts(self):
+        """Each verdict at its strength, the groups and the adjustment's words built from whatever models the artifact
+        scores and the ledger's rows for them (a distribution result PR can add one)."""
         text = self.patched(rb.distribution_reading)
-        garch = self.dist("garch")["dm_vs_har_iv"]
-        self.assertTrue(0.05 <= garch["crps_grid"]["p_value"] < 0.10)
-        self.assertIn("the record's lower score is inconclusive against GARCH(1,1)-t", text)
-        self.assertIn("the model of record scores significantly lower than GARCH(1,1)-t and EWMA (RiskMetrics)", text)
-        self.assertIn("Neither survives the ledger's Benjamini-Hochberg adjustment", text)
+        middle = self._record_lower("crps_grid", 0.05, 0.10)
+        self.assertIn("garch", [m["key"] for m in middle])                         # the artifact's case
+        self.assertIn(f"the record's lower score is inconclusive against {self._listed(middle, 'crps_grid')}", text)
+        sig = self._record_lower("pinball_90", 0.0, 0.05)
+        self.assertTrue(sig)                                                       # the artifact's case
+        self.assertIn(f"the model of record scores significantly lower than {self._listed(sig, 'pinball_90')}", text)
+        chall = self.lab["config"]["challenger"]
+        others = [m for m in self.lab["distribution"]["models"] if m["dm_vs_har_iv"] is not None
+                  and m["key"] not in (chall, *(x["key"] for x in sig))
+                  and m["dm_vs_har_iv"]["pinball_90"]["p_value"] < 0.05]
+        if not others:              # every significant row runs the way the ledger states: the plain clause
+            rows = [self.row(f"vol_pinball90_{m['key']}") for m in sig]
+            kept = [m for m, r in zip(sig, rows) if r["survives_bh_5pct"]]
+            n = len(sig)
+            if not kept:
+                who = "It does not survive" if n == 1 else ("Neither survives" if n == 2 else "None survives")
+            elif len(kept) == n:
+                who = "It survives" if n == 1 else ("Both survive" if n == 2 else "All survive")
+            else:
+                who = f"Only {rb._dist_names(kept)} {'survives' if len(kept) == 1 else 'survive'}"
+            self.assertIn(f"{who} the ledger's Benjamini-Hochberg adjustment "
+                          f"(q = {', '.join(rb._pthr(r['q_value_bh']) for r in rows)})", text)
         self.assertIn("so this is not new evidence", text)
         self.assertIn("with its 9 Bartlett lags", text)
         # A p-value that moves below 5% moves its words: the CRPS difference against GARCH becomes significant.
+        garch = self.dist("garch")["dm_vs_har_iv"]
         garch["crps_grid"]["p_value"] = 0.03
         self.row("vol_crps_garch")["survives_bh_5pct"] = False
-        self.assertIn("On CRPS over 19 quantiles, the model of record scores significantly lower than GARCH(1,1)-t "
-                      "(p = 0.030)", self.patched(rb.distribution_reading))
+        lower = self._record_lower("crps_grid", 0.0, 0.05)
+        self.assertIn("garch", [m["key"] for m in lower])
+        self.assertIn(f"On CRPS over 19 quantiles, the model of record scores significantly lower than "
+                      f"{self._listed(lower, 'crps_grid')}", self.patched(rb.distribution_reading))
+
+    def test_each_verdict_is_worded_at_its_strength(self):
+        self._assert_verdicts()
+
+    def test_a_distribution_result_for_a_new_model_is_worded_with_the_others(self):
+        """Built by the ledger itself: HANDOFF's distribution result PR for a model registered through the distribution
+        families, scored like GARCH and with no leaderboard entry (its key moved into DISTRIBUTION_MODELS). Its rows
+        join every group they belong to, and the adjustment's words count them, with no test edited after the result."""
+        import contextlib
+        from unittest import mock
+
+        from backend import research_ledger as rl
+        from tests.test_research_ledger import (TEST_LABEL, TEST_MODEL, _lab_with_model, _loader, _model_registrations,
+                                                _registration_day)
+
+        self.lab = _lab_with_model(TEST_MODEL, TEST_LABEL, leaderboard=False)
+        with contextlib.ExitStack() as stack:
+            for patch in (mock.patch.dict(rl.REGISTERED, _model_registrations(TEST_MODEL, _registration_day(), lab=False)),
+                          mock.patch.object(rl, "DISTRIBUTION_MODELS", (*rl.DISTRIBUTION_MODELS, TEST_MODEL)),
+                          mock.patch.object(rl, "ORDER_DRAWS", 3)):
+                stack.enter_context(patch)
+            self.ledger = json.loads(json.dumps(rl.build(load=_loader(self.lab))))
+        self.assertEqual(self.row(f"vol_pinball90_{TEST_MODEL}")["status"], self.row("vol_pinball90_garch")["status"])
+        self.assertIn(TEST_MODEL, [m["key"] for m in self._record_lower("pinball_90", 0.0, 0.05)])
+        self._assert_verdicts()
 
     def test_the_challenger_s_scores_are_worded_by_direction_and_level(self):
         chall = self.dist(self.lab["config"]["challenger"])["dm_vs_har_iv"]
@@ -377,7 +453,8 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
                    "online_rejected_lordpp": None, "online_rejected_saffron": None}
         later = {**pending, "id": "reg_later", "online_position": last["online_position"] + 2,
                  "online_alpha_lordpp": None, "online_alpha_saffron": None}
-        self.ledger["rows"] += [pending, later]
+        withdrawn = {**later, "id": "reg_gone", "online_position": last["online_position"] + 3}
+        self.ledger["rows"] += [pending, later, withdrawn]
         s = self.ledger["summary"]
         s.update(registered=["reg_pending", "reg_later"], registered_withdrawn=[*s["registered_withdrawn"], "reg_gone"])
         s["online"]["waiting_on"] = "reg_pending"
@@ -448,6 +525,53 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
         self.assertNotIn("registered and wait", abstract)
         self.assertIn("1 registration was withdrawn (reg_gone) and spends its online level at p = 1 (not counted as "
                       "tested).", self.patched(rb.ledger_online))
+
+    def test_a_withdrawn_registration_selected_after_a_search_spends_no_level(self):
+        """Built by the ledger itself: a new family's challenger row is selected after a search, so when its
+        registration is withdrawn it stays outside the online stream; the copy never says it is tested at p = 1, and
+        the family sentence does not count it among the selected rows it leaves out (it has no p-value)."""
+        import dataclasses
+        from datetime import date, timedelta
+        from unittest import mock
+
+        from backend import research_ledger as rl
+
+        day = (date.fromisoformat(rl.latest_legacy_entry()) + timedelta(days=1)).isoformat()
+
+        def registration(rid, **changes):
+            row = rl.Row(id=rid, family="volatility forecast", hypothesis=f"A withdrawn registration, {rid}.",
+                         test="a two-sided test whose p-value the artifact stores", source=rl.LAB,
+                         statistic=("statistic", f"experiment_{rid}.stat"), p=rl.Field(f"experiment_{rid}.p_value"),
+                         sided="two", expects=rl.POSITIVE,
+                         registration=rl.Registration(day, f"experiment_{rid}.p_value", "abandoned before it ran"))
+            return dataclasses.replace(row, **changes)
+
+        base = [row for row in rl.ledger_rows() if row.registration is None]
+        plain, picked = registration("reg_gone"), registration("reg_gone_searched", selected_after_search=True)
+        for rows, streamed, searched in (([picked], [], ["reg_gone_searched"]),
+                                         ([plain, picked], ["reg_gone"], ["reg_gone_searched"])):
+            with self.subTest(rows=[r.id for r in rows]), mock.patch.object(rl, "ORDER_DRAWS", 3):
+                self.ledger = json.loads(json.dumps(rl.build(rows=[*base, *rows])))
+                s = self.ledger["summary"]
+                self.assertEqual(s["registered_withdrawn"], [r.id for r in rows])
+                r = self.row("reg_gone_searched")
+                self.assertEqual((r["status"], r["online_position"], r["online_p"], r["online_rejected_lordpp"]),
+                                 ("registered", None, None, None))
+                text = self.patched(rb.ledger_online)
+                if not streamed:
+                    self.assertIn("1 registration was withdrawn (reg_gone_searched), not counted as tested; selected "
+                                  "after a search, it is outside the online stream, so it spends no level there.", text)
+                else:
+                    self.assertIn("2 registrations were withdrawn (reg_gone and reg_gone_searched), not counted as "
+                                  "tested: reg_gone spends its online level at p = 1, and reg_gone_searched, selected "
+                                  "after a search, is outside the online stream.", text)
+                self.assertNotIn("spend their online level at p = 1", text)
+                with_p = [x for x in s["selected_after_search"] if self.row(x)["p_two_sided"] is not None]
+                self.assertIn("reg_gone_searched", s["selected_after_search"])
+                self.assertNotIn("reg_gone_searched", with_p)
+                self.assertIn(f"The multiplicity adjustments run over {s['rows_in_multiplicity_family']} rows: every "
+                              f"row with a p-value, the retracted ones included, except {len(with_p)} selected after a "
+                              "search (below).", self.patched(rb.ledger_block))
 
     def test_registered_distribution_rows_are_not_counted_in_the_family(self):
         """Built by the ledger itself: a model registered through the distribution families (HANDOFF's route) adds rows
@@ -558,15 +682,26 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
         """Built by the ledger itself: a model registered through the lab families whose fluctuation test the lab could
         not compute (HANDOFF's result PR). The row is inconclusive with no p-value; the counts say so instead of giving
         it the 5%-10% band, the reading says it is tested online at p = 1, and section 2.8's dashes have a legend."""
+        self.assert_registered_uncomputed(challenger_too=False)
+
+    def test_a_registered_uncomputed_result_beside_a_selected_one(self):
+        """As above, with the challenger's fluctuation test not computed too: selected after a search, its row is
+        outside the online stream, and the copy names the two apart."""
+        self.assert_registered_uncomputed(challenger_too=True)
+
+    def assert_registered_uncomputed(self, *, challenger_too):
         import contextlib
         from unittest import mock
 
         from backend import research_ledger as rl
         from tests.test_research_ledger import (TEST_LABEL, TEST_MODEL, _lab_with_model, _loader, _model_registrations,
-                                                _registration_day)
+                                                _not_computed, _registration_day)
 
         regs = _model_registrations(TEST_MODEL, _registration_day(), distribution=False)
         self.lab = _lab_with_model(TEST_MODEL, TEST_LABEL, fluctuation_computed=False)
+        if challenger_too:
+            entry = self.model(rl.CHALLENGER)
+            entry["fluctuation_qlike_vs_har_iv"] = _not_computed(entry["fluctuation_qlike_vs_har_iv"])
         with contextlib.ExitStack() as stack:
             for patch in (mock.patch.dict(rl.REGISTERED, regs),
                           mock.patch.object(rl, "LAB_COMPARED", (*rl.LAB_COMPARED, TEST_MODEL)),
@@ -577,23 +712,52 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
         r = self.row(rid)
         self.assertEqual((r["status"], r["p_value"], r["online_p"]), ("inconclusive", None, 1.0))
         b = self.ledger["summary"]["by_status"]
-        # This row, and any the committed ledger already holds.
-        none = [x["id"] for x in self.ledger["rows"] if x["status"] == "inconclusive" and x["p_value"] is None]
-        self.assertIn(rid, none)
-        n, one = len(none), len(none) == 1
+        # This row, and any the committed ledger already holds, split by the online stream: a row selected after a
+        # search is outside it.
+        uncomputed = [x for x in self.ledger["rows"] if x["status"] == "inconclusive" and x["p_value"] is None]
+        none = [x["id"] for x in uncomputed]
+        streamed = [x["id"] for x in uncomputed if x["online_position"] is not None]
+        searched = [x["id"] for x in uncomputed if x["online_position"] is None and x["selected_after_search"]]
+        self.assertEqual(sorted(streamed + searched), sorted(none))
+        self.assertIn(rid, streamed)
+        if challenger_too:                                 # (the committed artifact may hold more such rows)
+            self.assertIn(f"vol_fluct_{rl.CHALLENGER}", searched)
+        n, one, k = len(none), len(none) == 1, len(streamed)
         block = self.patched(rb.ledger_block)
         self.assertIn(f"{b['inconclusive']} inconclusive ({b['inconclusive'] - n} with 0.05 ≤ p < 0.10; {n} whose test "
                       f"the artifact could not compute, with no p-value: {rb._join(none)})", block)
         self.assertNotIn(f"{b['inconclusive']} inconclusive (0.05 ≤ p < 0.10)", block)
-        self.assertIn(f"The Inconclusive column counts {rb._join(none)}, whose test the artifact could not compute "
-                      f"({'it has' if one else 'they have'} no p-value, and in the online stream "
-                      f"{'it is' if one else 'each is'} tested at p = 1).", block)
         reading = self.patched(rb.ledger_reading)
-        self.assertIn("has no p-value: the artifact could not compute its test, so it is outside the multiplicity "
-                      "family; in the online stream it is tested at p = 1, as a retracted row is, so it spends its level "
-                      "and earns none." if one else "have no p-value: the artifact could not compute their test, so they "
-                      "are outside the multiplicity family; in the online stream each is tested at p = 1", reading)
+        if not searched:
+            self.assertIn(f"The Inconclusive column counts {rb._join(none)}, whose test the artifact could not compute "
+                          f"({'it has' if one else 'they have'} no p-value, and in the online stream "
+                          f"{'it is' if one else 'each is'} tested at p = 1).", block)
+            self.assertIn("has no p-value: the artifact could not compute its test, so it is outside the multiplicity "
+                          "family; in the online stream it is tested at p = 1, as a retracted row is, so it spends its "
+                          "level and earns none." if one else "have no p-value: the artifact could not compute their "
+                          "test, so they are outside the multiplicity family; in the online stream each is tested at "
+                          "p = 1", reading)
+        else:
+            m = len(searched)
+            self.assertIn(f"The Inconclusive column counts {rb._join(none)}, whose test the artifact could not compute "
+                          f"(they have no p-value; in the online stream {rb._join(streamed)} "
+                          f"{'is' if k == 1 else 'are each'} tested at p = 1, and {rb._join(searched)}, selected after a "
+                          f"search, {'is' if m == 1 else 'are'} outside both the multiplicity family and the online "
+                          "stream).", block)
+            self.assertIn(f"{rb._join(none)} have no p-value: the artifact could not compute their test, so they are "
+                          f"outside the multiplicity family; in the online stream {rb._join(streamed)} "
+                          f"{'is' if k == 1 else 'are each'} tested at p = 1, as a retracted row is, so "
+                          f"{'it spends its' if k == 1 else 'each spends its'} level and earns none, and "
+                          f"{rb._join(searched)}, selected after a search, {'is' if m == 1 else 'are'} outside the "
+                          "online stream too.", reading)
         self.assertIn(rid, reading)
+        # The family sentence leaves out only the selected rows that have a p-value.
+        s = self.ledger["summary"]
+        with_p = [x for x in s["selected_after_search"] if self.row(x)["p_two_sided"] is not None]
+        self.assertEqual(s["rows_in_multiplicity_family"], s["rows_with_p_value"] - len(with_p))
+        self.assertIn(f"The multiplicity adjustments run over {s['rows_in_multiplicity_family']} rows: every row with a "
+                      "p-value, the retracted ones included" + (f", except {len(with_p)} selected after a search (below)"
+                                                                if with_p else "") + ".", block)
         table = self.patched(rb.stability_block)
         line = next(x for x in table.splitlines() if x.startswith(f"| {TEST_LABEL} |"))
         self.assertIn("—", line)

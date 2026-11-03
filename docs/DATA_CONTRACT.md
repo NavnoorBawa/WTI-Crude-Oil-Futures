@@ -438,7 +438,8 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   target false discovery rate of 0.05 over the rows in that order: `online_position` is the row's place
   in the stream (1-based), and each procedure's `online_alpha_*` is the level the row was tested at and
   `online_rejected_*` its decision. The online fields are null outside the stream (a row selected after a
-  search). While a registered row waits for its result (`registration.withdrawn` null), its
+  search, whatever its status, a registered one included: what follows is for the rows in the stream).
+  While a registered row waits for its result (`registration.withdrawn` null), its
   `online_rejected_*` is null, and its `online_alpha_*` is published, fixed before the result exists, once
   every earlier row is decided; every later row's level and decision are null until it resolves.
   `online_rejected_*` is false for a retracted row and for a withdrawn registration, which are tested at
@@ -459,7 +460,7 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   lordpp{w0, gamma_c, gamma, rejected[], wealth[], next_level}, saffron{w0, lambda, gamma_c, gamma_s,
   candidates, rejected[], wealth[], next_level}, legacy_order_sensitivity{draws, seed, scope,
   legacy_rows, lordpp{min, max, same_set_share}, saffron{min, max, same_set_share}}}`: `waiting_on` names
-  the first registered row without a result (null when none), `wealth` runs over the decided rows,
+  the first registered row in the stream without a result (null when none), `wealth` runs over the decided rows,
   `next_level` is the level a row appended now would be tested at (null while a row waits), and
   `legacy_order_sensitivity` summarises `draws` random within-batch orders (a sample with a fixed seed:
   its range and `same_set_share`, the share of draws that give the published rejection set, are

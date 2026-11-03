@@ -32,7 +32,9 @@ const REGISTERED_NOTE = "Registered: a hypothesis declared, with its test and th
   + "before its result existed. While it waits for that field to hold its result it has no p-value or decision (its flags read "
   + "pending), and it is not counted as tested. A withdrawn registration stays listed (its flags read withdrawn), keeps its "
   + "place in the online order and is tested there at p = 1, so it spends its level and is never rejected. From ROADMAP 2.12 "
-  + "on, every new hypothesis is registered first; its place in the online order is fixed when it is registered.";
+  + "on, every new hypothesis is registered first; its place in the online order is fixed when it is registered. The exception "
+  + "is a registered row selected after a search: like every such row it is outside the online order, with no place or "
+  + "decision there, and its flags read excluded.";
 const UNDERPOWERED_TITLE = "The test's recorded power is below its target, so a failure to reject says little about whether the effect exists";
 const AFTER_SEARCH_TITLE = "The model was chosen as the best of a field on this same sample, so this pairwise p-value ignores that search. "
   + "The row is left out of the multiplicity adjustment (no q-value, Holm p-value or t > 3 flag); where a search-adjusted test "
