@@ -779,8 +779,9 @@ another. That test replaced a pooled one after the runs were seen, so those rows
 pre-specified.
 
 - **Status**, from the test as run: supported (p < 0.05 in the hypothesis's direction),
-  inconclusive (0.05 ≤ p < 0.10, or no p-value because the artifact could not compute the test:
-  section 7's "not computed" rule), not supported (p ≥ 0.10, or the estimate points the other way),
+  inconclusive (0.05 ≤ p < 0.10, or no p-value because the artifact could not compute the test,
+  section 7's "not computed" rule, unless the estimate points the other way), not supported
+  (p ≥ 0.10, or the estimate points the other way),
   retracted (the evidence was invalid when produced: the leaked walk-forward, roll-contaminated
   returns, or a test whose null was wrong), or registered (declared, with its test and the artifact
   field that will hold its p-value, before that field existed; no result yet, or withdrawn before
@@ -791,7 +792,9 @@ pre-specified.
   A registered row has no p-value, takes no part in either view's decisions, and changes status by
   itself on the first rebuild after its field holds the result: a value, or a null where the row's
   test reads the field as optional, which means the artifact ran the test and could not compute it
-  (the row is then inconclusive, as any row with such a null). Any other null is a placeholder.
+  (the row then takes the status of any row whose test could not be computed: inconclusive, or not
+  supported when its stored estimate points the wrong way; it has no p-value and is tested online
+  at p = 1). Any other null is a placeholder.
 - **Multiplicity, the batch view**, across the rows with a p-value, on the two-sided p (a one-sided p doubled,
   capped at 1): Benjamini-Hochberg (1995) q-values, Holm (1979) adjusted p-values, and the
   Harvey, Liu and Zhu (2016) hurdle t > 3 on the normal quantile of that p. Rows marked
@@ -873,9 +876,13 @@ pre-specified.
   `REGISTERED_DISTRIBUTION_MODELS`; the hash covers the hypothesis as written and the field paths of
   its names, so moving the model into `LAB_COMPARED` or `DISTRIBUTION_MODELS` in the result pull
   request leaves it unchanged. While a row waits, each name is read from its artifact where the
-  artifact already holds it, else the declared label is shown. Such a model is withdrawn whole, every
-  row registered for it at once: its rows read one model entry, so a pending sibling of a withdrawn
-  row could never resolve. Withdrawal retires the key; a later attempt registers a new one. `registered` means fixed before the result existed;
+  artifact already holds it, else the declared label is shown. The rows one registry makes for a
+  model are withdrawn together: they read one entry the lab writes whole (the leaderboard entry for
+  the conditional and stability rows, the distribution entry for the score and calibration rows), so
+  the entry that would hold a pending row's result would hold its withdrawn sibling's too.
+  Withdrawal retires the key in that registry (the lab never adds the model, or never scores its
+  distribution); a later attempt registers a new key. The two registries' rows read different
+  entries, so each group is withdrawn on its own. `registered` means fixed before the result existed;
   `pre_specified` means fixed before the data were seen, and most registered rows will run on data
   already explored, so the two are counted separately. The checks see main only: a result computed
   off main before registration cannot be detected, and the row's note must disclose it if it

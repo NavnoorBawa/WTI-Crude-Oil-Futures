@@ -120,20 +120,42 @@ class StabilityBlocksTest(unittest.TestCase):
         self.assertFalse(re.search(r"HAR-RV \+ downside semivol \(p = 0\.070", text))
 
     def test_a_test_that_was_not_computed_prints_dashes(self):
+        if not any(m["fluctuation_qlike_vs_har_iv"].get("not_computed") for m in rb._stability_models(self.lab)):
+            self.assertNotIn("— marks", self.patched(rb.stability_block))     # no dash, no legend
         fl = self.model("combo")["fluctuation_qlike_vs_har_iv"]
         for key in ("sup", "sign", "at", "p_value"):
             fl[key] = None
         fl["search_adjusted"]["p_value"] = None
         fl["robustness"]["by_grid"] = {"outside_5pct": None}
-        line = next(l for l in self.patched(rb.stability_block).splitlines() if l.startswith("| Combination |"))
+        table = self.patched(rb.stability_block)
+        line = next(l for l in table.splitlines() if l.startswith("| Combination |"))
         self.assertNotIn("None", line)
         self.assertTrue(line.rstrip(" |").endswith("—"), line)
+        self.assertIn("— marks a value the lab could not compute", table)
+        self.assertNotIn("Combination's", table)                    # its block names no not_computed reason
 
     def test_a_surviving_conditional_row_is_never_counted_as_restating_dm(self):
+        def separate():
+            # The sentence the ledger's surviving conditional rows call for, named by the lab's labels.
+            cond = [r for r in self.ledger["rows"]
+                    if r["family"] == "conditional predictive ability" and r.get("survives_bh_5pct")]
+            labels = [self.model(r["id"].removeprefix("vol_gw_"))["label"] for r in cond]
+            self.assertTrue(labels)
+            one = len(labels) == 1
+            return (f"The Giacomini-White conditional {'row' if one else 'rows'} against {rb._join(labels)} "
+                    f"{'asks' if one else 'ask'} a separate question")
+
         text = self.patched(rb.ledger_reading)
         self.assertIn("fluctuation rows among them test a model the full-sample DM test already separates", text)
-        self.assertIn("The Giacomini-White conditional row against Persistence (RV5) asks a separate question", text)
+        self.assertIn(separate(), text)
         self.assertNotIn("all 9 of them", text)
+        # One more surviving conditional row, as a result PR that adds a lab model can bring: the sentence names it too.
+        extra = next(r for r in self.ledger["rows"] if r["family"] == "conditional predictive ability"
+                     and r["q_value_bh"] is not None and not r["survives_bh_5pct"])
+        extra["survives_bh_5pct"] = True
+        text = self.patched(rb.ledger_reading)
+        self.assertIn(separate(), text)
+        self.assertIn(self.model(extra["id"].removeprefix("vol_gw_"))["label"], separate())
 
     def test_a_robustness_form_in_another_band_is_named(self):
         fl = self.model("raw_ovx")["fluctuation_qlike_vs_har_iv"]
@@ -296,7 +318,10 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
         only = [rid for rid in online["saffron"]["rejected"] if rid not in bh]
         self.assertTrue(only)
         self.assertIn(f"({rb._join(only)}); those {len(only)} are not counted as surviving any adjustment elsewhere", text)
-        self.assertIn(f"LORD++ rejects {len(online['lordpp']['rejected'])} of the {online['rows_in_stream']} rows", text)
+        # The counts run over the decided rows: all of the stream unless a committed registration waits.
+        counted = (f"{online['rows_in_stream']} rows" if online["rows_decided"] == online["rows_in_stream"]
+                   else f"{online['rows_decided']} decided rows")
+        self.assertIn(f"LORD++ rejects {len(online['lordpp']['rejected'])} of the {counted} in its stream", text)
         self.assertNotIn("significant", text)
         self.assertIn("No row's status depends on either online procedure.", text)
 
@@ -449,6 +474,114 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
                               "existed", text)
             self.assertIn(f"The multiplicity adjustments run over {ledger['summary']['rows_in_multiplicity_family']} "
                           "rows", self.patched(rb.ledger_block))
+
+    def test_a_surviving_row_behind_a_pending_registration_is_neither_rejected_nor_missed(self):
+        """Built by the ledger itself (a reviewer's case): a model registered through the lab families waits, and a row
+        registered after it already has a result that survives Benjamini-Hochberg. That row has no online decision
+        yet, so it is counted as neither a rejection nor a miss, and the counts run over the decided rows."""
+        import contextlib
+        import copy
+        from unittest import mock
+
+        from backend import research_ledger as rl
+        from tests.test_research_ledger import TEST_LABEL, TEST_MODEL, _register_model, _registration_day
+
+        day = _registration_day()
+        later = rl.Row(id="reg_later", family="volatility forecast", hypothesis="A later registered hypothesis.",
+                       test="a two-sided test whose p-value the artifact stores", source=rl.LAB,
+                       statistic=("statistic", "experiment_later.stat"), p=rl.Field("experiment_later.p_value"),
+                       sided="two", expects=rl.POSITIVE)
+        defining = rl._vol_rows
+
+        def rows():
+            return [*defining(), later]
+
+        rows.__name__ = defining.__name__
+        lab = copy.deepcopy(rl.load_artifact(rl.LAB))
+        lab["experiment_later"] = {"p_value": 0.0001, "stat": 3.9}
+        with contextlib.ExitStack() as stack:
+            for patch in (*_register_model(TEST_MODEL, TEST_LABEL, day, distribution=False),
+                          mock.patch.dict(rl.REGISTERED, {"reg_later": rl.Registration(day, "experiment_later.p_value")}),
+                          mock.patch.object(rl, "_ROW_FUNCTIONS",
+                                            tuple(rows if fn is defining else fn for fn in rl._ROW_FUNCTIONS)),
+                          mock.patch.object(rl, "ORDER_DRAWS", 3)):
+                stack.enter_context(patch)
+            self.ledger = json.loads(json.dumps(rl.build(load=lambda name: lab if name == rl.LAB
+                                                          else rl.load_artifact(name))))
+        by_id = {r["id"]: r for r in self.ledger["rows"]}
+        s, o = self.ledger["summary"], self.ledger["summary"]["online"]
+        r = by_id["reg_later"]
+        self.assertEqual((r["status"], r["survives_bh_5pct"], r["online_rejected_lordpp"], r["online_rejected_saffron"]),
+                         ("supported", True, None, None))
+        bh = s["supported_surviving_bh_5pct"]
+        decided = [rid for rid in bh if by_id[rid]["online_rejected_lordpp"] is not None]
+        missed = [rid for rid in decided if not by_id[rid]["online_rejected_lordpp"]]
+        saff_in = [rid for rid in o["saffron"]["rejected"] if rid in bh]
+        k = o["rows_in_stream"] - o["rows_decided"]
+        self.assertGreater(k, 1)
+        text = self.patched(rb.ledger_online)
+        self.assertIn(f"LORD++ rejects {len(o['lordpp']['rejected'])} of the {o['rows_decided']} decided rows in its "
+                      f"stream and SAFFRON {len(o['saffron']['rejected'])} ({k} more wait for a registered result).", text)
+        self.assertNotIn(f"of the {o['rows_in_stream']} rows", text)
+        self.assertIn(f"{len(missed)} supported rows that survive Benjamini-Hochberg and have an online decision are not "
+                      "rejected by LORD++", text)
+        self.assertIn(f"SAFFRON rejects {len(saff_in)} of the {len(decided)} supported rows that survive "
+                      "Benjamini-Hochberg and have an online decision", text)
+        undecided = [rid for rid in bh if rid not in decided]
+        self.assertIn("reg_later", undecided)
+        self.assertIn(f"{rb._join(undecided)} {'survives' if len(undecided) == 1 else 'survive'} Benjamini-Hochberg but "
+                      f"{'has' if len(undecided) == 1 else 'have'} no online decision yet: "
+                      f"{'it follows' if len(undecided) == 1 else 'they follow'} {o['waiting_on']} in the stream, which "
+                      "waits for its result.", text)
+
+    def test_a_registered_result_the_lab_could_not_compute_is_named_as_such(self):
+        """Built by the ledger itself: a model registered through the lab families whose fluctuation test the lab could
+        not compute (HANDOFF's result PR). The row is inconclusive with no p-value; the counts say so instead of giving
+        it the 5%-10% band, the reading says it is tested online at p = 1, and section 2.8's dashes have a legend."""
+        import contextlib
+        from unittest import mock
+
+        from backend import research_ledger as rl
+        from tests.test_research_ledger import (TEST_LABEL, TEST_MODEL, _lab_with_model, _loader, _model_registrations,
+                                                _registration_day)
+
+        regs = _model_registrations(TEST_MODEL, _registration_day(), distribution=False)
+        self.lab = _lab_with_model(TEST_MODEL, TEST_LABEL, fluctuation_computed=False)
+        with contextlib.ExitStack() as stack:
+            for patch in (mock.patch.dict(rl.REGISTERED, regs),
+                          mock.patch.object(rl, "LAB_COMPARED", (*rl.LAB_COMPARED, TEST_MODEL)),
+                          mock.patch.object(rl, "ORDER_DRAWS", 3)):
+                stack.enter_context(patch)
+            self.ledger = json.loads(json.dumps(rl.build(load=_loader(self.lab))))
+        rid = f"vol_fluct_{TEST_MODEL}"
+        r = self.row(rid)
+        self.assertEqual((r["status"], r["p_value"], r["online_p"]), ("inconclusive", None, 1.0))
+        b = self.ledger["summary"]["by_status"]
+        # This row, and any the committed ledger already holds.
+        none = [x["id"] for x in self.ledger["rows"] if x["status"] == "inconclusive" and x["p_value"] is None]
+        self.assertIn(rid, none)
+        n, one = len(none), len(none) == 1
+        block = self.patched(rb.ledger_block)
+        self.assertIn(f"{b['inconclusive']} inconclusive ({b['inconclusive'] - n} with 0.05 ≤ p < 0.10; {n} whose test "
+                      f"the artifact could not compute, with no p-value: {rb._join(none)})", block)
+        self.assertNotIn(f"{b['inconclusive']} inconclusive (0.05 ≤ p < 0.10)", block)
+        self.assertIn(f"The Inconclusive column counts {rb._join(none)}, whose test the artifact could not compute "
+                      f"({'it has' if one else 'they have'} no p-value, and in the online stream "
+                      f"{'it is' if one else 'each is'} tested at p = 1).", block)
+        reading = self.patched(rb.ledger_reading)
+        self.assertIn("has no p-value: the artifact could not compute its test, so it is outside the multiplicity "
+                      "family; in the online stream it is tested at p = 1, as a retracted row is, so it spends its level "
+                      "and earns none." if one else "have no p-value: the artifact could not compute their test, so they "
+                      "are outside the multiplicity family; in the online stream each is tested at p = 1", reading)
+        self.assertIn(rid, reading)
+        table = self.patched(rb.stability_block)
+        line = next(x for x in table.splitlines() if x.startswith(f"| {TEST_LABEL} |"))
+        self.assertIn("—", line)
+        self.assertIn("— marks a value the lab could not compute: ", table)
+        self.assertIn(f"{TEST_LABEL}'s fluctuation test (a window's variance is not positive)", table)
+        self.assertIn("; a ledger row whose test could not be computed has no p-value and no q.", table)
+        for name in ("stability_reading", "ledger_online", "abstract"):                  # the other blocks still build
+            self.assertTrue(self.patched(getattr(rb, name)), name)
 
     def test_the_retracted_rows_spend_their_level_online(self):
         self.assertIn("in the online stream each is tested at p = 1, so it spends its level and earns none",

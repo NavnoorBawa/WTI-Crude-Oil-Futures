@@ -121,9 +121,9 @@ export const ledgerOnlineText = (row, procedure) => {
 };
 
 /**
- * LEDG's note on the online view, from the ledger's summary.online: both procedures' counts over the stream,
- * the independence they assume, the legacy rows' order sensitivity and that no status reads them. Null for a
- * ledger without an online view.
+ * LEDG's note on the online view, from the ledger's summary.online: both procedures' counts over the decided rows
+ * of the stream (a pending registered row and the rows after it have no decision yet), the independence they
+ * assume, the legacy rows' order sensitivity and that no status reads them. Null for a ledger without an online view.
  */
 export const ledgerOnlineNote = (ledger) => {
   const online = asObject(ledger?.online);
@@ -132,18 +132,28 @@ export const ledgerOnlineNote = (ledger) => {
   const stream = num(online?.rows_in_stream);
   if (!online || stream == null) return null;
   const alpha = num(online.alpha) ?? ALPHA;
+  const decided = Math.min(num(online.rows_decided) ?? stream, stream);
+  const undecided = stream - decided;
+  const counted = undecided
+    ? `of the ${decided} decided rows in the stream, and ${undecided} more ${undecided === 1 ? "waits" : "wait"} for a registered result`
+    : `of the ${stream} rows in the stream`;
   let text = `Online control: in the order rows entered the ledger, at a ${fmtNum(alpha * 100, 0)}% false discovery rate, `
-    + `LORD++ rejects ${lord.length} and SAFFRON ${saffron.length} of the ${stream} rows in the stream (rows selected after a `
-    + "search stay out; retracted rows are tested at p = 1). Both assume independent p-values, which rows on shared data do not "
-    + "have, and the page's other verdicts cite the batch view (q and t > 3) instead.";
+    + `LORD++ rejects ${lord.length} and SAFFRON ${saffron.length} ${counted} (rows selected after a search stay out; `
+    + "retracted rows and rows whose test could not be computed are tested at p = 1). Both assume independent p-values, "
+    + "which rows on shared data do not have, and the page's other verdicts cite the batch view (q and t > 3) instead.";
   const sens = asObject(online.legacy_order_sensitivity);
   if (sens && num(sens.legacy_rows)) {
     text += ` For the ${sens.legacy_rows} rows that entered before registration began, the decisions are a retrospective `
       + `reading: with their order drawn at random within each entry batch, LORD++ rejects ${sens.lordpp?.min} to `
       + `${sens.lordpp?.max} of them and SAFFRON ${sens.saffron?.min} to ${sens.saffron?.max}.`;
   }
+  // The first undecided row waits for its result; rows follow it only when more than it are undecided.
   const waiting = asText(online.waiting_on);
-  if (waiting) text += ` Rows after ${waiting}, which waits for its result, have no online decision yet.`;
+  if (waiting) {
+    text += undecided > 1
+      ? ` Rows after ${waiting}, which waits for its result, have no online decision yet.`
+      : ` ${waiting} waits for its result and has no online decision yet.`;
+  }
   return `${text} A row's online decision never changes its status; the CSV holds each row's levels and decisions.`;
 };
 

@@ -149,9 +149,11 @@ backs the new one.
   at registration (its date, then its place in the registration table, so a later registration on the same day never
   moves it), a hash of its declared test is checked against the version that first reached main, and the status
   changes by itself on the first rebuild after the field holds the result; a test the artifact ran but could not
-  compute is a result where the row reads the field as optional, and the row is then inconclusive. A model of a
-  generated family (one row per model) is registered with the label its rows show until the lab produces it, and is
-  withdrawn whole, which retires its key. From now on every new hypothesis is registered first. The online decisions assume independent null p-values, which these rows do not have, and for the rows that
+  compute is a result where the row reads the field as optional, and the row then takes the status of any row whose
+  test could not be computed (inconclusive, or not supported when its stored estimate points the wrong way). A model
+  of a generated family (one row per model) is registered with the label its rows show until the lab produces it;
+  the rows one registry makes for it read one artifact entry and are withdrawn together, which retires the key in
+  that registry. From now on every new hypothesis is registered first. The online decisions assume independent null p-values, which these rows do not have, and for the rows that
   entered before registration began they are a retrospective reading of the ledger's code order within entry batches
   dated from the git history, an order fixed after their p-values were known. The old
   use of "registered" for "the form the ledger enters" becomes "entered" or "adopted" in the docs and row notes. The

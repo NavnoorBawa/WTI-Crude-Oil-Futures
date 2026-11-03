@@ -54,10 +54,10 @@ export { committedLab, committedLedger };
 /**
  * The fixture with the lab's stability blocks (ROADMAP 2.3): every model's Giacomini-White and fluctuation blocks,
  * the top-level stability block, the weekly rolling-t and cumulative series, and the ledger's two new families.
+ * `lab` and `ledger` default to the committed artifacts; the fixture's models are kept, so a lab model the fixture
+ * lacks is not spliced in.
  */
-export const withStability = (research) => {
-  const lab = committedLab();
-  const ledger = committedLedger();
+export const withStability = (research, { lab = committedLab(), ledger = committedLedger() } = {}) => {
   const byKey = new Map(lab.leaderboard.models.map((model) => [model.key, model]));
   const families = new Set(["conditional predictive ability", "stability over time"]);
   const names = (prefix) => Object.keys(lab.series).filter((key) => key.startsWith(prefix));

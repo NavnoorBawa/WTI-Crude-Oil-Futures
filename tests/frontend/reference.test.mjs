@@ -439,15 +439,36 @@ test("the ledger's online view: CSV columns, the method note, and nothing for a 
   // The method note reads summary.online; no on-screen column shows the online view.
   const note = reference.ledgerOnlineNote(ledger);
   const sens = online.legacy_order_sensitivity;
-  assert.ok(note.includes(`LORD++ rejects ${online.lordpp.rejected.length} and SAFFRON ${online.saffron.rejected.length} of the ${online.rows_in_stream} rows`), note);
+  // The counts run over the decided rows: all of the stream unless a committed registration waits.
+  const counted = online.rows_decided === online.rows_in_stream ? `${online.rows_in_stream} rows` : `${online.rows_decided} decided rows`;
+  assert.ok(note.includes(`LORD++ rejects ${online.lordpp.rejected.length} and SAFFRON ${online.saffron.rejected.length} of the ${counted} in the stream`), note);
   assert.ok(note.includes("assume independent p-values"), note);
   assert.ok(note.includes(`the decisions are a retrospective reading: with their order drawn at random within each entry batch, LORD++ rejects ${sens.lordpp.min} to ${sens.lordpp.max}`), note);
   assert.ok(note.includes("A row's online decision never changes its status"), note);
   const text = spaced(visibleText(ledg));
   assert.ok(text.includes(spaced(note)), "the note is in the panel's method notes");
   assert.ok(text.includes("Registered: a hypothesis declared"), "with the registered status explained");
-  assert.ok(reference.ledgerOnlineNote(registered)
-    .includes(`Rows after ${registered.online.waiting_on}, which waits for its result, have no online decision yet.`));
+  // With a registration pending the counts are over the decided rows, and the rows after the waiting one are named
+  // only when there are some (reg_pending is the stream's last row unless a committed registration waits before it).
+  const pendingOnline = registered.online;
+  const undecided = pendingOnline.rows_in_stream - pendingOnline.rows_decided;
+  const pendingNote = reference.ledgerOnlineNote(registered);
+  assert.ok(undecided >= 1);
+  assert.ok(pendingNote.includes(`LORD++ rejects ${pendingOnline.lordpp.rejected.length} and SAFFRON `
+    + `${pendingOnline.saffron.rejected.length} of the ${pendingOnline.rows_decided} decided rows in the stream, and `
+    + `${undecided} more ${undecided === 1 ? "waits" : "wait"} for a registered result`), pendingNote);
+  assert.ok(!pendingNote.includes(`of the ${pendingOnline.rows_in_stream} rows`), pendingNote);
+  if (pendingOnline.waiting_on === "reg_pending") {
+    assert.ok(pendingNote.includes("reg_pending waits for its result and has no online decision yet."), pendingNote);
+    assert.ok(!pendingNote.includes("Rows after"), pendingNote);
+  } else {
+    assert.ok(pendingNote.includes(`Rows after ${pendingOnline.waiting_on}, which waits for its result, have no online decision yet.`));
+  }
+  // A row after the waiting one: the note says the rows after it wait.
+  const followed = { ...registered, online: { ...pendingOnline, rows_in_stream: pendingOnline.rows_in_stream + 1 } };
+  assert.ok(reference.ledgerOnlineNote(followed)
+    .includes(`Rows after ${pendingOnline.waiting_on}, which waits for its result, have no online decision yet.`));
+  assert.ok(note.includes("retracted rows and rows whose test could not be computed are tested at p = 1"), note);
   // A research.json without the online view renders as before.
   assert.equal(reference.ledgerOnlineNote(m.research.researchLedger(research)), null);
   const old = visibleText(section(renderPage().html, "ledg"));

@@ -308,19 +308,25 @@ exists, in two PRs, in this order:
    and each of its rows in `REGISTERED`; `vol_lab.py` does not change in this PR.
 2. **Result PR.** It rebuilds the artifact so the field exists, then the ledger: the row resolves by
    itself. A test the artifact ran but could not compute resolves it too, where the row reads the
-   field as optional (`Field(optional=True)`, as the `vol_gw_`/`vol_fluct_` rows do): the row is
-   then inconclusive, with no p-value, and tested online at p = 1. A null in a field the test does
-   not read as optional keeps the row pending. Its definition must not change (the spec hash); notes
-   and context may be added. A generated family's model moves from `REGISTERED_LAB_MODELS` to
-   `LAB_COMPARED` (or to `DISTRIBUTION_MODELS`) as it joins the lab, which leaves the spec hash
-   unchanged.
+   field as optional (`Field(optional=True)`, as the `vol_gw_`/`vol_fluct_` rows do): the row then
+   takes the status of any row whose test could not be computed, inconclusive, or not supported
+   when its stored estimate points the wrong way; it has no p-value and is tested online at p = 1.
+   A null in a field the test does not read as optional keeps the row pending. Its definition must
+   not change (the spec hash); notes and context may be added. A generated family's model moves
+   from `REGISTERED_LAB_MODELS` to `LAB_COMPARED` (or to `DISTRIBUTION_MODELS`) as it joins the
+   lab, which leaves the spec hash unchanged; a lab model joins `MODELS` in `backend/vol_lab.py` in
+   the same PR (a test checks that the two lists agree).
 
 A pending row blocks the online decisions after it, so resolve it promptly, or withdraw it (only
-before its result exists) with a reason, which the changelog names. A generated family's model is
-withdrawn whole, every row registered for it at once (the build refuses a partial withdrawal, since
-its rows read one model entry and a pending sibling could never resolve). That retires its key: it
-stays in `REGISTERED_LAB_MODELS` (or `REGISTERED_DISTRIBUTION_MODELS`) and never joins the lab, and
-a later attempt registers a new key. Every changed p-value of an
+before its result exists) with a reason, which the changelog names. The rows one registry makes for
+a model are withdrawn together: `vol_gw_`/`vol_fluct_` read the leaderboard entry the lab writes for
+it, the score and `vol_berkowitz_` rows its distribution entry, and the entry that would hold a
+pending row's result would hold its withdrawn sibling's too (the build refuses a partial
+withdrawal). That retires the key in that registry: it stays in `REGISTERED_LAB_MODELS` and the lab
+never adds the model, or it stays in `REGISTERED_DISTRIBUTION_MODELS` and the lab never scores the
+model's distribution; a later attempt registers a new key. The two registries' rows read different
+entries, so a model registered through both can lose its distribution rows and keep its lab rows,
+or the other way round. Every changed p-value of an
 existing row (an erratum, a retraction after entry, a lab rebuild that moves p-values) recomputes
 the online view from that row on: name the row in `ONLINE_CORRECTIONS` in
 `tests/test_research_ledger.py` with its changelog errata entry.

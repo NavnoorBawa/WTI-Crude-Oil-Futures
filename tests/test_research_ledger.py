@@ -426,17 +426,65 @@ class DistributionRowsTest(unittest.TestCase):
         with self.assertRaises(rl.FieldError):
             rl.BonferroniOverRuns("runs", "p")({"runs": []})
 
+    NEW = ("predictive distribution", "distribution calibration")
+
+    @staticmethod
+    def _flags(rows):
+        p = np.array([r["p_two_sided"] for r in rows])
+        return {r["id"]: (bool(q < rl.ALPHA), bool(h < rl.ALPHA))
+                for r, q, h in zip(rows, rl.benjamini_hochberg(p), rl.holm(p))}
+
+    @classmethod
+    def _moved_by_the_new_rows(cls, ledger):
+        """ROADMAP 2.4's acceptance check, on the family the rows joined: the rows that entered before registration
+        began (the ledger as #104 left it; a row registered later is not part of it). Adding the distribution rows to
+        that family moves every q-value; the rows whose BH or Holm survival it moves."""
+        legacy = rl.legacy_batches()
+        family = [r for r in ledger["rows"] if r["id"] in legacy and r["q_value_bh"] is not None]
+        with_them = cls._flags(family)
+        without = cls._flags([r for r in family if r["family"] not in cls.NEW])
+        return [rid for rid, flags in without.items() if with_them[rid] != flags]
+
     def test_adding_the_rows_changes_no_survival_flag(self):
         # The rows join the family, so every q-value moves; whether a row survives must not.
         ledger = _committed()
-        rows = [r for r in ledger["rows"] if r["q_value_bh"] is not None]
-        new = {"predictive distribution", "distribution calibration"}
-        old = [r for r in rows if r["family"] not in new]
-        q_old = rl.benjamini_hochberg(np.array([r["p_two_sided"] for r in old]))
-        h_old = rl.holm(np.array([r["p_two_sided"] for r in old]))
-        for r, q, h in zip(old, q_old, h_old):
-            self.assertEqual(r["survives_bh_5pct"], bool(q < rl.ALPHA), r["id"])
-            self.assertEqual(r["survives_holm_5pct"], bool(h < rl.ALPHA), r["id"])
+        self.assertEqual(self._moved_by_the_new_rows(ledger), [])
+        legacy = rl.legacy_batches()
+        if all(r["id"] in legacy for r in ledger["rows"] if r["q_value_bh"] is not None):
+            # No later row in the family: the recomputed flags are the committed ones.
+            family = [r for r in ledger["rows"] if r["q_value_bh"] is not None]
+            for rid, (bh, holm) in self._flags(family).items():
+                r = next(x for x in family if x["id"] == rid)
+                self.assertEqual((r["survives_bh_5pct"], r["survives_holm_5pct"]), (bh, holm), rid)
+
+    def test_the_check_reads_the_family_the_rows_joined(self):
+        """A lab model added later (registered, then resolved) is not part of the family the distribution rows joined:
+        the check ignores it, even when its own survival depends on whether those rows are counted."""
+        ledger = _committed()
+        family = [r for r in ledger["rows"] if r["q_value_bh"] is not None]
+        lab = _lab_with_model(TEST_MODEL, TEST_LABEL)
+        entry = next(m for m in lab["leaderboard"]["models"] if m["key"] == TEST_MODEL)
+        fluct = {"id": "fluct", "family": "stability over time",
+                 "p_two_sided": entry["fluctuation_qlike_vs_har_iv"]["search_adjusted"]["p_value"]}
+
+        def moves(p):
+            rows = [*family, fluct, {"id": "gw", "family": "conditional predictive ability", "p_two_sided": p}]
+            return self._flags(rows)["gw"] != self._flags([r for r in rows if r["family"] not in self.NEW])["gw"]
+
+        # A conditional p whose BH or Holm survival depends on the distribution rows (Holm's step moves with them).
+        p = next(float(p) for p in np.geomspace(1e-7, rl.ALPHA, 4000) if moves(p))
+        entry["gw_qlike_vs_har_iv"]["conditional"]["p_value"] = p
+        regs = _model_registrations(TEST_MODEL, _registration_day(), distribution=False)
+        with contextlib.ExitStack() as stack:
+            _patched(stack, (mock.patch.dict(rl.REGISTERED, regs),
+                             mock.patch.object(rl, "LAB_COMPARED", (*rl.LAB_COMPARED, TEST_MODEL)),
+                             mock.patch.object(rl, "ORDER_DRAWS", 3)))
+            later = json.loads(json.dumps(rl.build(load=_loader(lab))))
+            self.assertEqual(self._moved_by_the_new_rows(later), [])
+        # Over the whole family, as the check read before, the later row's flag would move.
+        rows = [r for r in later["rows"] if r["q_value_bh"] is not None]
+        with_them, without = self._flags(rows), self._flags([r for r in rows if r["family"] not in self.NEW])
+        self.assertIn(f"vol_gw_{TEST_MODEL}", [rid for rid, flags in without.items() if with_them[rid] != flags])
 
 
 class ResolveTest(unittest.TestCase):
@@ -1045,6 +1093,25 @@ class RegistrationTest(unittest.TestCase):
                 for key in rl.ONLINE_FIELDS:
                     self.assertEqual(x[key], plain[x["id"]][key], (x["id"], key))
 
+    def test_a_not_computed_result_takes_the_status_of_any_such_row(self):
+        """A null its test reads as optional is the result (a test the artifact could not compute): the row takes the
+        status any row with that null has, inconclusive, or not_supported when its stored estimate points the wrong
+        way; either way it has no p-value, is outside the family and is tested online at p = 1."""
+        row = _fake(p=rl.Field("experiment.p_value", optional=True))
+        legacy = dataclasses.replace(row, id="unregistered_fake", registration=None,
+                                     entered_on=rl.latest_legacy_entry())
+        for stat, status in ((None, "inconclusive"), (1.5, "inconclusive"), (-1.5, "not_supported")):
+            with self.subTest(stat=stat):
+                doc = {**self.load(rl.LAB), "experiment": {"p_value": None, "stat": stat}}
+                self.assertTrue(rl.result_exists(row, doc))
+                ledger = self.build_with([row, legacy], {"experiment": {"p_value": None, "stat": stat}})
+                rows = {r["id"]: r for r in ledger["rows"]}
+                for rid in ("reg_fake", "unregistered_fake"):
+                    r = rows[rid]
+                    self.assertEqual((r["status"], r["p_value"], r["q_value_bh"], r["online_p"]),
+                                     (status, None, None, 1.0), rid)
+                self.assertNotIn("reg_fake", ledger["summary"]["registered"])
+
     def test_a_runs_test_may_declare_the_runs_list(self):
         row = _fake(field="experiment.runs", p=rl.LargestOverRuns("experiment.runs", "p"),
                     statistic=("statistic", "experiment.stat"))
@@ -1113,7 +1180,8 @@ class RegistrationTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "vol_gw_har_rv is defined twice"):
                 rl.ledger_rows()
         with mock.patch.dict(rl.REGISTERED_DISTRIBUTION_MODELS, {TEST_MODEL: TEST_LABEL}):   # rows not in REGISTERED
-            with self.assertRaisesRegex(ValueError, f"vol_crps_{TEST_MODEL} is generated for the registered model"):
+            with self.assertRaisesRegex(ValueError, f"vol_crps_{TEST_MODEL} is generated for the model '{TEST_MODEL}' "
+                                                    "registered in REGISTERED_DISTRIBUTION_MODELS"):
                 rl.ledger_rows()
 
     def test_a_named_row_shows_its_declared_text_while_pending(self):
@@ -1240,9 +1308,11 @@ class RegistrationTest(unittest.TestCase):
         self.assertEqual([legacy[k] for k in ("status", "p_value", "q_value_bh", "online_p")],
                          [r[k] for k in ("status", "p_value", "q_value_bh", "online_p")])
 
-    def test_a_registered_model_is_withdrawn_whole(self):
-        """Every row generated for a registered model reads one model entry, so a pending sibling of a withdrawn row
-        could never resolve: the model is withdrawn whole or not at all, and withdrawal retires its key."""
+    def test_a_registry_s_rows_for_a_model_are_withdrawn_together(self):
+        """The rows one registry makes for a model read one entry the lab writes whole (vol_gw_ and vol_fluct_ its
+        leaderboard entry; the score rows and vol_berkowitz_ its distribution entry), so the entry that would hold a
+        pending row's result would hold its withdrawn sibling's too: they are withdrawn together or not at all, and
+        withdrawal retires the key in that registry."""
         day, reason = _registration_day(), "the model was abandoned before the lab ran it"
         regs = _model_registrations(TEST_MODEL, day, withdrawn=reason)
         with contextlib.ExitStack() as stack:
@@ -1255,14 +1325,65 @@ class RegistrationTest(unittest.TestCase):
                     self.assertIn(TEST_LABEL, rows[rid]["hypothesis"])
             self.assertEqual([rid for rid in s["registered_withdrawn"] if rid in regs], list(regs))
             self.assertFalse(set(s["registered"]) & set(regs))
-            for kept in (f"vol_fluct_{TEST_MODEL}", f"vol_berkowitz_{TEST_MODEL}"):    # one lab, one distribution row
+            for kept, registry in ((f"vol_fluct_{TEST_MODEL}", "REGISTERED_LAB_MODELS"),
+                                   (f"vol_berkowitz_{TEST_MODEL}", "REGISTERED_DISTRIBUTION_MODELS")):
                 pending = {kept: dataclasses.replace(regs[kept], withdrawn=None)}
                 with self.subTest(kept=kept), mock.patch.dict(rl.REGISTERED, pending):
-                    with self.assertRaisesRegex(ValueError, "withdrawn whole"):
+                    with self.assertRaisesRegex(ValueError, f"{registry} model '{TEST_MODEL}': .* withdrawn together"):
                         rl.ledger_rows()
             # The key is retired: a lab that holds the model makes the build fail.
             with self.assertRaisesRegex(ValueError, "withdrawn, but its result exists"):
                 rl.build(load=_loader(_lab_with_model(TEST_MODEL, TEST_LABEL)))
+
+    def test_the_two_registries_rows_are_withdrawn_on_their_own(self):
+        """A model registered through both registries has two groups of rows reading two entries, so each group is
+        withdrawn on its own, and the answer does not depend on whether the other group has resolved: withdrawing only
+        the distribution rows is accepted while the lab rows wait and after the lab adds the model to its leaderboard
+        (the lab scores a fixed set of distribution models), and the distribution key stays retired."""
+        day, reason = _registration_day(), "the lab will not score this model's distribution"
+        regs = _model_registrations(TEST_MODEL, day)
+        lab_ids = list(_model_registrations(TEST_MODEL, day, distribution=False))
+        dist_ids = list(_model_registrations(TEST_MODEL, day, lab=False))
+        partial = {**regs, **{rid: dataclasses.replace(regs[rid], withdrawn=reason) for rid in dist_ids}}
+        with contextlib.ExitStack() as stack:
+            _patched(stack, (*_register_model(TEST_MODEL, TEST_LABEL, day), mock.patch.dict(rl.REGISTERED, partial)))
+            before = json.loads(json.dumps(rl.build()))
+        # The result PR: the lab adds the model to its leaderboard only, and the model moves into LAB_COMPARED; its key
+        # stays in REGISTERED_DISTRIBUTION_MODELS, retired there.
+        lab = _lab_with_model(TEST_MODEL, TEST_LABEL)
+        lab["distribution"]["models"] = [m for m in lab["distribution"]["models"] if m["key"] != TEST_MODEL]
+        with contextlib.ExitStack() as stack:
+            _patched(stack, (mock.patch.dict(rl.REGISTERED, partial),
+                             mock.patch.dict(rl.REGISTERED_DISTRIBUTION_MODELS, {TEST_MODEL: TEST_LABEL}),
+                             mock.patch.object(rl, "LAB_COMPARED", (*rl.LAB_COMPARED, TEST_MODEL))))
+            after = json.loads(json.dumps(rl.build(load=_loader(lab))))
+            with self.assertRaisesRegex(ValueError, "withdrawn, but its result exists"):     # the lab scores it later
+                rl.build(load=_loader(_lab_with_model(TEST_MODEL, TEST_LABEL)))
+        entry = next(m for m in lab["leaderboard"]["models"] if m["key"] == TEST_MODEL)
+        for name, ledger in (("before", before), ("after", after)):
+            rows, s = {r["id"]: r for r in ledger["rows"]}, ledger["summary"]
+            for rid in dist_ids:
+                with self.subTest(state=name, row=rid):
+                    self.assertEqual((rows[rid]["status"], rows[rid]["online_p"]), ("registered", 1.0))
+                    self.assertEqual(rows[rid]["registration"]["withdrawn"], reason)
+                    self.assertIn(rid, s["registered_withdrawn"])
+            for rid in lab_ids:
+                with self.subTest(state=name, row=rid):
+                    if name == "before":
+                        self.assertIn(rid, s["registered"])
+                    else:
+                        self.assertNotEqual(rows[rid]["status"], "registered")
+                        self.assertIsNone(rows[rid]["registration"]["withdrawn"])
+        self.assertEqual({r["id"]: r["p_value"] for r in after["rows"]}[f"vol_gw_{TEST_MODEL}"],
+                         entry["gw_qlike_vs_har_iv"]["conditional"]["p_value"])
+        self.assertEqual(_append_only_violations(before["rows"], after["rows"], {}), [])
+        # The other way round: only the lab rows withdrawn, the distribution rows still waiting.
+        other = {**regs, **{rid: dataclasses.replace(regs[rid], withdrawn=reason) for rid in lab_ids}}
+        with contextlib.ExitStack() as stack:
+            _patched(stack, (*_register_model(TEST_MODEL, TEST_LABEL, day), mock.patch.dict(rl.REGISTERED, other)))
+            s = json.loads(json.dumps(rl.build()))["summary"]
+        self.assertEqual([rid for rid in s["registered_withdrawn"] if rid in regs], lab_ids)
+        self.assertEqual([rid for rid in s["registered"] if rid in regs], dist_ids)
 
     def test_same_day_registrations_keep_their_registration_order(self):
         """Two registrations on one day, the second defined earlier in the code than the first: the first keeps the

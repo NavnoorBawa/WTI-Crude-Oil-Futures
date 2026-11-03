@@ -417,12 +417,25 @@ test("each STAB reading follows its flags and never overstates", async () => {
   assert.match(read(byName.get("challenger")), /p.=.0\.060 with each window's variance at 40 Bartlett lags/);
 });
 
-test("STAB's Giacomini-White note and tests table are counted from the payload", async () => {
-  const st = await stabilityLib();
-  const spliced = withStability(research);
-  const truth = committedLab();
-  const ledger = committedLedger();
-  const models = truth.leaderboard.models.filter((model) => model.key !== champion);
+// The committed lab and ledger with one more lab model (a copy of GARCH's entry and rows under a reserved key), as a
+// result PR that adds a model would leave them; the fixture's leaderboard does not hold it.
+const withOneMoreLabModel = (lab, ledger) => {
+  const key = "zz_test_model";
+  const copy = structuredClone(lab);
+  copy.leaderboard.models.push({ ...structuredClone(lab.leaderboard.models.find((model) => model.key === "garch")),
+    key, label: "Test model T" });
+  const rows = ledger.rows.filter((row) => row.id === "vol_gw_garch" || row.id === "vol_fluct_garch")
+    .map((row) => ({ ...structuredClone(row), id: row.id.replace("garch", key) }));
+  return { lab: copy, ledger: { ...ledger, rows: [...ledger.rows, ...rows] } };
+};
+
+// STAB's note and tests table count the models the payload carries, read against the artifacts they came from.
+const checkStabilityCounts = (st, source) => {
+  const spliced = withStability(research, source);
+  const truth = source.lab;
+  const ledger = source.ledger;
+  const carried = new Set(spliced.vol_lab.leaderboard.models.map((model) => model.key));
+  const models = truth.leaderboard.models.filter((model) => model.key !== champion && carried.has(model.key));
   const sig = models.filter((model) => model.gw_qlike_vs_har_iv.conditional.p_value < 0.05);
   const note = st.gwNote(spliced.vol_lab, m.research.researchLedger(spliced));
   assert.ok(note.includes(`significant at 5% against ${sig.length} of ${models.length} models`), note);
@@ -435,6 +448,18 @@ test("STAB's Giacomini-White note and tests table are counted from the payload",
   assert.ok(note.includes(`with 40 Bartlett lags ${weak.length} of the ${sig.length} `
     + `(${join(weak.map((model) => m.research.shortLabel(model.label)))}) are no longer significant at 5%`), note);
   assert.ok(note.includes(`Against the other ${models.length - sig.length - mid.length} it is not significant`), note);
+  const rows = st.stabilityTestRows(spliced, m.research.researchLedger(spliced));
+  assert.equal(rows.length, models.length);
+  return { spliced, truth, ledger, models, note, rows };
+};
+
+test("STAB's Giacomini-White note and tests table are counted from the payload", async () => {
+  const st = await stabilityLib();
+  const { spliced, truth, ledger, models, note } = checkStabilityCounts(st, { lab: committedLab(), ledger: committedLedger() });
+  // A lab model the payload does not carry is not counted (the fixture's leaderboard predates it).
+  const more = withOneMoreLabModel(committedLab(), committedLedger());
+  assert.equal(checkStabilityCounts(st, more).models.length, models.length);
+  assert.ok(more.lab.leaderboard.models.length > truth.leaderboard.models.length);
   // Synthetic flags: every Bartlett-40 p significant (no clause), none (all of them), every p 0.5 or 0.01.
   const variant = (edit) => {
     const copy = structuredClone(spliced);

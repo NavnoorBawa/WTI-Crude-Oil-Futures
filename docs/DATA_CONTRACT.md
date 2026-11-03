@@ -446,8 +446,10 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   is `{on, field, withdrawn}` (the date, the artifact field that will hold the result, and a withdrawal
   reason) or null. A registered row's result exists once `registration.field` holds a value, or a null
   that the row's test reads as optional (a test the artifact ran and could not compute, as the lab's
-  `not_computed` fluctuation fields: the row is then `inconclusive` with a null `p_value`, and tested
-  online at p = 1); until then, or while its artifact file is missing, the row is pending. A
+  `not_computed` fluctuation fields: the row then takes the status of any row whose test could not be
+  computed, `inconclusive`, or `not_supported` when its stored estimate points the wrong way, with a
+  null `p_value`, and is tested online at p = 1); until then, or while its artifact file is missing,
+  the row is pending. A
   registered row, pending or withdrawn, has a null `p_value`, `q_bh`, `p_holm`, `survives_bh` and
   `clears_t3`; its online decision is null while it is pending and false once it is withdrawn. The full artifact also has, per row,
   `online_p` (the p the row is tested on: `p_two_sided`, or 1 for a retracted row, a row whose test could
@@ -476,8 +478,8 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   this sample: its full-sample, conditional and over-time rows (`vol_challenger_qlike`,
   `vol_gw_har_iv_range` and `vol_fluct_har_iv_range`) and its three score rows (`vol_crps_har_iv_range`,
   `vol_pinball10_har_iv_range`, `vol_pinball90_har_iv_range`), all listed in `selected_after_search`. A row whose artifact could not
-  compute its test (a stored p-value of null) has a null `p_value`, is `inconclusive`, and is outside
-  the family too, with null `q_bh`, `p_holm`, `survives_bh` and `clears_t3`. Rows on the same loss
+  compute its test (a stored p-value of null) has a null `p_value`, is `inconclusive` (`not_supported`
+  when its stored estimate points the wrong way), and is outside the family too, with null `q_bh`, `p_holm`, `survives_bh` and `clears_t3`. Rows on the same loss
   difference are dependent: Benjamini-Hochberg assumes positive dependence (PRDS) and Holm holds under
   any dependence, and strongly significant near-duplicate rows lower other rows' q-values.
 

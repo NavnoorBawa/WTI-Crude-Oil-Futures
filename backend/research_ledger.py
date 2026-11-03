@@ -29,8 +29,9 @@ Status, from the test as the project ran it (one- or two-sided as recorded in `s
                  by itself on the first rebuild after the field holds its result. A stored null is no
                  result yet, unless the declared test reads that field as optional (Field(optional=
                  True)): then the null is the result, a test the artifact could not compute, and the
-                 row is inconclusive like any such row. `registered` means fixed before the result
-                 existed; `pre_specified` means fixed before the data were seen.
+                 row takes the status of any such row (inconclusive, or not_supported when its stored
+                 estimate points the wrong way). `registered` means fixed before the result existed;
+                 `pre_specified` means fixed before the data were seen.
 
 Multiplicity. Across the rows with a p-value: Benjamini-Hochberg (1995) q-values and Holm (1979)
 adjusted p-values, both computed on `p_two_sided`: the directional one-sided p doubled (capped at
@@ -42,8 +43,8 @@ A row marked `selected_after_search` tests a model picked as the best of a field
 its pairwise p-value ignores that search, so the row is left out of the multiplicity family and its
 q-value, Holm p-value and survival flags are null; its note names the search-adjusted test where one
 exists (the SPA row adjusts the full-sample comparison) or says none does. A row whose artifact
-could not compute its test (a stored p-value of null) has no p-value, is inconclusive, and is outside
-the family.
+could not compute its test (a stored p-value of null) has no p-value, is inconclusive (not_supported
+when its stored estimate points the wrong way), and is outside the family.
 
 Online control (ROADMAP 2.12). The batch view above is recomputed over the whole family whenever a
 row is added, so an old claim's survival can change because of hypotheses tested later. The online
@@ -57,14 +58,17 @@ their level and can neither be rejected nor fund later tests), rows selected aft
 out, and registered rows follow in the order of REGISTERED (registration order, which a new
 registration extends), so a registered row holds the position it was given when it was registered.
 A pending registered row blocks the decisions after it until it resolves or is withdrawn (then it
-enters at p = 1). A model registered through a generated family (REGISTERED_LAB_MODELS,
-REGISTERED_DISTRIBUTION_MODELS) is withdrawn whole, every row generated for it at once, which
-retires its key: its rows read one model entry, so a pending sibling of a withdrawn row could never
-resolve. Both procedures assume independent null p-values, which these rows do not have, and
-no status reads either online view. The rows that entered before registration began have no order
-fixed in advance: their entry batches are dated from the git history, but their order within each
-batch is the code's, fixed after their p-values were known, so the summary records how the rejection
-counts move when it is drawn at random (a fixed seed).
+enters at p = 1). The rows a registry of generated families (REGISTERED_LAB_MODELS,
+REGISTERED_DISTRIBUTION_MODELS) makes for a model are withdrawn together, which retires the key in
+that registry: they read one entry the lab writes whole (leaderboard.models[key=...] or
+distribution.models[key=...]), so the entry that would hold a pending row's result would hold its
+withdrawn sibling's too, and a withdrawn row's result may never exist. The two registries' rows read
+different entries, so each is withdrawn on its own. Both procedures assume independent null
+p-values, which these rows do not have, and no status reads either online view. The rows that
+entered before registration began have no order fixed in advance: their entry batches are dated
+from the git history, but their order within each batch is the code's, fixed after their p-values
+were known, so the summary records how the rejection counts move when it is drawn at random (a fixed
+seed).
 
 Provenance. `entered_on` (LEGACY_ENTRY, the UTC date of the squash merge on main that first held a
 group of rows) and the registration dates (REGISTERED) are provenance metadata taken from the git
@@ -316,9 +320,10 @@ class Row:
     selected_after_search: bool = False             # the tested model was chosen as the best of a field
     entered_on: str | None = None                   # stamped by ledger_rows(): when the row entered the ledger
     registration: Registration | None = None        # stamped by ledger_rows() from REGISTERED
-    registered_model: str | None = None             # set by a generated family: the key of the model registered
-                                                    # through REGISTERED_LAB_MODELS or REGISTERED_DISTRIBUTION_MODELS
-                                                    # whose row this is (its rows are withdrawn whole)
+    registered_model: tuple[str, str] | None = None  # set by a generated family: (the registry, REGISTERED_LAB_MODELS
+                                                     # or REGISTERED_DISTRIBUTION_MODELS, and the key of the model
+                                                     # registered there whose row this is); the rows one registry makes
+                                                     # for a model are withdrawn together
 
 
 VOL = "vol_forecast_validation.json"
@@ -799,8 +804,10 @@ LAB_COMPARED = ("persistence", "raw_ovx", "ewma", "garch", "gjr", "har_rv", "har
 # Models whose conditional and stability rows are registered before the lab produces them (ROADMAP 2.12): model key ->
 # the display label the rows show while they wait. Each row (vol_gw_<key>, vol_fluct_<key>) is in REGISTERED like any
 # other. In the result PR the model joins vol_lab's MODELS and moves from here to LAB_COMPARED, which leaves every
-# row's definition, and so its spec hash, unchanged. A model is withdrawn whole (every row generated for it, here and
-# in REGISTERED_DISTRIBUTION_MODELS), and then stays here for good: its key is retired.
+# row's definition, and so its spec hash, unchanged. Both rows registered here for a model are withdrawn together (they
+# read the one leaderboard entry the lab writes for it), and the model then stays here for good: its key is retired
+# here, and the lab never adds the model. Its distribution rows (REGISTERED_DISTRIBUTION_MODELS) read another entry and
+# are withdrawn, or not, on their own.
 REGISTERED_LAB_MODELS: dict[str, str] = {}
 CHALLENGER = "har_iv_range"
 _APPROXIMATE = ("The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it "
@@ -817,7 +824,7 @@ def _conditional_rows() -> list[Row]:
     rows = []
     for m in (*LAB_COMPARED, *REGISTERED_LAB_MODELS):
         pending = {"model": REGISTERED_LAB_MODELS[m]} if m in REGISTERED_LAB_MODELS else {}
-        model = m if m in REGISTERED_LAB_MODELS else None
+        model = ("REGISTERED_LAB_MODELS", m) if m in REGISTERED_LAB_MODELS else None
         gw = f"{_LM.format(m)}.gw_qlike_vs_har_iv"
         fl = f"{_LM.format(m)}.fluctuation_qlike_vs_har_iv"
         dm_p = f"{_LM.format(m)}.dm_qlike_vs_har_iv.p_value"
@@ -885,8 +892,9 @@ _LD = "distribution.models[key={}]"
 # HAR is a robustness competitor outside LAB_COMPARED: it is never ranked, banded or selected.
 DISTRIBUTION_MODELS = ("har_iv_range", "ovx_only", "garch", "gjr", "ewma", "quantile_har")
 # Models whose distribution rows are registered before the lab scores them (ROADMAP 2.12), as REGISTERED_LAB_MODELS: key
-# -> the label shown while the rows wait; in the result PR the model moves from here to DISTRIBUTION_MODELS. Withdrawn
-# whole, as there.
+# -> the label shown while the rows wait; in the result PR the model moves from here to DISTRIBUTION_MODELS. The four
+# rows registered here for a model read the one distribution entry the lab writes for it, so they are withdrawn
+# together, which retires the key here: the lab never scores the model's distribution (whatever its lab rows do).
 REGISTERED_DISTRIBUTION_MODELS: dict[str, str] = {}
 _SCORES = (("crps", "crps_grid", "CRPS over 19 quantiles"), ("pinball10", "pinball_10", "the 10% pinball loss"),
            ("pinball90", "pinball_90", "the 90% pinball loss"))
@@ -909,7 +917,7 @@ def _distribution_rows() -> list[Row]:
         base = _LD.format(m)
         picked = m == CHALLENGER
         pending = {"model": REGISTERED_DISTRIBUTION_MODELS[m]} if m in REGISTERED_DISTRIBUTION_MODELS else {}
-        model = m if m in REGISTERED_DISTRIBUTION_MODELS else None
+        model = ("REGISTERED_DISTRIBUTION_MODELS", m) if m in REGISTERED_DISTRIBUTION_MODELS else None
         for tag, score, phrase in _SCORES:
             dm = f"{base}.dm_vs_har_iv.{score}"
             if picked:
@@ -959,7 +967,7 @@ def _distribution_rows() -> list[Row]:
     for m in ("har_iv", *DISTRIBUTION_MODELS, *REGISTERED_DISTRIBUTION_MODELS):
         base = _LD.format(m)
         pending = {"model": REGISTERED_DISTRIBUTION_MODELS[m]} if m in REGISTERED_DISTRIBUTION_MODELS else {}
-        model = m if m in REGISTERED_DISTRIBUTION_MODELS else None
+        model = ("REGISTERED_DISTRIBUTION_MODELS", m) if m in REGISTERED_DISTRIBUTION_MODELS else None
         berk = f"{base}.berkowitz"
         context = {f"p_grid_{g}": f"{berk}.by_grid[{g}].p_value" for g in range(5)}
         context.update({"grids_below_5pct": f"{berk}.grids_below_5pct", "p_cauchy": f"{berk}.p_cauchy",
@@ -1042,7 +1050,8 @@ LEGACY_ENTRY = {"_direction_rows": ("2026-10-21", "#54"), "_leak_rows": ("2026-1
 # here: its date, then its place in this table, so a later registration never moves an earlier one, wherever its row
 # is defined. The row is defined with its complete test wherever its family's rows are defined (a generated family's
 # model through REGISTERED_LAB_MODELS or REGISTERED_DISTRIBUTION_MODELS, with every row generated for it here). A
-# withdrawal sets `withdrawn` and keeps the entry; a generated family's model is withdrawn whole.
+# withdrawal sets `withdrawn` and keeps the entry; the rows one of those registries makes for a model are withdrawn
+# together.
 REGISTERED: dict[str, Registration] = {}
 
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -1072,16 +1081,19 @@ def legacy_batches() -> dict[str, str]:
 def ledger_rows() -> list[Row]:
     """Every row, stamped with when it entered the ledger: its registration date if it is in REGISTERED, else the
     entry date of the function that defines it. Every row generated for a registered model must be registered, and
-    the model is withdrawn whole: its rows read one model entry, so a withdrawn row's pending sibling could never
-    resolve (the entry it needs would be the withdrawn row's result)."""
+    the rows one registry makes for a model are withdrawn together: they read one entry the lab writes whole, so the
+    entry that would hold a pending row's result would hold its withdrawn sibling's too. A model registered through
+    both registries has two such groups, which read different entries (leaderboard and distribution), so each is
+    withdrawn on its own."""
     out = []
-    models: dict[str, list[str]] = {}
+    models: dict[tuple[str, str], list[str]] = {}
     for fn, row in _defined_rows():
         registration = REGISTERED.get(row.id)
         if row.registered_model is not None:
             if registration is None:
-                raise ValueError(f"{row.id} is generated for the registered model {row.registered_model!r}: register "
-                                 "it in REGISTERED")
+                registry, key = row.registered_model
+                raise ValueError(f"{row.id} is generated for the model {key!r} registered in {registry}: register it "
+                                 "in REGISTERED")
             models.setdefault(row.registered_model, []).append(row.id)
         if registration is not None:
             out.append(replace(row, registration=registration, entered_on=registration.on))
@@ -1092,11 +1104,12 @@ def ledger_rows() -> list[Row]:
     orphans = sorted(set(REGISTERED) - {row.id for row in out})
     if orphans:
         raise ValueError(f"registrations without a row: {orphans}")
-    for model, ids in models.items():
+    for (registry, key), ids in models.items():
         withdrawn = [rid for rid in ids if REGISTERED[rid].withdrawn]
         if withdrawn and len(withdrawn) != len(ids):
-            raise ValueError(f"model {model!r}: {withdrawn} withdrawn but not {[rid for rid in ids if rid not in withdrawn]}"
-                             ": a registered model is withdrawn whole, which retires its key")
+            raise ValueError(f"{registry} model {key!r}: {withdrawn} withdrawn but not "
+                             f"{[rid for rid in ids if rid not in withdrawn]}: the rows a registry makes for a model "
+                             "read one entry and are withdrawn together, which retires the key there")
     return out
 
 
@@ -1367,8 +1380,9 @@ def _under(path: str, prefix: str) -> bool:
 def result_exists(row: Row, doc: Artifact | None) -> bool:
     """Whether a registered row's result exists in its artifact `doc` (None: the file does not exist yet): its declared
     field resolves to a value, or to a null its test reads as a result. That is an optional Field reading exactly that
-    field, where a null means the artifact ran the test and could not compute it (the row is then inconclusive, as any
-    such row). Any other null is a placeholder: no result yet."""
+    field, where a null means the artifact ran the test and could not compute it (the row then takes the status of any
+    such row: inconclusive, or not_supported when its stored estimate points the wrong way). Any other null is a
+    placeholder: no result yet."""
     reg = row.registration
     if reg is None:
         raise ValueError(f"{row.id} has no registration")
