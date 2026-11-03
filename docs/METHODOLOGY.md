@@ -809,8 +809,10 @@ pre-specified.
   Zrnic, Wainwright and Jordan 2018) run at a target false discovery rate of 0.05 over the rows in
   the order they entered the ledger. The order is by `entered_on`, the UTC date of the merge to main
   that first held the row (for rows entered before registration began) or its registration date,
-  then by the row's place in the ledger's code. It is not the artifact `date`, which for lab rows is
-  the snapshot's retrieval date. Each row is tested on `p_two_sided`. Retracted rows and rows whose
+  then, for registered rows, by their place in `REGISTERED` (registration order, so a later
+  registration never moves an earlier one, even on the same day) and, for the others, by the row's
+  place in the ledger's code. It is not the artifact `date`, which for lab rows is the snapshot's
+  retrieval date. Each row is tested on `p_two_sided`. Retracted rows and rows whose
   test the artifact could not compute enter at p = 1, so they spend their level but can neither be
   rejected nor fund later tests. In the batch view a retracted row keeps its recorded p, because
   there a rejection funds nothing. Rows selected after a search stay out, as in the batch view.
@@ -837,9 +839,9 @@ pre-specified.
   adjustment, and SAFFRON's level can exceed 0.05 after recent rejections: a rejection of a row whose
   own p is 0.05 or more is not support.
 
-  The rows that entered before registration began have no order fixed in advance: their batches'
-  internal order is the ledger's code order, reconstructed after their p-values were known. The
-  artifact therefore records how many rows each procedure rejects when that order is drawn at random
+  The rows that entered before registration began have no order fixed in advance: the git history
+  dates their entry batches, but each batch's internal order is the ledger's code order, fixed after
+  their p-values were known. The artifact therefore records how many rows each procedure rejects when that order is drawn at random
   within each entry batch, with a fixed seed (`summary.online.legacy_order_sensitivity`). For those
   rows the online decisions are a retrospective reading, and later rows' levels depend on them.
 
@@ -863,7 +865,11 @@ pre-specified.
   when the field exists, and the test must read that field; a pending row's field must not exist
   (else the ledger was not rebuilt). A registration can be withdrawn only while its result does not
   exist; the row then stays listed for good, with status registered, and is tested online at p = 1,
-  so a withdrawal still costs its level. `registered` means fixed before the result existed;
+  so a withdrawal still costs its level (it is not counted as tested). A generated family's row (one
+  per model, its hypothesis naming the model) is registered by listing the model, with the label the
+  rows show while they wait, in `REGISTERED_LAB_MODELS` or `REGISTERED_DISTRIBUTION_MODELS`; the hash
+  covers the hypothesis as written and the field paths of its names, so moving the model into
+  `LAB_COMPARED` or `DISTRIBUTION_MODELS` in the result pull request leaves it unchanged. `registered` means fixed before the result existed;
   `pre_specified` means fixed before the data were seen, and most registered rows will run on data
   already explored, so the two are counted separately. The checks see main only: a result computed
   off main before registration cannot be detected, and the row's note must disclose it if it

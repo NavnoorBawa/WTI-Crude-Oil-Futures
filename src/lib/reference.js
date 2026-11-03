@@ -6,6 +6,7 @@ import { ALPHA, shortModelName } from "./assertions";
 import { NBSP, fmtNum, fmtP, fmtPValue, fmtSigned, num } from "./format";
 import { asArray, asObject, asText, getLab, getRoles, getVol, leaderboardRows, mcsLevel, mcsSummary, postmortemWindow, varSeries } from "./research";
 import { callArithmetic, forecastDecomposition, forecastOfRecord, liveOfRecord, reproduces } from "./verdict";
+import { MONO_CHAR_PX } from "../theme/metrics";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}/;
 const isoDate = (value) => (typeof value === "string" && ISO_DATE.test(value) ? value.slice(0, 10) : null);
@@ -209,6 +210,99 @@ export const ledgerStripLabel = (groups) => {
     ? ` (${group.survivors} of them survive Benjamini-Hochberg)` : ""}`);
   return `${plural(total, "hypothesis", "hypotheses")} by status: ${parts.join("; ")}`;
 };
+
+// The strip's geometry, here rather than in its lazy chunk (charts/referenceCharts.jsx draws it) so LEDG can
+// reserve the strip's height before the chunk arrives. Labels sit under the strip on as many lines as they need.
+export const STRIP = {
+  cellHeight: 16,
+  labelLine: 14,
+  labelTop: 6,
+  // A label may sit this far right of its group's first cell before it moves to a lower line.
+  maxShift: 40,
+  labelGap: 12,
+  // Each label starts with a key in its group's colour, so a label that had to move to a lower line
+  // still says which cells it counts.
+  key: 8,
+  keyGap: 4,
+};
+
+/** The visible words of a strip group's label (the count is set apart from the status). */
+export const stripGroupWords = (group) => ({
+  count: String(group.count),
+  label: ` ${group.label}`,
+  survivors: group.survivors ? `, ${group.survivors} survive BH` : "",
+});
+
+/**
+ * Places each group's label under the strip, as near its first cell as it fits: on the first line
+ * where it neither overlaps the label before it nor sits more than STRIP.maxShift px right of its
+ * group, and never past the right edge. Pure.
+ *
+ * @param {{start: number, width: number}[]} labels  x of the group's first cell and the label's width
+ * @param {number} width
+ * @returns {{x: number, line: number}[]}
+ */
+export const placeStripLabels = (labels, width) => {
+  const ends = [];
+  return labels.map((label) => {
+    for (let index = 0; index < labels.length; index += 1) {
+      const end = ends[index] ?? -Infinity;
+      const x = Math.max(0, Math.min(Math.max(label.start, end + STRIP.labelGap), width - label.width));
+      if (x >= end + STRIP.labelGap - 0.5 && x - label.start <= STRIP.maxShift) {
+        ends[index] = x + label.width;
+        return { x, line: index };
+      }
+    }
+    const line = ends.length;
+    ends[line] = Math.min(label.start, width - label.width) + label.width;
+    return { x: Math.max(0, Math.min(label.start, width - label.width)), line };
+  });
+};
+
+/**
+ * The strip drawn `width` px wide (see ledgerStrip): the gap between cells, the cells' width and x, each
+ * group's label (its words, the x of its first cell and its width) and where it is placed, the number of
+ * label lines and the strip's height. Null when there is nothing to draw. Pure.
+ */
+export const ledgerStripLayout = (strip, width) => {
+  const cells = asArray(strip?.cells);
+  const groups = asArray(strip?.groups);
+  const n = cells.length;
+  if (!n || !(width > 0)) return null;
+  const gap = width / n >= 8 ? 2 : 1;
+  const groupGap = gap * 2;
+  const cellWidth = Math.max(1, (width - (n - 1) * gap - (groups.length - 1) * groupGap) / n);
+  const groupIndex = new Map(groups.map((group, index) => [group.key, index]));
+  const cellX = (index, status) => index * (cellWidth + gap) + (groupIndex.get(status) ?? 0) * groupGap;
+  const labels = groups.map((group) => {
+    const words = stripGroupWords(group);
+    const text = `${words.count}${words.label}${words.survivors}`;
+    return { group, words, start: cellX(group.start, group.key), width: STRIP.key + STRIP.keyGap + text.length * MONO_CHAR_PX };
+  });
+  const placed = placeStripLabels(labels, width);
+  const lines = Math.max(1, ...placed.map((item) => item.line + 1));
+  return { gap, cellWidth, cellX, labels, placed, lines, height: STRIP.cellHeight + STRIP.labelTop + lines * STRIP.labelLine };
+};
+
+/** The strip's height when drawn `width` px wide (one label line when there is nothing to draw). */
+export const ledgerStripHeight = (strip, width) => ledgerStripLayout(strip, width)?.height
+  ?? STRIP.cellHeight + STRIP.labelTop + STRIP.labelLine;
+
+// The strip's width at the narrowest viewport of each band LazyMount reserves for, as measured in Chromium (the strip
+// is the viewport less 32 px up to 640 px, less 82 to 98 px above, and at most 1342 px wide), less a classic scrollbar
+// where a desktop has one: 1280 px for `wide` (the common desktops; from 900 to 1279 px the strip can still need one
+// more label line), 641 px for `mid` and 360 px phones for `narrow`.
+export const LEDGER_STRIP_RESERVE_WIDTH = { wide: 1160, mid: 540, narrow: 328 };
+
+/**
+ * The heights LEDG reserves for the strip before its chunk arrives, from its own label layout at each band's
+ * LEDGER_STRIP_RESERVE_WIDTH. The mounted strip is never drawn shorter (reference-sections.css), and wider strips in a
+ * band need no more lines, so mounting it moves nothing below it.
+ *
+ * @returns {{wide: number, mid: number, narrow: number}}
+ */
+export const ledgerStripReserve = (strip) => Object.fromEntries(Object.entries(LEDGER_STRIP_RESERVE_WIDTH)
+  .map(([band, width]) => [band, ledgerStripHeight(strip, width)]));
 
 // --------------------------------------------------------------------------------- model card
 

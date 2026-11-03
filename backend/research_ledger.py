@@ -23,7 +23,9 @@ Status, from the test as the project ran it (one- or two-sided as recorded in `s
                  kept as a record, and the row stays in the multiplicity count (it was tested).
   registered     declared, with its complete test and the artifact field that will hold its result,
                  and merged before that field existed; no result yet (or withdrawn before one
-                 existed). It has no p-value and no batch or online decision, and its status changes
+                 existed). It has no p-value and no batch decision; a pending one has no online
+                 decision (its online level is fixed once every earlier row is decided), and a
+                 withdrawn one is tested online at p = 1 but not counted as tested. Its status changes
                  by itself on the first rebuild after the field exists. `registered` means fixed
                  before the result existed; `pre_specified` means fixed before the data were seen.
 
@@ -49,12 +51,14 @@ normalised to a horizon, so a row's level depends only on the rows before it and
 changes an earlier decision. The stream is every row of the batch family, tested on `p_two_sided`,
 plus rows whose test could not be computed; retracted and uncomputed rows enter at p = 1 (they spend
 their level and can neither be rejected nor fund later tests), rows selected after a search stay
-out, and a registered row holds the position reserved when it was registered. A pending registered
-row blocks the decisions after it until it resolves or is withdrawn (then it enters at p = 1). Both
-procedures assume independent null p-values, which these rows do not have, and no status reads
-either online view. The rows that entered before registration began have no order fixed in advance:
-their order within each entry batch is the code's, reconstructed after their p-values were known, so
-the summary records how the rejection counts move when it is drawn at random (a fixed seed).
+out, and registered rows follow in the order of REGISTERED (registration order, which a new
+registration extends), so a registered row holds the position it was given when it was registered.
+A pending registered row blocks the decisions after it until it resolves or is withdrawn (then it
+enters at p = 1). Both procedures assume independent null p-values, which these rows do not have, and
+no status reads either online view. The rows that entered before registration began have no order
+fixed in advance: their entry batches are dated from the git history, but their order within each
+batch is the code's, fixed after their p-values were known, so the summary records how the rejection
+counts move when it is drawn at random (a fixed seed).
 
 Provenance. `entered_on` (LEGACY_ENTRY, the UTC date of the squash merge on main that first held a
 group of rows) and the registration dates (REGISTERED) are provenance metadata taken from the git
@@ -111,8 +115,8 @@ SAFFRON_GAMMA_S = 1.6
 ONLINE_REFERENCE = "onlineFDR 2.21.3 (Bioconductor; commit e3a5a68): LORD(version = '++') and SAFFRON defaults"
 ORDER_DRAWS = 1000                    # legacy order sensitivity: random orders within each entry batch
 ORDER_SEED = 212                      # fixed in code before the production build
-ONLINE_ORDER = ("entered_on (the UTC date the row entered main; registered_on for registered rows), then the row's "
-                "place in ledger_rows()")
+ONLINE_ORDER = ("entered_on (the UTC date the row entered main; registered_on for registered rows), then, for "
+                "registered rows, their place in REGISTERED and, for the others, their place in ledger_rows()")
 
 
 # ── Reading artifacts by field path ──────────────────────────────────────────
@@ -299,6 +303,8 @@ class Row:
     context: dict[str, str] = field(default_factory=dict)  # label -> field path, shown beside the statistic
     names: dict[str, str] = field(default_factory=dict)    # label -> field path of a display name; "{label}"
                                                            # in the hypothesis inserts it
+    pending_names: dict[str, str] = field(default_factory=dict)  # label -> the display text a registered row
+                                                                 # shows until its result (and the name) exists
     underpowered_if: tuple[str, str] | None = None  # (power, target power) context labels
     selected_after_search: bool = False             # the tested model was chosen as the best of a field
     entered_on: str | None = None                   # stamped by ledger_rows(): when the row entered the ledger
@@ -780,6 +786,11 @@ def _band_rows() -> list[Row]:
 # imports the lab, and a test checks the two agree).
 LAB_COMPARED = ("persistence", "raw_ovx", "ewma", "garch", "gjr", "har_rv", "har_rs", "har_range", "ovx_only",
                 "har_iv_sameday", "har_iv_range", "lgbm", "combo")
+# Models whose conditional and stability rows are registered before the lab produces them (ROADMAP 2.12): model key ->
+# the display label the rows show while they wait. Each row (vol_gw_<key>, vol_fluct_<key>) is in REGISTERED like any
+# other. In the result PR the model joins vol_lab's MODELS and moves from here to LAB_COMPARED, which leaves every
+# row's definition, and so its spec hash, unchanged.
+REGISTERED_LAB_MODELS: dict[str, str] = {}
 CHALLENGER = "har_iv_range"
 _APPROXIMATE = ("The theory assumes forecasts re-estimated on rolling windows of bounded size, which is also what lets it "
                 "compare nested models; the lab's windows expand and HAR-RV and the OVX-only regression are nested in "
@@ -793,7 +804,8 @@ def _conditional_rows() -> list[Row]:
     sample) and stay out of the family. The chi2(4) Giacomini-White form, which includes the full-sample mean the DM
     rows already test, and every robustness variant stay in the artifact as context."""
     rows = []
-    for m in LAB_COMPARED:
+    for m in (*LAB_COMPARED, *REGISTERED_LAB_MODELS):
+        pending = {"model": REGISTERED_LAB_MODELS[m]} if m in REGISTERED_LAB_MODELS else {}
         gw = f"{_LM.format(m)}.gw_qlike_vs_har_iv"
         fl = f"{_LM.format(m)}.fluctuation_qlike_vs_har_iv"
         dm_p = f"{_LM.format(m)}.dm_qlike_vs_har_iv.p_value"
@@ -810,7 +822,7 @@ def _conditional_rows() -> list[Row]:
             context={"df": f"{gw}.conditional.df", "p_with_constant": f"{gw}.p_value", "dm_p": dm_p,
                      "p_bartlett_10": f"{gw}.robustness.bartlett_10.conditional_p_value",
                      "p_bartlett_40": f"{gw}.robustness.bartlett_40.conditional_p_value", "n_days": f"{gw}.n_days"},
-            names={"model": f"{_LM.format(m)}.label"},
+            names={"model": f"{_LM.format(m)}.label"}, pending_names=pending,
             note=(("Selected after a search: the challenger is the lowest-QLIKE model of the field on this same "
                    "sample. This statistic is unchanged by a constant shift of the difference, but its moments move "
                    "with the mean the challenger was picked on whenever the difference's variance moves with the "
@@ -840,7 +852,7 @@ def _conditional_rows() -> list[Row]:
                      "p_bartlett_40": f"{fl}.robustness.bartlett_40.p_value",
                      "p_full_sample_variance": f"{fl}.robustness.full_sample_variance.p_value",
                      "grids_outside_5pct": f"{fl}.robustness.by_grid.outside_5pct", "dm_p": dm_p},
-            names={"model": f"{_LM.format(m)}.label"},
+            names={"model": f"{_LM.format(m)}.label"}, pending_names=pending,
             note=(("Selected after a search: the challenger is the lowest-QLIKE model of the field on this same "
                    "sample, and this test's null includes that mean, so its p-value ignores the search. The row is "
                    "left out of the multiplicity family. No search-adjusted fluctuation test exists; "
@@ -860,6 +872,9 @@ _LD = "distribution.models[key={}]"
 # The models whose whole predictive distribution the lab scores (ROADMAP 2.4), in the artifact's order. The quantile
 # HAR is a robustness competitor outside LAB_COMPARED: it is never ranked, banded or selected.
 DISTRIBUTION_MODELS = ("har_iv_range", "ovx_only", "garch", "gjr", "ewma", "quantile_har")
+# Models whose distribution rows are registered before the lab scores them (ROADMAP 2.12), as REGISTERED_LAB_MODELS: key
+# -> the label shown while the rows wait; in the result PR the model moves from here to DISTRIBUTION_MODELS.
+REGISTERED_DISTRIBUTION_MODELS: dict[str, str] = {}
 _SCORES = (("crps", "crps_grid", "CRPS over 19 quantiles"), ("pinball10", "pinball_10", "the 10% pinball loss"),
            ("pinball90", "pinball_90", "the 90% pinball loss"))
 _DIST_FORKS = ("Chosen after the scores were seen, and published beside the ledger's choices: the vol-point scale "
@@ -877,9 +892,10 @@ def _distribution_rows() -> list[Row]:
     challenger's three score rows are selected after a search and stay out of the family; the log-scale CRPS, the
     CRPS Model Confidence Set and the quantile HAR's field rerun stay in the artifact as context."""
     rows = []
-    for m in DISTRIBUTION_MODELS:
+    for m in (*DISTRIBUTION_MODELS, *REGISTERED_DISTRIBUTION_MODELS):
         base = _LD.format(m)
         picked = m == CHALLENGER
+        pending = {"model": REGISTERED_DISTRIBUTION_MODELS[m]} if m in REGISTERED_DISTRIBUTION_MODELS else {}
         for tag, score, phrase in _SCORES:
             dm = f"{base}.dm_vs_har_iv.{score}"
             if picked:
@@ -924,10 +940,11 @@ def _distribution_rows() -> list[Row]:
                       "conformal band's days."),
                 statistic=("batch-means t", f"{dm}.stat"), p=Field(f"{dm}.p_value"), sided="two",
                 expects=POSITIVE if picked or m == "quantile_har" else NEGATIVE,
-                context=context, names={} if m == "quantile_har" else {"model": f"{base}.label"}, note=note,
-                selected_after_search=picked))
-    for m in ("har_iv", *DISTRIBUTION_MODELS):
+                context=context, names={} if m == "quantile_har" else {"model": f"{base}.label"},
+                pending_names=pending, note=note, selected_after_search=picked))
+    for m in ("har_iv", *DISTRIBUTION_MODELS, *REGISTERED_DISTRIBUTION_MODELS):
         base = _LD.format(m)
+        pending = {"model": REGISTERED_DISTRIBUTION_MODELS[m]} if m in REGISTERED_DISTRIBUTION_MODELS else {}
         berk = f"{base}.berkowitz"
         context = {f"p_grid_{g}": f"{berk}.by_grid[{g}].p_value" for g in range(5)}
         context.update({"grids_below_5pct": f"{berk}.grids_below_5pct", "p_cauchy": f"{berk}.p_cauchy",
@@ -985,6 +1002,7 @@ def _distribution_rows() -> list[Row]:
             id=f"vol_berkowitz_{m}", family="distribution calibration", source=LAB, hypothesis=hypothesis, test=test,
             statistic=("grids below 5%", f"{berk}.grids_below_5pct"), p=BonferroniOverRuns(f"{berk}.by_grid", "p_value"),
             sided="two", context=context, names={} if m == "quantile_har" else {"model": f"{base}.label"},
+            pending_names=pending,
             note=note + " The reference per PIT construction and the Bonferroni combination were fixed after "
                         "prototype runs on this sample (docs/METHODOLOGY.md section 7)."))
     return rows
@@ -1004,8 +1022,11 @@ LEGACY_ENTRY = {"_direction_rows": ("2026-10-21", "#54"), "_leak_rows": ("2026-1
                 "_band_rows": ("2026-11-01", "#99"), "_conditional_rows": ("2026-11-02", "#101"),
                 "_distribution_rows": ("2026-11-02", "#104"), "_shock_rows": ("2026-10-21", "#54")}
 
-# Rows registered before their results exist, in registration order (ROADMAP 2.12). Each one's place in the online
-# order is fixed here; its row is defined with its complete test wherever its family's rows are defined.
+# Rows registered before their results exist, in registration order (ROADMAP 2.12). A new registration is appended,
+# dated no earlier than the entry before it (the same day is allowed). Each one's place in the online order is fixed
+# here: its date, then its place in this table, so a later registration never moves an earlier one, wherever its row
+# is defined. The row is defined with its complete test wherever its family's rows are defined (a generated family's
+# model through REGISTERED_LAB_MODELS or REGISTERED_DISTRIBUTION_MODELS).
 REGISTERED: dict[str, Registration] = {}
 
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -1018,7 +1039,13 @@ def latest_legacy_entry() -> str:
 
 def _defined_rows() -> list[tuple[str, Row]]:
     """(defining function, row) for every row, in the artifact's order."""
-    return [(fn.__name__, row) for fn in _ROW_FUNCTIONS for row in fn()]
+    out = [(fn.__name__, row) for fn in _ROW_FUNCTIONS for row in fn()]
+    seen: set[str] = set()
+    for _, row in out:
+        if row.id in seen:
+            raise ValueError(f"{row.id} is defined twice (a model in both LAB_COMPARED and REGISTERED_LAB_MODELS?)")
+        seen.add(row.id)
+    return out
 
 
 def legacy_batches() -> dict[str, str]:
@@ -1271,8 +1298,9 @@ def _by_family(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 
 
 def spec_sha256(row: Row) -> str:
-    """SHA-256 of everything in a registered row's definition that decides its p-value, direction and status. Notes,
-    context, the underpowered pair, a retraction and a withdrawal may change after the result; nothing hashed may."""
+    """SHA-256 of everything in a registered row's definition that decides its p-value, direction and status, with its
+    hypothesis as written (a template's names by their field paths). Notes, context, the underpowered pair, a
+    retraction, a withdrawal and the text shown while pending may change after the result; nothing hashed may."""
     if row.registration is None:
         raise ValueError(f"{row.id} has no registration")
     if row.p is None or not isinstance(row.p, P_SOURCES):
@@ -1282,7 +1310,8 @@ def spec_sha256(row: Row) -> str:
         direction = next((name for name, fn in DIRECTIONS.items() if fn is row.expects), None)
         if direction is None:
             raise ValueError(f"{row.id}: a registered row's direction must be one of DIRECTIONS")
-    spec = {"id": row.id, "family": row.family, "hypothesis": row.hypothesis, "test": row.test, "source": row.source,
+    spec = {"id": row.id, "family": row.family, "hypothesis": row.hypothesis, "names": dict(row.names),
+            "test": row.test, "source": row.source,
             "statistic": {"label": row.statistic[0], "path": row.statistic[1]}, "sided": row.sided,
             "p": {"type": type(row.p).__name__, **dataclasses.asdict(row.p)}, "direction": direction,
             "beats": row.beats, "pre_specified": row.pre_specified, "selected_after_search": row.selected_after_search,
@@ -1299,8 +1328,6 @@ def _check_registration(row: Row) -> None:
     if not _DATE.match(reg.on) or reg.on <= latest_legacy_entry():
         raise ValueError(f"{row.id}: registered on {reg.on!r}, which must be a YYYY-MM-DD date later than the latest "
                          f"legacy entry ({latest_legacy_entry()})")
-    if row.names:
-        raise ValueError(f"{row.id}: a registered row writes its hypothesis out in full (no names)")
     spec_sha256(row)                      # the declared p source and direction can be hashed
 
 
@@ -1366,10 +1393,20 @@ def _order_sensitivity(stream: list[dict[str, Any]], batches: dict[str, str]) ->
                for name in ("lordpp", "saffron")}}
 
 
+def _stream_key(rows: list[dict[str, Any]]) -> Callable[[dict[str, Any]], tuple[str, bool, int]]:
+    """The online order (ONLINE_ORDER): the entry date, then a registered row's place in REGISTERED (registration
+    order) or another row's place in `rows` (the code's order). Registration dates are later than every legacy entry,
+    so the middle term only keeps the two kinds apart; a registered row outside REGISTERED (a test's synthetic row)
+    follows those in it, in its place in `rows`."""
+    index = {r["id"]: i for i, r in enumerate(rows)}
+    registered = {rid: i for i, rid in enumerate(REGISTERED)}
+    return lambda r: (r["entered_on"], r["registration"] is not None,
+                      registered.get(r["id"], len(registered) + index[r["id"]]))
+
+
 def _online(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Fill each row's online fields (LORD++ and SAFFRON over the stream in entry order) and return summary.online."""
-    index = {id(r): i for i, r in enumerate(rows)}
-    stream = sorted((r for r in rows if not r["selected_after_search"]), key=lambda r: (r["entered_on"], index[id(r)]))
+    stream = sorted((r for r in rows if not r["selected_after_search"]), key=_stream_key(rows))
     for r in rows:
         r.update(dict.fromkeys(ONLINE_FIELDS))
     for t, r in enumerate(stream, start=1):
@@ -1436,16 +1473,20 @@ def build(load: Callable[[str], Artifact] | None = None, rows: list[Row] | None 
         registration = None if reg is None else {"on": reg.on, "field": reg.field, "withdrawn": reg.withdrawn,
                                                  "spec_sha256": spec_sha256(row)}
         if reg is not None and (reg.withdrawn or not exists):
+            if set(row.pending_names) != set(row.names):
+                raise ValueError(f"{row.id}: a registered row with names declares the text each shows until its result "
+                                 f"exists (pending_names {sorted(row.pending_names)}, names {sorted(row.names)})")
             out.append({
                 "id": row.id, "date": None, "entered_on": entered_on, "family": row.family,
-                "hypothesis": row.hypothesis, "test": row.test,
+                "hypothesis": row.hypothesis.format(**row.pending_names) if row.names else row.hypothesis,
+                "test": row.test,
                 "statistic": {"name": stat_label, "value": None}, "context": {},
                 "p_value": None, "sided": row.sided, "p_two_sided": None,
                 "pre_specified": row.pre_specified, "selected_after_search": row.selected_after_search,
                 "status": _status(row, None, None, pending=True), "underpowered": None, "retraction_reason": None,
                 "registration": registration, "note": row.note,
                 "artifact": {"path": f"data/{row.source}", "statistic_field": stat_path, "p_value_fields": {},
-                             "context_fields": dict(row.context), "name_fields": {}},
+                             "context_fields": dict(row.context), "name_fields": dict(row.names)},
             })
             continue
         if doc is None:                       # only a registered row's artifact may be missing (it is pending)

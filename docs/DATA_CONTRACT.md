@@ -424,8 +424,9 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   `inconclusive`, `registered`), `rows_in_multiplicity_family`, the lists of supported rows surviving each
   adjustment, `selected_after_search` and `supported_selected_after_search` (rows left out of the
   multiplicity family because the model they test was picked by a search of the same sample),
-  `underpowered`, `rows_tested` (`rows` less the registered rows), `registered` (registered rows still
-  without a result), `registered_withdrawn`, `registered_before_result` (every row with a registration,
+  `underpowered`, `rows_tested` (`rows` less every row with status `registered`, pending or withdrawn),
+  `registered` (only the registered rows still waiting for a result), `registered_withdrawn` (registered
+  rows withdrawn before a result existed), `registered_before_result` (every row with a registration,
   whatever its status) and `online`; a row is `{id, date, family, hypothesis, test, statistic_name,
   statistic_value, p_value, q_bh, p_holm, survives_bh, clears_t3, pre_specified, status, artifact,
   entered_on, online_position, online_alpha_lordpp, online_rejected_lordpp, online_alpha_saffron,
@@ -437,11 +438,15 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   target false discovery rate of 0.05 over the rows in that order: `online_position` is the row's place
   in the stream (1-based), and each procedure's `online_alpha_*` is the level the row was tested at and
   `online_rejected_*` its decision. The online fields are null outside the stream (a row selected after a
-  search), and the level and decision are null while the row, or an earlier row, is registered without a
-  result; `online_rejected_*` is false for a retracted row, which is tested at p = 1. `registration` is
-  `{on, field, withdrawn}` (the date, the artifact field that will hold the result, and a withdrawal
-  reason) or null. A registered row without a result has a null `p_value`, `q_bh`, `p_holm`,
-  `survives_bh` and `clears_t3`, and null online decisions. The full artifact also has, per row,
+  search). While a registered row waits for its result (`registration.withdrawn` null), its
+  `online_rejected_*` is null, and its `online_alpha_*` is published, fixed before the result exists, once
+  every earlier row is decided; every later row's level and decision are null until it resolves.
+  `online_rejected_*` is false for a retracted row and for a withdrawn registration, which are tested at
+  p = 1 with their level set, and a withdrawn registration does not hold up later rows. `registration`
+  is `{on, field, withdrawn}` (the date, the artifact field that will hold the result, and a withdrawal
+  reason) or null. A registered row, pending or withdrawn, has a null `p_value`, `q_bh`, `p_holm`,
+  `survives_bh` and `clears_t3`; its online decision is null while it is pending and false once it is
+  withdrawn. The full artifact also has, per row,
   `online_p` (the p the row is tested on: `p_two_sided`, or 1 for a retracted row, a row whose test could
   not be computed and a withdrawn registration), `online_candidate_saffron` (`online_p` ≤ λ) and
   `registration.spec_sha256` (the hash of the declared test). `summary.online` is `{alpha, reference,
@@ -449,8 +454,11 @@ copy. Nothing in it is computed at deploy time. Top-level keys:
   lordpp{w0, gamma_c, gamma, rejected[], wealth[], next_level}, saffron{w0, lambda, gamma_c, gamma_s,
   candidates, rejected[], wealth[], next_level}, legacy_order_sensitivity{draws, seed, scope,
   legacy_rows, lordpp{min, max, same_set_share}, saffron{min, max, same_set_share}}}`: `waiting_on` names
-  the first registered row without a result (null when none), `wealth` runs over the decided rows, and
-  `next_level` is the level a row appended now would be tested at (null while a row waits). `vol_lab`'s
+  the first registered row without a result (null when none), `wealth` runs over the decided rows,
+  `next_level` is the level a row appended now would be tested at (null while a row waits), and
+  `legacy_order_sensitivity` summarises `draws` random within-batch orders (a sample with a fixed seed:
+  its range and `same_set_share`, the share of draws that give the published rejection set, are
+  estimates, and the published order need not be among the draws). `vol_lab`'s
   keys named `registered` (`gw_*.registered`, `dm.registered`, `berkowitz.registered`) name the form the
   ledger reads and are unrelated to the status. Two families test each model against the model of record, one row per
   model: "conditional predictive ability" (`vol_gw_<model>`, the Giacomini-White conditional p) and

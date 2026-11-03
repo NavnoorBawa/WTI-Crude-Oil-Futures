@@ -305,7 +305,7 @@
     "online": {
       "alpha": 0.05,
       "reference": "onlineFDR 2.21.3 (Bioconductor; commit e3a5a68): LORD(version = '++') and SAFFRON defaults",
-      "order": "entered_on (the UTC date the row entered main; registered_on for registered rows), then the row's place in ledger_rows()",
+      "order": "entered_on (the UTC date the row entered main; registered_on for registered rows), then, for registered rows, their place in REGISTERED and, for the others, their place in ledger_rows()",
       "rows_in_stream": 129,
       "rows_decided": 129,
       "waiting_on": null,

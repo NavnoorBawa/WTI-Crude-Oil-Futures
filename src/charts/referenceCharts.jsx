@@ -4,55 +4,15 @@
 import { scaleLinear, scaleUtc } from "d3-scale";
 import { line } from "d3-shape";
 import { fmtDate, fmtNum } from "../lib/format";
-import { ledgerStripLabel } from "../lib/reference";
+import { STRIP, ledgerStripLabel, ledgerStripLayout, placeStripLabels } from "../lib/reference";
 import { MONO_CHAR_PX } from "../theme/chartTheme";
 import { Frame, XAxis, YAxis, extent } from "./svgCharts.jsx";
 
 // ------------------------------------------------------------------------------- ledger strip
 
-const STRIP_H = 16;
-const LABEL_LINE = 14;
-const LABEL_TOP = 6;
-// A label may sit this far right of its group's first cell before it moves to a lower line.
-const MAX_SHIFT = 40;
-const LABEL_GAP = 12;
-// Each label starts with a key in its group's colour, so a label that had to move to a lower line
-// still says which cells it counts.
-const KEY = 8;
-const KEY_GAP = 4;
-
-/** The visible words of a group's label (the count is set apart from the status). */
-const groupWords = (group) => ({
-  count: String(group.count),
-  label: ` ${group.label}`,
-  survivors: group.survivors ? `, ${group.survivors} survive BH` : "",
-});
-
-/**
- * Places each group's label under the strip, as near its first cell as it fits: on the first line
- * where it neither overlaps the label before it nor sits more than MAX_SHIFT px right of its group,
- * and never past the right edge. Pure.
- *
- * @param {{start: number, width: number}[]} labels  x of the group's first cell and the label's width
- * @param {number} width
- * @returns {{x: number, line: number}[]}
- */
-export const placeStripLabels = (labels, width) => {
-  const ends = [];
-  return labels.map((label) => {
-    for (let index = 0; index < labels.length; index += 1) {
-      const end = ends[index] ?? -Infinity;
-      const x = Math.max(0, Math.min(Math.max(label.start, end + LABEL_GAP), width - label.width));
-      if (x >= end + LABEL_GAP - 0.5 && x - label.start <= MAX_SHIFT) {
-        ends[index] = x + label.width;
-        return { x, line: index };
-      }
-    }
-    const line = ends.length;
-    ends[line] = Math.min(label.start, width - label.width) + label.width;
-    return { x: Math.max(0, Math.min(label.start, width - label.width)), line };
-  });
-};
+// The strip's geometry and label placement live in lib/reference.js, so LEDG can reserve its height before this
+// chunk arrives; placeStripLabels is re-exported for the tests.
+export { placeStripLabels };
 
 /**
  * The research ledger as one strip of cells, one per hypothesis, in the ledger's default order and
@@ -63,23 +23,11 @@ export const placeStripLabels = (labels, width) => {
  *   survivors: number, start: number}[]}, width: number}} props
  */
 export function LedgerStripSvg({ strip, width }) {
+  const layout = ledgerStripLayout(strip, width);
+  if (!layout) return null;
   const { cells, groups } = strip;
-  const n = cells.length;
-  if (!n || width <= 0) return null;
-  const gap = width / n >= 8 ? 2 : 1;
-  const groupGap = gap * 2;
-  const cellWidth = Math.max(1, (width - (n - 1) * gap - (groups.length - 1) * groupGap) / n);
-  const groupIndex = new Map(groups.map((group, index) => [group.key, index]));
-  const cellX = (index, status) => index * (cellWidth + gap) + (groupIndex.get(status) ?? 0) * groupGap;
-  const labels = groups.map((group) => {
-    const words = groupWords(group);
-    const text = `${words.count}${words.label}${words.survivors}`;
-    return { group, words, start: cellX(group.start, group.key), width: KEY + KEY_GAP + text.length * MONO_CHAR_PX };
-  });
-  const placed = placeStripLabels(labels, width);
-  const lines = Math.max(1, ...placed.map((item) => item.line + 1));
-  const height = STRIP_H + LABEL_TOP + lines * LABEL_LINE;
-  const baseline = (lineIndex) => STRIP_H + LABEL_TOP + lineIndex * LABEL_LINE + 9;
+  const { cellWidth, cellX, labels, placed, height } = layout;
+  const baseline = (lineIndex) => STRIP.cellHeight + STRIP.labelTop + lineIndex * STRIP.labelLine + 9;
   const keyKind = (key) => key.replace(/_/g, "-");
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="svg-chart ledger-strip" role="img" aria-label={ledgerStripLabel(groups)}>
@@ -88,7 +36,7 @@ export function LedgerStripSvg({ strip, width }) {
         // The survivor's outline is drawn inside its cell, so neighbouring cells keep their gap.
         const inset = cell.kind === "survivor" ? Math.min(0.75, cellWidth / 4) : 0;
         return (
-          <rect key={cell.id} x={x + inset} y={inset} width={Math.max(0.5, cellWidth - 2 * inset)} height={STRIP_H - 2 * inset}
+          <rect key={cell.id} x={x + inset} y={inset} width={Math.max(0.5, cellWidth - 2 * inset)} height={STRIP.cellHeight - 2 * inset}
             className={`strip-cell is-${cell.kind.replace(/_/g, "-")}`} />
         );
       })}
@@ -96,9 +44,9 @@ export function LedgerStripSvg({ strip, width }) {
         const { x, line: lineIndex } = placed[index];
         return (
           <g key={group.key}>
-            <line className="strip-leader" x1={start + 0.5} x2={start + 0.5} y1={STRIP_H + 1} y2={STRIP_H + LABEL_TOP - 1} />
-            <rect className={`strip-cell strip-key is-${keyKind(group.key)}`} x={x} y={baseline(lineIndex) - KEY} width={KEY} height={KEY} />
-            <text className="strip-label" x={x + KEY + KEY_GAP} y={baseline(lineIndex)}>
+            <line className="strip-leader" x1={start + 0.5} x2={start + 0.5} y1={STRIP.cellHeight + 1} y2={STRIP.cellHeight + STRIP.labelTop - 1} />
+            <rect className={`strip-cell strip-key is-${keyKind(group.key)}`} x={x} y={baseline(lineIndex) - STRIP.key} width={STRIP.key} height={STRIP.key} />
+            <text className="strip-label" x={x + STRIP.key + STRIP.keyGap} y={baseline(lineIndex)}>
               <tspan className="strip-count">{words.count}</tspan>
               <tspan>{words.label}</tspan>
               {words.survivors && <tspan className="label-model">{words.survivors}</tspan>}
@@ -110,9 +58,13 @@ export function LedgerStripSvg({ strip, width }) {
   );
 }
 
-/** The measured strip (see LedgerStripSvg). Its height grows by a label line where labels must stack. */
+/**
+ * The measured strip (see LedgerStripSvg). Its frame sets no height of its own: inside LEDG's LazyMount it keeps the
+ * height reserved for it (reference-sections.css), which LEDG computes from the same layout, so mounting it moves
+ * nothing below it; it grows only where its labels need more lines than at the width the reservation assumed.
+ */
 export function LedgerStrip({ strip }) {
-  return <Frame height={STRIP_H + LABEL_TOP + LABEL_LINE} className="ledger-strip-frame" draw={(width) => <LedgerStripSvg strip={strip} width={width} />} />;
+  return <Frame className="ledger-strip-frame" draw={(width) => <LedgerStripSvg strip={strip} width={width} />} />;
 }
 
 // ---------------------------------------------------------------------------- elasticity path

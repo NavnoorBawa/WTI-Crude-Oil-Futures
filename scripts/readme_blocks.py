@@ -2307,12 +2307,16 @@ def ledger_block() -> str:
     inconclusive_below = _code_constant("backend/research_ledger.py", "INCONCLUSIVE_BELOW")
     selected = s.get("selected_after_search", [])
     family_supported = b["supported"] - len(s.get("supported_selected_after_search", []))
-    registered = b.get("registered", 0)
+    # Registered rows have no result: those still waiting, and those withdrawn before a result existed.
+    pending, withdrawn = len(s.get("registered", [])), len(s.get("registered_withdrawn", []))
     counts = [f"{b['supported']} supported (p < {alpha:.2f} in the direction the hypothesis states)",
               f"{b['inconclusive']} inconclusive ({alpha:.2f} ≤ p < {inconclusive_below:.2f})",
               f"{b['not_supported']} not supported", f"{b['retracted']} retracted"]
-    if registered:
-        counts.append(f"{registered} registered (results pending)")
+    if pending:
+        counts.append(f"{pending} registered (results pending)")
+    if withdrawn:
+        counts.append(f"{withdrawn} registered and withdrawn before {'its' if withdrawn == 1 else 'their'} result "
+                      f"existed")
     text = [f"{s['rows']} hypotheses: {_join(counts)}. Not supported means p ≥ {inconclusive_below:.2f} or an estimate "
             f"pointing the other way: a failure to reject, not evidence against the hypothesis."]
     under = [rows_by_id[key] for key in s.get("underpowered", [])]
@@ -2573,8 +2577,9 @@ def ledger_online() -> str:
         lo, so = sens["lordpp"], sens["saffron"]
         batches = len(o["legacy_batches"])
         text.append(f"The {sens['legacy_rows']} rows in the stream entered before registration began, in {batches} "
-                    f"batch{'es' if batches != 1 else ''} whose internal order was reconstructed from the git history "
-                    f"after their p-values were known; with that order drawn at random within each batch "
+                    f"entry batch{'es' if batches != 1 else ''} dated from the git history; within each batch the order "
+                    f"is the ledger's code order, fixed after their p-values were known; with that order drawn at "
+                    f"random within each batch "
                     f"({sens['draws']:,} draws), LORD++ rejects between {lo['min']} and {lo['max']} of them and gives the "
                     f"published set in {lo['same_set_share']:.1%} of draws, and SAFFRON between {so['min']} and "
                     f"{so['max']} ({so['same_set_share']:.1%}). For those rows the online decisions are a retrospective "
@@ -2597,7 +2602,7 @@ def ledger_online() -> str:
     if withdrawn:
         w = len(withdrawn)
         text.append(f"{w} registration{'s were' if w != 1 else ' was'} withdrawn ({_ids(withdrawn)}) and "
-                    f"{'count' if w != 1 else 'counts'} as tested at p = 1.")
+                    f"{'spend their' if w != 1 else 'spends its'} online level at p = 1 (not counted as tested).")
     if o["lordpp"]["next_level"] is not None and o["saffron"]["next_level"] is not None:
         nxt = o["saffron"]["next_level"]
         text.append(f"The next registered row will be tested at {_level_text(o['lordpp']['next_level'])} by LORD++ and "

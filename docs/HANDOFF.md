@@ -181,8 +181,10 @@ and its CI run is the test.
 
 ### 4. Interface follow-ups found but not done (each small; none changes a number)
 - Hash landings on `#vrp` and `#ledg` at about 600 px can exceed the 0.02 layout-shift budget (as
-  before 2.2.0): reserve the VRP scatter from its width and give the ledger strip breakpoints where
-  it really wraps; then add a 600 px hash-landing check to the browser tests.
+  before 2.2.0): reserve the VRP scatter from its width; then add a 600 px hash-landing check to the
+  browser tests. LEDG's strip now reserves its height from its own label layout in each band and
+  is never drawn shorter (2.12), so it no longer shrinks at 600 px; from 900 to 1,279 px it can still
+  grow by one label line (the wide band's reservation assumes a 1,280 px desktop).
 - FCST, RISK and MKT placeholders are 16–20 px short at 320 px (layout shift stays at or below 0.011).
 - The hero grows about 36 px when research.json lands after the first render; reserve its
   research-dependent lines while pending, as the tiles do.
@@ -213,9 +215,10 @@ and its CI run is the test.
   exact one: the rendered text is up to about 340 px off between 480 and 640 px, about 260 px at
   320 px, and CALB's tables about 200 px from 900 to 1,279 px, below the first screen in the
   landings measured. A reservation that follows the text, or an intrinsic one, would remove it.
-- The first-load gzip headroom is about 4.8 KB after 2.12 (179,425 B of 184,320; the entry 310,581 B
-  of 327,680). The CALB method notes (about 3 KB of the entry) could load with the lazy chunk if a
-  later item needs the room.
+- The first-load gzip headroom is about 4.2 KB after 2.12 (180,034 B of 184,320; the entry 311,863 B
+  of 327,680; the strip's layout moved into the entry so LEDG can reserve its height). The CALB
+  method notes (about 3 KB of the entry) could load with the lazy chunk if a later item needs the
+  room.
 - LEDG shows the online view (ROADMAP 2.12) only in its CSV and method notes. An on-screen online
   column or chip needs the 390 and 360 px card layout and the visual baselines; its value is low while
   no other section cites the online view.
@@ -295,11 +298,18 @@ exists, in two PRs, in this order:
 
 1. **Registration PR**, merged before any PR that produces the result. It adds the row's full
    definition (hypothesis, test, p-value source, direction) where its family's rows are defined, an
-   entry in `REGISTERED` in `backend/research_ledger.py` dated today (UTC) with the artifact field
-   that will hold the result, and the rebuilt ledger, in which the row is `registered`. If another
-   registration merged on a later day first, move this one's date to at least that day.
+   entry appended to `REGISTERED` in `backend/research_ledger.py` dated today (UTC) with the
+   artifact field that will hold the result, and the rebuilt ledger, in which the row is
+   `registered`. Its place in the online order is its date, then its place in `REGISTERED`: if
+   another registration merged first, append this entry after it (the same date is allowed; an
+   earlier date is not), so the merged one keeps its place. A model for a generated family (the
+   `vol_gw_`/`vol_fluct_` rows, or the distribution rows) is registered by listing it, with the label
+   its rows show while they wait, in `REGISTERED_LAB_MODELS` (or `REGISTERED_DISTRIBUTION_MODELS`)
+   and each of its rows in `REGISTERED`; `vol_lab.py` does not change in this PR.
 2. **Result PR.** It rebuilds the artifact so the field exists, then the ledger: the row resolves by
-   itself. Its definition must not change (the spec hash); notes and context may be added.
+   itself. Its definition must not change (the spec hash); notes and context may be added. A
+   generated family's model moves from `REGISTERED_LAB_MODELS` to `LAB_COMPARED` (or to
+   `DISTRIBUTION_MODELS`) as it joins the lab, which leaves the spec hash unchanged.
 
 A pending row blocks the online decisions after it, so resolve it promptly, or withdraw it (only
 before its result exists) with a reason, which the changelog names. Every changed p-value of an

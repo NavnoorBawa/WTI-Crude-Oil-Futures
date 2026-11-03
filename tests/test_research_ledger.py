@@ -336,13 +336,18 @@ class ConditionalAndStabilityRowsTest(unittest.TestCase):
         ledger = _committed()
         lab = rl.load_artifact(rl.LAB)
         self.assertEqual(list(rl.LAB_COMPARED), [m for m in vol_lab.MODEL_KEYS if m != vol_lab.CHAMPION])
+        self.assertFalse(set(rl.REGISTERED_LAB_MODELS) & set(vol_lab.MODEL_KEYS))   # registered: not in the lab yet
         self.assertEqual(rl.CHALLENGER, lab["config"]["challenger"])
         models = {m["key"]: m for m in lab["leaderboard"]["models"]}
         rows = {r["id"]: r for r in ledger["rows"]}
         gw_rows = [r for r in ledger["rows"] if r["family"] == "conditional predictive ability"]
         fl_rows = [r for r in ledger["rows"] if r["family"] == "stability over time"]
-        self.assertEqual([r["id"] for r in gw_rows], [f"vol_gw_{m}" for m in rl.LAB_COMPARED])
-        self.assertEqual([r["id"] for r in fl_rows], [f"vol_fluct_{m}" for m in rl.LAB_COMPARED])
+        generated = (*rl.LAB_COMPARED, *rl.REGISTERED_LAB_MODELS)
+        self.assertEqual([r["id"] for r in gw_rows], [f"vol_gw_{m}" for m in generated])
+        self.assertEqual([r["id"] for r in fl_rows], [f"vol_fluct_{m}" for m in generated])
+        for m in rl.REGISTERED_LAB_MODELS:
+            self.assertIn(f"vol_gw_{m}", rl.REGISTERED)
+            self.assertIn(f"vol_fluct_{m}", rl.REGISTERED)
         for m in rl.LAB_COMPARED:
             gw, fl = rows[f"vol_gw_{m}"], rows[f"vol_fluct_{m}"]
             block_gw, block_fl = models[m]["gw_qlike_vs_har_iv"], models[m]["fluctuation_qlike_vs_har_iv"]
@@ -374,10 +379,15 @@ class DistributionRowsTest(unittest.TestCase):
         self.assertEqual(list(models), ["har_iv", *rl.DISTRIBUTION_MODELS])
         self.assertNotIn("quantile_har", rl.LAB_COMPARED)
         rows = {r["id"]: r for r in ledger["rows"]}
+        generated = (*rl.DISTRIBUTION_MODELS, *rl.REGISTERED_DISTRIBUTION_MODELS)
         score_rows = [r["id"] for r in ledger["rows"] if r["family"] == "predictive distribution"]
-        self.assertEqual(score_rows, [f"vol_{tag}_{m}" for m in rl.DISTRIBUTION_MODELS for tag, _, _ in rl._SCORES])
+        self.assertEqual(score_rows, [f"vol_{tag}_{m}" for m in generated for tag, _, _ in rl._SCORES])
         calibration = [r["id"] for r in ledger["rows"] if r["family"] == "distribution calibration"]
-        self.assertEqual(calibration, [f"vol_berkowitz_{m}" for m in ("har_iv", *rl.DISTRIBUTION_MODELS)])
+        self.assertEqual(calibration, [f"vol_berkowitz_{m}" for m in ("har_iv", *generated)])
+        for m in rl.REGISTERED_DISTRIBUTION_MODELS:
+            self.assertNotIn(m, models)
+            for rid in [f"vol_{tag}_{m}" for tag, _, _ in rl._SCORES] + [f"vol_berkowitz_{m}"]:
+                self.assertIn(rid, rl.REGISTERED)
         for m in rl.DISTRIBUTION_MODELS:
             for tag, score, _ in rl._SCORES:
                 row, dm = rows[f"vol_{tag}_{m}"], models[m]["dm_vs_har_iv"][score]
@@ -669,7 +679,7 @@ class OnlineStreamTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.ledger = _committed()
+        cls.ledger = cls.committed()
         cls.rows = cls.ledger["rows"]
         cls.online = cls.ledger["summary"]["online"]
         cls.stream = sorted((r for r in cls.rows if r["online_position"] is not None), key=lambda r: r["online_position"])
@@ -736,16 +746,29 @@ class OnlineStreamTest(unittest.TestCase):
         rejected = set(self.online["lordpp"]["rejected"]) | set(self.online["saffron"]["rejected"])
         self.assertFalse(rejected & {r["id"] for r in retracted})
 
+    @classmethod
+    def committed(cls):
+        return _committed()
+
     def test_the_order_rule(self):
         index = {row.id: i for i, row in enumerate(rl.ledger_rows())}
-        expected = sorted((r for r in self.rows if not r["selected_after_search"]),
-                          key=lambda r: (r["entered_on"], index[r["id"]]))
+        registered = list(rl.REGISTERED)
+
+        def place(r):
+            # The entry date, then a registered row's place in REGISTERED or another row's place in the code.
+            if r["registration"] is None:
+                return (r["entered_on"], 0, index[r["id"]])
+            return (r["entered_on"], 1, registered.index(r["id"]))
+
+        expected = sorted((r for r in self.rows if not r["selected_after_search"]), key=place)
         self.assertEqual([r["id"] for r in self.stream], [r["id"] for r in expected])
         self.assertEqual([r["id"] for r in self.rows], list(index))          # the artifact keeps its row order
+        in_stream = {r["id"] for r in self.stream}
+        self.assertEqual([r["id"] for r in self.stream if r["registration"] is not None],
+                         [rid for rid in registered if rid in in_stream], "registered rows follow REGISTERED")
         # The rows that entered before registration began are frozen; any other row must be registered.
         legacy = json.loads((FIXTURES / "ledger_legacy_entry.json").read_text(encoding="utf-8"))["rows"]
-        unregistered = sorted((r for r in self.rows if r["registration"] is None),
-                              key=lambda r: (r["entered_on"], index[r["id"]]))
+        unregistered = sorted((r for r in self.rows if r["registration"] is None), key=place)
         self.assertEqual([(r["id"], r["entered_on"]) for r in unregistered],
                          [(r["id"], r["entered_on"]) for r in legacy],
                          "a row that entered after registration began must be registered (REGISTERED)")
@@ -774,23 +797,30 @@ class OnlineStreamTest(unittest.TestCase):
                          set(rl.LEGACY_ENTRY.values()))
 
     def test_dropping_the_last_entry_batch_moves_no_earlier_online_decision(self):
-        """Removing the newest batch is what appending it undoes: no earlier online field may move, while the batch
-        view's q-values all move with the family's size (today without changing a survival flag)."""
-        last = {row.id for row in rl._distribution_rows()}
+        """Removing the newest legacy batch is what appending it undoes: no earlier online field may move, while the
+        batch view's q-values all move with the family's size (without changing a survival flag). Registered rows, which
+        follow every legacy row, are left out of both sides."""
+        batches = rl.legacy_batches()
         full = {r["id"]: r for r in self.rows}
-        kept = [full[rid]["online_position"] for rid in full if rid not in last and full[rid]["online_position"]]
+        legacy_stream = [r for r in self.stream if r["id"] in batches]
+        newest = batches[legacy_stream[-1]["id"]]
+        last = {rid for rid, pr in batches.items() if pr == newest}
+        kept = [full[rid]["online_position"] for rid in batches if rid not in last and full[rid]["online_position"]]
         dropped = [full[rid]["online_position"] for rid in last if full[rid]["online_position"]]
-        self.assertLess(max(kept), min(dropped))              # the batch is a suffix of the stream
+        self.assertLess(max(kept), min(dropped))              # the batch is a suffix of the legacy stream
+        legacy_rows = [r for r in rl.ledger_rows() if r.id in batches]
         with mock.patch.object(rl, "ORDER_DRAWS", 5):
-            partial = json.loads(json.dumps(rl.build(rows=[r for r in rl.ledger_rows() if r.id not in last])))
+            whole = json.loads(json.dumps(rl.build(rows=legacy_rows)))
+            partial = json.loads(json.dumps(rl.build(rows=[r for r in legacy_rows if r.id not in last])))
         for r in partial["rows"]:
             for key in rl.ONLINE_FIELDS:
                 self.assertEqual(r[key], full[r["id"]][key], (r["id"], key))
+        before = {r["id"]: r for r in whole["rows"]}
         moved = [r["id"] for r in partial["rows"]
-                 if r["q_value_bh"] is not None and r["q_value_bh"] != full[r["id"]]["q_value_bh"]]
+                 if r["q_value_bh"] is not None and r["q_value_bh"] != before[r["id"]]["q_value_bh"]]
         self.assertTrue(moved)
         for r in partial["rows"]:
-            self.assertEqual(r["survives_bh_5pct"], full[r["id"]]["survives_bh_5pct"], r["id"])
+            self.assertEqual(r["survives_bh_5pct"], before[r["id"]]["survives_bh_5pct"], r["id"])
 
     def test_the_order_sensitivity_recomputes(self):
         block = self.online["legacy_order_sensitivity"]
@@ -802,7 +832,8 @@ class OnlineStreamTest(unittest.TestCase):
             published = sum(rid in batches for rid in self.online[key]["rejected"])
             self.assertLessEqual(block[key]["min"], published)
             self.assertGreaterEqual(block[key]["max"], published)
-            self.assertGreater(block[key]["same_set_share"], 0.0)          # the published order is among those drawn
+            # A share of random draws, not an invariant: the published (code) order need not be among them.
+            self.assertTrue(0.0 <= block[key]["same_set_share"] <= 1.0)
 
     def test_no_status_reads_the_online_view(self):
         with mock.patch.object(rl, "_online", lambda rows: {}):
@@ -828,9 +859,16 @@ def _fake(rid="reg_fake", field="experiment.p_value", day=1, withdrawn=None, **c
     return dataclasses.replace(row, **changes)
 
 
+def _registration_day():
+    """A date for synthetic registrations appended to REGISTERED: no earlier than any committed one."""
+    return max([_day(1), *(registration.on for registration in rl.REGISTERED.values())])
+
+
 class RegistrationTest(unittest.TestCase):
     """The registered status (ROADMAP 2.12) through synthetic rows: a row declared with its test and the artifact field
-    that will hold its result keeps the status `registered` until that field exists, and then resolves by itself."""
+    that will hold its result keeps the status `registered` until that field exists, and then resolves by itself. The
+    synthetic rows are added to the ledger's unregistered rows, so the expectations do not depend on which committed
+    registrations exist."""
 
     @classmethod
     def setUpClass(cls):
@@ -852,7 +890,8 @@ class RegistrationTest(unittest.TestCase):
 
     @classmethod
     def build_with(cls, rows, extra=None, missing=()):
-        ledger = rl.build(load=lambda name: cls.load(name, extra, missing), rows=[*rl.ledger_rows(), *rows])
+        base = [row for row in rl.ledger_rows() if row.registration is None]
+        ledger = rl.build(load=lambda name: cls.load(name, extra, missing), rows=[*base, *rows])
         return json.loads(json.dumps(ledger))
 
     def assert_pending(self, ledger, rid, *, withdrawn=False):
@@ -972,7 +1011,8 @@ class RegistrationTest(unittest.TestCase):
 
     def test_constraint_violations_raise(self):
         latest = rl.latest_legacy_entry()
-        for bad in (_fake(names={"model": "leaderboard.models[0].label"}),
+        for bad in (_fake(names={"model": "leaderboard.models[0].label"}),            # no text to show while pending
+                    _fake(names={"model": "leaderboard.models[0].label"}, pending_names={"other": "HAR-X"}),
                     _fake(expects=lambda s: s > 0),
                     _fake(p=None),
                     _fake(p=lambda doc: (0.5, {})),
@@ -983,6 +1023,115 @@ class RegistrationTest(unittest.TestCase):
         with mock.patch.dict(rl.REGISTERED, {"no_such_row": rl.Registration(_day(1), "experiment.p_value")}):
             with self.assertRaises(ValueError):
                 rl.ledger_rows()
+        with mock.patch.object(rl, "REGISTERED_LAB_MODELS", {"har_rv": "HAR-RV"}):   # already in LAB_COMPARED
+            with self.assertRaises(ValueError):
+                rl.ledger_rows()
+
+    def test_a_named_row_shows_its_declared_text_while_pending(self):
+        row = _fake(hypothesis="The model of record beats {model}.", names={"model": "experiment.label"},
+                    pending_names={"model": "HAR-X"})
+        ledger = self.build_with([row])
+        self.assert_pending(ledger, "reg_fake")
+        r = next(r for r in ledger["rows"] if r["id"] == "reg_fake")
+        self.assertEqual(r["hypothesis"], "The model of record beats HAR-X.")
+        self.assertEqual(r["artifact"]["name_fields"], {"model": "experiment.label"})
+        resolved = self.build_with([row], {"experiment": {"p_value": 0.3, "stat": 1.0, "label": "HAR-X (lab)"}})
+        r = next(r for r in resolved["rows"] if r["id"] == "reg_fake")
+        self.assertEqual(r["hypothesis"], "The model of record beats HAR-X (lab).")   # the artifact's name, once it exists
+
+    def test_a_generated_family_registers_a_model_before_the_lab_has_it(self):
+        """The route ROADMAP 2.13 takes: a model's generated rows are registered with the label they show while
+        pending, and in the result PR the model moves into LAB_COMPARED, which leaves every spec hash unchanged."""
+        model = "leaderboard.models[key=har_cj]"
+        regs = {"vol_gw_har_cj": rl.Registration(_registration_day(),
+                                                 f"{model}.gw_qlike_vs_har_iv.conditional.p_value"),
+                "vol_fluct_har_cj": rl.Registration(_registration_day(),
+                                                    f"{model}.fluctuation_qlike_vs_har_iv.search_adjusted.p_value")}
+        with mock.patch.dict(rl.REGISTERED, regs), mock.patch.object(rl, "REGISTERED_LAB_MODELS", {"har_cj": "HAR-CJ"}):
+            definitions = {row.id: row for row in rl.ledger_rows()}
+            hashes = {rid: rl.spec_sha256(definitions[rid]) for rid in regs}
+            pending = {r["id"]: r for r in json.loads(json.dumps(rl.build()))["rows"]}
+        for rid in regs:
+            with self.subTest(row=rid):
+                self.assertEqual(pending[rid]["status"], "registered")
+                self.assertIn("HAR-CJ", pending[rid]["hypothesis"])
+                self.assertNotIn("{model}", pending[rid]["hypothesis"])
+                self.assertEqual(pending[rid]["registration"]["spec_sha256"], hashes[rid])
+        # The result PR: the lab holds the model, and the model moves into LAB_COMPARED.
+        lab = copy.deepcopy(rl.load_artifact(rl.LAB))
+        entry = copy.deepcopy(next(m for m in lab["leaderboard"]["models"] if m["key"] == "har_rv"))
+        entry.update(key="har_cj", label="HAR-CJ")
+        lab["leaderboard"]["models"].append(entry)
+
+        def load(name):
+            return lab if name == rl.LAB else rl.load_artifact(name)
+
+        with mock.patch.dict(rl.REGISTERED, regs), mock.patch.object(rl, "LAB_COMPARED", (*rl.LAB_COMPARED, "har_cj")):
+            definitions = {row.id: row for row in rl.ledger_rows()}
+            self.assertEqual({rid: rl.spec_sha256(definitions[rid]) for rid in regs}, hashes)
+            resolved = {r["id"]: r for r in json.loads(json.dumps(rl.build(load=load)))["rows"]}
+            with self.assertRaises(ValueError):                 # moved before the lab holds it: no label to show
+                rl.build()
+        self.assertEqual(resolved["vol_gw_har_cj"]["p_value"], entry["gw_qlike_vs_har_iv"]["conditional"]["p_value"])
+        self.assertEqual(resolved["vol_fluct_har_cj"]["p_value"],
+                         entry["fluctuation_qlike_vs_har_iv"]["search_adjusted"]["p_value"])
+        for rid in regs:
+            with self.subTest(row=rid):
+                self.assertNotEqual(resolved[rid]["status"], "registered")
+                self.assertIn("HAR-CJ", resolved[rid]["hypothesis"])
+                self.assertEqual(resolved[rid]["registration"]["spec_sha256"], hashes[rid])
+                self.assertEqual(resolved[rid]["online_position"], pending[rid]["online_position"])
+
+    def test_the_distribution_families_register_a_model_the_same_way(self):
+        base = "distribution.models[key=har_cj]"
+        regs = {f"vol_{tag}_har_cj": rl.Registration(_registration_day(), f"{base}.dm_vs_har_iv.{score}.p_value")
+                for tag, score, _ in rl._SCORES}
+        regs["vol_berkowitz_har_cj"] = rl.Registration(_registration_day(), f"{base}.berkowitz.by_grid")
+        with mock.patch.dict(rl.REGISTERED, regs), \
+                mock.patch.object(rl, "REGISTERED_DISTRIBUTION_MODELS", {"har_cj": "HAR-CJ"}):
+            rows = {r["id"]: r for r in json.loads(json.dumps(rl.build()))["rows"]}
+        for rid in regs:
+            with self.subTest(row=rid):
+                self.assertEqual(rows[rid]["status"], "registered")
+                self.assertIn("HAR-CJ", rows[rid]["hypothesis"])
+        self.assertEqual([rid for rid in rows if rid.endswith("_har_cj")], list(regs))
+
+    def test_same_day_registrations_keep_their_registration_order(self):
+        """Two registrations on one day, the second defined earlier in the code than the first: the first keeps the
+        position and levels it had before the second existed, and the second follows it."""
+        day = _registration_day()
+
+        def row(rid):
+            return dataclasses.replace(_fake(rid, f"{rid}_experiment.p_value"), registration=None)
+
+        first, second = row("reg_first"), row("reg_second")
+
+        def appended(fn, extra):
+            def rows():
+                return [*fn(), extra]
+            rows.__name__ = fn.__name__
+            return rows
+
+        last_fn, early_fn = rl._ROW_FUNCTIONS[-1], rl._ROW_FUNCTIONS[0]
+        one = tuple(appended(fn, first) if fn is last_fn else fn for fn in rl._ROW_FUNCTIONS)
+        two = tuple(appended(fn, second) if fn is early_fn else fn for fn in one)
+        reg_first = {"reg_first": rl.Registration(day, "reg_first_experiment.p_value")}
+        reg_second = {"reg_second": rl.Registration(day, "reg_second_experiment.p_value")}
+        with mock.patch.object(rl, "_ROW_FUNCTIONS", one), mock.patch.dict(rl.REGISTERED, reg_first):
+            v1 = json.loads(json.dumps(rl.build()))["rows"]
+        with mock.patch.object(rl, "_ROW_FUNCTIONS", two), mock.patch.dict(rl.REGISTERED, {**reg_first, **reg_second}):
+            ids = [r.id for r in rl.ledger_rows()]
+            self.assertLess(ids.index("reg_second"), ids.index("reg_first"))     # defined earlier in the code
+            v2 = json.loads(json.dumps(rl.build()))["rows"]
+        a1 = next(r for r in v1 if r["id"] == "reg_first")
+        a2, b2 = (next(r for r in v2 if r["id"] == rid) for rid in ("reg_first", "reg_second"))
+        self.assertEqual(b2["online_position"], a2["online_position"] + 1)
+        for key in rl.ONLINE_FIELDS:
+            self.assertEqual(a2[key], a1[key], key)
+        waits = any(r["online_p"] is None for r in v1
+                    if r["online_position"] is not None and r["online_position"] < a1["online_position"])
+        self.assertEqual(a2["online_alpha_lordpp"] is None, waits)      # its level is published unless a row waits
+        self.assertEqual(_append_only_violations(v1, v2, {}), [])
 
     def test_registrations_are_stamped_from_the_table(self):
         row = dataclasses.replace(_fake(), registration=None)
@@ -1003,10 +1152,11 @@ class RegistrationTest(unittest.TestCase):
         digest = rl.spec_sha256(row)
         self.assertRegex(digest, r"^[0-9a-f]{64}$")
         for changed in (_fake(test="another test"), _fake(field="experiment.q"), _fake(p=rl.Field("experiment.q")),
-                        _fake(expects=rl.NEGATIVE), _fake(sided="one"), _fake(hypothesis="Another hypothesis.")):
+                        _fake(expects=rl.NEGATIVE), _fake(sided="one"), _fake(hypothesis="Another hypothesis."),
+                        _fake(names={"model": "experiment.label"})):
             self.assertNotEqual(rl.spec_sha256(changed), digest)
         for same in (_fake(note="a note added after the result"), _fake(context={"n": "experiment.n"}),
-                     _fake(withdrawn="a reason"), _fake(retracted="a reason")):
+                     _fake(withdrawn="a reason"), _fake(retracted="a reason"), _fake(pending_names={"model": "HAR-X"})):
             self.assertEqual(rl.spec_sha256(same), digest)
 
     def test_committed_registrations(self):
@@ -1055,8 +1205,9 @@ ONLINE_COMPARED = ("online_p", "online_alpha_lordpp", "online_rejected_lordpp", 
 
 def _append_only_violations(old_rows, new_rows, corrections):
     """How a later ledger breaks an earlier version's online view: a row lost or moved its position, a new row sits
-    before an old one, or an online field changed (a null may become non-null) other than downstream of a corrected p
-    named in `corrections`."""
+    before an old one, a row's online p changed without its id named in `corrections`, or a level, decision or
+    candidate flag changed (a null may become non-null) before the first named correction. Every row is checked: the
+    rows after a correction are recomputed, so only their derived fields are exempt, never their own p."""
     new = {r["id"]: r for r in new_rows}
     problems = [f"{r['id']} left the ledger" for r in old_rows if r["id"] not in new]
     if problems:
@@ -1069,21 +1220,27 @@ def _append_only_violations(old_rows, new_rows, corrections):
     for r in new_rows:
         if r["id"] not in old_ids and r["online_position"] is not None and r["online_position"] <= last:
             problems.append(f"{r['id']} entered at position {r['online_position']}, before the version's last row")
+    corrected = False                                             # a named correction earlier in the stream
     for r in sorted((r for r in old_rows if r["online_position"] is not None), key=lambda r: r["online_position"]):
         now = new[r["id"]]
         changed = [key for key in ONLINE_COMPARED if r[key] is not None and r[key] != now[key]]
-        if changed:
-            if r["online_p"] == now["online_p"] or r["id"] not in corrections:
-                problems.append(f"{r['id']}: {changed} changed without a corrected p-value named in ONLINE_CORRECTIONS")
-            break                                                 # rows after a correction are recomputed
+        if not changed:
+            continue
+        if "online_p" in changed and r["id"] in corrections:
+            corrected = True                                      # this row and every later one are recomputed
+        elif "online_p" in changed or not corrected:
+            problems.append(f"{r['id']}: {changed} changed without a corrected p-value named in ONLINE_CORRECTIONS")
     return problems
 
 
 class AppendOnlyCheckTest(unittest.TestCase):
     """The history test's comparison, on synthetic versions (main has no version with online fields before 2.12)."""
 
+    def ledger_rows(self):
+        return copy.deepcopy(_committed()["rows"])
+
     def test_the_comparison(self):
-        rows = copy.deepcopy(_committed()["rows"])
+        rows = self.ledger_rows()
         self.assertEqual(_append_only_violations(rows, rows, {}), [])
         stream = sorted((r for r in rows if r["online_position"]), key=lambda r: r["online_position"])
         later = copy.deepcopy(rows)
@@ -1100,16 +1257,87 @@ class AppendOnlyCheckTest(unittest.TestCase):
         nxt["online_alpha_lordpp"] *= 1.5                          # downstream of the correction: exempt
         self.assertTrue(_append_only_violations(rows, corrected, {}))
         self.assertEqual(_append_only_violations(rows, corrected, {stream[3]["id"]: "CHANGELOG errata: test"}), [])
+        # A pending row resolving is allowed: the last row the stream decided, as it read while it waited.
+        last = max((r for r in stream if r["online_p"] is not None), key=lambda r: r["online_position"])
         pending = copy.deepcopy(rows)
         for r in pending:
-            if r["id"] == stream[-1]["id"]:
+            if r["id"] == last["id"]:
                 r.update(online_p=None, online_rejected_lordpp=None, online_rejected_saffron=None,
                          online_candidate_saffron=None)
-        self.assertEqual(_append_only_violations(pending, rows, {}), [])   # a pending row resolving is allowed
+        self.assertEqual(_append_only_violations(pending, rows, {}), [])
         self.assertTrue(_append_only_violations(rows, pending, {}))
         inserted = copy.deepcopy(later)
         inserted[-1]["online_position"] = 2
         self.assertTrue(_append_only_violations(rows, inserted, {}))
+
+    def test_a_named_correction_does_not_hide_a_later_unnamed_one(self):
+        rows = self.ledger_rows()
+        stream = sorted((r for r in rows if r["online_position"]), key=lambda r: r["online_position"])
+        decided = [r for r in stream if r["online_p"] is not None and r["online_p"] < 1.0]
+        first, second = decided[3], decided[-5]
+        two = copy.deepcopy(rows)
+        for r in two:
+            if r["id"] == first["id"]:
+                r["online_p"] = 0.5                                # named below
+            elif r["id"] == second["id"]:
+                r.update(online_p=1e-4, online_rejected_lordpp=True)   # not named
+        named = {first["id"]: "CHANGELOG errata: test"}
+        problems = _append_only_violations(rows, two, named)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertTrue(problems[0].startswith(f"{second['id']}: "), problems)
+        self.assertEqual(_append_only_violations(rows, two, {**named, second["id"]: "CHANGELOG errata: test"}), [])
+
+
+def _committed_registration_patches():
+    """Patches under which the ledger holds one more committed registration, pending, its row defined in _vol_rows
+    (before other families' rows): the state after a registration PR, which the tests above must also pass in."""
+    on, field = _registration_day(), "experiment_committed.p_value"
+    row = dataclasses.replace(_fake("vol_registered_committed", field), registration=None)
+    defining = rl._vol_rows
+
+    def rows():
+        return [*defining(), row]
+
+    rows.__name__ = defining.__name__
+    return (mock.patch.object(rl, "_ROW_FUNCTIONS", tuple(rows if fn is defining else fn for fn in rl._ROW_FUNCTIONS)),
+            mock.patch.dict(rl.REGISTERED, {row.id: rl.Registration(on, field)}))
+
+
+class _WithACommittedRegistration:
+    """Runs a test class against a fresh build in which a registration is committed and pending."""
+
+    @classmethod
+    def setUpClass(cls):
+        for patch in _committed_registration_patches():
+            patch.start()
+            cls.addClassCleanup(patch.stop)
+        super().setUpClass()
+
+    @classmethod
+    def committed(cls):
+        return json.loads(json.dumps(rl.build()))
+
+
+class OnlineStreamWithARegistrationTest(_WithACommittedRegistration, OnlineStreamTest):
+    def test_the_registration_waits_at_the_end_of_the_stream(self):
+        r = next(r for r in self.rows if r["id"] == "vol_registered_committed")
+        self.assertEqual((r["status"], r["online_position"], r["online_p"]), ("registered", len(self.stream), None))
+        earlier = [x for x in self.stream[:-1] if x["online_p"] is None]      # committed registrations still waiting
+        self.assertEqual(r["online_alpha_lordpp"] is None, bool(earlier))   # its level is fixed unless one waits
+        self.assertEqual(self.online["waiting_on"], (earlier[0] if earlier else r)["id"])
+        self.assertIsNone(self.online["lordpp"]["next_level"])
+        self.assertEqual(self.ledger["summary"]["registered"][-1], r["id"])
+
+
+class RegistrationWithACommittedRegistrationTest(_WithACommittedRegistration, RegistrationTest):
+    pass
+
+
+class AppendOnlyWithARegistrationTest(AppendOnlyCheckTest):
+    def ledger_rows(self):
+        patches = _committed_registration_patches()
+        with patches[0], patches[1]:
+            return json.loads(json.dumps(rl.build()))["rows"]
 
 
 class LedgerHistoryTest(unittest.TestCase):

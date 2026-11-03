@@ -11,7 +11,7 @@ import { ledgerAssertion } from "../lib/assertions";
 import { DASH, fmtDate, fmtInt, fmtNum, fmtPValue, humanizeKey, num } from "../lib/format";
 import {
   LEDGER_PAGE, filterLedgerRows, ledgerAnchor, ledgerFlagText, ledgerOnlineNote, ledgerOnlineText, ledgerOrderValue,
-  ledgerStrip, ledgerSupportText, revealLedgerView, visibleLedgerRows,
+  ledgerStrip, ledgerStripReserve, ledgerSupportText, revealLedgerView, visibleLedgerRows,
 } from "../lib/reference";
 import { asText, getLab, ledgerStatusLabel, ledgerText, mcsLevel, modelLabels, researchLedger } from "../lib/research";
 import { ResearchUnavailable } from "./common";
@@ -218,6 +218,8 @@ export default function LedgerPanel({ research, researchStatus }) {
   const ordered = useMemo(() => orderRows(filtered, columns, sort), [filtered, columns, sort]);
   const visible = useMemo(() => visibleLedgerRows(ordered, showAll), [ordered, showAll]);
   const strip = useMemo(() => (ledger ? ledgerStrip(ledger.rows) : null), [ledger]);
+  // The strip's height from its own label layout (a registered group or a longer label can add a line).
+  const stripReserve = useMemo(() => (strip ? ledgerStripReserve(strip) : null), [strip]);
 
   // A #ledg-<id> link (on load, or any later hash change) clears the search and filters, shows every
   // row, and marks the row once it is on screen. A fresh research.json does not repeat a reveal the
@@ -372,7 +374,7 @@ export default function LedgerPanel({ research, researchStatus }) {
       resetKey={research}
     >
       {strip?.cells.length > 0 && (
-        <LazyMount minHeight={{ wide: 36, narrow: 64 }} label="ledger summary">
+        <LazyMount minHeight={stripReserve} label="ledger summary">
           <LedgerStrip strip={strip} />
         </LazyMount>
       )}

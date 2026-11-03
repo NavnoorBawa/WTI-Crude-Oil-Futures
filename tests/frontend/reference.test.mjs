@@ -160,6 +160,42 @@ test("the ledger strip has one cell per hypothesis and its counts equal by_statu
   assert.equal(Math.max(...boxes.map((box) => box.line)) >= 1, true, "a narrow strip stacks its labels");
 });
 
+test("LEDG reserves the strip's own height in each band, with and without registered rows", () => {
+  // The strip's widths in each band LazyMount reserves for (measured in Chromium: the viewport less 32 px up to
+  // 640 px, less 82 to 98 px above, at most 1342 px), from each band's reserve width up.
+  const bands = { narrow: [328, 608], mid: [540, 817], wide: [1160, 1342] };
+  const payloads = [["fixture", research], ["committed", withCommittedLedger(research)], ["registered", withRegistered(research)]];
+  for (const [name, payload] of payloads) {
+    const strip = reference.ledgerStrip(m.research.researchLedger(payload).rows);
+    const reserve = reference.ledgerStripReserve(strip);
+    for (const [band, [from, to]] of Object.entries(bands)) {
+      assert.equal(reserve[band], reference.ledgerStripHeight(strip, reference.LEDGER_STRIP_RESERVE_WIDTH[band]), `${name}, ${band}`);
+      for (let width = from; width <= to; width += 2) {
+        assert.ok(reference.ledgerStripHeight(strip, width) <= reserve[band], `${name}: the ${band} strip at ${width}px fits its reservation`);
+      }
+    }
+    // The drawing is the layout the reservation reads.
+    for (const width of [358, 1000, 1342, 1800]) {
+      const svg = renderToStaticMarkup(createElement(charts.LedgerStripSvg, { strip, width }));
+      assert.equal(Number(svg.match(/<svg [^>]*height="(\d+)"/)[1]), reference.ledgerStripHeight(strip, width), `${name} at ${width}px`);
+    }
+    // At the browser tests' widths (390 and 1440 px viewports) the reservation leaves nothing blank.
+    assert.equal(reference.ledgerStripHeight(strip, 358), reserve.narrow, name);
+    assert.equal(reference.ledgerStripHeight(strip, 1342), reserve.wide, name);
+  }
+  // A registered group can only add label lines, and the reservation follows them.
+  const tested = m.research.researchLedger(withCommittedLedger(research)).rows.filter((row) => row.status !== "registered");
+  const plain = reference.ledgerStripReserve(reference.ledgerStrip(tested));
+  const registered = reference.ledgerStripReserve(reference.ledgerStrip(m.research.researchLedger(withRegistered(research)).rows));
+  for (const band of ["wide", "mid", "narrow"]) assert.ok(registered[band] >= plain[band], band);
+  const ledg = section(renderPage(withRegistered(research)).html, "ledg");
+  assert.ok(ledg.includes(`--lazy-h:${registered.wide}px;--lazy-h-narrow:${registered.narrow}px;--lazy-h-mid:${registered.mid}px`), "LEDG passes it to LazyMount");
+  const css = readSource("src/styles/reference-sections.css");
+  assert.match(css, /#ledg \.lazy-mount > \.ledger-strip-frame \{ min-height: var\(--lazy-h\); \}/, "the mounted strip keeps it");
+  assert.match(css, /min-height: var\(--lazy-h-mid, var\(--lazy-h\)\)/);
+  assert.match(css, /min-height: var\(--lazy-h-narrow, var\(--lazy-h\)\)/);
+});
+
 test("the ledger meta reconciles the supported count with the title's adjusted family", () => {
   const ledger = m.research.researchLedger(research);
   const summary = research.ledger.summary;
@@ -327,21 +363,26 @@ test("a registered row has its own status, rank, strip group and pending flags, 
   const ledger = m.research.researchLedger(spliced);
   const pending = ledger.byId.get("reg_pending");
   const withdrawn = ledger.byId.get("reg_withdrawn");
-  assert.equal(ledger.registered, 2);
-  assert.equal(ledger.tested, ledger.rows.length - 2);
+  // The two synthetic rows are added to whatever registrations the committed ledger holds.
+  const registeredCount = (committedLedger().summary.by_status.registered ?? 0) + 2;
+  assert.equal(ledger.registered, registeredCount);
+  assert.equal(ledger.tested, ledger.rows.length - registeredCount);
+  assert.equal(ledger.tested, committedLedger().summary.rows_tested);
   assert.equal(reference.ledgerStatusRank(pending), 5);
   const ordered = defaultOrder(ledger.rows);
-  assert.deepEqual(ordered.slice(-2).map((row) => row.id).sort(), ["reg_pending", "reg_withdrawn"], "registered rows sort last");
+  assert.ok(ordered.slice(-registeredCount).every((row) => row.status === "registered"), "registered rows sort last");
+  assert.ok(["reg_pending", "reg_withdrawn"].every((id) => ordered.slice(-registeredCount).some((row) => row.id === id)));
   assert.equal(reference.ledgerFlagText(pending, "survives_bh"), "pending");
   assert.equal(reference.ledgerFlagText(withdrawn, "clears_t3"), "withdrawn");
   // The assertion's fallback counts tested rows only.
   assert.equal(m.assertions.ledgerAssertion({ ...ledger, survivingBh: null, clearingHurdle: null }), `${ledger.tested} hypotheses tested`);
   // The strip: a fifth group, last, drawn as outlined cells.
   const strip = reference.ledgerStrip(ledger.rows);
-  assert.deepEqual(strip.groups.at(-1), { key: "registered", label: "registered", count: 2, survivors: 0, start: ledger.rows.length - 2 });
+  assert.deepEqual(strip.groups.at(-1),
+    { key: "registered", label: "registered", count: registeredCount, survivors: 0, start: ledger.rows.length - registeredCount });
   const svg = renderToStaticMarkup(createElement(charts.LedgerStripSvg, { strip, width: 1300 }));
-  assert.equal((svg.match(/<rect [^>]*class="strip-cell is-registered"/g) ?? []).length, 2);
-  assert.ok(spaced(svg.match(/aria-label="([^"]+)"/)[1]).includes("2 registered"));
+  assert.equal((svg.match(/<rect [^>]*class="strip-cell is-registered"/g) ?? []).length, registeredCount);
+  assert.ok(spaced(svg.match(/aria-label="([^"]+)"/)[1]).includes(`${registeredCount} registered`));
   assert.match(readSource("src/styles/reference-sections.css"), /\.strip-cell\.is-registered \{ fill: none;/);
   // On the page: a chip with its title, the status filter and the meta count.
   const few = { ...spliced, ledger: { ...spliced.ledger, rows: [...spliced.ledger.rows.slice(0, 3), ...spliced.ledger.rows.slice(-2)] } };
@@ -350,8 +391,8 @@ test("a registered row has its own status, rank, strip group and pending flags, 
   assert.equal((ledg.match(/>pending</g) ?? []).length, 2, "both flags of the pending row");
   assert.equal((ledg.match(/>withdrawn</g) ?? []).length, 2, "both flags of the withdrawn row");
   const full = section(renderPage(spliced).html, "ledg");
-  assert.match(full, />Registered \(2\)<\/option>/);
-  assert.ok(visibleText(full).includes("2 registered"), "the meta counts them");
+  assert.match(full, new RegExp(`>Registered \\(${registeredCount}\\)</option>`));
+  assert.ok(visibleText(full).includes(`${registeredCount} registered`), "the meta counts them");
   assert.ok(visibleText(full).includes(`Hypotheses: ${reference.LEDGER_PAGE} of ${ledger.rows.length} shown`), "the caption counts every row");
 });
 
@@ -370,7 +411,8 @@ test("the ledger's online view: CSV columns, the method note, and nothing for a 
   assert.equal(lord.enteredOn, committedLedger().rows.find((row) => row.id === lord.id).entered_on);
   const registered = m.research.researchLedger(withRegistered(research));
   assert.equal(reference.ledgerOnlineText(registered.byId.get("reg_pending"), "lordpp"), "pending");
-  assert.equal(reference.ledgerOnlineText(registered.byId.get("reg_withdrawn"), "lordpp"), "no");
+  // A withdrawn registration is tested at p = 1 ("no"), unless a committed registration still waits before it.
+  assert.equal(reference.ledgerOnlineText(registered.byId.get("reg_withdrawn"), "lordpp"), online.waiting_on ? "pending" : "no");
   assert.equal(reference.ledgerOnlineText(ledgerRows().find((row) => row.status === "supported" && !row.selectedAfterSearch), "lordpp"),
     null, "an old bundle has no online decision");
   const ledg = section(renderPage(spliced).html, "ledg");
@@ -387,7 +429,8 @@ test("the ledger's online view: CSV columns, the method note, and nothing for a 
   const text = spaced(visibleText(ledg));
   assert.ok(text.includes(spaced(note)), "the note is in the panel's method notes");
   assert.ok(text.includes("Registered: a hypothesis declared"), "with the registered status explained");
-  assert.ok(reference.ledgerOnlineNote(registered).includes("Rows after reg_pending, which waits for its result, have no online decision yet."));
+  assert.ok(reference.ledgerOnlineNote(registered)
+    .includes(`Rows after ${registered.online.waiting_on}, which waits for its result, have no online decision yet.`));
   // A research.json without the online view renders as before.
   assert.equal(reference.ledgerOnlineNote(m.research.researchLedger(research)), null);
   const old = visibleText(section(renderPage().html, "ledg"));

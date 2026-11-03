@@ -22,6 +22,15 @@
 
 /* --------------------------------------------------------------------- LEDG: status strip */
 #ledg .lazy-mount { margin-bottom: var(--sp-4); }
+/* The mounted strip keeps the height LEDG reserved from its label layout (LazyMount's variables, by the same
+   breakpoints as the placeholder), so it never shrinks under the reservation. */
+#ledg .lazy-mount > .ledger-strip-frame { min-height: var(--lazy-h); }
+@media (max-width: 899px) {
+  #ledg .lazy-mount > .ledger-strip-frame { min-height: var(--lazy-h-mid, var(--lazy-h)); }
+}
+@media (max-width: 640px) {
+  #ledg .lazy-mount > .ledger-strip-frame { min-height: var(--lazy-h-narrow, var(--lazy-h)); }
+}
 .ledger-strip { overflow: visible; }
 .strip-cell { fill: var(--text-4); }
 .strip-cell.is-supported { fill: var(--text-1); }

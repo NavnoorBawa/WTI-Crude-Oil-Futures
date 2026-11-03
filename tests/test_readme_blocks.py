@@ -4,6 +4,7 @@ The site's fmtPValue (src/lib/format.js) keeps a value off a threshold it is not
 docs' _pthr follows the same rule, so a q-value reads the same in RESULTS and on the page.
 """
 
+import json
 import unittest
 
 from scripts import readme_blocks as rb
@@ -312,8 +313,16 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
         self.assertIn(f"LORD++ rejects between {sens['lordpp']['min']} and {sens['lordpp']['max']} of them", text)
         self.assertIn("retrospective reading, not decisions made at the time", text)
         self.assertIn("a reading under that assumption, not a guarantee for this ledger", text)
+        # Git dates the batches; the order within a batch is the code's, chosen after the p-values were known.
+        self.assertIn("entry batches dated from the git history; within each batch the order is the ledger's code "
+                      "order, fixed after their p-values were known", text)
+        self.assertNotIn("reconstructed", text)
 
     def test_pending_and_withdrawn_registrations(self):
+        # Synthetic rows after the committed stream, first in line: committed registrations still pending are set
+        # aside, so this case does not depend on which registrations are committed.
+        self.ledger["rows"] = [r for r in self.ledger["rows"]
+                               if not (r["status"] == "registered" and not r["registration"]["withdrawn"])]
         last = max(self.ledger["rows"], key=lambda r: r["online_position"] or 0)
         pending = {**last, "id": "reg_pending", "status": "registered", "online_position": last["online_position"] + 1,
                    "online_p": None, "online_alpha_lordpp": 0.001, "online_alpha_saffron": 0.06,
@@ -322,31 +331,70 @@ class LedgerOnlineBlockTest(StabilityBlocksTest.__base__):
                  "online_alpha_lordpp": None, "online_alpha_saffron": None}
         self.ledger["rows"] += [pending, later]
         s = self.ledger["summary"]
-        s.update(registered=["reg_pending", "reg_later"], registered_withdrawn=["reg_gone"])
+        s.update(registered=["reg_pending", "reg_later"], registered_withdrawn=[*s["registered_withdrawn"], "reg_gone"])
         s["online"]["waiting_on"] = "reg_pending"
         s["online"]["lordpp"]["next_level"] = s["online"]["saffron"]["next_level"] = None
         text = self.patched(rb.ledger_online)
         self.assertIn("2 registered rows wait for their results (reg_pending and reg_later); the level it will be "
                       "tested at is fixed: reg_pending at 0.001 by LORD++ and 0.06 by SAFFRON; rows after reg_pending "
                       "have no online decision until it resolves.", text)
-        self.assertIn("1 registration was withdrawn (reg_gone) and counts as tested at p = 1.", text)
+        gone = s["registered_withdrawn"]
+        if len(gone) == 1:
+            self.assertIn("1 registration was withdrawn (reg_gone) and spends its online level at p = 1 (not counted "
+                          "as tested).", text)
+        else:
+            self.assertIn(f"{len(gone)} registrations were withdrawn ({rb._join(gone)}) and spend their online level "
+                          "at p = 1 (not counted as tested).", text)
         self.assertIn("The next registered row's level is not fixed until reg_pending resolves.", text)
 
     def test_the_abstract_and_the_block_count_tested_rows(self):
         s = self.ledger["summary"]
         self.assertIn(f"All {s['rows_tested']} hypotheses the project has tested", self.patched(rb.abstract))
-        self.assertNotIn("registered and wait", self.patched(rb.abstract))
-        s["rows_tested"] -= 1
-        s["registered"] = ["reg_pending"]
-        s["by_status"]["registered"] = 1
-        s["by_family"]["volatility forecast"]["by_status"]["registered"] = 1
+        if not s["registered"]:
+            self.assertNotIn("registered and wait", self.patched(rb.abstract))
+        # One more pending row, added to whatever the committed ledger holds.
+        s["rows"] += 1
+        s["registered"] = [*s["registered"], "reg_pending"]
+        s["by_status"]["registered"] += 1
+        s["by_family"]["volatility forecast"]["by_status"]["registered"] += 1
+        pending = len(s["registered"])
         abstract = self.patched(rb.abstract)
         self.assertIn(f"All {s['rows_tested']} hypotheses the project has tested", abstract)
-        self.assertIn("1 more is registered and waits for its result.", abstract)
+        self.assertIn("1 more is registered and waits for its result." if pending == 1 else
+                      f"{pending} more are registered and wait for their results.", abstract)
         block = self.patched(rb.ledger_block)
-        self.assertIn("9 retracted and 1 registered (results pending).", block)
+        self.assertIn(f"{s['by_status']['retracted']} retracted", block)
+        self.assertIn(f"{pending} registered (results pending)", block)
         self.assertIn("| Retracted | Registered | Supported, surviving BH |", block)
-        self.assertNotIn("Registered", self.patched(rb.ledger_block).split("| Family |")[0].replace("1 registered", ""))
+
+    def test_a_withdrawn_registration_is_counted_the_same_way_everywhere(self):
+        """Built by the ledger itself: a withdrawn registration is neither pending nor tested, in the block, the
+        abstract and the online paragraph alike."""
+        from datetime import date, timedelta
+        from unittest import mock
+
+        from backend import research_ledger as rl
+
+        day = (date.fromisoformat(rl.latest_legacy_entry()) + timedelta(days=1)).isoformat()
+        withdrawn = rl.Row(id="reg_gone", family="volatility forecast", hypothesis="A withdrawn registration.",
+                           test="a two-sided test whose p-value the artifact stores", source=rl.LAB,
+                           statistic=("statistic", "experiment_gone.stat"), p=rl.Field("experiment_gone.p_value"),
+                           sided="two", expects=rl.POSITIVE,
+                           registration=rl.Registration(day, "experiment_gone.p_value", "abandoned before it ran"))
+        base = [row for row in rl.ledger_rows() if row.registration is None]
+        with mock.patch.object(rl, "ORDER_DRAWS", 3):
+            self.ledger = json.loads(json.dumps(rl.build(rows=[*base, withdrawn])))
+        s = self.ledger["summary"]
+        self.assertEqual((s["registered"], s["registered_withdrawn"]), ([], ["reg_gone"]))
+        block = self.patched(rb.ledger_block)
+        self.assertIn("1 registered and withdrawn before its result existed.", block)
+        self.assertNotIn("results pending", block)
+        abstract = self.patched(rb.abstract)
+        self.assertIn(f"All {s['rows'] - 1} hypotheses the project has tested", abstract)
+        self.assertIn("1 registration was withdrawn before its result existed.", abstract)
+        self.assertNotIn("registered and wait", abstract)
+        self.assertIn("1 registration was withdrawn (reg_gone) and spends its online level at p = 1 (not counted as "
+                      "tested).", self.patched(rb.ledger_online))
 
     def test_the_retracted_rows_spend_their_level_online(self):
         self.assertIn("in the online stream each is tested at p = 1, so it spends its level and earns none",

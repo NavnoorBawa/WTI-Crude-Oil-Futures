@@ -128,8 +128,9 @@ kept, so the post-mortem's runs can be repeated.
 
 ## 5. No result is stated beyond its test (three minutes)
 
-Claim: every hypothesis the project tested or registered is listed with its test, a batch
-multiplicity adjustment and an online one, and only the forward record can promote the challenger.
+Claim: every hypothesis the project tested or registered is listed with its test; every row with a
+result, except the rows selected after a search, carries a batch multiplicity adjustment and an
+online decision; and only the forward record can promote the challenger.
 
 ```bash
 python -c "import json; s = json.load(open('data/research_ledger.json'))['summary']; print(json.dumps(s['by_status'], indent=1))"

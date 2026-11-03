@@ -119,15 +119,17 @@ export const withCommittedLedger = (research) => {
 };
 
 /**
- * The committed ledger with two synthetic registered rows (ROADMAP 2.12), as the ledger would write them: one withdrawn
- * (tested online at p = 1) and, after it, one waiting for its result, which blocks the online decisions after it. The
- * summary's counts and lists follow. Test data only: no such rows exist in the committed ledger.
+ * The committed ledger with two synthetic registered rows (ROADMAP 2.12) appended, as the ledger would write them: one
+ * withdrawn (tested online at p = 1) and, after it, one waiting for its result, which blocks the online decisions after
+ * it. If a committed registration already waits, both wait behind it (no level, no decision). The summary's counts and
+ * lists extend the committed ones. Test data only: no such rows exist in the committed ledger.
  */
 export const withRegistered = (research) => {
   const base = withCommittedLedger(research);
   const { summary, rows } = base.ledger;
   const online = summary.online;
   const n = online.rows_in_stream;
+  const blocked = online.waiting_on != null;
   const family = "volatility forecast";
   const common = {
     date: null, family, test: "a two-sided test whose p-value the artifact stores", statistic_name: "statistic",
@@ -137,15 +139,15 @@ export const withRegistered = (research) => {
   const withdrawn = {
     ...common, id: "reg_withdrawn", hypothesis: "A registered hypothesis whose registration was withdrawn.",
     entered_on: "2026-11-10", online_position: n + 1,
-    online_alpha_lordpp: online.lordpp.next_level, online_rejected_lordpp: false,
-    online_alpha_saffron: online.saffron.next_level, online_rejected_saffron: false,
+    online_alpha_lordpp: blocked ? null : online.lordpp.next_level, online_rejected_lordpp: blocked ? null : false,
+    online_alpha_saffron: blocked ? null : online.saffron.next_level, online_rejected_saffron: blocked ? null : false,
     registration: { on: "2026-11-10", field: "experiment.p_value", withdrawn: "abandoned before it ran" },
   };
   const pending = {
     ...common, id: "reg_pending", hypothesis: "A registered hypothesis that waits for its result.",
     entered_on: "2026-11-11", online_position: n + 2,
-    online_alpha_lordpp: online.lordpp.next_level / 2, online_rejected_lordpp: null,
-    online_alpha_saffron: online.saffron.next_level / 2, online_rejected_saffron: null,
+    online_alpha_lordpp: blocked ? null : online.lordpp.next_level / 2, online_rejected_lordpp: null,
+    online_alpha_saffron: blocked ? null : online.saffron.next_level / 2, online_rejected_saffron: null,
     registration: { on: "2026-11-11", field: "experiment2.p_value", withdrawn: null },
   };
   const familySummary = summary.by_family[family];
@@ -163,11 +165,12 @@ export const withRegistered = (research) => {
           [family]: { ...familySummary, rows: familySummary.rows + 2,
             by_status: { ...familySummary.by_status, registered: (familySummary.by_status.registered ?? 0) + 2 } },
         },
-        registered: ["reg_pending"],
-        registered_withdrawn: ["reg_withdrawn"],
-        registered_before_result: ["reg_withdrawn", "reg_pending"],
+        registered: [...(summary.registered ?? []), "reg_pending"],
+        registered_withdrawn: [...(summary.registered_withdrawn ?? []), "reg_withdrawn"],
+        registered_before_result: [...(summary.registered_before_result ?? []), "reg_withdrawn", "reg_pending"],
         online: {
-          ...online, rows_in_stream: n + 2, rows_decided: n + 1, waiting_on: "reg_pending",
+          ...online, rows_in_stream: n + 2, rows_decided: blocked ? online.rows_decided : n + 1,
+          waiting_on: blocked ? online.waiting_on : "reg_pending",
           lordpp: { ...online.lordpp, next_level: null }, saffron: { ...online.saffron, next_level: null },
         },
       },

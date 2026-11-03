@@ -146,10 +146,13 @@ backs the new one.
   t > 3) is unchanged, no existing row's status, p-value or batch field changed, and every other section still cites
   it. A new status, `registered`: a hypothesis declared with its test and the artifact field that will hold its
   p-value before that field exists, with no p-value or decision until it does. Its place in the online order is fixed
-  at registration, a hash of its declared test is checked against the version that first reached main, and the status
-  changes by itself on the first rebuild after the field exists. From now on every new hypothesis is registered first.
-  The online decisions assume independent null p-values, which these rows do not have, and for the rows that entered
-  before registration began they are a retrospective reading of an order reconstructed from the git history. The old
+  at registration (its date, then its place in the registration table, so a later registration on the same day never
+  moves it), a hash of its declared test is checked against the version that first reached main, and the status
+  changes by itself on the first rebuild after the field exists. A model of a generated family (one row per model) is
+  registered with the label its rows show until the lab produces it. From now on every new hypothesis is registered
+  first. The online decisions assume independent null p-values, which these rows do not have, and for the rows that
+  entered before registration began they are a retrospective reading of the ledger's code order within entry batches
+  dated from the git history, an order fixed after their p-values were known. The old
   use of "registered" for "the form the ledger enters" becomes "entered" or "adopted" in the docs and row notes. The
   Python CI job now checks out the full history for the ledger's history tests.
 - **The whole predictive distribution (ROADMAP 2.4, first part).** `data/vol_lab.json` adds a
@@ -260,7 +263,8 @@ backs the new one.
   default) gain a sentence built from the ledger's online summary, with the procedures' counts, the independence they
   assume, the legacy rows' order sensitivity and that no status reads them, and a note on the registered status. METH
   cites LORD++ and SAFFRON; the data-vintage row reads the ledger's latest entry. A research.json without the online
-  view renders as before.
+  view renders as before. The status strip reserves its height from its own label layout in each width band and is
+  never drawn shorter, so a registered group's label line, or a narrower strip, no longer shifts the table below it.
 - **Coverage and loss by regime in CALB and MODL (ROADMAP 2.2, second part).** CALB states the
   model of record's coverage by regime from the lab's labels: the range of each split whose test of
   equal coverage is significant or inconclusive, worded at that test's strength with the ledger's q

@@ -70,8 +70,9 @@ export const withAlpha = (hex, alpha) => {
 };
 
 export const MONO_FONT = '"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace';
-/** Advance of one character of the charts' 11px monospace text (0.6 em; 6.600 px measured in Chromium). */
-export const MONO_CHAR_PX = 6.6;
+// One character of the charts' 11px monospace text, from src/theme/metrics.js (shared with the entry chunk). The
+// extension is explicit because tests/frontend/theme.test.mjs imports this file with node's own loader.
+export { MONO_CHAR_PX } from "./metrics.js";
 /** The page's sans-serif stack (tokens.css --font-sans), for measuring sans text drawn in a chart. */
 export const SANS_FONT = '"Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
