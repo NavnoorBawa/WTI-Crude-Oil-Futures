@@ -177,7 +177,7 @@ jobs:
                 printf '%s\n' "$output"
                 return 0
               fi
-              if printf '%s' "$output" | grep -qiE 'audit endpoint returned an error|network timeout|ENOTFOUND|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ECONNREFUSED|socket hang up|fetch failed'; then
+              if grep -qiE 'audit endpoint returned an error|network timeout|ENOTFOUND|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ECONNREFUSED|socket hang up|fetch failed' <<< "$output"; then
                 echo "npm audit (${scope}) registry/network error on attempt ${attempt}" >&2
                 if [ "$attempt" -eq 3 ]; then
                   echo "::warning title=npm audit unreachable::The npm advisory endpoint was unreachable after 3 attempts, so the ${scope} audit was skipped for this run. It is re-run on every pull request and on the weekly Tests schedule."
