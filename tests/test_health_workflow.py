@@ -174,7 +174,9 @@ class HealthWorkflowTest(unittest.TestCase):
         issues = repo.issues()
         self.assertEqual([(i["number"], i["state"], i["assignee"]) for i in issues], [(1, "open", "owner")])
         self.assertIn("**Needs a person**", issues[0]["body"])
-        self.assertEqual(repo.run("2026-11-04T20:00:00Z"), 1)                               # same problem, later
+        self.assertEqual(repo.run("2026-11-04T20:00:00Z"), 1, repo.last.stderr)            # same problem, later
+        # The step's own failure: one that set -e cut off (a failed `gh issue view`, say) exits 1 too, without it.
+        self.assertIn("::error title=Live pipeline needs attention::", repo.last.stdout)
         self.assertEqual(repo.issues()[0]["comments"], [])                                  # not edited again
         repo.update(payload=json.dumps({"frozen_at": "2026-11-04T19:00:00Z"}))               # refreshed: healthy
         self.assertEqual(repo.run("2026-11-04T20:00:00Z"), 0, repo.last.stderr)

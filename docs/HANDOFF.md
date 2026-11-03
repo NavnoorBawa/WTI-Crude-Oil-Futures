@@ -90,6 +90,13 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   CodeQL, ruff, mypy strict, bandit, pip-audit, npm audit, cog drift, figure determinism and the
   Reproduce rebuild. Releases: `scripts/bump_version.py`, and `.github/workflows/release.yml`
   publishes a GitHub Release with `SHA256SUMS` on each `vX.Y.Z` tag from 2.2.0 on.
+- **Workflow shell under test.** `tests/test_health_workflow.py` and `tests/test_field_workflow.py`
+  run steps with `bash -eo pipefail` against fakes on PATH. Never pipe into a reader that can stop
+  early (`grep -q`, `head`): the writer's next write then fails and pipefail fails the pipeline.
+  Cloud sessions set `PYTHONUNBUFFERED=1`, so a Python fake's `print` is two writes (text, then
+  newline); that made the Health test flake under load until #106 read the body into a variable.
+  A step cut off by `set -e` exits 1 like a deliberate failure, so a test checks the step's own
+  `::error` line as well as its exit code.
 - **Cloud sessions.** `.claude/hooks/session-start.sh` builds `.venv` (Python 3.12, pinned
   requirements) and installs `node_modules`, so every gate runs from the first command.
 - **Reproduce environment.** `Dockerfile` (Python 3.12.14 and Node 24.21.0 images pinned by
