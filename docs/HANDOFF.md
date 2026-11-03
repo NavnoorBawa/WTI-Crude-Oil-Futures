@@ -64,8 +64,10 @@ quality, never claims: the house rules in `CLAUDE.md` always come first.
   window opens; each call since 2026-10-28 also stores its fit, so it recomputes from its own entry.
   The first three windows resolved on 2026-10-29, 10-30 and 10-31: the Oct 20 call (47.3%, band
   23.1–63.6%) against a realized 40.95%, the Oct 21 call (49.6%, band 24.3–66.6%) against 37.76% and
-  the Oct 22 call (50.8%, band 24.9–68.2%) against 30.50%, all inside their band. The windows
-  overlap, so the page counts one independent week. `scripts/verify_record.py` passes on the record.
+  the Oct 22 call (50.8%, band 24.9–68.2%) against 30.50%, all inside their band. The Oct 23 call
+  (53.4%, band 26.2–71.8%) resolved on 2026-11-03 against 61.35%, inside its band too. The four
+  windows overlap, so the page counts one independent week. The 2026-11-02 entry is the first that
+  links to the one before it (one link, no break). `scripts/verify_record.py` passes on the record.
 - **Dashboard (2.2.0).** 2.1.0's research terminal, plus: the hero splits each change between calls
   into its inputs, refit and smearing; the hand arithmetic shows again; titles name their samples;
   the live record explains every never-scored status and an overdue result; charts keep their frame
@@ -165,25 +167,33 @@ and its CI run is the test.
   chart pane for the OVX/RV5 gap (it needs the forecast chart's percent formatting moved from
   `localization` to the series and a re-measured figure height). Neither changes a number.
 - **The published QLIKE DMs use the 9-lag rule (from ROADMAP 2.4).** The distribution scores showed
-  that persistent loss differences outrun 9 Bartlett lags, so 2.4 registers a batch-means test.
+  that persistent loss differences outrun 9 Bartlett lags, so 2.4 enters a batch-means test in the ledger.
   The published QLIKE DM p-values should gain the batch-means p as context (every published
   "significant" QLIKE verdict holds under it in the design check; this changes no number now).
 - **The record's residual window (from ROADMAP 2.4).** Its outcome fell outside the trailing
   780-day residual range on 35 days against 22 expected (95th percentile 31; descriptive): a longer
   or tail-weighted window is a candidate, and the quantile HAR's upper tail (its 90% pinball edge is
-  inconclusive) another. ROADMAP 2.12 (online FDR) is the next multiplicity step, so old decisions
-  stop moving as rows are added.
+  inconclusive) another.
+- **Multiplicity as the ledger grows (ROADMAP 2.12, done).** The ledger has an online view (LORD++,
+  SAFFRON) whose earlier decisions do not move as rows are added, and a `registered` status.
+  **Every new hypothesis is registered before its result exists**, so ROADMAP 2.5 and 2.13 start
+  with a registration PR (the working loop, below). Still open: asynchronous online variants
+  (LORD\*, SAFFRON\*), which would not make the rows after a pending one wait; BatchBH over the
+  legacy entry batches as context, which removes their within-batch order; per-row shares of the
+  within-batch draws in which each legacy row is rejected.
 - **Estimation error.** DM, MCS and SPA compare forecasts as produced on expanding windows; a
   rolling-window variant would give the Giacomini-White reading (ROADMAP 2.3).
 - **Benchmark breadth.** On free daily data only: HAR with a jump/continuous split (range-based
   proxies); Realized GARCH and HEAVY on range variance; a Yang-Zhang or Garman-Klass target as a
-  second proxy. Every new model is a new hypothesis: add it to the ledger with its multiplicity
-  adjustment and re-run MCS and SPA. The live challenger stays pinned.
+  second proxy. Every new model is a new hypothesis: register it in the ledger before its result
+  exists (the working loop, below) and re-run MCS and SPA. The live challenger stays pinned.
 
 ### 4. Interface follow-ups found but not done (each small; none changes a number)
 - Hash landings on `#vrp` and `#ledg` at about 600 px can exceed the 0.02 layout-shift budget (as
-  before 2.2.0): reserve the VRP scatter from its width and give the ledger strip breakpoints where
-  it really wraps; then add a 600 px hash-landing check to the browser tests.
+  before 2.2.0): reserve the VRP scatter from its width; then add a 600 px hash-landing check to the
+  browser tests. LEDG's strip now reserves its height from its own label layout in each band and
+  is never drawn shorter (2.12), so it no longer shrinks at 600 px; from 900 to 1,279 px it can still
+  grow by one label line (the wide band's reservation assumes a 1,280 px desktop).
 - FCST, RISK and MKT placeholders are 16–20 px short at 320 px (layout shift stays at or below 0.011).
 - The hero grows about 36 px when research.json lands after the first render; reserve its
   research-dependent lines while pending, as the tiles do.
@@ -214,8 +224,13 @@ and its CI run is the test.
   exact one: the rendered text is up to about 340 px off between 480 and 640 px, about 260 px at
   320 px, and CALB's tables about 200 px from 900 to 1,279 px, below the first screen in the
   landings measured. A reservation that follows the text, or an intrinsic one, would remove it.
-- The first-load gzip headroom is about 6.1 KB after 2.4 (entry +10.4 KB). The CALB method notes
-  (about 3 KB of the entry) could load with the lazy chunk if a later item needs the room.
+- The first-load gzip headroom is about 4.2 KB after 2.12 (180,034 B of 184,320; the entry 311,863 B
+  of 327,680; the strip's layout moved into the entry so LEDG can reserve its height). The CALB
+  method notes (about 3 KB of the entry) could load with the lazy chunk if a later item needs the
+  room.
+- LEDG shows the online view (ROADMAP 2.12) only in its CSV and method notes. An on-screen online
+  column or chip needs the 390 and 360 px card layout and the visual baselines; its value is low while
+  no other section cites the online view.
 
 ### 5. Engineering
 - **The rest of ROADMAP 1.7.** The first part (#91) pinned EIA's contracts 1 and 2 and Cushing
@@ -286,3 +301,70 @@ and its CI run is the test.
 
 Stop a line of work when two consecutive review rounds confirm no blocking finding in it. Then move
 to the next backlog item.
+
+**Adding a hypothesis (ROADMAP 2.12).** Every new ledger row is registered before its result
+exists, in two PRs, in this order:
+
+1. **Registration PR**, merged before any PR that produces the result. It adds the row's full
+   definition (hypothesis, test, p-value source, direction) where its family's rows are defined, an
+   entry appended to `REGISTERED` in `backend/research_ledger.py` dated today (UTC) with the
+   artifact field that will hold the result, and the rebuilt ledger, in which the row is
+   `registered`. Its place in the online order is its date, then its place in `REGISTERED`: if
+   another registration merged first, append this entry after it (the same date is allowed; an
+   earlier date is not), so the merged one keeps its place. A model for a generated family (the
+   `vol_gw_`/`vol_fluct_` rows, or the distribution rows) is registered by listing it, with the label
+   its rows show while they wait, in `REGISTERED_LAB_MODELS` (or `REGISTERED_DISTRIBUTION_MODELS`)
+   and each of its rows in `REGISTERED`; `vol_lab.py` does not change in this PR. A row in a new
+   family also adds the family's name to the list in `test_rows_cover_every_research_family` in
+   `tests/test_research_ledger.py` and to METHODOLOGY 17's Families list, in this PR, before any
+   result exists; if it has a row for the challenger (`selected_after_search`), the PR also adds that
+   row's kind where METHODOLOGY 17 lists the challenger's rows (the abstract counts it by itself once
+   it has run).
+2. **Result PR.** It rebuilds the artifact so the field exists, then the ledger: the row resolves by
+   itself. A test the artifact ran but could not compute resolves it too, where the row reads the
+   field as optional (`Field(optional=True)`, as the `vol_gw_`/`vol_fluct_` rows do): the row then
+   takes the status of any row whose test could not be computed, inconclusive, or not supported
+   when its stored estimate points the wrong way; it has no p-value and, unless it was selected after
+   a search (then it is outside the online stream too), is tested online at p = 1.
+   A null in a field the test does not read as optional keeps the row pending. Its definition must
+   not change (the spec hash); notes and context may be added. A generated family's model moves
+   from `REGISTERED_LAB_MODELS` to `LAB_COMPARED` (or to `DISTRIBUTION_MODELS`) as it joins the
+   lab, which leaves the spec hash unchanged; in `DISTRIBUTION_MODELS` it takes its place in the
+   artifact's `distribution.models` order (a test checks that the two agree, and the tests of the
+   distribution readings read their groups from the artifact and the ledger and also run on a
+   synthetic new model with values of its own, so none is edited after the result); a model whose
+   PIT reads a simulated sample (the lab writes `alternatives` for it, as for GARCH) also joins
+   `PARAMETRIC_DISTRIBUTION_MODELS`, so its calibration row carries the PIT-form context (a test
+   checks this list against the artifact too). A lab model
+   also changes three lists in the same PR:
+   it joins `MODELS` in `backend/vol_lab.py` (a test checks that it and `LAB_COMPARED` agree), gets
+   an entry in `MODEL_INPUTS` in `scripts/readme_blocks.py` saying what it reads at the decision
+   (returns, the daily range, implied vol; a test checks that every lab model has one, and the
+   no-look-ahead test reads it to know which models read the daily range; for a model
+   in the field, which a timing control is not, the doc rebuild also fails without it), and, unless
+   it is a timing control, joins `FIELD_KEYS` in
+   `backend/field_record.py` (a test keeps it equal to `vol_lab.FEASIBLE`), so the field shadow
+   log starts logging it.
+
+A pending row blocks the online decisions after it, so resolve it promptly, or withdraw it (only
+before its result exists) with a reason, which the changelog names. The rows one registry makes for
+a model are withdrawn together: `vol_gw_`/`vol_fluct_` read the leaderboard entry the lab writes for
+it, the score and `vol_berkowitz_` rows its distribution entry, and the entry that would hold a
+pending row's result would hold its withdrawn sibling's too (the build refuses a partial
+withdrawal). That retires the key in that registry: it stays in `REGISTERED_LAB_MODELS` and the lab
+never adds the model to its leaderboard, or it stays in `REGISTERED_DISTRIBUTION_MODELS` and the lab
+never scores the model's distribution under that key; a later attempt registers a new key. The two
+registries' rows read different entries (a distribution row reads the leaderboard only as context,
+and only for a model in `LAB_COMPARED`), so a model registered through both can lose its
+distribution rows and keep its lab rows, or the other way round. In that second case its
+distribution rows resolve when the lab scores it as a distribution only, as it scores the quantile
+HAR, and the key moves to `DISTRIBUTION_MODELS` while it stays in `REGISTERED_LAB_MODELS`.
+Every changed p-value or status of an existing row (an erratum, a retraction after entry, a test
+that becomes computable, a lab rebuild that moves p-values) is named in `ONLINE_CORRECTIONS` in
+`tests/test_research_ledger.py` with its changelog errata entry, a row selected after a search too
+(it is outside the online stream, but the batch check below compares its fields). A registered
+row's own result arriving is not a correction and is never named. In the stream
+the correction recomputes the online view from that row on. The history test's two checks (the
+append-only online view, and the batch fields while the family is unchanged) exempt the named
+row's own p-value and status, and the online levels and decisions recomputed after it; the batch
+check also exempts a registered row's own p-value and status when its result arrives.

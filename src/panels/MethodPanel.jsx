@@ -37,6 +37,8 @@ export const REFERENCES = [
   { id: "stat-dq", method: "Dynamic quantile test", ref: "Engle & Manganelli (2004), JBES" },
   { id: "stat-utility", method: "Realized utility of volatility forecasts", ref: "Bollerslev, Hood, Huss & Pedersen (2018), RFS" },
   { id: "stat-bh", method: "False discovery rate across the ledger's tests", ref: "Benjamini & Hochberg (1995), J. Royal Statistical Society B" },
+  { id: "stat-lord", method: "Online false discovery rate control in the order hypotheses arrive", ref: "Ramdas, Yang, Wainwright & Jordan (2017), NeurIPS" },
+  { id: "stat-saffron", method: "Adaptive online false discovery rate control", ref: "Ramdas, Zrnic, Wainwright & Jordan (2018), ICML" },
   { id: "stat-hlz", method: "The t > 3 hurdle for findings chosen from many", ref: "Harvey, Liu & Zhu (2016), Review of Financial Studies" },
 ];
 

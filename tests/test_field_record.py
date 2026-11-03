@@ -79,7 +79,9 @@ class FieldTest(unittest.TestCase):
     def test_the_field_is_the_lab_s_without_the_timing_control(self):
         from backend import vol_lab
 
-        self.assertEqual(fr.FIELD_KEYS, tuple(vol_lab.FEASIBLE))
+        self.assertEqual(fr.FIELD_KEYS, tuple(vol_lab.FEASIBLE),
+                         "backend/field_record.py FIELD_KEYS must list vol_lab.FEASIBLE in its order: a lab model's "
+                         "result PR adds it there too (docs/HANDOFF.md)")
         self.assertNotIn("har_iv_sameday", fr.FIELD_KEYS)
 
     def test_open_keys_follow_what_is_logged_and_never_reopen_an_older_session(self):

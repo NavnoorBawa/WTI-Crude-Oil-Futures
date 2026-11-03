@@ -22,6 +22,15 @@
 
 /* --------------------------------------------------------------------- LEDG: status strip */
 #ledg .lazy-mount { margin-bottom: var(--sp-4); }
+/* The mounted strip keeps the height LEDG reserved from its label layout (LazyMount's variables, by the same
+   breakpoints as the placeholder), so it never shrinks under the reservation. */
+#ledg .lazy-mount > .ledger-strip-frame { min-height: var(--lazy-h); }
+@media (max-width: 899px) {
+  #ledg .lazy-mount > .ledger-strip-frame { min-height: var(--lazy-h-mid, var(--lazy-h)); }
+}
+@media (max-width: 640px) {
+  #ledg .lazy-mount > .ledger-strip-frame { min-height: var(--lazy-h-narrow, var(--lazy-h)); }
+}
 .ledger-strip { overflow: visible; }
 .strip-cell { fill: var(--text-4); }
 .strip-cell.is-supported { fill: var(--text-1); }
@@ -29,6 +38,8 @@
 .strip-cell.is-inconclusive { fill: var(--text-3); }
 .strip-cell.is-not-supported { fill: var(--text-4); }
 .strip-cell.is-retracted { fill: var(--warn); }
+/* A registered row has no result yet: an outlined cell with no fill. */
+.strip-cell.is-registered { fill: none; stroke: var(--text-3); stroke-width: 1; }
 .strip-leader { stroke: var(--text-4); shape-rendering: crispEdges; }
 .strip-label { fill: var(--text-2); }
 .strip-count { fill: var(--text-1); font-weight: 600; }

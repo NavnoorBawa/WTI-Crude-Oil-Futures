@@ -282,12 +282,12 @@ residuals understate its error.
     the moments are a moving average of order at most 4 (the targets overlap by four sessions), so
     their autocovariances after lag 4 are zero and the estimator is consistent. Bartlett weights would
     shrink exactly the autocovariances the overlap makes real.
-  - **Conditional part** (the test the ledger registers). The same instruments without the constant,
+  - **Conditional part** (the test the ledger enters). The same instruments without the constant,
     around their means: `u_t = (x_t − x̄)(d_t − d̄)` and `W_c = n·ū′Ω̂_u⁻¹ū` with the same estimator,
     against χ² with 3 degrees of freedom. It asks whether the difference moves with the state, not
     whether it is zero on average: adding a constant to `d` leaves it unchanged. The χ²(4) form
     includes the full-sample mean, so it mostly repeats the Diebold-Mariano test; it is published as
-    context (`gw_qlike_vs_har_iv.p_value`) and not registered. The conditional part is not free of
+    context (`gw_qlike_vs_har_iv.p_value`) and not entered in the ledger. The conditional part is not free of
     the challenger's selection, though. Being unchanged by a shift does not make it independent of
     the mean: when the difference's variance moves with the instruments, its moments are correlated
     with `d̄`, so picking the model with the lowest mean loss moves them as well. The challenger's
@@ -310,7 +310,7 @@ residuals understate its error.
     (the fluctuation test below does the same when a window's variance is not positive). Its ledger
     row then has no p-value (section 17). There is no fallback estimator: one chosen after seeing the
     data would be another search.
-  - **Robustness** (published, not registered): both forms with Bartlett weights at 10 and 40 lags;
+  - **Robustness** (published, not entered in the ledger): both forms with Bartlett weights at 10 and 40 lags;
     and both on each of the five sampling grids, one forecast a week, with no lags (the targets do
     not overlap, and the lag is the grid's previous week).
   - The instruments, the kernel and its lags were fixed after prototype runs on this sample, so the
@@ -364,7 +364,7 @@ residuals understate its error.
     fixed before its values were computed, and its outcomes are published as they come. The Monte Carlo standard error of the 5%
     critical value (`critical_values.mc_se_five_pct`) is about 0.006, so a critical value's second
     decimal is the last meaningful one.
-  - **Search-adjusted p-value** (the one the ledger registers). All five lengths were looked at in
+  - **Search-adjusted p-value** (the one the ledger enters). All five lengths were looked at in
     prototype runs before μ = 0.2 was fixed, and the length decides some verdicts, so the ledger's
     p-value adjusts for the choice. It is the smallest of the five marginal p-values, calibrated on
     the same simulated walks (the min-p adjustment; Westfall and Young 1993). The observed sups and
@@ -380,7 +380,7 @@ residuals understate its error.
     simulated ones. At μ = 0.2 the table's 5% value is 3.179 and the simulation at this sample's
     length gives 3.2434. The table is close to a simulation on a few hundred steps, so on the
     simulated null at this length the table's value rejects somewhat more than 5% of the time. `rejects_5pct_gr2010` records each model's verdict at the table's value.
-  - **Robustness** (published, not registered), at μ = 0.2: each window's Bartlett variance at 40
+  - **Robustness** (published, not entered in the ledger), at μ = 0.2: each window's Bartlett variance at 40
     lags (`bartlett_40`), which allows dependence up to 40 sessions at the cost of over-rejecting
     when the only dependence is the overlap and the differences are Gaussian (above); Giacomini and
     Rossi's one full-sample variance (`full_sample_variance`; truncated kernel, 4 lags, uncentred);
@@ -423,7 +423,7 @@ residuals understate its error.
   the first 264), not on every out-of-sample day, so these figures are never set beside QLIKE's.
   - **Score differences: a batch-means test.** For each model, each score's daily difference from
     the model of record's is split into 12 consecutive periods of about 17 months, and the t-test on
-    the 12 period means (11 df) is the registered p-value (Ibragimov and Müller 2010). The daily
+    the 12 period means (11 df) is the ledger's p-value (Ibragimov and Müller 2010). The daily
     differences against the GARCH models and EWMA stay correlated for weeks, far beyond the
     five-session overlap (their autocorrelation is published with each test). In a simulation matched
     to that persistence, which a unit test runs on 1,000 seeded draws, the lab's Diebold-Mariano test
@@ -456,7 +456,7 @@ residuals understate its error.
       between the two levels and only counted outside them; i.i.d. N(μ, σ²) against N(0, 1), χ²(2).
       It tests the distribution between and beyond those quantiles, not independence. A seeded
       randomized-tail PIT, tried first, is context with its spread over 100 seeds.
-  - **Context, not registered**: the log-scale CRPS, the shares of outcomes between consecutive
+  - **Context, not entered in the ledger**: the log-scale CRPS, the shares of outcomes between consecutive
     predicted deciles with each bin's chance spread (1.96 standard deviations across the first 2,000
     null draws, by PIT construction; no bin is tested), the days outside the trailing window's range
     against the null's, the Cauchy combination over grids (Liu and Xie 2020), a Model Confidence Set
@@ -464,9 +464,9 @@ residuals understate its error.
   - **Choices made after the scores were seen** (none of these rows is pre-specified, and every row
     note says so): the vol-point scale (the log scale moves GARCH-t's and GJR-t's CRPS rows), equal
     weights, the batch-means rule and its 12 periods (the 8- and 16-period p-values are in each row's
-    context), registering all three scores, the simulated recursion for the GARCH models (the
+    context), entering all three scores, the simulated recursion for the GARCH models (the
     static reading scores worse), the quantile HAR's design, schedule, solver and point forecast,
-    its censored test (registered after the randomized-tail p was seen), the GARCH PIT form, and the
+    its censored test (adopted after the randomized-tail p was seen), the GARCH PIT form, and the
     reference distributions (the simulated null was adopted after the χ²(3) p-values were seen).
     The designs were checked by simulation before the rebuild; the checks that bear on a stated size
     are in the unit tests.
@@ -779,21 +779,31 @@ another. That test replaced a pooled one after the runs were seen, so those rows
 pre-specified.
 
 - **Status**, from the test as run: supported (p < 0.05 in the hypothesis's direction),
-  inconclusive (0.05 ≤ p < 0.10, or no p-value because the artifact could not compute the test:
-  section 7's "not computed" rule), not supported (p ≥ 0.10, or the estimate points the other way),
-  or retracted (the evidence was invalid when produced: the leaked walk-forward, roll-contaminated
-  returns, or a test whose null was wrong). Not supported is a failure to reject the null, not
+  inconclusive (0.05 ≤ p < 0.10, or no p-value because the artifact could not compute the test,
+  section 7's "not computed" rule, unless the estimate points the other way), not supported
+  (p ≥ 0.10, or the estimate points the other way),
+  retracted (the evidence was invalid when produced: the leaked walk-forward, roll-contaminated
+  returns, or a test whose null was wrong), or registered (declared, with its test and the artifact
+  field that will hold its p-value, before that field existed; no result yet, or withdrawn before
+  one existed). Not supported is a failure to reject the null, not
   evidence against the hypothesis. Where the artifact records the test's power, `underpowered` is
   true when it is below the artifact's target power (null where no power figure exists). Retracted
   rows keep their p-values and stay in the multiplicity count, but are never counted as survivors.
-- **Multiplicity**, across the rows with a p-value, on the two-sided p (a one-sided p doubled,
+  A registered row has no p-value, takes no part in either view's decisions, and changes status by
+  itself on the first rebuild after its field holds the result: a value, or a null where the row's
+  test reads the field as optional, which means the artifact ran the test and could not compute it
+  (the row then takes the status of any row whose test could not be computed: inconclusive, or not
+  supported when its stored estimate points the wrong way; it has no p-value and, unless it was
+  selected after a search (then it is outside the online stream too), is tested online at p = 1).
+  Any other null is a placeholder.
+- **Multiplicity, the batch view**, across the rows with a p-value, on the two-sided p (a one-sided p doubled,
   capped at 1): Benjamini-Hochberg (1995) q-values, Holm (1979) adjusted p-values, and the
   Harvey, Liu and Zhu (2016) hurdle t > 3 on the normal quantile of that p. Rows marked
   `selected_after_search` test a model picked as the best of a field on the same sample: the
   challenger's full-sample, conditional and over-time comparisons with the model of record, and its
   three predictive-distribution score rows. Their p-values ignore the search, so they are left out
   of the family and their adjusted fields are null. Each note names the search-adjusted test where
-  one exists or says none does: the SPA row adjusts the full-sample comparison, and the other five
+  one exists or says none does: the SPA row adjusts the full-sample comparison, and the others
   have none. Rows on the same loss
   difference are dependent (a model's Giacomini-White and fluctuation rows, and its
   Diebold-Mariano row where there is one): Benjamini-Hochberg assumes positive dependence (PRDS;
@@ -801,14 +811,102 @@ pre-specified.
   near-duplicate rows lower other rows' q-values. The predictive-distribution rows partly restate
   one another and the QLIKE comparison, and the calibration rows of the three log models share most
   of their data.
+- **Online control.** LORD++ (Ramdas, Yang, Wainwright and Jordan 2017, eq. 5) and SAFFRON (Ramdas,
+  Zrnic, Wainwright and Jordan 2018) run at a target false discovery rate of 0.05 over the rows in
+  the order they entered the ledger. The order is by `entered_on`, the UTC date of the merge to main
+  that first held the row (for rows entered before registration began) or its registration date,
+  then, for registered rows, by their place in `REGISTERED` (registration order, so a later
+  registration never moves an earlier one, even on the same day) and, for the others, by the row's
+  place in the ledger's code. It is not the artifact `date`, which for lab rows is the snapshot's
+  retrieval date. Each row is tested on `p_two_sided`. Retracted rows and rows whose
+  test the artifact could not compute enter at p = 1, so they spend their level but can neither be
+  rejected nor fund later tests. In the batch view a retracted row keeps its recorded p, because
+  there a rejection funds nothing. Rows selected after a search stay out, as in the batch view.
+
+  The settings are the defaults of the reference implementation, onlineFDR 2.21.3 (Robertson et al.
+  2019):
+  - LORD++ with initial wealth α/10 (the paper suggests α/2) and γ_j ∝ log(max(j, 2)) / (j e^√(log j))
+    (Javanmard and Montanari 2018) with the package's constant 0.07908197 (the papers print 0.0722
+    and 0.07720838);
+  - SAFFRON with initial wealth α/2, λ = 0.5 and γ_j ∝ j^−1.6.
+
+  Neither sequence is normalised to a horizon, so a row's level depends only on the rows before it.
+  A row is rejected when p ≤ α_t (the batch view's survival uses q < 0.05; the papers' own code uses
+  p < α_t). The settings were adopted after previews on provisional orders had been seen; they are
+  the package's defaults, not a choice among settings, and no other setting is computed. Changing
+  either later is an erratum that recomputes the stream. With the package's rounded constant the
+  infinite γ sum exceeds 1 by about 5 × 10⁻⁸, far beyond any length this ledger can reach.
+
+  Both procedures control the false discovery rate for independent null p-values. They do not in
+  general under the positive dependence these rows have; LORD under arbitrary dependence (Javanmard
+  and Montanari 2018) is a stricter alternative, not used. So the online decisions are a reading
+  under independence, and no status, and no claim outside section 6 of the results, rests on them.
+  A SAFFRON rejection that Benjamini-Hochberg does not support is never counted as surviving an
+  adjustment, and SAFFRON's level can exceed 0.05 after recent rejections: a rejection of a row whose
+  own p is 0.05 or more is not support.
+
+  The rows that entered before registration began have no order fixed in advance: the git history
+  dates their entry batches, but each batch's internal order is the ledger's code order, fixed after
+  their p-values were known. The artifact therefore records how many rows each procedure rejects when that order is drawn at random
+  within each entry batch, with a fixed seed (`summary.online.legacy_order_sensitivity`). For those
+  rows the online decisions are a retrospective reading, and later rows' levels depend on them.
+
+  A pending registered row keeps its place: its level is published once every earlier row is
+  decided, and the rows after it wait. Asynchronous variants (Zrnic, Ramdas and Jordan 2021) would
+  not make them wait and are not used.
+
+  Decisions are stable while the artifacts stay pinned. A corrected p-value (an erratum, a
+  retraction after entry, a test that becomes computable, or a snapshot refresh that re-runs the lab
+  rows on new data) recomputes that row and every later one, and is recorded in the changelog's
+  errata; the history test names each such row (`ONLINE_CORRECTIONS`), a row selected after a search
+  too (it is outside the stream), and its two checks (the append-only online view, and the batch
+  fields while the family is unchanged) exempt only the named row's own p-value and status, and the
+  online levels and decisions recomputed after it. A registered row's own result arriving is not a
+  correction and is never named: the batch check exempts that row's own p-value and status as well.
+  Strictly, re-testing on new data is a new hypothesis, but the ledger reads only current
+  artifacts, so it cannot keep old p-values.
+- **Registered rows.** From ROADMAP 2.12 on, every new hypothesis is registered before its result
+  exists. A registration pull request adds the row's full definition (hypothesis, test, p-value
+  source, direction) and an entry in `REGISTERED` with its date (`registration.on`, UTC) and the
+  artifact field that will hold its result (`registration.field`); it merges before any pull request
+  that produces the result. The ledger records `registration.spec_sha256`, the hash of everything
+  that decides the row's p-value, direction and status. The checks: the declared field did not
+  hold a result on main when the row arrived there; the hash is unchanged since; the status changes
+  only when the field holds the result, and the test must read that field; a pending row's field
+  must not hold it (else the ledger was not rebuilt). A registration can be withdrawn only while its
+  result does not exist; the row then stays listed for good, with status registered, and, unless it
+  was selected after a search (then it is outside the online stream), is tested online at p = 1, so
+  a withdrawal still costs its level (it is not counted as tested). A generated
+  family's row (one per model, its hypothesis naming the model) is registered by listing the model,
+  with the label the rows show while they wait, in `REGISTERED_LAB_MODELS` or
+  `REGISTERED_DISTRIBUTION_MODELS`; the hash covers the hypothesis as written and the field paths of
+  its names, so moving the model into `LAB_COMPARED` or `DISTRIBUTION_MODELS` in the result pull
+  request leaves it unchanged. While a row waits, each name is read from its artifact where the
+  artifact already holds it, else the declared label is shown. The rows one registry makes for a
+  model are withdrawn together: they read one entry the lab writes whole (the leaderboard entry for
+  the conditional and stability rows, the distribution entry for the score and calibration rows), so
+  the entry that would hold a pending row's result would hold its withdrawn sibling's too.
+  Withdrawal retires the key in that registry (the lab never adds the model to its leaderboard, or
+  never scores its distribution under that key); a later attempt registers a new key. The two
+  registries' rows read different entries (a distribution row reads the leaderboard only as
+  context, and only for a model in `LAB_COMPARED`), so each group is withdrawn on its own, and a
+  model's distribution rows resolve with no leaderboard entry under their key: after its lab rows
+  are withdrawn (the lab scores it as a distribution only, as it does the quantile HAR) or when its
+  distribution is registered again under a new key. A lab model's result pull request also gives
+  it an entry in `MODEL_INPUTS` (`scripts/readme_blocks.py`) and, unless it is a timing control, in
+  `FIELD_KEYS` (`backend/field_record.py`, the field shadow log). `registered` means fixed before
+  the result existed; `pre_specified` means fixed before the data were seen, and most registered
+  rows will run on data already explored, so the two are counted separately. The checks see main
+  only: a result computed off main before registration cannot be detected, and the row's note must
+  disclose it if it happened.
 - `pre_specified` is true only where the code documents the test as fixed before the data were
   seen; most of the project was exploratory.
 - **Families** name the kind of claim (direction model, leak anatomy, carry, variance risk premium,
   volatility forecast, value at risk, forecast interval, conditional predictive ability, stability
   over time, predictive distribution, distribution calibration, supply shock); the label does not
   split the adjustment: every row with a p-value, except those selected after a search (the
-  challenger's six rows; above), shares one multiplicity family. Robustness variants are published
-  as context and not registered: the χ²(4) Giacomini-White form, which includes the full-sample mean
+  challenger's rows; above), shares one multiplicity family. Robustness variants are published
+  as context and not entered in the ledger: the χ²(4) Giacomini-White form, which includes the full-sample mean
   the DM test asks about, and section 7's distribution context (the log scale, the CRPS confidence
   set, the quantile HAR's field rerun).
 - **A Bonferroni bound over runs** (`BonferroniOverRuns`): min(1, k × the smallest of k stored
@@ -847,6 +945,7 @@ pre-specified.
 - Harvey, D., Leybourne, S., Newbold, P. (1997). Testing the equality of prediction mean squared errors. *International Journal of Forecasting* 13(2).
 - Holm, S. (1979). A simple sequentially rejective multiple test procedure. *Scandinavian Journal of Statistics* 6(2).
 - Ibragimov, R., Müller, U. K. (2010). t-statistic based correlation and heterogeneity robust inference. *Journal of Business & Economic Statistics* 28(4).
+- Javanmard, A., Montanari, A. (2018). Online rules for control of false discovery rate and false discovery exceedance. *Annals of Statistics* 46(2).
 - Koenker, R., Bassett, G. (1978). Regression quantiles. *Econometrica* 46(1).
 - Kupiec, P. (1995). Techniques for verifying the accuracy of risk measurement models. *Journal of Derivatives* 3(2).
 - Ledoit, O., Wolf, M. (2008). Robust performance hypothesis testing with the Sharpe ratio. *Journal of Empirical Finance* 15(5).
@@ -863,8 +962,12 @@ pre-specified.
 - Patton, A. (2011). Volatility forecast comparison using imperfect volatility proxies. *Journal of Econometrics* 160(1).
 - Patton, A., Sheppard, K. (2015). Good volatility, bad volatility: signed jumps and the persistence of volatility. *Review of Economics and Statistics* 97(3).
 - Politis, D., Romano, J. (1994). The stationary bootstrap. *JASA* 89(428).
+- Ramdas, A., Yang, F., Wainwright, M. J., Jordan, M. I. (2017). Online control of the false discovery rate with decaying memory. *NeurIPS* 30.
+- Ramdas, A., Zrnic, T., Wainwright, M. J., Jordan, M. I. (2018). SAFFRON: an adaptive algorithm for online control of the false discovery rate. *ICML*, PMLR 80.
+- Robertson, D. S., Wildenhain, J., Javanmard, A., Karp, N. A. (2019). onlineFDR: an R package to control the false discovery rate for growing data repositories. *Bioinformatics* 35(20).
 - Rogers, L. C. G., Satchell, S. (1991). Estimating variance from high, low and closing prices. *Annals of Applied Probability* 1(4).
 - Sheppard, W. F. (1899). On the application of the theory of error to cases of normal distribution and normal correlation. *Philosophical Transactions of the Royal Society A* 192.
 - West, K. D. (1996). Asymptotic inference about predictive ability. *Econometrica* 64(5).
 - Westfall, P. H., Young, S. S. (1993). *Resampling-Based Multiple Testing: Examples and Methods for p-Value Adjustment*. Wiley.
 - Yang, D., Zhang, Q. (2000). Drift-independent volatility estimation based on high, low, open, and close prices. *Journal of Business* 73(3).
+- Zrnic, T., Ramdas, A., Jordan, M. I. (2021). Asynchronous online testing of multiple hypotheses. *Journal of Machine Learning Research* 22.

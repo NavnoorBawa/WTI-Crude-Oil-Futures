@@ -10,25 +10,41 @@ import Panel, { REPRODUCE } from "../components/Panel";
 import { ledgerAssertion } from "../lib/assertions";
 import { DASH, fmtDate, fmtInt, fmtNum, fmtPValue, humanizeKey, num } from "../lib/format";
 import {
-  LEDGER_PAGE, filterLedgerRows, ledgerAnchor, ledgerFlagText, ledgerOrderValue, ledgerStrip, ledgerSupportText,
-  revealLedgerView, visibleLedgerRows,
+  LEDGER_PAGE, filterLedgerRows, ledgerAnchor, ledgerFlagText, ledgerOnlineNote, ledgerOnlineText, ledgerOrderValue,
+  ledgerStrip, ledgerStripReserve, ledgerSupportText, revealLedgerView, visibleLedgerRows,
 } from "../lib/reference";
 import { asText, getLab, ledgerStatusLabel, ledgerText, mcsLevel, modelLabels, researchLedger } from "../lib/research";
 import { ResearchUnavailable } from "./common";
 
-const STATUS_TONE = { supported: "status-resolved", not_supported: "muted", retracted: "warn", inconclusive: "status-pending" };
-const STATUS_ORDER = ["supported", "not_supported", "inconclusive", "retracted"];
+const STATUS_TONE = {
+  supported: "status-resolved", not_supported: "muted", retracted: "warn", inconclusive: "status-pending", registered: "muted",
+};
+const STATUS_ORDER = ["supported", "not_supported", "inconclusive", "retracted", "registered"];
 const STATUS_TITLE = {
   supported: "p below 5%, with the estimate pointing the way the hypothesis says",
   not_supported: "p of 10% or more, or the estimate points the other way: a failure to reject, not evidence against the hypothesis",
   inconclusive: "p between 5% and 10%, or no p-value with the estimate pointing the right way",
   retracted: "the evidence was invalid when produced (leaked walk-forward, roll-contaminated returns or a wrong null); kept as a record",
+  registered: "declared, with its test and the artifact field that will hold its p-value, before the result existed; not yet "
+    + "tested (or withdrawn before a result existed)",
 };
+const REGISTERED_NOTE = "Registered: a hypothesis declared, with its test and the artifact field that will hold its p-value, "
+  + "before its result existed. While it waits for that field to hold its result it has no p-value or decision (its flags read "
+  + "pending), and it is not counted as tested. A withdrawn registration stays listed (its flags read withdrawn), keeps its "
+  + "place in the online order and is tested there at p = 1, so it spends its level and is never rejected. From ROADMAP 2.12 "
+  + "on, every new hypothesis is registered first; its place in the online order is fixed when it is registered. The exception "
+  + "is a registered row selected after a search: like every such row it is outside the online order, with no place or "
+  + "decision there, and its flags read excluded.";
 const UNDERPOWERED_TITLE = "The test's recorded power is below its target, so a failure to reject says little about whether the effect exists";
 const AFTER_SEARCH_TITLE = "The model was chosen as the best of a field on this same sample, so this pairwise p-value ignores that search. "
   + "The row is left out of the multiplicity adjustment (no q-value, Holm p-value or t > 3 flag); where a search-adjusted test "
   + "exists (the Hansen SPA row, for the full-sample comparison), the row's note names it.";
 const PRE_SPECIFIED_TITLE = "The code documents this test as fixed before the data were seen; most of the project was exploratory";
+const REGISTERED_ON_TITLE = "The day (UTC) the hypothesis was registered, with its test and the artifact field for its result, "
+  + "before that result existed";
+// The Recorded column: for lab rows the data snapshot's date, which can precede the day a test was added or registered.
+const RECORDED_TITLE = "The source artifact's own date; for lab rows, the data snapshot's retrieval date, which can precede "
+  + "when the test was added or registered";
 // The default order (status rank, then q), as a sort the URL leaves out.
 const DEFAULT_SORT = Object.freeze({ key: "status", direction: "asc" });
 const SORT_KEYS = new Set(["family", "statistic", "p", "q", "survives_bh", "clears_t3", "status", "date"]);
@@ -147,6 +163,11 @@ export default function LedgerPanel({ research, researchStatus }) {
           {row.underpowered && <Chip tone="status-warn" title={UNDERPOWERED_TITLE}>underpowered</Chip>}
           {row.selectedAfterSearch && <Chip tone="warn" title={AFTER_SEARCH_TITLE}>selected after search</Chip>}
           {row.pre_specified === true && <Chip tone="status-pending" title={PRE_SPECIFIED_TITLE}>pre-specified</Chip>}
+          {asText(row.registration?.on) && (
+            <Chip tone="muted" title={REGISTERED_ON_TITLE}>
+              {`${row.status === "registered" ? "on" : "registered"} ${fmtDate(row.registration.on)}`}
+            </Chip>
+          )}
         </span>
       ) : DASH),
     },
@@ -182,12 +203,25 @@ export default function LedgerPanel({ research, researchStatus }) {
       render: (row) => flagCell(row, "clears_t3"),
     },
     {
-      key: "date", label: "Recorded", title: "The date of the artifact that holds the test", sortable: true, firstDirection: "desc",
+      key: "date", label: "Recorded", title: RECORDED_TITLE, sortable: true, firstDirection: "desc",
       className: "muted-cell", render: (row) => fmtDate(row.date),
     },
-    // Export-only columns (hidden on screen; the id and test are shown inside the hypothesis cell).
+    // Export-only columns (hidden on screen; the id and test are shown inside the hypothesis cell, and the online
+    // view's levels and decisions are in the CSV only).
     { key: "id", label: "ID", className: "csv-only", render: () => null },
     { key: "test", label: "Test", className: "csv-only", render: () => null },
+    { key: "entered_on", label: "Entered", className: "csv-only", csv: (row) => row.enteredOn, render: () => null },
+    { key: "online_position", label: "Online position", className: "csv-only", csv: (row) => row.onlinePosition, render: () => null },
+    { key: "online_alpha_lordpp", label: "LORD++ level", className: "csv-only", csv: (row) => row.onlineLord?.alpha, render: () => null },
+    {
+      key: "online_rejected_lordpp", label: "LORD++ rejects", className: "csv-only",
+      csv: (row) => ledgerOnlineText(row, "lordpp"), render: () => null,
+    },
+    { key: "online_alpha_saffron", label: "SAFFRON level", className: "csv-only", csv: (row) => row.onlineSaffron?.alpha, render: () => null },
+    {
+      key: "online_rejected_saffron", label: "SAFFRON rejects", className: "csv-only",
+      csv: (row) => ledgerOnlineText(row, "saffron"), render: () => null,
+    },
   ], [words, hurdle]);
 
   const filtered = useMemo(
@@ -197,6 +231,8 @@ export default function LedgerPanel({ research, researchStatus }) {
   const ordered = useMemo(() => orderRows(filtered, columns, sort), [filtered, columns, sort]);
   const visible = useMemo(() => visibleLedgerRows(ordered, showAll), [ordered, showAll]);
   const strip = useMemo(() => (ledger ? ledgerStrip(ledger.rows) : null), [ledger]);
+  // The strip's height from its own label layout (a registered group or a longer label can add a line).
+  const stripReserve = useMemo(() => (strip ? ledgerStripReserve(strip) : null), [strip]);
 
   // A #ledg-<id> link (on load, or any later hash change) clears the search and filters, shows every
   // row, and marks the row once it is on screen. A fresh research.json does not repeat a reveal the
@@ -343,18 +379,21 @@ export default function LedgerPanel({ research, researchStatus }) {
         `p is the p-value as the test was run, one-sided where the hypothesis is directional. q (Benjamini-Hochberg) and the t > ${fmtNum(hurdle, 0)} `
           + "hurdle use the two-sided p (a one-sided p doubled), across every row except those selected after a search. Each row's test "
           + "line gives its sample and sign convention; DM statistics are positive when the named model has the lower loss, as everywhere "
-          + "on the page. Recorded is the date of the artifact that holds the test.",
-      ]}
+          + "on the page. Recorded is the source artifact's own date; for lab rows, the data snapshot's retrieval date, which can "
+          + "precede when the test was added or registered (a registered row shows its registration date beside its status).",
+        ledgerOnlineNote(ledger),
+        ledger.online ? REGISTERED_NOTE : null,
+      ].filter(Boolean)}
       source={{ artifact: "research.json → ledger", reproduce: REPRODUCE.ledger }}
       resetKey={research}
     >
       {strip?.cells.length > 0 && (
-        <LazyMount minHeight={{ wide: 36, narrow: 64 }} label="ledger summary">
+        <LazyMount minHeight={stripReserve} label="ledger summary">
           <LedgerStrip strip={strip} />
         </LazyMount>
       )}
       <DataTable
-        caption={`Tested hypotheses: ${shown}${visible.length < filtered.length ? `; the CSV holds all ${fmtInt(filtered.length)}${filtered.length < total ? " matches" : ""}` : ""}`}
+        caption={`Hypotheses: ${shown}${visible.length < filtered.length ? `; the CSV holds all ${fmtInt(filtered.length)}${filtered.length < total ? " matches" : ""}` : ""}`}
         rowKey={(row) => String(row.id ?? row.hypothesis)}
         rowId={(row) => (asText(row.id) ? ledgerAnchor(row.id) : undefined)}
         rowClass={(row) => [row.status === "retracted" ? "is-flagged" : null, target && row.id === target.id ? "is-target" : null]

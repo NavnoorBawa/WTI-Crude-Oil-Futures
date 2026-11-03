@@ -441,19 +441,34 @@ def abstract() -> str:
     s = summary
     selected = s.get("supported_selected_after_search", [])
     family = s["by_status"]["supported"] - len(selected)
-    ledger_text = (f"All {s['rows']} hypotheses the project has tested are listed in a research ledger with "
+    tested = s.get("rows_tested", s["rows"])
+    ledger_text = (f"All {tested} hypotheses the project has tested are listed in a research ledger with "
                    f"multiplicity adjustments: of the {family} supported ones in the adjusted family, "
                    f"{len(s['supported_surviving_bh_5pct'])} survive Benjamini-Hochberg at 5%; "
                    f"{s['by_status']['not_supported']} are not supported (a failure to reject, not evidence against "
                    f"them) and {s['by_status']['retracted']} are retracted.")
-    searched = s.get("selected_after_search", [])
+    pending, withdrawn = len(s.get("registered", [])), len(s.get("registered_withdrawn", []))
+    if pending:
+        ledger_text += (f" {pending} more {'is' if pending == 1 else 'are'} registered and "
+                        f"{'waits for its result' if pending == 1 else 'wait for their results'}.")
+    if withdrawn:
+        ledger_text += (f" {withdrawn} registration{' was' if withdrawn == 1 else 's were'} withdrawn before "
+                        f"{'its' if withdrawn == 1 else 'their'} result existed.")
+    # The challenger's tests that ran: a registered row (pending or withdrawn) has no result yet.
+    unrun = {*s.get("registered", []), *s.get("registered_withdrawn", [])}
+    searched = [rid for rid in s.get("selected_after_search", []) if rid not in unrun]
     kinds = [kind for prefix, kind in (("vol_challenger_qlike", "full-sample"), ("vol_gw_", "conditional"),
                                        ("vol_fluct_", "over-time")) if any(rid.startswith(prefix) for rid in searched)]
     n_kinds = len(kinds)
     dist = sum(rid.startswith(("vol_crps_", "vol_pinball10_", "vol_pinball90_")) for rid in searched)
     if dist:
         kinds.append(f"{_word(dist)} on the predictive distribution")
-    n_tests = n_kinds + dist
+    # A family registered later may add a challenger row of its own: counted, under a generic kind.
+    known = ("vol_challenger_qlike", "vol_gw_", "vol_fluct_", "vol_crps_", "vol_pinball10_", "vol_pinball90_")
+    other = sum(not rid.startswith(known) for rid in searched)
+    if other:
+        kinds.append(f"{_word(other)} on {'another criterion' if other == 1 else 'other criteria'}")
+    n_tests = n_kinds + dist + other
     if kinds == ["full-sample"]:
         ledger_text += (" The challenger's pairwise test is left out of that family, because the challenger was "
                         "picked by searching the field on the same sample; the SPA test is its search-adjusted "
@@ -464,13 +479,13 @@ def abstract() -> str:
                         f"test is the search-adjusted counterpart of the full-sample one, and the other "
                         f"{'one has' if n_tests == 2 else _word(n_tests - 1) + ' have'} none.")
     if "distribution" in _lab():
-        ledger_text += (" Robustness variants are published as context and not registered: among them the χ²(4) "
-                        "Giacomini-White form, which includes the full-sample mean the DM test asks about, the "
-                        "log-scale CRPS, a QLIKE rerun of the field with a quantile HAR and a Model Confidence Set on "
-                        "CRPS.")
+        ledger_text += (" Robustness variants are published as context and not entered in the ledger: among them "
+                        "the χ²(4) Giacomini-White form, which includes the full-sample mean the DM test asks about, "
+                        "the log-scale CRPS, a QLIKE rerun of the field with a quantile HAR and a Model Confidence Set "
+                        "on CRPS.")
     elif "stability" in _lab():
         ledger_text += (" Robustness variants, and the χ²(4) Giacomini-White form, which includes the full-sample mean "
-                        "the DM test asks about, are published as context and not registered.")
+                        "the DM test asks about, are published as context and not entered in the ledger.")
     return (
         f"This project forecasts the realized volatility of front-month NYMEX WTI crude oil over the next five "
         f"sessions from free data, and keeps a public forward record of its live forecasts that scores only entries "
@@ -1180,6 +1195,23 @@ def stability_block() -> str:
                     f"{_pthr(rob['full_sample_variance']['p_value'])} | "
                     + " | ".join(_pthr(fl["by_mu"][k]["p_value"]) for k in mus) + " |")
     cv = fl_cfg["critical_values"]
+    # A dash is a value the lab could not compute; the blocks that failed whole, or a robustness form that failed
+    # alone, say why (not_computed).
+    failed = []
+    for m in _stability_models(lab):
+        gw, fl = m["gw_qlike_vs_har_iv"], m["fluctuation_qlike_vs_har_iv"]
+        for what, block in (("Giacomini-White test", gw), ("fluctuation test", fl)):
+            if block.get("not_computed"):
+                failed.append(f"{m['label']}'s {what} ({block['not_computed']})")
+        if not fl.get("not_computed"):
+            for key, what in (("bartlett_40", "fluctuation p at 40 Bartlett lags"),
+                              ("full_sample_variance", "fluctuation p with the full-sample variance")):
+                if (fl["robustness"].get(key) or {}).get("not_computed"):
+                    failed.append(f"{m['label']}'s {what} ({fl['robustness'][key]['not_computed']})")
+    dash = ""
+    if any("—" in line for line in rows if line.startswith("| ") and not line.startswith("| Model |")):
+        dash = (" — marks a value the lab could not compute" + (f": {'; '.join(failed)}" if failed else "")
+                + "; a ledger row whose test could not be computed has no p-value and no q.")
     rows += ["", f"Every test compares the model of record's daily QLIKE with the model's (the difference is positive "
              f"when the model's loss is lower) on every out-of-sample day. GW: Giacomini and White (2006), the "
              f"difference on its value {gw_cfg['d_lag_sessions']} sessions earlier (the last matured), ln OVX of the "
@@ -1195,7 +1227,7 @@ def stability_block() -> str:
              f"challenger was picked on this sample. † anti-conservative under the null. Both theories assume forecasts "
              f"re-estimated on rolling windows of bounded size, which is also what lets them compare nested models; the "
              f"lab's windows expand and some models are nested in the model of record, so the p-values are approximate "
-             f"(docs/METHODOLOGY.md section 7). Source: lab."]
+             f"(docs/METHODOLOGY.md section 7).{dash} Source: lab."]
     return "\n".join(rows)
 
 
@@ -1397,7 +1429,7 @@ def distribution_block() -> str:
 
 
 def _dist_registered(model: dict, dm: dict) -> bool:
-    """Whether a score difference runs the way the ledger registered it: the quantile HAR's rows expect it to score
+    """Whether a score difference runs the way the ledger states it: the quantile HAR's rows expect it to score
     lower than the model of record (a positive t), every other model's rows expect the model of record to."""
     return (dm["stat"] > 0) == (model["key"] == "quantile_har")
 
@@ -1427,8 +1459,8 @@ def _bh_clause(names: str, n: int, rows: list[dict], *, subject: str | None = No
 
 
 def _dist_verdicts(lab: dict, ledger: dict, score: str, tag: str, phrase: str) -> str:
-    """One score's registered verdicts against the model of record, by level and by which side scored lower, with
-    the ledger's Benjamini-Hochberg survival of the significant ones that run in the registered direction. The
+    """One score's verdicts against the model of record, by level and by which side scored lower, with the ledger's
+    Benjamini-Hochberg survival of the significant ones that run in the direction the ledger states. The
     challenger is read elsewhere."""
     chall_key = lab["config"]["challenger"]
     tests = [(m, m["dm_vs_har_iv"][score]) for m in _dist_models(lab)
@@ -1462,12 +1494,12 @@ def _dist_verdicts(lab: dict, ledger: dict, score: str, tag: str, phrase: str) -
     if registered:
         rows = [_ledger_row(ledger, f"vol_{tag}_{m['key']}") for m, _ in registered]
         survive = [m for (m, _), r in zip(registered, rows) if r["survives_bh_5pct"]]
-        # Name the subject when the sentence before also lists results the ledger did not register.
+        # Name the subject when the sentence before also lists results that run against the ledger's direction.
         subject = _dist_names([m for m, _ in registered]) if opposite else None
         text += _bh_clause(_dist_names(survive), len(registered), rows, subject=subject)
     if opposite:
         text += (f" The difference against {_dist_names(opposite)} runs opposite to the direction the ledger "
-                 f"registered, so {'its row is' if len(opposite) == 1 else 'their rows are'} not counted as support.")
+                 f"states, so {'its row is' if len(opposite) == 1 else 'their rows are'} not counted as support.")
     return text
 
 
@@ -1535,7 +1567,7 @@ def distribution_reading() -> str:
                      f"with its {_join([str(n) for n in lags])} Bartlett lags, as in every published "
                      f"QLIKE test, the same differences give "
                      + _join([_peq_thr(dm["dm_test"]["p_value"]) for dm in dms])
-                     + (" respectively" if len(dms) > 1 else "") + ", so the registered test is the batch-means one, which allows for that persistence.")
+                     + (" respectively" if len(dms) > 1 else "") + ", so the ledger's test is the batch-means one, which allows for that persistence.")
     cd = chall["dm_vs_har_iv"]
     items = []
     for s_key, _, phrase in _DIST_SCORES:
@@ -1579,7 +1611,7 @@ def distribution_reading() -> str:
     if qh is not None:
         rt = qh["berkowitz"]["randomized_tail"]
         text += (f" The quantile HAR's rejection rests on {_word(qh['berkowitz']['grids_below_5pct'])} of "
-                 f"{_word(len(dist['weeks_per_grid']))} grids and uses a censored form, registered after a seeded "
+                 f"{_word(len(dist['weeks_per_grid']))} grids and uses a censored form, adopted after a seeded "
                  f"randomized-tail form gave {_peq_thr(rt['p_value'])} ({_pthr(rt['seed_min'])} to "
                  f"{_pthr(rt['seed_max'])} over {rt['seeds']} seeds).")
     for m in mid:
@@ -2290,6 +2322,25 @@ def _power(row: dict) -> tuple[float, float] | None:
     return (power, ctx["target_power"]) if power is not None and "target_power" in ctx else None
 
 
+def _uncomputed_by_stream(rows: list[dict]) -> tuple[list[str], list[str]]:
+    """Rows whose test the artifact could not compute, split by the online stream: those in it (tested there at p = 1)
+    and those selected after a search (outside the multiplicity family and the stream alike)."""
+    return ([r["id"] for r in rows if r.get("online_position") is not None],
+            [r["id"] for r in rows if r.get("online_position") is None and r.get("selected_after_search")])
+
+
+def _spends_at_one(ids: list[str], rows_by_id: dict) -> str:
+    """What rows tested online at p = 1 cost: a level once every earlier row is decided (behind a pending row both the
+    level and the decision are null until it resolves), never a rejection."""
+    subject = "it" if len(ids) == 1 else "each"
+    later = [rid for rid in ids if rows_by_id[rid].get("online_alpha_lordpp") is None]
+    if not later:
+        return f"{subject} spends its level and earns none"
+    if len(later) == len(ids):
+        return f"{subject} will spend its level, and earn none, once every earlier row is decided"
+    return "each spends its level (or, after a pending row, will once every earlier row is decided) and earns none"
+
+
 def ledger_block() -> str:
     led = _ledger()
     s = led["summary"]
@@ -2297,13 +2348,31 @@ def ledger_block() -> str:
     rows_by_id = {r["id"]: r for r in led["rows"]}
     alpha = led["alpha"]
     inconclusive_below = _code_constant("backend/research_ledger.py", "INCONCLUSIVE_BELOW")
-    selected = s.get("selected_after_search", [])
+    # The rows selected after a search that the family leaves out: those with a p-value (one whose test could not be
+    # computed has none, so it is outside the family already).
+    selected = [rid for rid in s.get("selected_after_search", []) if rows_by_id[rid]["p_two_sided"] is not None]
     family_supported = b["supported"] - len(s.get("supported_selected_after_search", []))
-    text = [f"{s['rows']} hypotheses: {b['supported']} supported (p < {alpha:.2f} in the direction the hypothesis "
-            f"states), {b['inconclusive']} inconclusive ({alpha:.2f} ≤ p < {inconclusive_below:.2f}), "
-            f"{b['not_supported']} not supported and {b['retracted']} retracted. Not supported means "
-            f"p ≥ {inconclusive_below:.2f} or an estimate pointing the other way: a failure to reject, not evidence "
-            f"against the hypothesis."]
+    # Registered rows have no result: those still waiting, and those withdrawn before a result existed.
+    pending, withdrawn = len(s.get("registered", [])), len(s.get("registered_withdrawn", []))
+    # An inconclusive row without a p-value: its artifact ran the test and could not compute it.
+    uncomputed_rows = [r for r in led["rows"] if r["status"] == "inconclusive" and r["p_value"] is None]
+    uncomputed = [r["id"] for r in uncomputed_rows]
+    band = f"{alpha:.2f} ≤ p < {inconclusive_below:.2f}"
+    if uncomputed:
+        n = len(uncomputed)
+        inconclusive = (f"{b['inconclusive']} inconclusive ({b['inconclusive'] - n} with {band}; {n} whose test the "
+                        f"artifact could not compute, with no p-value: {_join(uncomputed)})")
+    else:
+        inconclusive = f"{b['inconclusive']} inconclusive ({band})"
+    counts = [f"{b['supported']} supported (p < {alpha:.2f} in the direction the hypothesis states)", inconclusive,
+              f"{b['not_supported']} not supported", f"{b['retracted']} retracted"]
+    if pending:
+        counts.append(f"{pending} registered (results pending)")
+    if withdrawn:
+        counts.append(f"{withdrawn} registered and withdrawn before {'its' if withdrawn == 1 else 'their'} result "
+                      f"existed")
+    text = [f"{s['rows']} hypotheses: {_join(counts)}. Not supported means p ≥ {inconclusive_below:.2f} or an estimate "
+            f"pointing the other way: a failure to reject, not evidence against the hypothesis."]
     under = [rows_by_id[key] for key in s.get("underpowered", [])]
     if under:
         def described(r: dict) -> str:
@@ -2321,13 +2390,33 @@ def ledger_block() -> str:
                 f"survive Benjamini-Hochberg at 5%, {len(s['supported_surviving_holm_5pct'])} survive Holm, and "
                 f"{len(s['supported_clearing_hlz_t3'])} clear the t > 3 hurdle of Harvey, Liu and Zhu (2016). By "
                 f"family:")
+    with_registered = any(f["by_status"].get("registered", 0) for f in s["by_family"].values())
     out = [" ".join(text), "",
-           "| Family | Hypotheses | Supported | Inconclusive | Not supported | Retracted | Supported, surviving BH | "
-           "Supported, clearing t > 3 |", "|---|---:|---:|---:|---:|---:|---:|---:|"]
+           "| Family | Hypotheses | Supported | Inconclusive | Not supported | Retracted | "
+           + ("Registered | " if with_registered else "")
+           + "Supported, surviving BH | Supported, clearing t > 3 |",
+           "|---|---:|---:|---:|---:|---:|" + ("---:|" if with_registered else "") + "---:|---:|"]
     for family, f in s["by_family"].items():
         fb = f["by_status"]
         out.append(f"| {family} | {f['rows']} | {fb['supported']} | {fb['inconclusive']} | {fb['not_supported']} | "
-                   f"{fb['retracted']} | {f['supported_surviving_bh_5pct']} | {f['supported_clearing_hlz_t3']} |")
+                   f"{fb['retracted']} | " + (f"{fb.get('registered', 0)} | " if with_registered else "")
+                   + f"{f['supported_surviving_bh_5pct']} | {f['supported_clearing_hlz_t3']} |")
+    if uncomputed:
+        n = len(uncomputed)
+        streamed, searched = _uncomputed_by_stream(uncomputed_rows) if s.get("online") else ([], [])
+        detail = f"{'it has' if n == 1 else 'they have'} no p-value"
+        if streamed and not searched:
+            detail += f", and in the online stream {'it is' if n == 1 else 'each is'} tested at p = 1"
+        elif searched and not streamed:
+            detail += (f"; selected after a search, {'it is' if n == 1 else 'they are'} outside both the multiplicity "
+                       f"family and the online stream")
+        elif searched:
+            detail += (f"; in the online stream {_join(streamed)} {'is' if len(streamed) == 1 else 'are each'} tested "
+                       f"at p = 1, and {_join(searched)}, selected after a search, "
+                       f"{'is' if len(searched) == 1 else 'are'} outside both the multiplicity family and the online "
+                       f"stream")
+        out += ["", f"The Inconclusive column counts {_join(uncomputed)}, whose test the artifact could not compute "
+                    f"({detail})."]
     out += ["", "The supported hypotheses in the multiplicity family that survive Benjamini-Hochberg at 5%:", "",
             "| Claim | p | BH q | Clears t > 3 |", "|---|---:|---:|:---:|"]
     for key in s["supported_surviving_bh_5pct"]:
@@ -2352,7 +2441,7 @@ def _t_equivalent(p: float) -> float:
 
 
 def _fragile_t3(rows: list[dict]) -> list[str]:
-    """Calibration rows that clear t > 3 only under the form or the simulated draws the ledger registered: the count
+    """Calibration rows that clear t > 3 only under the form or the simulated draws the ledger adopted: the count
     PIT's p (GARCH models) or the p one Monte Carlo standard error higher (simulated nulls) falls below the hurdle."""
     out = []
     for r in rows:
@@ -2360,7 +2449,10 @@ def _fragile_t3(rows: list[dict]) -> list[str]:
             continue
         ctx, t = r["context"], _t_equivalent(r["p_two_sided"])
         if ctx.get("p_count_pit") is not None and _t_equivalent(ctx["p_count_pit"]) <= 3:
+            # A registered row inherits the form adopted earlier; it was not chosen after its own count PIT was seen.
             out.append(f"{r['id']} at t = {t:.3f} with the PIT form chosen after the count PIT's p was seen, which "
+                       f"gives t = {_t_equivalent(ctx['p_count_pit']):.3f}" if not r.get("registration") else
+                       f"{r['id']} at t = {t:.3f} with the PIT form fixed before it was registered, whose count PIT "
                        f"gives t = {_t_equivalent(ctx['p_count_pit']):.3f}")
         elif ctx.get("mc_se") is not None and _t_equivalent(r["p_value"] + ctx["mc_se"]) <= 3:
             out.append(f"{r['id']} at t = {t:.3f}, which one Monte Carlo standard error of its simulated p would bring "
@@ -2375,10 +2467,13 @@ def ledger_reading() -> str:
     every = [r for r in leak if r["id"] in s["supported_surviving_bh_5pct"]
              and r["id"] in s["supported_surviving_holm_5pct"] and r["id"] in s["supported_clearing_hlz_t3"]]
     text = []
+    online = s.get("online")
+    online_too = online is None or all(r["id"] in online["lordpp"]["rejected"] and r["id"] in online["saffron"]["rejected"]
+                                       for r in leak)
     if leak and len(every) == len(leak):
         text.append(f"{'Both' if len(leak) == 2 else f'All {len(leak)}'} supported leak demonstrations survive every "
-                    f"adjustment, so some of the project's strongest results are about how its own first result was "
-                    f"wrong.")
+                    f"{'' if online_too else 'batch '}adjustment, so some of the project's strongest results are about "
+                    f"how its own first result was wrong.")
     shuffled = [r for r in leak if "block-shuffled" in r["hypothesis"]]
     if shuffled:
         row = shuffled[0]
@@ -2450,11 +2545,27 @@ def ledger_reading() -> str:
 
         from backend.research_ledger import benjamini_hochberg
 
-        fam = [r for r in dist if not r["selected_after_search"]]
+        # The rows in the family are those with a q-value: a row selected after a search, a registered row (pending
+        # or withdrawn) and a row whose test could not be computed have none.
+        fam = [r for r in dist if r["q_value_bh"] is not None]
         survive = [r for r in fam if r["survives_bh_5pct"]]
         families = sorted({r["family"] for r in survive})
+        picked = sum(bool(r["selected_after_search"]) for r in dist)
+        registered = [bool((r.get("registration") or {}).get("withdrawn")) for r in dist if r["status"] == "registered"]
+        waiting, withdrawn = registered.count(False), registered.count(True)
+        uncomputed = len(dist) - len(fam) - picked - waiting - withdrawn
+        out = []
+        if picked:
+            out.append(f"the challenger's {picked} {'is' if picked == 1 else 'are'} left out")
+        if waiting:
+            out.append(f"{waiting} registered row{'s wait for their results' if waiting != 1 else ' waits for its result'}")
+        if withdrawn:
+            out.append(f"{withdrawn} registered row{'s were' if withdrawn != 1 else ' was'} withdrawn before "
+                       f"{'their results' if withdrawn != 1 else 'its result'} existed")
+        if uncomputed:
+            out.append(f"{uncomputed} could not be computed")
         sentence = (f"The {len(dist)} rows on the whole predictive distribution (section 2.9) add {len(fam)} to the "
-                    f"family (the challenger's {len(dist) - len(fam)} are left out); "
+                    f"family" + (f" ({'; '.join(out)})" if out else "") + "; "
                     + (f"{_word(len(survive))} of them survive the Benjamini-Hochberg adjustment, all in the "
                        f"{_join(families)} {'family' if len(families) == 1 else 'families'}." if survive else
                        "none of them survives the Benjamini-Hochberg adjustment."))
@@ -2477,9 +2588,199 @@ def ledger_reading() -> str:
     vrp = rows_by_id.get("vrp_exists")
     text.append(f"The {retracted} retracted rows stay in the multiplicity count, since they were tested, but none is "
                 f"counted as a survivor"
-                + ("; one of them is the share of periods with OVX above realized volatility tested against 50%, the "
+                + ("; in the online stream each is tested at p = 1, so it spends its level and earns none"
+                   if s.get("online") else "")
+                + (". One of them is the share of periods with OVX above realized volatility tested against 50%, the "
                    "wrong null for a premium (section 2.5)." if vrp is not None and vrp["status"] == "retracted"
                    else "."))
+    # Rows whose test the artifact could not compute: no p-value and outside the family; in the stream at p = 1, unless
+    # selected after a search (then outside the stream too).
+    uncomputed_rows = [r for r in led["rows"] if r["status"] not in ("registered", "retracted") and r["p_value"] is None]
+    if uncomputed_rows:
+        uncomputed = [r["id"] for r in uncomputed_rows]
+        n = len(uncomputed)
+        streamed, searched = _uncomputed_by_stream(uncomputed_rows) if s.get("online") else ([], [])
+        sentence = (f"{_join(uncomputed)} {'has' if n == 1 else 'have'} no p-value: the artifact could not compute "
+                    f"{'its' if n == 1 else 'their'} test")
+        if searched and not streamed:
+            sentence += (f", and {'it was' if n == 1 else 'they were'} selected after a search, so "
+                         f"{'it is' if n == 1 else 'they are'} outside both the multiplicity family and the online "
+                         f"stream")
+        else:
+            sentence += f", so {'it is' if n == 1 else 'they are'} outside the multiplicity family"
+            if streamed and not searched:
+                sentence += (f"; in the online stream {'it is' if n == 1 else 'each is'} tested at p = 1, as a "
+                             f"retracted row is, so {_spends_at_one(streamed, rows_by_id)}")
+            elif streamed:
+                k = len(streamed)
+                sentence += (f"; in the online stream {_join(streamed)} {'is' if k == 1 else 'are each'} tested at "
+                             f"p = 1, as a retracted row is, so {_spends_at_one(streamed, rows_by_id)}, and "
+                             f"{_join(searched)}, selected after a search, "
+                             f"{'is' if len(searched) == 1 else 'are'} outside the online stream too")
+        text.append(sentence + ".")
+    return " ".join(text)
+
+
+def _level_text(value: float) -> str:
+    """An online level as text: three significant figures (a level is not a p-value, so it is not cut at 0.001)."""
+    return f"{value:.3g}"
+
+
+def _ids(ids: list[str]) -> str:
+    return _join(list(ids))
+
+
+def _levels_text(lord: float, saffron: float, alpha: float) -> str:
+    """A row's two online levels, ending the sentence; a SAFFRON level above alpha says what a rejection there means."""
+    pct = f"{alpha:.0%}"
+    return (f"{_level_text(lord)} by LORD++ and {_level_text(saffron)} by SAFFRON"
+            + (f", which is above {pct} after the recent rejections: a SAFFRON rejection with p at {pct} or more would "
+               f"not be support." if saffron > alpha else "."))
+
+
+def ledger_online() -> str:
+    """RESULTS section 6: the online view (LORD++ and SAFFRON in the order rows entered the ledger) beside the batch
+    view, worded so that no online rejection reads as more than the batch view and the row's own test support."""
+    led = _ledger()
+    s = led["summary"]
+    o = s.get("online")
+    if not o:
+        return "The ledger has no online view."
+    alpha = o["alpha"]
+    pct = f"{alpha:.0%}"
+    rows = {r["id"]: r for r in led["rows"]}
+    lord, saff = o["lordpp"]["rejected"], o["saffron"]["rejected"]
+    bh, holm = s["supported_surviving_bh_5pct"], set(s["supported_surviving_holm_5pct"])
+    # Counts over the decided rows: a pending registered row and every row after it have no decision yet.
+    in_stream = o["rows_in_stream"]
+    decided = o.get("rows_decided", in_stream)
+    counted = f"{in_stream} rows in its stream" if decided == in_stream else f"{decided} decided rows in its stream"
+    waits = ""
+    if decided < in_stream:
+        k = in_stream - decided
+        waits = f" ({k} more {'wait' if k != 1 else 'waits'} for a registered result)"
+    text = [f"Online control, in the order rows entered the ledger, at a target false discovery rate of {pct} with the "
+            f"reference package's default settings: LORD++ rejects {len(lord)} of the {counted} and SAFFRON "
+            f"{len(saff)}{waits}."]
+    # A supported row that survives Benjamini-Hochberg but sits after a pending registration has no online decision:
+    # it is neither a rejection nor a miss.
+    undecided = [rid for rid in bh if rows[rid].get("online_rejected_lordpp") is None]
+    bh_decided = [rid for rid in bh if rid not in undecided]
+
+    def surviving(n: int) -> str:
+        return (f"{'survive' if n != 1 else 'survives'} Benjamini-Hochberg"
+                + (f" and {'have' if n != 1 else 'has'} an online decision" if undecided else ""))
+
+    lord_out = [rid for rid in lord if rid not in bh]
+    lord_missed = [rid for rid in bh_decided if rid not in lord]
+    if lord and not lord_out:
+        sentence = ("Every row LORD++ rejects also survives Benjamini-Hochberg"
+                    + (" and Holm" if set(lord) <= holm else ""))
+        if lord_missed:
+            sentence += (f"; {len(lord_missed)} supported row{'s' if len(lord_missed) != 1 else ''} that "
+                         f"{surviving(len(lord_missed))} {'are' if len(lord_missed) != 1 else 'is'} not rejected by "
+                         f"LORD++, so at this stream length it is the stricter of the two.")
+        else:
+            sentence += f", and it rejects every supported row that {surviving(1)}."
+        text.append(sentence)
+    elif lord_out:
+        supported_out = [rid for rid in lord_out if rows[rid]["status"] == "supported"]
+        if supported_out:
+            text.append(f"LORD++ rejects {len(supported_out)} supported row{'s' if len(supported_out) != 1 else ''} "
+                        f"that {'do' if len(supported_out) != 1 else 'does'} not survive Benjamini-Hochberg "
+                        f"({_ids(supported_out)}); {'they are' if len(supported_out) != 1 else 'it is'} not counted as "
+                        f"surviving any adjustment elsewhere in this document.")
+    saff_in = [rid for rid in saff if rid in bh]
+    saff_out = [rid for rid in saff if rid not in bh and rows[rid]["status"] == "supported"]
+    sentence = (f"SAFFRON rejects {len(saff_in)} of the {len(bh_decided)} supported rows that "
+                f"{surviving(len(bh_decided))}")
+    if saff_out:
+        n = len(saff_out)
+        sentence += (("," if undecided else "")
+                     + f" and {n} supported row{'s' if n != 1 else ''} that {'do' if n != 1 else 'does'} not survive it "
+                     f"({_ids(saff_out)}); {'those' if n != 1 else 'that'} {n} {'are' if n != 1 else 'is'} not counted "
+                     f"as surviving any adjustment elsewhere in this document.")
+    else:
+        sentence += "."
+    text.append(sentence)
+    if undecided:
+        n = len(undecided)
+        text.append(f"{_ids(undecided)} {'survive' if n != 1 else 'survives'} Benjamini-Hochberg but "
+                    f"{'have' if n != 1 else 'has'} no online decision yet"
+                    + (f": {'they follow' if n != 1 else 'it follows'} {o['waiting_on']} in the stream, which waits for "
+                       f"its result." if o.get("waiting_on") else "."))
+    unsupported = [rid for rid in dict.fromkeys(lord + saff) if rows[rid]["status"] != "supported"]
+    if unsupported:
+        m = len(unsupported)
+        text.append(f"{m} row{'s' if m != 1 else ''} that a procedure rejects {'are' if m != 1 else 'is'} not supported "
+                    f"by {'their' if m != 1 else 'its'} own test at {pct} ({_ids(unsupported)}): SAFFRON's level can "
+                    f"exceed {pct} after recent rejections, and such a rejection is not support.")
+    text.append("Both procedures control the false discovery rate when the null p-values are independent; these rows "
+                "share data (section 2 and above), so the online decisions are a reading under that assumption, not a "
+                "guarantee for this ledger.")
+    sens = o.get("legacy_order_sensitivity")
+    if sens and sens["legacy_rows"]:
+        lo, so = sens["lordpp"], sens["saffron"]
+        batches = len(o["legacy_batches"])
+        text.append(f"The {sens['legacy_rows']} rows in the stream entered before registration began, in {batches} "
+                    f"entry batch{'es' if batches != 1 else ''} dated from the git history; within each batch the order "
+                    f"is the ledger's code order, fixed after their p-values were known; with that order drawn at "
+                    f"random within each batch "
+                    f"({sens['draws']:,} draws), LORD++ rejects between {lo['min']} and {lo['max']} of them and gives the "
+                    f"published set in {lo['same_set_share']:.1%} of draws, and SAFFRON between {so['min']} and "
+                    f"{so['max']} ({so['same_set_share']:.1%}). For those rows the online decisions are a retrospective "
+                    f"reading, not decisions made at the time, and the levels of every later row depend on them.")
+    pending, withdrawn = s.get("registered", []), s.get("registered_withdrawn", [])
+    if pending:
+        n = len(pending)
+        outside = [rid for rid in pending if rows[rid].get("online_position") is None]
+        text.append(f"{n} registered row{'s' if n != 1 else ''} {'wait' if n != 1 else 'waits'} for "
+                    f"{'their results' if n != 1 else 'its result'} ({_ids(pending)})"
+                    + ("." if not outside else
+                       f"; selected after a search, {_ids(outside)} {'is' if len(outside) == 1 else 'are'} outside "
+                       "the online stream." if len(outside) < n else
+                       f"; selected after a search, {'it is' if n == 1 else 'they are'} outside the online stream."))
+        # A pending row's levels are fixed once every earlier row is decided (only the first can be).
+        for rid in sorted((rid for rid in pending if rows[rid]["online_alpha_lordpp"] is not None),
+                          key=lambda rid: rows[rid]["online_position"]):
+            text.append(f"The levels {rid} will be tested at are fixed: "
+                        + _levels_text(rows[rid]["online_alpha_lordpp"], rows[rid]["online_alpha_saffron"], alpha))
+        if o["waiting_on"] is not None and any(r["online_position"] is not None
+                                              and r["online_position"] > rows[o["waiting_on"]]["online_position"]
+                                              for r in led["rows"]):
+            text.append(f"Rows after {o['waiting_on']} have no online decision until it resolves.")
+    if withdrawn:
+        # A withdrawn registration spends its level at p = 1 in the stream, unless it was selected after a search:
+        # then it is outside the stream and spends nothing there.
+        w = len(withdrawn)
+        streamed = [rid for rid in withdrawn if rows[rid].get("online_position") is not None]
+        searched = [rid for rid in withdrawn if rid not in streamed]
+
+        def spend(ids: list[str]) -> str:
+            # Behind a pending row, a withdrawn registration's level is not set yet: it spends it once that resolves.
+            k, later = len(ids), [rid for rid in ids if rows[rid].get("online_alpha_lordpp") is None]
+            if not later:
+                return f"{'spend their' if k != 1 else 'spends its'} online level at p = 1"
+            if len(later) == k:
+                return (f"will spend {'their' if k != 1 else 'its'} online level at p = 1 once every earlier row is "
+                        f"decided")
+            return "spend (or, after a pending row, will spend) their online level at p = 1"
+
+        head = f"{w} registration{'s were' if w != 1 else ' was'} withdrawn ({_ids(withdrawn)})"
+        if not searched:
+            text.append(f"{head} and {spend(streamed)} (not counted as tested).")
+        elif not streamed:
+            text.append(f"{head}, not counted as tested; selected after a search, {'they are' if w != 1 else 'it is'} "
+                        f"outside the online stream, so {'they spend' if w != 1 else 'it spends'} no level there.")
+        else:
+            text.append(f"{head}, not counted as tested: {_ids(streamed)} {spend(streamed)}, and {_ids(searched)}, "
+                        f"selected after a search, {'are' if len(searched) != 1 else 'is'} outside the online stream.")
+    if o["lordpp"]["next_level"] is not None and o["saffron"]["next_level"] is not None:
+        text.append("The next registered row will be tested at "
+                    + _levels_text(o["lordpp"]["next_level"], o["saffron"]["next_level"], alpha))
+    else:
+        text.append(f"The next registered row's level is not fixed until {o['waiting_on']} resolves.")
+    text.append("No row's status depends on either online procedure.")
     return " ".join(text)
 
 

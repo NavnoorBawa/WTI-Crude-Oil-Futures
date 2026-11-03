@@ -32,6 +32,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The research ledger's history tests read every version of data/research_ledger.json on main.
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -66,6 +68,8 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: '1'
           PYTHONPATH: .
+          # With full history checked out, the ledger's history tests must run, not skip.
+          LEDGER_HISTORY_REQUIRED: '1'
         run: python -B -m coverage run --branch -m unittest discover -s tests -v
 
       - name: Report coverage

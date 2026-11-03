@@ -13,6 +13,11 @@ export const bundleLedgerRow = (row) => ({
   p_value: row.p_value, q_bh: row.q_value_bh, p_holm: row.p_holm,
   survives_bh: row.survives_bh_5pct, clears_t3: row.clears_hlz_t3,
   pre_specified: row.pre_specified, status: row.status, artifact: row.artifact?.path,
+  entered_on: row.entered_on, online_position: row.online_position,
+  online_alpha_lordpp: row.online_alpha_lordpp, online_rejected_lordpp: row.online_rejected_lordpp,
+  online_alpha_saffron: row.online_alpha_saffron, online_rejected_saffron: row.online_rejected_saffron,
+  registration: row.registration == null ? null
+    : { on: row.registration.on, field: row.registration.field, withdrawn: row.registration.withdrawn },
 });
 
 /**
@@ -49,10 +54,10 @@ export { committedLab, committedLedger };
 /**
  * The fixture with the lab's stability blocks (ROADMAP 2.3): every model's Giacomini-White and fluctuation blocks,
  * the top-level stability block, the weekly rolling-t and cumulative series, and the ledger's two new families.
+ * `lab` and `ledger` default to the committed artifacts; the fixture's models are kept, so a lab model the fixture
+ * lacks is not spliced in.
  */
-export const withStability = (research) => {
-  const lab = committedLab();
-  const ledger = committedLedger();
+export const withStability = (research, { lab = committedLab(), ledger = committedLedger() } = {}) => {
   const byKey = new Map(lab.leaderboard.models.map((model) => [model.key, model]));
   const families = new Set(["conditional predictive ability", "stability over time"]);
   const names = (prefix) => Object.keys(lab.series).filter((key) => key.startsWith(prefix));
@@ -99,6 +104,89 @@ export const withDistribution = (research) => {
           ...rows.filter((row) => row.selected_after_search).map((row) => row.id)])],
       },
       rows: [...research.ledger.rows, ...rows.map(bundleLedgerRow)],
+    },
+  };
+};
+
+/** The fixture with the committed ledger as research.json carries it: every row, and the online view (ROADMAP 2.12). */
+export const withCommittedLedger = (research) => {
+  const ledger = committedLedger();
+  return {
+    ...research,
+    ledger: { method: ledger.method, alpha: ledger.alpha, hlz_t: ledger.hlz_t, summary: ledger.summary,
+      rows: ledger.rows.map(bundleLedgerRow) },
+  };
+};
+
+/**
+ * The committed ledger with two synthetic registered rows (ROADMAP 2.12) appended, as the ledger would write them: one
+ * withdrawn (tested online at p = 1) and, after it, one waiting for its result, which blocks the online decisions after
+ * it. If a committed registration already waits, both wait behind it (no level, no decision). With `searched`, a third
+ * row, withdrawn and selected after a search (the challenger's row of a newly registered family), sits outside the
+ * online stream. The summary's counts and lists extend the committed ones. Test data only: no such rows exist in the
+ * committed ledger.
+ */
+export const withRegistered = (research, { searched = false } = {}) => {
+  const base = withCommittedLedger(research);
+  const { summary, rows } = base.ledger;
+  const online = summary.online;
+  const n = online.rows_in_stream;
+  const blocked = online.waiting_on != null;
+  const family = "volatility forecast";
+  const common = {
+    date: null, family, test: "a two-sided test whose p-value the artifact stores", statistic_name: "statistic",
+    statistic_value: null, p_value: null, q_bh: null, p_holm: null, survives_bh: null, clears_t3: null,
+    pre_specified: false, status: "registered", artifact: "data/vol_lab.json",
+  };
+  const withdrawn = {
+    ...common, id: "reg_withdrawn", hypothesis: "A registered hypothesis whose registration was withdrawn.",
+    entered_on: "2026-11-10", online_position: n + 1,
+    online_alpha_lordpp: blocked ? null : online.lordpp.next_level, online_rejected_lordpp: blocked ? null : false,
+    online_alpha_saffron: blocked ? null : online.saffron.next_level, online_rejected_saffron: blocked ? null : false,
+    registration: { on: "2026-11-10", field: "experiment.p_value", withdrawn: "abandoned before it ran" },
+  };
+  const pending = {
+    ...common, id: "reg_pending", hypothesis: "A registered hypothesis that waits for its result.",
+    entered_on: "2026-11-11", online_position: n + 2,
+    online_alpha_lordpp: blocked ? null : online.lordpp.next_level / 2, online_rejected_lordpp: null,
+    online_alpha_saffron: blocked ? null : online.saffron.next_level / 2, online_rejected_saffron: null,
+    registration: { on: "2026-11-11", field: "experiment2.p_value", withdrawn: null },
+  };
+  // Outside the stream: no online position, level or decision.
+  const outside = {
+    ...common, id: "reg_withdrawn_searched", hypothesis: "A registered hypothesis on a model picked by a search, withdrawn.",
+    entered_on: "2026-11-10", online_position: null, online_alpha_lordpp: null, online_rejected_lordpp: null,
+    online_alpha_saffron: null, online_rejected_saffron: null,
+    registration: { on: "2026-11-10", field: "experiment4.p_value", withdrawn: "abandoned before it ran" },
+  };
+  const added = searched ? [withdrawn, outside, pending] : [withdrawn, pending];
+  const k = added.length;
+  const gone = added.filter((row) => row.registration.withdrawn).map((row) => row.id);
+  const familySummary = summary.by_family[family];
+  return {
+    ...base,
+    ledger: {
+      ...base.ledger,
+      rows: [...rows, ...added],
+      summary: {
+        ...summary,
+        rows: summary.rows + k,
+        by_status: { ...summary.by_status, registered: (summary.by_status.registered ?? 0) + k },
+        by_family: {
+          ...summary.by_family,
+          [family]: { ...familySummary, rows: familySummary.rows + k,
+            by_status: { ...familySummary.by_status, registered: (familySummary.by_status.registered ?? 0) + k } },
+        },
+        selected_after_search: [...(summary.selected_after_search ?? []), ...(searched ? [outside.id] : [])],
+        registered: [...(summary.registered ?? []), "reg_pending"],
+        registered_withdrawn: [...(summary.registered_withdrawn ?? []), ...gone],
+        registered_before_result: [...(summary.registered_before_result ?? []), ...added.map((row) => row.id)],
+        online: {
+          ...online, rows_in_stream: n + 2, rows_decided: blocked ? online.rows_decided : n + 1,
+          waiting_on: blocked ? online.waiting_on : "reg_pending",
+          lordpp: { ...online.lordpp, next_level: null }, saffron: { ...online.saffron, next_level: null },
+        },
+      },
     },
   };
 };

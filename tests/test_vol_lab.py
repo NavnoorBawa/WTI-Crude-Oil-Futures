@@ -9,6 +9,7 @@ against cases whose answer is known, and the committed artifact is checked again
 vol_lab.compare_reports).
 """
 
+import copy
 import json
 import os
 import tempfile
@@ -251,7 +252,9 @@ class NoLookAheadTest(unittest.TestCase):
             np.testing.assert_array_equal(same_day[key], value, err_msg=key)
         day_before = _row_features(lab.build_design(r, dates, ovx, _widen_bar(ohlc, t - 1, 1.3)), i)
         changed = {key for key, value in base.items() if not np.array_equal(day_before[key], value)}
-        self.assertEqual(changed, {"har_range", "har_iv_range", "lgbm"})
+        from scripts.readme_blocks import MODEL_INPUTS      # what each model reads, as the docs state it
+        self.assertEqual(changed, {key for key in base if "range" in MODEL_INPUTS[key]})
+        self.assertTrue({"har_range", "har_iv_range", "lgbm"} <= changed)
         self.assertTrue((day_before["har_range"] > base["har_range"]).all())     # RV5, RV22 and RV66 all move
 
     def test_only_the_v1_timing_row_reads_the_test_days_own_ovx(self):
@@ -644,6 +647,100 @@ class FluctuationTest(unittest.TestCase):
         self.assertGreater(np.mean(rejected_short), 0.06)
 
 
+# The fields of a model's stability blocks the ledger reads (backend/research_ledger.py _conditional_rows): a test
+# the lab ran and could not compute publishes each of them null and says why in `not_computed`.
+_GW_READ = ("stat", "p_value", "conditional.stat", "conditional.p_value", "robustness.bartlett_10.conditional_p_value",
+            "robustness.bartlett_40.conditional_p_value")
+_FLUCT_READ = ("sup", "sign", "at", "window_start", "p_value", "rejects_5pct", "rejects_10pct", "search_adjusted.min_p",
+               "search_adjusted.p_value", "robustness.bartlett_40.p_value", "robustness.full_sample_variance.p_value",
+               "robustness.by_grid.outside_5pct")
+
+
+def _dig(block, path):
+    for part in path.split("."):
+        block = block[part]
+    return block
+
+
+def _not_computed_block(tc, block, read):
+    """Whether a stability block is the lab's null form; if so, checks that form (every field read null, a reason)."""
+    if not block.get("not_computed"):
+        return False
+    tc.assertIsInstance(block["not_computed"], str)
+    tc.assertTrue(block["not_computed"])
+    for path in read:
+        tc.assertIsNone(_dig(block, path), path)
+    return True
+
+
+def _check_stability_blocks(tc, report):
+    """The stability section of a lab report (the committed artifact, or one assembled from stability_report) is
+    internally consistent: each computed test's numbers agree with one another, and a test the lab ran and could not
+    compute is in the null form DATA_CONTRACT specifies, with its series left empty (ROADMAP 2.3 and 2.12)."""
+    stab = report["stability"]
+    fluct = stab["fluctuation"]
+    c5 = fluct["critical_values"]["five_pct"]
+    weeks = len(report["series"]["date"])
+    n_days = report["sample"]["n_days"]
+    tc.assertEqual((fluct["mu"], fluct["window_sessions"], fluct["n_days"]), (lab.FLUCT_MU, round(0.2 * n_days), n_days))
+    tc.assertEqual(fluct["null"]["seed"], [lab.SEED, lab.FLUCT_SEED_TAG, n_days])
+    models = {m["key"]: m for m in report["leaderboard"]["models"]}
+    uncomputed = set()
+    for key, model in models.items():
+        gw, fl = model["gw_qlike_vs_har_iv"], model["fluctuation_qlike_vs_har_iv"]
+        if key == lab.CHAMPION:
+            tc.assertIsNone(gw)
+            tc.assertIsNone(fl)
+            continue
+        with tc.subTest(key):
+            tc.assertEqual((gw["df"], gw["conditional"]["df"], gw["n_days"]), (4, 3, stab["gw"]["n_days"]))
+            if not _not_computed_block(tc, gw, _GW_READ):
+                tc.assertAlmostEqual(gw["p_value"], stats.chi2.sf(gw["stat"], gw["df"]),
+                                     delta=2e-3 * max(gw["p_value"], 1e-3))
+                c = gw["conditional"]
+                tc.assertAlmostEqual(c["p_value"], stats.chi2.sf(c["stat"], c["df"]), delta=2e-3 * max(c["p_value"], 1e-3))
+            if _not_computed_block(tc, fl, _FLUCT_READ):
+                for mu, block in fl["by_mu"].items():
+                    tc.assertIsNone(block["p_value"], mu)
+                uncomputed.add(key)
+                continue
+            tc.assertEqual(fl["rejects_5pct"], fl["p_value"] < 0.05)
+            tc.assertEqual(fl["rejects_10pct"], fl["p_value"] < 0.10)
+            if abs(fl["sup"] - c5) > 1e-3:
+                tc.assertEqual(fl["rejects_5pct"], fl["sup"] > c5)
+            marginals = [fl["p_value"]] + [v["p_value"] for v in fl["by_mu"].values()]
+            tc.assertEqual(fl["search_adjusted"]["min_p"], min(marginals))
+            tc.assertGreaterEqual(fl["search_adjusted"]["p_value"], fl["search_adjusted"]["min_p"])
+            tc.assertTrue(fluct["first_window_end"] <= fl["max_at"] <= report["sample"]["last"])
+            tc.assertTrue(fluct["first_window_end"] <= fl["min_at"] <= report["sample"]["last"])
+            tc.assertEqual(fl["crosses_both_sides"], fl["max"] > c5 and fl["min"] < -c5)
+            if fl["outside_5pct"]:
+                tc.assertTrue(fl["rejects_5pct"])
+            dm = model.get("dm_qlike_vs_har_iv")
+            if dm is not None and dm["p_value"] < 0.05 and fl["rejects_5pct"]:
+                tc.assertEqual(fl["sign"], int(np.sign(dm["mean_diff"])))
+    challenger = report["config"]["challenger"]
+    for name in stab["series"]["fluct_t"]:
+        values = report["series"][f"fluct_t_{name}"]
+        tc.assertEqual(len(values), weeks)
+        if (challenger if name == "challenger" else name) in uncomputed:
+            tc.assertTrue(all(v is None for v in values), name)       # no path to draw
+            continue
+        first = next(i for i, v in enumerate(values) if v is not None)
+        tc.assertTrue(all(v is not None for v in values[first:]))
+        tc.assertGreaterEqual(report["series"]["date"][first], fluct["first_window_end"])
+    drawn = {"challenger": challenger, "ovx_only": "ovx_only", "raw_ovx": "raw_ovx"}
+    for name, key in drawn.items():
+        if key in uncomputed:
+            continue
+        values = report["series"][f"fluct_t_{name}"]
+        for run in models[key]["fluctuation_qlike_vs_har_iv"]["outside_5pct"]:
+            tc.assertTrue(0 <= run["week_from"] <= run["week_to"] < weeks, run)
+            tc.assertTrue(all(values[i] is not None for i in range(run["week_from"], run["week_to"] + 1)))
+    for name in stab["series"]["cum_qlike_diff"]:
+        tc.assertEqual(len(report["series"][f"cum_qlike_diff_{name}"]), weeks)
+
+
 class StabilityReportTest(unittest.TestCase):
     """vol_lab.stability_report on a small synthetic frame: a test it cannot compute is published as such, and the
     rest of the report is built."""
@@ -678,19 +775,66 @@ class StabilityReportTest(unittest.TestCase):
                 self.assertIsNotNone(rep["fluctuation"][key]["search_adjusted"]["p_value"], key)
         self.assertTrue(all(v is None for v in rep["series"]["fluct_t_challenger"][:20]))
         # The ledger rows built from such a block have no p-value, read as inconclusive, and are outside the family.
+        # The challenger's fluctuation test is made not computable too: selected after a search, its row is outside
+        # the family and the online stream alike.
+        from tests.test_research_ledger import _not_computed
+
         doc = json.loads((ROOT / "data" / "vol_lab.json").read_text())
         for model in doc["leaderboard"]["models"]:
             if model["key"] == "combo":
                 model["gw_qlike_vs_har_iv"] = json.loads(json.dumps(lab._jsonable(gw)))
                 model["fluctuation_qlike_vs_har_iv"] = json.loads(json.dumps(lab._jsonable(fl)))
+            elif model["key"] == rl.CHALLENGER:
+                model["fluctuation_qlike_vs_har_iv"] = _not_computed(model["fluctuation_qlike_vs_har_iv"])
         ledger = rl.build(lambda name: doc if name == rl.LAB else rl.load_artifact(name))
         rows = {r["id"]: r for r in ledger["rows"]}
+        committed = {r["id"]: r for r in json.loads((ROOT / "data" / "research_ledger.json").read_text())["rows"]}
         for rid in ("vol_gw_combo", "vol_fluct_combo"):
             self.assertIsNone(rows[rid]["p_value"], rid)
             self.assertEqual(rows[rid]["status"], "inconclusive", rid)
             self.assertIsNone(rows[rid]["q_value_bh"], rid)
+            # Online, the row keeps its place in the stream and is tested at p = 1 (ROADMAP 2.12).
+            self.assertEqual(rows[rid]["online_p"], 1.0, rid)
+            self.assertEqual(rows[rid]["online_position"], committed[rid]["online_position"], rid)
+            self.assertFalse(rows[rid]["online_rejected_lordpp"], rid)
+            self.assertFalse(rows[rid]["online_rejected_saffron"], rid)
+        searched = rows[f"vol_fluct_{rl.CHALLENGER}"]
+        self.assertEqual((searched["p_value"], searched["q_value_bh"], searched["online_position"], searched["online_p"]),
+                         (None, None, None, None))
+        # The family leaves out the selected rows that have a p-value; the stream leaves out every selected row.
+        selected = [rows[rid] for rid in ledger["summary"]["selected_after_search"]]
         self.assertEqual(ledger["summary"]["rows_in_multiplicity_family"],
-                         ledger["summary"]["rows_with_p_value"] - len(ledger["summary"]["selected_after_search"]))
+                         ledger["summary"]["rows_with_p_value"] - sum(r["p_two_sided"] is not None for r in selected))
+        self.assertEqual(ledger["summary"]["online"]["rows_in_stream"], len(committed) - len(selected))
+
+    def test_the_artifact_s_contract_test_accepts_a_test_that_cannot_be_computed(self):
+        """ArtifactContractTest's stability check on a report assembled from stability_report, with the model of
+        record's copy (combo) and the challenger not computable: the null form passes, the computed blocks are checked
+        as before, and the challenger's empty series is accepted (HANDOFF's result PR for such a test)."""
+        frame, pos, gap = self._frame()
+        frame["har_iv_range"] = frame["har_iv"]             # the challenger's d = 0 too: no series to draw
+        rep = json.loads(json.dumps(lab._jsonable(lab.stability_report(frame, gap, pos, "har_iv_range"))))
+        self.assertTrue(rep["fluctuation"]["har_iv_range"]["not_computed"])
+        self.assertTrue(rep["gw"]["combo"]["not_computed"])
+        weekly = frame["date"].dt.strftime("%Y-%m-%d").to_numpy()[frame["grid"].to_numpy() == 0]
+        report = {"stability": rep["stability"], "series": {"date": list(weekly), **rep["series"]},
+                  "sample": {"n_days": len(frame), "last": frame["date"].iloc[-1].strftime("%Y-%m-%d")},
+                  "config": {"challenger": "har_iv_range"},
+                  "leaderboard": {"models": [{"key": key, "gw_qlike_vs_har_iv": rep["gw"].get(key),
+                                              "fluctuation_qlike_vs_har_iv": rep["fluctuation"].get(key)}
+                                             for key in lab.MODEL_KEYS]}}
+        _check_stability_blocks(self, report)
+        # The check still fails a block that holds nulls without saying it was not computed, and a null form that
+        # leaves a field the ledger reads set (checked on a bare TestCase, whose subTest lets the failure out).
+        for key, broken in (("fluctuation", TypeError), ("search_adjusted", AssertionError)):
+            changed = copy.deepcopy(report)
+            block = next(m for m in changed["leaderboard"]["models"] if m["key"] == "combo")["fluctuation_qlike_vs_har_iv"]
+            if key == "fluctuation":
+                del block["not_computed"]
+            else:
+                block["search_adjusted"]["p_value"] = 0.5
+            with self.subTest(changed=key), self.assertRaises(broken):
+                _check_stability_blocks(unittest.TestCase(), changed)
 
 
 # --- ROADMAP 2.4: scoring the whole predictive distribution --------------------------------------------------------
@@ -1941,57 +2085,23 @@ class ArtifactContractTest(unittest.TestCase):
         self.assertFalse({"vol_lab", "backend.vol_lab"} & imported)        # the ledger reads the artifact only
 
     def test_stability_blocks_are_consistent(self):
-        from scipy import stats
+        _check_stability_blocks(self, self.report)
 
-        stab = self.report["stability"]
-        fluct = stab["fluctuation"]
-        c5 = fluct["critical_values"]["five_pct"]
-        weeks = len(self.report["series"]["date"])
-        n_days = self.report["sample"]["n_days"]
-        self.assertEqual((fluct["mu"], fluct["window_sessions"], fluct["n_days"]), (lab.FLUCT_MU, round(0.2 * n_days), n_days))
-        self.assertEqual(fluct["null"]["seed"], [lab.SEED, lab.FLUCT_SEED_TAG, n_days])
-        for model in self.report["leaderboard"]["models"]:
-            key = model["key"]
-            gw, fl = model["gw_qlike_vs_har_iv"], model["fluctuation_qlike_vs_har_iv"]
-            if key == lab.CHAMPION:
-                self.assertIsNone(gw)
-                self.assertIsNone(fl)
-                continue
-            with self.subTest(key):
-                self.assertAlmostEqual(gw["p_value"], stats.chi2.sf(gw["stat"], gw["df"]), delta=2e-3 * max(gw["p_value"], 1e-3))
-                c = gw["conditional"]
-                self.assertAlmostEqual(c["p_value"], stats.chi2.sf(c["stat"], c["df"]), delta=2e-3 * max(c["p_value"], 1e-3))
-                self.assertEqual((gw["df"], c["df"], gw["n_days"]), (4, 3, stab["gw"]["n_days"]))
-                self.assertEqual(fl["rejects_5pct"], fl["p_value"] < 0.05)
-                self.assertEqual(fl["rejects_10pct"], fl["p_value"] < 0.10)
-                if abs(fl["sup"] - c5) > 1e-3:
-                    self.assertEqual(fl["rejects_5pct"], fl["sup"] > c5)
-                marginals = [fl["p_value"]] + [v["p_value"] for v in fl["by_mu"].values()]
-                self.assertEqual(fl["search_adjusted"]["min_p"], min(marginals))
-                self.assertGreaterEqual(fl["search_adjusted"]["p_value"], fl["search_adjusted"]["min_p"])
-                self.assertTrue(fluct["first_window_end"] <= fl["max_at"] <= self.report["sample"]["last"])
-                self.assertTrue(fluct["first_window_end"] <= fl["min_at"] <= self.report["sample"]["last"])
-                self.assertEqual(fl["crosses_both_sides"], fl["max"] > c5 and fl["min"] < -c5)
-                if fl["outside_5pct"]:
-                    self.assertTrue(fl["rejects_5pct"])
-                dm = model["dm_qlike_vs_har_iv"]
-                if dm["p_value"] < 0.05 and fl["rejects_5pct"]:
-                    self.assertEqual(fl["sign"], int(np.sign(dm["mean_diff"])))
-        for name in stab["series"]["fluct_t"]:
-            values = self.report["series"][f"fluct_t_{name}"]
-            self.assertEqual(len(values), weeks)
-            first = next(i for i, v in enumerate(values) if v is not None)
-            self.assertTrue(all(v is not None for v in values[first:]))
-            self.assertGreaterEqual(self.report["series"]["date"][first], fluct["first_window_end"])
-        drawn = {"challenger": self.report["config"]["challenger"], "ovx_only": "ovx_only", "raw_ovx": "raw_ovx"}
-        for name, key in drawn.items():
-            model = next(m for m in self.report["leaderboard"]["models"] if m["key"] == key)
-            values = self.report["series"][f"fluct_t_{name}"]
-            for run in model["fluctuation_qlike_vs_har_iv"]["outside_5pct"]:
-                self.assertTrue(0 <= run["week_from"] <= run["week_to"] < weeks, run)
-                self.assertTrue(all(values[i] is not None for i in range(run["week_from"], run["week_to"] + 1)))
-        for name in stab["series"]["cum_qlike_diff"]:
-            self.assertEqual(len(self.report["series"][f"cum_qlike_diff_{name}"]), weeks)
+    def test_the_stability_check_accepts_a_result_the_lab_could_not_compute(self):
+        """The artifact as a result PR rebuilds it when a model's fluctuation test cannot be computed (the ledger's
+        route for such a result, docs/HANDOFF.md): a model in the field, and the challenger, whose series is then
+        empty."""
+        from tests.test_research_ledger import _not_computed
+
+        challenger = self.report["config"]["challenger"]
+        for key in ("garch", challenger):
+            report = copy.deepcopy(self.report)
+            model = next(m for m in report["leaderboard"]["models"] if m["key"] == key)
+            model["fluctuation_qlike_vs_har_iv"] = _not_computed(model["fluctuation_qlike_vs_har_iv"])
+            if key == challenger:
+                report["series"]["fluct_t_challenger"] = [None] * len(report["series"]["fluct_t_challenger"])
+            with self.subTest(model=key):
+                _check_stability_blocks(self, report)
 
     def test_stability_blocks_are_current(self):
         fast = _fast_lab()
@@ -2016,15 +2126,49 @@ class ArtifactContractTest(unittest.TestCase):
             key = challenger if name == "challenger" else name
             self.assertLess(abs(total - n_days * committed[key]["dm_qlike_vs_har_iv"]["mean_diff"]), 1e-9, name)
 
+    def assert_distribution_keys(self, report):
+        """The models the lab scores as distributions are the model of record and the ledger's DISTRIBUTION_MODELS, in
+        the artifact's order: the challenger first among them and the quantile HAR, which is never in the field, among
+        them. A distribution result PR moves its model into DISTRIBUTION_MODELS at its place in that order."""
+        from backend import research_ledger as rl
+
+        keys = [m["key"] for m in report["distribution"]["models"]]
+        champion, challenger = report["config"]["champion"], report["config"]["challenger"]
+        self.assertEqual(keys, [champion, *rl.DISTRIBUTION_MODELS], "backend/research_ledger.py DISTRIBUTION_MODELS "
+                                                                    "lists the lab's distribution models in its order")
+        self.assertEqual(keys[:2], [champion, challenger])
+        self.assertIn(lab.QHAR_KEY, keys)
+        parametric = {m["key"] for m in report["distribution"]["models"] if "alternatives" in m}
+        self.assertEqual(parametric, set(rl.PARAMETRIC_DISTRIBUTION_MODELS),
+                         "backend/research_ledger.py PARAMETRIC_DISTRIBUTION_MODELS lists the models whose PIT reads "
+                         "a simulated sample (the lab writes `alternatives` for them)")
+
+    def test_a_model_scored_as_a_distribution_joins_the_ledger_s_list(self):
+        # A distribution result PR (docs/HANDOFF.md): the lab scores one more model, and the key moves into
+        # DISTRIBUTION_MODELS; the check reads the list, not the committed models (reserved synthetic key).
+        from backend import research_ledger as rl
+        from tests.test_research_ledger import TEST_LABEL, TEST_MODEL
+
+        report = copy.deepcopy(self.report)
+        entry = copy.deepcopy(next(m for m in report["distribution"]["models"] if m["key"] == "garch"))
+        report["distribution"]["models"].append({**entry, "key": TEST_MODEL, "label": TEST_LABEL})
+        with self.assertRaises(AssertionError):
+            self.assert_distribution_keys(report)            # the lab scores a model the ledger does not list
+        with mock.patch.object(rl, "DISTRIBUTION_MODELS", (*rl.DISTRIBUTION_MODELS, TEST_MODEL)):
+            with self.assertRaises(AssertionError):
+                self.assert_distribution_keys(report)        # a parametric model (a GARCH copy) not listed as one
+            with mock.patch.object(rl, "PARAMETRIC_DISTRIBUTION_MODELS",
+                                   (*rl.PARAMETRIC_DISTRIBUTION_MODELS, TEST_MODEL)):
+                self.assert_distribution_keys(report)
+
     def test_the_distribution_block_is_consistent(self):
         # ROADMAP 2.4: the scores cover the band's days, the quantile HAR stays out of the field, and every registered
         # number agrees with the parts it is built from.
         dist, conf, board = self.report["distribution"], self.report["conformal"], self.report["leaderboard"]
-        champion, challenger = self.report["config"]["champion"], self.report["config"]["challenger"]
+        champion = self.report["config"]["champion"]
         self.assertEqual(dist["n_days"], conf[champion]["n_days"])
         self.assertEqual(sum(dist["weeks_per_grid"]), dist["n_days"])
-        keys = [m["key"] for m in dist["models"]]
-        self.assertEqual(keys, [champion, challenger, "ovx_only", "garch", "gjr", "ewma", lab.QHAR_KEY])
+        self.assert_distribution_keys(self.report)
         self.assertEqual(dist["config"]["taus"], list(lab.DIST_TAUS))
         for where in (board["models"], board["spa_qlike_vs_har_iv"]["models"], board["mcs_qlike_included"],
                       board["mcs_robustness_qlike"], board["mcs_qlike_by_grid"], self.report["oos_selection"]):

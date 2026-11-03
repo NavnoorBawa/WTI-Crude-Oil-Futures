@@ -15,8 +15,8 @@ what the repository records. How each artifact is checked differs (docs/METHODOL
                unit suite re-runs a subset)
   supply_study data/supply_shock_study.json (event study against a placebo of ordinary dates, from the
                committed EIA spot series; rebuilt by the unit suite)
-  ledger       data/research_ledger.json (every hypothesis tested, with multiplicity adjustments;
-               rebuilt by the unit suite)
+  ledger       data/research_ledger.json (every hypothesis tested or registered, with batch and online
+               multiplicity adjustments; rebuilt by the unit suite)
 
 Standard library only (it runs in any job). Usage: python scripts/build_research_bundle.py [--out public]
 """
@@ -126,11 +126,13 @@ def _leak_anatomy() -> dict:
 
 
 def _ledger() -> dict:
-    """The research ledger, one compact row per hypothesis."""
+    """The research ledger, one compact row per hypothesis: the batch view and, where the ledger has them, the entry
+    date, the online view (LORD++ and SAFFRON levels and decisions) and the registration."""
     raw = _load("research_ledger.json")
     rows = []
     for row in raw["rows"]:
         stat = row.get("statistic") or {}
+        registration = row.get("registration")
         rows.append({
             "id": row["id"], "date": row["date"], "family": row["family"], "hypothesis": row["hypothesis"],
             "test": row["test"], "statistic_name": stat.get("name"), "statistic_value": stat.get("value"),
@@ -138,6 +140,13 @@ def _ledger() -> dict:
             "survives_bh": row.get("survives_bh_5pct"), "clears_t3": row.get("clears_hlz_t3"),
             "pre_specified": row.get("pre_specified"), "status": row["status"],
             "artifact": (row.get("artifact") or {}).get("path"),
+            "entered_on": row.get("entered_on"), "online_position": row.get("online_position"),
+            "online_alpha_lordpp": row.get("online_alpha_lordpp"),
+            "online_rejected_lordpp": row.get("online_rejected_lordpp"),
+            "online_alpha_saffron": row.get("online_alpha_saffron"),
+            "online_rejected_saffron": row.get("online_rejected_saffron"),
+            "registration": None if registration is None else {key: registration.get(key)
+                                                               for key in ("on", "field", "withdrawn")},
         })
     return {"method": raw["method"], "alpha": raw["alpha"], "hlz_t": raw["hlz_t"], "summary": raw["summary"],
             "rows": rows}
@@ -184,6 +193,9 @@ def validate(bundle: dict) -> list[str]:
     ledger = bundle.get("ledger") or {}
     if not isinstance(ledger.get("rows"), list) or not ledger["rows"]:
         problems.append("ledger.rows")
+    elif (ledger.get("summary") or {}).get("online") is not None \
+            and any("online_position" not in row for row in ledger["rows"]):
+        problems.append("ledger.rows.online_position")
     if not isinstance((bundle.get("supply_study") or {}).get("groups"), list):
         problems.append("supply_study.groups")
     if not isinstance((bundle.get("leak_anatomy") or {}).get("analytic_sign_agreement_pct"), (int, float)):

@@ -210,7 +210,7 @@ test("each score's reading follows its tests' bands and the ledger, and never ov
   // Each band's clause, its models in the page's order, worded by the sign of t: the record lower (t < 0) or the model.
   const record = rows.find((row) => row.role === "record").label;
   const clauses = (reading, score, payload = lab) => {
-    const field = rows.filter((row) => !row.role)
+    const field = dist.distributionModels(payload).filter((row) => !row.role)
       .map((row) => ({ row, t: payload.distribution.models.find((model) => model.key === row.key).dm_vs_har_iv?.[score] }))
       .filter(({ t }) => t?.p_value != null && t?.stat != null);
     const group = (band, sign) => field.filter(({ t }) => bandOf(t.p_value) === band && Math.sign(t.stat) === sign);
@@ -232,12 +232,38 @@ test("each score's reading follows its tests' bands and the ledger, and never ov
   const flip = flipped.distribution.models.find((model) => model.key === "garch").dm_vs_har_iv.crps_grid;
   flip.stat = -flip.stat;
   assert.equal(clauses(scores.scoreReading(flipped, ledger, scores.DIST_SCORES[0]), "crps_grid", flipped).above, 1);
-  // The 90% pinball: the two significant rows with their q-values, neither surviving.
-  const p90 = scores.scoreReading(lab, ledger, scores.DIST_SCORES.find((score) => score.key === "pinball_90"));
-  const sig = tests("pinball_90").filter((t) => t.p_value < 0.05);
-  const qs = sig.map((t) => ledgerRows.find((row) => row.id === `vol_pinball90_${t.key}`).q_value_bh);
-  assert.ok(qs.every((q) => q >= 0.05), "the artifact's case");
-  assert.ok(p90.includes(`neither after the ledger's adjustment (q${NB}=${NB}${qs.map(p3).join(", ")})`), p90);
+  // The 90% pinball: the rows the record scores significantly lower than, with their q-values, worded by how many
+  // there are and how many survive (as many as the artifact and the ledger hold: a result PR can add one).
+  const pinball90 = scores.DIST_SCORES.find((score) => score.key === "pinball_90");
+  const adjusted = (payload, led, qOf) => {
+    const reading = scores.scoreReading(payload, led, pinball90);
+    const sig = dist.distributionModels(payload).filter((row) => !row.role)
+      .filter((row) => row.dm?.pinball_90?.p_value < 0.05 && row.dm.pinball_90.stat < 0);
+    const qs = sig.map((row) => qOf(`vol_pinball90_${row.key}`));
+    const kept = sig.filter((_, index) => qs[index] < 0.05);
+    const list = `(q${NB}=${NB}${qs.map(p3).join(", ")})`;
+    const one = sig.length === 1;
+    const words = !kept.length ? `, ${one ? "not" : sig.length === 2 ? "neither" : "none"} after the ledger's adjustment ${list}`
+      : kept.length === sig.length ? `, ${one ? "surviving" : "each surviving"} the ledger's adjustment ${list}`
+        : `; only ${listed(kept.map(dist.proseName))} ${kept.length === 1 ? "survives" : "survive"} the ledger's adjustment ${list}`;
+    assert.ok(sig.length, "a significant row to word");
+    assert.ok(reading.includes(`${record} scores significantly lower than ${listed(sig.map((row) => `${dist.proseName(row)} (${pEq(row.dm.pinball_90.p_value)})`))}${words}`), reading);
+    return { sig: sig.length, kept: kept.length };
+  };
+  const committedQ = (id) => ledgerRows.find((row) => row.id === id).q_value_bh;
+  const base = adjusted(lab, ledger, committedQ);
+  // A result PR adds a model scored like GARCH (a reserved synthetic key): one more significant row, worded with it,
+  // first not surviving and then surviving the adjustment.
+  const added = structuredClone(lab);
+  added.distribution.models.push({ ...structuredClone(added.distribution.models.find((model) => model.key === "garch")),
+    key: "zz_test_model", label: "Test model T" });
+  for (const q of [0.5, 0.01]) {
+    const rid = "vol_pinball90_zz_test_model";
+    const led = { ...ledger, byId: new Map([...ledger.byId, [rid, { id: rid, q }]]) };
+    const more = adjusted(added, led, (id) => (id === rid ? q : committedQ(id)));
+    assert.equal(more.sig, base.sig + 1);
+    assert.equal(more.kept, base.kept + (q < 0.05 ? 1 : 0));
+  }
   // The CRPS's sources are quoted only for the models the record scores lower than, short of p = 0.20: the periods the
   // record was lower in, and the shares to the artifact's one decimal.
   const crps = scores.scoreReading(lab, ledger, scores.DIST_SCORES[0]);

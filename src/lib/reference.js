@@ -6,6 +6,7 @@ import { ALPHA, shortModelName } from "./assertions";
 import { NBSP, fmtNum, fmtP, fmtPValue, fmtSigned, num } from "./format";
 import { asArray, asObject, asText, getLab, getRoles, getVol, leaderboardRows, mcsLevel, mcsSummary, postmortemWindow, varSeries } from "./research";
 import { callArithmetic, forecastDecomposition, forecastOfRecord, liveOfRecord, reproduces } from "./verdict";
+import { MONO_CHAR_PX } from "../theme/metrics";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}/;
 const isoDate = (value) => (typeof value === "string" && ISO_DATE.test(value) ? value.slice(0, 10) : null);
@@ -18,11 +19,15 @@ const plural = (count, word, many = `${word}s`) => `${count} ${count === 1 ? wor
 export const LEDGER_PAGE = 20;
 
 // The default order reads best evidence first: supported claims that survive Benjamini-Hochberg,
-// the other supported claims, inconclusive, not supported, and the retracted record last.
-const STATUS_RANK = { supported: 1, inconclusive: 2, not_supported: 3, retracted: 4 };
+// the other supported claims, inconclusive, not supported, the retracted record, and registered rows
+// (no result yet) last.
+const STATUS_RANK = { supported: 1, inconclusive: 2, not_supported: 3, retracted: 4, registered: 5 };
 const UNKNOWN_RANK = 3;
 
-/** 0 supported and surviving BH, 1 supported, 2 inconclusive, 3 not supported (or unknown), 4 retracted. */
+/**
+ * 0 supported and surviving BH, 1 supported, 2 inconclusive, 3 not supported (or unknown), 4 retracted, 5 registered
+ * (no result yet).
+ */
 export const ledgerStatusRank = (row) => {
   if (row?.status === "supported" && row.survives_bh === true) return 0;
   return STATUS_RANK[row?.status] ?? UNKNOWN_RANK;
@@ -91,12 +96,75 @@ export const visibleLedgerRows = (ordered, all) => (all ? ordered : ordered.slic
 
 /**
  * A multiplicity flag as the ledger prints it: "excluded" for a row selected after a search (it is
- * outside the adjustment), "n/a" for a retracted row, else yes / no; null when the row has none.
+ * outside the adjustment), "n/a" for a retracted row, "pending" for a registered row whose result does
+ * not exist yet ("withdrawn" if its registration was withdrawn), else yes / no; null when the row has none.
  */
 export const ledgerFlagText = (row, key) => {
   if (row?.selectedAfterSearch) return "excluded";
   if (row?.status === "retracted") return "n/a";
+  if (row?.status === "registered") return row.registration?.withdrawn ? "withdrawn" : "pending";
   return row?.[key] === true ? "yes" : row?.[key] === false ? "no" : null;
+};
+
+/**
+ * An online decision (procedure "lordpp" or "saffron") as the ledger's CSV prints it: "excluded" outside the
+ * online stream (a row selected after a search), "n/a" for a retracted row (tested at p = 1), "pending" while
+ * the row, or an earlier one, waits for its result, else yes / no; null for a ledger without an online view.
+ */
+export const ledgerOnlineText = (row, procedure) => {
+  if (row?.selectedAfterSearch) return "excluded";
+  if (row?.status === "retracted") return "n/a";
+  const rejected = (procedure === "saffron" ? row?.onlineSaffron : row?.onlineLord)?.rejected;
+  if (rejected === true) return "yes";
+  if (rejected === false) return "no";
+  return row?.onlinePosition != null ? "pending" : null;
+};
+
+/**
+ * LEDG's note on the online view, from the ledger's summary.online: both procedures' counts over the decided rows
+ * of the stream (a pending registered row and the rows after it have no decision yet), which rows enter it at p = 1
+ * (retracted rows, rows whose test could not be computed and withdrawn registrations, each unless it was selected after
+ * a search, which keeps it out of the stream), the independence they assume,
+ * the legacy rows' order sensitivity and that no status reads them. Null for a ledger without an online view.
+ */
+export const ledgerOnlineNote = (ledger) => {
+  const online = asObject(ledger?.online);
+  const lord = asArray(online?.lordpp?.rejected);
+  const saffron = asArray(online?.saffron?.rejected);
+  const stream = num(online?.rows_in_stream);
+  if (!online || stream == null) return null;
+  const alpha = num(online.alpha) ?? ALPHA;
+  const decided = Math.min(num(online.rows_decided) ?? stream, stream);
+  const undecided = stream - decided;
+  const counted = undecided
+    ? `of the ${decided} decided rows in the stream, and ${undecided} more ${undecided === 1 ? "waits" : "wait"} for a registered result`
+    : `of the ${stream} rows in the stream`;
+  // Only the withdrawn registrations in the stream enter it at p = 1 (their level and decision wait for any pending
+  // row before them); one selected after a search stays out.
+  const withdrawn = num(ledger?.withdrawnInStream) ?? 0;
+  const where = withdrawn < (num(ledger?.registeredWithdrawn) ?? 0) ? " in the stream" : "";
+  const atOne = withdrawn
+    ? `retracted rows, rows whose test could not be computed and ${withdrawn === 1 ? "the withdrawn registration"
+      : `the ${withdrawn} withdrawn registrations`}${where} enter at p = 1`
+    : "retracted rows and rows whose test could not be computed enter at p = 1";
+  let text = `Online control: in the order rows entered the ledger, at a ${fmtNum(alpha * 100, 0)}% false discovery rate, `
+    + `LORD++ rejects ${lord.length} and SAFFRON ${saffron.length} ${counted} (rows selected after a search stay out; `
+    + `${atOne}). Both assume independent p-values, `
+    + "which rows on shared data do not have, and the page's other verdicts cite the batch view (q and t > 3) instead.";
+  const sens = asObject(online.legacy_order_sensitivity);
+  if (sens && num(sens.legacy_rows)) {
+    text += ` For the ${sens.legacy_rows} rows that entered before registration began, the decisions are a retrospective `
+      + `reading: with their order drawn at random within each entry batch, LORD++ rejects ${sens.lordpp?.min} to `
+      + `${sens.lordpp?.max} of them and SAFFRON ${sens.saffron?.min} to ${sens.saffron?.max}.`;
+  }
+  // The first undecided row waits for its result; rows follow it only when more than it are undecided.
+  const waiting = asText(online.waiting_on);
+  if (waiting) {
+    text += undecided > 1
+      ? ` Rows after ${waiting}, which waits for its result, have no online decision yet.`
+      : ` ${waiting} waits for its result and has no online decision yet.`;
+  }
+  return `${text} A row's online decision never changes its status; the CSV holds each row's levels and decisions.`;
 };
 
 /**
@@ -118,12 +186,13 @@ const STRIP_GROUPS = [
   { key: "inconclusive", label: "inconclusive" },
   { key: "not_supported", label: "not supported" },
   { key: "retracted", label: "retracted" },
+  { key: "registered", label: "registered" },
 ];
 
 /**
  * The ledger as a strip of cells in the default order, one per hypothesis, each with its kind
  * ("survivor" for a supported row that survives Benjamini-Hochberg, else its status), and the
- * groups with their counts and the index of their first cell. Rows of a status outside the four
+ * groups with their counts and the index of their first cell. Rows of a status outside the five
  * known ones form their own groups at the end.
  *
  * @returns {{cells: {id: string, kind: string, status: string}[], groups: {key: string, label: string,
@@ -161,6 +230,99 @@ export const ledgerStripLabel = (groups) => {
     ? ` (${group.survivors} of them survive Benjamini-Hochberg)` : ""}`);
   return `${plural(total, "hypothesis", "hypotheses")} by status: ${parts.join("; ")}`;
 };
+
+// The strip's geometry, here rather than in its lazy chunk (charts/referenceCharts.jsx draws it) so LEDG can
+// reserve the strip's height before the chunk arrives. Labels sit under the strip on as many lines as they need.
+export const STRIP = {
+  cellHeight: 16,
+  labelLine: 14,
+  labelTop: 6,
+  // A label may sit this far right of its group's first cell before it moves to a lower line.
+  maxShift: 40,
+  labelGap: 12,
+  // Each label starts with a key in its group's colour, so a label that had to move to a lower line
+  // still says which cells it counts.
+  key: 8,
+  keyGap: 4,
+};
+
+/** The visible words of a strip group's label (the count is set apart from the status). */
+export const stripGroupWords = (group) => ({
+  count: String(group.count),
+  label: ` ${group.label}`,
+  survivors: group.survivors ? `, ${group.survivors} survive BH` : "",
+});
+
+/**
+ * Places each group's label under the strip, as near its first cell as it fits: on the first line
+ * where it neither overlaps the label before it nor sits more than STRIP.maxShift px right of its
+ * group, and never past the right edge. Pure.
+ *
+ * @param {{start: number, width: number}[]} labels  x of the group's first cell and the label's width
+ * @param {number} width
+ * @returns {{x: number, line: number}[]}
+ */
+export const placeStripLabels = (labels, width) => {
+  const ends = [];
+  return labels.map((label) => {
+    for (let index = 0; index < labels.length; index += 1) {
+      const end = ends[index] ?? -Infinity;
+      const x = Math.max(0, Math.min(Math.max(label.start, end + STRIP.labelGap), width - label.width));
+      if (x >= end + STRIP.labelGap - 0.5 && x - label.start <= STRIP.maxShift) {
+        ends[index] = x + label.width;
+        return { x, line: index };
+      }
+    }
+    const line = ends.length;
+    ends[line] = Math.min(label.start, width - label.width) + label.width;
+    return { x: Math.max(0, Math.min(label.start, width - label.width)), line };
+  });
+};
+
+/**
+ * The strip drawn `width` px wide (see ledgerStrip): the gap between cells, the cells' width and x, each
+ * group's label (its words, the x of its first cell and its width) and where it is placed, the number of
+ * label lines and the strip's height. Null when there is nothing to draw. Pure.
+ */
+export const ledgerStripLayout = (strip, width) => {
+  const cells = asArray(strip?.cells);
+  const groups = asArray(strip?.groups);
+  const n = cells.length;
+  if (!n || !(width > 0)) return null;
+  const gap = width / n >= 8 ? 2 : 1;
+  const groupGap = gap * 2;
+  const cellWidth = Math.max(1, (width - (n - 1) * gap - (groups.length - 1) * groupGap) / n);
+  const groupIndex = new Map(groups.map((group, index) => [group.key, index]));
+  const cellX = (index, status) => index * (cellWidth + gap) + (groupIndex.get(status) ?? 0) * groupGap;
+  const labels = groups.map((group) => {
+    const words = stripGroupWords(group);
+    const text = `${words.count}${words.label}${words.survivors}`;
+    return { group, words, start: cellX(group.start, group.key), width: STRIP.key + STRIP.keyGap + text.length * MONO_CHAR_PX };
+  });
+  const placed = placeStripLabels(labels, width);
+  const lines = Math.max(1, ...placed.map((item) => item.line + 1));
+  return { gap, cellWidth, cellX, labels, placed, lines, height: STRIP.cellHeight + STRIP.labelTop + lines * STRIP.labelLine };
+};
+
+/** The strip's height when drawn `width` px wide (one label line when there is nothing to draw). */
+export const ledgerStripHeight = (strip, width) => ledgerStripLayout(strip, width)?.height
+  ?? STRIP.cellHeight + STRIP.labelTop + STRIP.labelLine;
+
+// The strip's width at the narrowest viewport of each band LazyMount reserves for, as measured in Chromium (the strip
+// is the viewport less 32 px up to 640 px, less 82 to 98 px above, and at most 1342 px wide), less a classic scrollbar
+// where a desktop has one: 1280 px for `wide` (the common desktops; from 900 to 1279 px the strip can still need one
+// more label line), 641 px for `mid` and 360 px phones for `narrow`.
+export const LEDGER_STRIP_RESERVE_WIDTH = { wide: 1160, mid: 540, narrow: 328 };
+
+/**
+ * The heights LEDG reserves for the strip before its chunk arrives, from its own label layout at each band's
+ * LEDGER_STRIP_RESERVE_WIDTH. The mounted strip is never drawn shorter (reference-sections.css), and wider strips in a
+ * band need no more lines, so mounting it moves nothing below it.
+ *
+ * @returns {{wide: number, mid: number, narrow: number}}
+ */
+export const ledgerStripReserve = (strip) => Object.fromEntries(Object.entries(LEDGER_STRIP_RESERVE_WIDTH)
+  .map(([band, width]) => [band, ledgerStripHeight(strip, width)]));
 
 // --------------------------------------------------------------------------------- model card
 
@@ -403,6 +565,8 @@ export const vintageRows = (data, research) => {
   const varDates = varSeries(lab).map((row) => isoDate(row.date));
   const windows = ["five_year", "ten_year"].map((key) => postmortemWindow(research, key)).filter(Boolean);
   const postmortemLast = latest(windows.flatMap((window) => [window.purged?.last, window.leaked?.last]));
+  // The ledger's latest entry (entered_on) where the ledger records it, else its latest artifact date.
+  const ledgerEntered = latest(asArray(research?.ledger?.rows).map((row) => isoDate(row?.entered_on)));
   const ledgerDates = asArray(research?.ledger?.rows).map((row) => isoDate(row?.date));
   const prices = asArray(data?.unified_data?.actual?.timestamps).filter((value) => typeof value === "string");
   const rows = [
@@ -415,7 +579,10 @@ export const vintageRows = (data, research) => {
     { key: "var", artifact: "VaR backtest series", section: "risk", asOf: latest(varDates), refreshed: null, pinned },
     { key: "economic", artifact: "Economic tests (VRP, sizing)", section: "vrp", asOf: isoDate(economic?.returns?.sample_end), refreshed: null, pinned: false },
     { key: "postmortem", artifact: "Leak post-mortem", section: "leak", asOf: postmortemLast, refreshed: null, pinned: false },
-    { key: "ledger", artifact: "Research ledger, latest row", section: "ledg", asOf: latest(ledgerDates), refreshed: null, pinned: false },
+    {
+      key: "ledger", artifact: ledgerEntered ? "Research ledger, latest entry" : "Research ledger, latest row", section: "ledg",
+      asOf: ledgerEntered ?? latest(ledgerDates), refreshed: null, pinned: false,
+    },
     { key: "prices", artifact: "Price history", section: "mkt", asOf: isoDate(prices.at(-1)), refreshed: null, pinned: false },
   ];
   return rows.filter((row) => row.asOf || row.refreshed);
