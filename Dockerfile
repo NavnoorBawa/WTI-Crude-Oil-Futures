@@ -13,7 +13,7 @@
 # decides, within the published rounding.
 
 # Node 24.21.0 on Debian bookworm, published 2026-10-06: only node and npm are taken from it.
-FROM node:24.21.0-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS node
+FROM node:24.22.0-bookworm-slim@sha256:91acba91b842bec0bf7ea6f5e09c644c7ccad72c4996ed9616d861d1c7cd60d4 AS node
 
 # Python 3.12.14 on Debian bookworm, published 2026-09-19 (CI runs Python 3.12).
 FROM python:3.12.14-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e
