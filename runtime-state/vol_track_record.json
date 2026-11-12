@@ -706,9 +706,36 @@
       "base_session": "2026-11-04",
       "target_start": "2026-11-05",
       "target_end": "2026-11-11",
-      "status": "pending",
-      "realized_pct": null,
-      "previous_sha256": "dd802594644c09e681b96fbe335e50f584aa9238d1f7faec6e051c422cafeb77"
+      "status": "resolved",
+      "realized_pct": 37.9762,
+      "previous_sha256": "dd802594644c09e681b96fbe335e50f584aa9238d1f7faec6e051c422cafeb77",
+      "resolved_at": "2026-11-12T07:07:39.109446Z",
+      "closes": [
+        [
+          "2026-11-04",
+          88.12
+        ],
+        [
+          "2026-11-05",
+          90.52
+        ],
+        [
+          "2026-11-06",
+          90.83
+        ],
+        [
+          "2026-11-09",
+          86.85
+        ],
+        [
+          "2026-11-10",
+          86.04
+        ],
+        [
+          "2026-11-11",
+          86.53
+        ]
+      ]
     },
     {
       "as_of": "2026-11-04",
