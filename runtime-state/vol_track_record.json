@@ -994,9 +994,36 @@
       "base_session": "2026-11-10",
       "target_start": "2026-11-11",
       "target_end": "2026-11-17",
-      "status": "pending",
-      "realized_pct": null,
-      "previous_sha256": "eb0772220f6b1221f854216fd510171222e7a2fe6884685f0c6918568cce9dea"
+      "status": "resolved",
+      "realized_pct": 29.6661,
+      "previous_sha256": "eb0772220f6b1221f854216fd510171222e7a2fe6884685f0c6918568cce9dea",
+      "resolved_at": "2026-11-18T07:24:49.700461Z",
+      "closes": [
+        [
+          "2026-11-10",
+          86.04
+        ],
+        [
+          "2026-11-11",
+          86.53
+        ],
+        [
+          "2026-11-12",
+          88.74
+        ],
+        [
+          "2026-11-13",
+          88.56
+        ],
+        [
+          "2026-11-16",
+          85.72
+        ],
+        [
+          "2026-11-17",
+          86.01
+        ]
+      ]
     },
     {
       "as_of": "2026-11-10",
@@ -1224,6 +1251,51 @@
       "realized_pct": null,
       "previous_sha256": "cac9fa553a7fcb821c01613d3ff5ec76789ffa0ec79db406da03ade4e3e26a8f",
       "closed_at": "2026-11-17T23:30:18.301256Z"
+    },
+    {
+      "as_of": "2026-11-17",
+      "issued_at": "2026-11-18T07:24:45.274877Z",
+      "recorded_at": "2026-11-18T07:24:49.700461Z",
+      "sealed_at": "2026-11-18T07:25:19.893223Z",
+      "frozen_at": "2026-11-18T07:24:49.162394+00:00",
+      "contract": "CLZ26",
+      "model_version": "har-iv/2",
+      "model": "HAR-IV (RV5,RV22,RV66,OVX)",
+      "forecast_pct": 49.5,
+      "median_pct": 41.7,
+      "prob_vol_rises_pct": 79.8,
+      "direction": "RISING",
+      "rv5_pct": 29.67,
+      "lo80_pct": 24.2,
+      "hi80_pct": 66.6,
+      "inputs": {
+        "ovx": 49.59,
+        "ovx_last_print": "2026-11-17",
+        "ovx_session": "2026-11-16",
+        "ovx_source": "yahoo ^OVX",
+        "rv22_pct": 53.22,
+        "rv5_pct": 29.67,
+        "rv66_pct": 44.51
+      },
+      "coefficients": [
+        -4.906109,
+        0.037206,
+        0.16849,
+        -0.151476,
+        1.039957
+      ],
+      "smearing_factor": 1.4126,
+      "challenger": {
+        "key": "har_iv_range",
+        "forecast_pct": 47.6,
+        "median_pct": 40.3
+      },
+      "base_session": "2026-11-18",
+      "target_start": "2026-11-19",
+      "target_end": "2026-11-25",
+      "status": "pending",
+      "realized_pct": null,
+      "previous_sha256": "b51f356f410decdbfbcab24cc325ce1b0efbceba3e2b49d533522edcf4d1d843"
     }
   ]
 }
