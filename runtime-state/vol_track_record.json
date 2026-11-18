@@ -1293,9 +1293,10 @@
       "base_session": "2026-11-18",
       "target_start": "2026-11-19",
       "target_end": "2026-11-25",
-      "status": "pending",
+      "status": "skipped_roll",
       "realized_pct": null,
-      "previous_sha256": "b51f356f410decdbfbcab24cc325ce1b0efbceba3e2b49d533522edcf4d1d843"
+      "previous_sha256": "b51f356f410decdbfbcab24cc325ce1b0efbceba3e2b49d533522edcf4d1d843",
+      "closed_at": "2026-11-18T17:14:51.419451Z"
     }
   ]
 }
