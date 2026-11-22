@@ -3,20 +3,20 @@
 # The Tests workflow installs both and audits both; Dependabot proposes upgrades for this file too.
 
 # Static typing (mypy strict scope is set in pyproject.toml)
-mypy==2.4.0
-pandas-stubs==3.0.5.260914
+mypy==2.4.1
+pandas-stubs==3.1.0.261029
 scipy-stubs==1.18.1.1
 types-requests==2.33.0.20261006
 
 # Property-based tests (tests/test_properties.py) and coverage
-hypothesis==6.170.1
-coverage==7.16.2
+hypothesis==6.170.15
+coverage==7.17.2
 
 # Generated documentation: README/model-card/datasheet numbers (cog) and figures (matplotlib)
 cogapp==3.6.0
 matplotlib==3.11.2
 
 # Lint, security scan and dependency audit (the same versions the Tests workflow gates on)
-ruff==0.17.1
+ruff==0.17.4
 bandit==1.9.4
 pip-audit==2.10.1
